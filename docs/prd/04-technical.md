@@ -1,0 +1,72 @@
+# 04 — Technical Assumptions
+
+Todas as decisões técnicas do MVP. Estas se tornam **restrições para o Architect e o Dev**. Detalhamento completo em `docs/ARQUITETURA.md`.
+
+## Repository Structure: Monorepo
+
+Um único repositório com **pnpm workspaces + Turborepo**, organizando os 4 projetos e os 3 packages compartilhados:
+
+```
+keepitnovoapp/
+├── apps/
+│   ├── cliente/         Expo (iOS + Android)
+│   ├── lojista/         Expo (iOS + Android)
+│   ├── admin/           Next.js (web, hospedado na Vercel)
+│   └── supabase/        migrations SQL + edge functions
+└── packages/
+    ├── shared-types/    tipos TypeScript gerados a partir do schema Supabase
+    ├── supabase-client/ wrapper tipado do supabase-js compartilhado
+    └── ui-tokens/       paleta, tipografia, tokens do design system + assets
+```
+
+**Racional**: monorepo permite compartilhar tipos (evita erro de contrato entre app e backend), tokens de design (garante fidelidade visual entre cliente/lojista/admin) e cliente Supabase (uma única fonte de verdade de auth e queries).
+
+## Service Architecture: Monolítico via Supabase (Backend-as-a-Service)
+
+- **Backend**: **Supabase** entrega PostgreSQL + Auth + Storage + Edge Functions + Row-Level Security em um único serviço gerenciado. Não há backend Node/Fastify separado.
+- **Regras de negócio** rodam em **Edge Functions Deno** (aceite com timeout, geração de PIN, cálculo de saldo/carteira virtual, saque, webhooks Asaas, envio de SMS Zenvia, cálculo Haversine).
+- **Autorização** vive em **RLS** (Row-Level Security). Cliente vê só seus pedidos; lojista vê só o que é do seu estabelecimento; admin tem acesso amplo. Nenhuma regra crítica de autorização vive só no client-side.
+- **Storage**: fotos de produto, foto de fachada, foto de hub em **Supabase Storage** com URLs assinadas.
+- **Jobs / cron**: `pg_cron` do Supabase para verificar timeout de aceite a cada minuto (regra dos 10 min).
+
+**Racional**: Supabase entrega tudo que precisamos com **um único fornecedor**, free tier suficiente para o MVP, e reduz drasticamente o esforço vs. um backend Node customizado. Autoriza por linha do banco, o que é ideal para o modelo cliente/lojista/admin.
+
+## Pagamento: Asaas com modelo de carteira virtual
+
+- **Gateway**: **Asaas** para cobrança PIX + cartão + estornos + PIX externo para saque.
+- **Modelo financeiro**: **carteira virtual** — dinheiro fica na conta master Keepit; saldo do lojista é calculado no banco (`entregue_em <= NOW() - 7 days` → disponível; caso contrário → bloqueado); saque dispara UMA transferência PIX externa da master direto para o banco do lojista.
+- **Subconta Asaas** do lojista existe para **KYC e cadastro de destino bancário** — dinheiro não trafega por ela. Isso simplifica muito o backend.
+- **Chargeback**: webhook do Asaas dispara Edge Function que estorna o cliente + debita R$ 40 fixo do saldo do lojista via UPDATE no banco.
+
+**Racional**: escolhido após avaliação técnica documentada em `docs/gateway/asaas.md` — sandbox aberto, sem burocracia de PSP, alinhado ao volume do MVP.
+
+## Testing Requirements: Unit + regras críticas + smoke manual
+
+- **Testes unitários obrigatórios** cobrindo: geração/validação de PIN, matriz de cancelamento, cálculo de saldo/carteira virtual, validação temporal do pedido, cálculo Haversine, cálculo da taxa Keepit, cálculo da taxa de deslocamento, regra de ticket mínimo.
+- **Testes de integração leves** para webhooks Asaas (payload esperado → estado do pedido).
+- **Sem testes E2E automatizados no MVP**. Fluxos end-to-end validados manualmente pelo dev solo antes de cada release.
+- **Smoke manual** obrigatório antes de submissão à App Store / Play Store.
+- **QA agent do AIOX** aplicado em cada Story: revisão de código, checklist de aceitação, e verificação de regressão contra stories anteriores.
+
+**Racional**: cobertura fica proporcional ao risco. Testar E2E automatizado dá overhead grande no cenário solo dev; testar unidade nas regras críticas dá segurança onde importa.
+
+## Additional Technical Assumptions and Requests
+
+- **Linguagem única**: TypeScript em todos os projetos (Expo, Next.js, Edge Functions Deno).
+- **Cliente Supabase gerado**: usar `supabase gen types typescript` para manter `shared-types` sempre em sincronia com o schema.
+- **Sem ORM adicional** (Prisma, Drizzle). Query builder do supabase-js + SQL cru quando necessário.
+- **Migrations versionadas** em `apps/supabase/migrations/` — aplicadas manualmente com `supabase db push` no MVP.
+- **CI**: GitHub Actions com `lint + typecheck + test` em cada PR. Sem deploy automático de Edge Functions no MVP (aplicar manualmente).
+- **Deploy admin**: Vercel com deploy contínuo automático (main → produção).
+- **Deploy mobile**: EAS Build + EAS Submit manuais quando quiser publicar. Sem EAS Update no MVP.
+- **Ambientes**: 2 projetos Supabase distintos, **ambos hospedados na nuvem** (`keepit-dev` e `keepit-prod`). Sem staging. **Sem Supabase local via Docker/CLI** (decisão 2026-07-03 — solo dev, setup mais rápido).
+- **Provider de SMS**: **Zenvia** (~R$ 0,08/SMS), disparado por Edge Function. Não usa Supabase Auth Phone (evita custo do provider embutido).
+- **Push notifications**: **Expo Push Notifications** (grátis) via `expo-server-sdk` dentro de Edge Function.
+- **Validação de CNPJ**: **BrasilAPI** (grátis, sem chave) chamada por Edge Function.
+- **Sem provider de mapa**. Distâncias calculadas por Haversine em Edge Function. Confirmação: protótipo não usa mapa visual.
+- **Sem SDK oficial Node.js Asaas** — consumir REST direto com `fetch`.
+- **Regras de negócio parametrizáveis** (12% da Keepit, R$ 200 saque mínimo, R$ 40 chargeback, R$ 20 ticket mínimo global, 10 min timeout aceite, 10 min janela hub, 5 tentativas PIN, 7 dias repasse) ficam em um arquivo `packages/config/business-rules.ts` versionado — **não** em variáveis de ambiente.
+- **Termos de Uso e Política de Privacidade** apontam para páginas web da Keepit (URLs stub definidas em config; textos finais chegam do stakeholder/advogado antes do go-live).
+- **Contador de marketplace** precisa ser contratado antes do go-live (não é software, mas é bloqueante para publicação — item de compliance).
+- **Autenticação admin** via Supabase Auth com uma tabela `admin_users` que RLS consulta para autorizar acessos administrativos.
+- **Erros e observabilidade** no MVP: logs padrão do Supabase suficientes. Sentry entra depois se houver necessidade real de tracking em produção.

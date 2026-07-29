@@ -1,0 +1,97 @@
+schema: 1
+story: '0.11'
+story_title: 'Lojista: Financeiro (Dashboard, Carteira, Extrato)'
+gate: CONCERNS
+status_reason: >-
+  6 telas financeiras implementadas com fidelidade visual aos painéis P1/P4/P5/P10,
+  typecheck limpo, zero hex/valor de negócio hardcoded (mínimo de saque e D+7 vêm de
+  @keepit/config). CONCERNS por dívida técnica documentada: vendas/top-produtos/extrato
+  mensal vêm de fixture local (financeiro.mock.ts), não do wallet.port real (AC6 parcial),
+  e o symlink manual de @keepit/config sem `pnpm install` — ambos com follow-up no débito
+  de reconciliação de ports do Épico 0.
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-07-28T00:00:00Z'
+
+environment:
+  git: 'não é repositório git — CodeRabbit/push fora de escopo desta execução'
+  visual_qa: 'deferida (REQ-002) — sem simulador iOS/emulador Android; fidelidade conferida via leitura das 4 imagens de referência vs. JSX'
+  coderabbit: 'indisponível neste ambiente (container Linux sem WSL/CLI) — graceful degradation'
+
+quality_checks:
+  code_review: PASS
+  unit_tests: CONCERNS
+  acceptance_criteria: CONCERNS
+  no_regressions: PASS
+  performance: PASS
+  security: PASS
+  documentation: PASS
+
+acceptance_criteria_review:
+  - id: AC1
+    desc: 'Dashboard — saldo + a receber (D+7) + Solicitar saque + Vendas com tabs 7/30/90/1a e variação %'
+    status: PASS
+    note: 'Fiel a lojista-01-painel.png. Seção "Pedidos novos" do protótipo omitida (AUTO-DECISION documentado — fora de AC1, domínio de PedidosStack/Story 0.10). "+ R$ X a receber (em até 7 dias)" usa carteiraLiberacaoDias como rótulo.'
+  - id: AC2
+    desc: 'Vendas detalhada — tabs, total+variação, grid (Pedidos/Ticket/Itens/Retiradas ok), Top produtos'
+    status: PASS
+    note: 'Rota nova `Vendas` adicionada a FinanceiroStackParamList (AUTO-DECISION — Story 0.3 só previa 5 stubs). Fiel a lojista-04-vendas.png; default 30d como no protótipo.'
+  - id: AC3
+    desc: 'Carteira + Solicitar saque — saldo/a receber/sacado no mês, form valor pré-preenchido, RECEBER VIA + Alterar, validação mínimo, Saques recentes'
+    status: PASS
+    note: 'Validação de mínimo dupla (UI em Carteira.tsx + FinanceiroContext), ambas via businessConfig.saqueMinimoReais. Fiel a lojista-05-carteira.png.'
+  - id: AC4
+    desc: 'Extrato — seletor de mês, resumo (repasse/recebido/taxas), lista MOVIMENTAÇÕES vendas+saques'
+    status: PASS
+    note: 'Fiel a lojista-10-extrato.png. Só "Junho" com dados; demais meses exercitam estado vazio.'
+  - id: AC5
+    desc: 'Formas de recebimento — a partir de Configurações e do Alterar na Carteira; edita chave PIX mock'
+    status: PASS
+    note: 'Dois entry points confirmados: Configuracoes.tsx → navigateToTab(FinanceiroTab, FormasRecebimento) e Carteira "Alterar".'
+  - id: AC6
+    desc: 'Todos os dados via wallet.port mock; nenhum valor calculado/hardcoded na tela'
+    status: CONCERNS
+    note: 'Saldo e Saques 100% via wallet.port real. Vendas/Top-produtos/Extrato mensal vêm de fixture local financeiro.mock.ts porque wallet.port não modela agregação por período/extrato (dado derivaria de pedidos/pedidos_itens, fora do Épico 0). Cálculo vive no mock, telas só exibem — mas a fonte não é o port. Documentado como TECH DEBT.'
+  - id: AC7
+    desc: 'Valores de regra de negócio (mínimo saque, D+7) de @keepit/config, nunca hardcoded'
+    status: PASS
+    note: 'Grep confirma: zero literais 200/12/D+7 nas telas. SAQUE_MINIMO_REAIS/CARTEIRA_LIBERACAO_DIAS derivam de businessConfig.'
+  - id: AC8
+    desc: 'Sem Asaas/PIX real — saque e alterar chave só avançam fluxo mock'
+    status: PASS
+    note: 'requestWithdrawal via wallet.port mock (sem rede); chave PIX é estado local em FinanceiroContext.'
+  - id: AC9
+    desc: 'Fidelidade visual 100% tema dark; cores/tipografia só de @keepit/ui-tokens, zero hex'
+    status: PASS
+    note: 'Grep de hex: NONE. 13 tokens darkColors resolvem (typecheck OK). Fontes HankenGrotesk consistentes.'
+
+top_issues:
+  - id: 'ARCH-001'
+    severity: medium
+    finding: 'AC6 parcial: vendas por período, Top produtos e extrato mensal vêm de fixture local (financeiro.mock.ts) em vez do wallet.port — o port não expõe agregação/extrato (derivaria de pedidos/pedidos_itens).'
+    suggested_action: 'Consolidar no débito de reconciliação de ports do Épico 0: avaliar promover para métodos reais de WalletPort ou nova analytics.port.ts em core-data (@architect/@data-engineer), agregando a partir de pedidos reais.'
+  - id: 'REL-001'
+    severity: medium
+    finding: 'Dependência @keepit/config resolvida por symlink manual em apps/lojista/node_modules sem `pnpm install` — frágil, quebra em clone limpo / CI.'
+    suggested_action: 'Rodar `pnpm install` na próxima janela com ambiente completo para materializar o workspace link (débito recorrente das stories lojista).'
+  - id: 'TEST-001'
+    severity: low
+    finding: 'financeiro.mock.ts (fixtures de vendas/extrato) sem testes unitários; nenhum teste de UI (consistente com padrão do Épico 0).'
+    suggested_action: 'Cobrir com testes quando os dados migrarem para o port real (parte de ARCH-001).'
+  - id: 'DOC-001'
+    severity: low
+    finding: 'SimpleBarChart não renderiza os rótulos de eixo (S/T/Q/Q/S/S/D) visíveis no protótipo P1.'
+    suggested_action: 'Adicionar rótulos opcionais ao componente numa iteração visual futura — não bloqueante para o Épico 0.'
+  - id: 'REQ-002'
+    severity: low
+    finding: 'Validação visual em simulador/emulador deferida — sem ambiente nesta execução.'
+    suggested_action: 'Rodar QA visual em dispositivo/simulador antes do fechamento do Épico 0 / início do Épico 1.'
+
+evidence:
+  typecheck: 'pnpm --filter @keepit/lojista typecheck → exit 0'
+  hex_scan: 'grep -E #[0-9A-Fa-f]{3,8} em screens/financeiro + PeriodTabs + SimpleBarChart → NONE'
+  business_rules_scan: 'grep 200/12/D+7 nas telas → apenas em comentário; valores derivam de businessConfig'
+  wallet_mock_validation: 'wallet.mock.ts#requestWithdrawal rejeita < businessConfig.saqueMinimoReais (com teste)'
+  files_reviewed: 11
+  scope: 'apps/lojista/** apenas — nenhuma mudança em packages/core-data ou packages/config'
+
+waiver: { active: false }

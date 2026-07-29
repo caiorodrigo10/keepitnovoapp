@@ -1,0 +1,28 @@
+{
+  "name": "@keepit/admin",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "echo skipped",
+    "lint": "echo skipped",
+    "typecheck": "tsc --noEmit",
+    "test": "echo skipped"
+  },
+  "dependencies": {
+    "@keepit/core-data": "workspace:*",
+    "@keepit/ui-tokens": "workspace:*",
+    "next": "16.2.12",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "autoprefixer": "10.5.4",
+    "postcss": "8.5.23",
+    "tailwindcss": "3.4.19",
+    "typescript": "5.9.3"
+  }
+}

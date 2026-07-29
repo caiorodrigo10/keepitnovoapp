@@ -1,0 +1,40 @@
+schema: 1
+story: '1.9'
+gate: CONCERNS
+status_reason: 'Esqueleto Supabase das 8 ports implementado com fidelidade total de contrato, stubs padronizados e zero regressão (9/9 typecheck+test, 96 testes core-data verde); único gap é a ausência de execução do CodeRabbit no sandbox — aceito como graceful degradation documentado.'
+reviewer: 'Quinn'
+updated: '2026-07-29T16:05:00Z'
+
+top_issues:
+  - id: 'DOC-001'
+    severity: low
+    finding: 'CodeRabbit não executado (sem WSL/binário no PATH deste sandbox) — os 2 checkboxes de Quality Gate Tasks (Pre-Commit/Pre-PR) permanecem [ ]. É wiring puro (stubs, sem lógica de negócio, sem query real, sem tela), então o risco não coberto é baixo.'
+    suggested_action: 'Rodar `coderabbit --prompt-only -t uncommitted` quando o ambiente com WSL estiver disponível, antes do @devops abrir PR. Não bloqueia o Done.'
+
+waiver: { active: false }
+
+# --- Evidência da revisão independente (7 checks) ---
+evidence:
+  adapters_8_of_8: 'auth, hub, store, product, order, wallet, admin, analytics — todos presentes em src/supabase/*.supabase.ts'
+  contract_fidelity: 'Contagem e assinatura de métodos batem 1:1 com src/ports/*.port.ts — auth 7, hub 2, store 5, product 6, order 13, wallet 3, admin 17 (3+hubsCrud 3+refundQueue 2+9), analytics 3 = 56 métodos. Typecheck (tsc --noEmit) garante estruturalmente.'
+  stubs_standardizados: 'Todos os 56 métodos lançam NotImplementedError(port, method, epicHint). grep por .from/.rpc/.select/.insert/.update/.delete em adapters = 0 ocorrências (No Invention, Art. IV). Nenhuma tabela de domínio referenciada; só _canary citado em comentário do README.'
+  epic_hints: 'auth→2, hub→5, store→5 (setPausadoManualmente→4), product→4, order→6, wallet→7, analytics→7, admin por método (3/4/8). Coerente com a tabela da story e testado por amostra.'
+  factory: 'createDataClient({source:supabase}) resolve os 8 adaptadores; source:mock e chamada sem-arg intactos; resolveDataSource lê DATA_SOURCE dentro da factory com prioridade para options.source. Testado (index.test.ts: 8 ports, DATA_SOURCE fallback, precedência, isolamento, não-regressão mock).'
+  epico0_intacto: 'Nenhum arquivo em apps/* tocado — referências a apps/ em core-data são apenas comentários de proveniência (não imports/edições). Mock 100% preservado.'
+  regressao: 'pnpm turbo run typecheck → 9/9 successful. pnpm turbo run test → 9/9 successful, core-data 11 arquivos / 96 testes passando.'
+  lazy_client: 'resolveClient = () => client ?? createClient() em função nunca invocada (void resolveClient). Defensável: evita exigir SUPABASE_URL/ANON_KEY no typecheck/CI para validar esqueleto sem rede. Sem singleton global; client criado por chamada quando um épico futuro plugar a query real.'
+
+nfr_validation:
+  security: { status: PASS, notes: 'Adapters usam createClient() (anon key, respeita RLS) — nunca createServiceRoleClient(). Nenhum segredo exposto, nenhuma query.' }
+  performance: { status: PASS, notes: 'Wiring de stubs — sem impacto de runtime.' }
+  reliability: { status: PASS, notes: 'Todo método rejeita a Promise com erro tipado; nenhum retorno undefined silencioso.' }
+  maintainability: { status: PASS, notes: 'NotImplementedError único reutilizado; epicHints orientam os 8 épicos seguintes; README atualizado (não mais "diretório vazio"/"Story 1.6").' }
+
+quality_checks:
+  code_review: PASS
+  unit_tests: PASS
+  acceptance_criteria: PASS
+  no_regressions: PASS
+  performance: PASS
+  security: PASS
+  documentation: PASS

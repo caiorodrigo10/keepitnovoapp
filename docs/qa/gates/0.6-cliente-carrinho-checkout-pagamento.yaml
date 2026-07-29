@@ -1,0 +1,223 @@
+schema: 1
+story: '0.6'
+story_title: 'Cliente: Carrinho, Checkout & Pagamento'
+gate: CONCERNS
+status_reason: >-
+  As 6 telas + modal CPF existem, navegáveis, typecheck verde, zero hex/valor
+  financeiro hardcoded (taxa lida de @keepit/config), nenhuma cobrança real
+  (order.port.create mock, cartão só ultimo4/bandeira/nome) e rotas preservadas
+  sem rename — mas ficam 6 débitos não-bloqueantes: taxa de serviço 🔴 pendente
+  de stakeholder (§1.3, valor placeholder 12% diverge do protótipo), lockfile
+  stale vs nova dep @keepit/config + symlink manual, ausência de port de
+  carrinho/cartão em core-data (CartContext local), flag CPF só em sessão,
+  validação visual em device (REQ-002) e CodeRabbit não executado (sem WSL).
+reviewer: 'Quinn'
+updated: '2026-07-28T00:00:00Z'
+
+# --- 7 Quality Checks (story-lifecycle.md Phase 4) ---
+quality_checks:
+  - id: 1
+    name: 'Code review (patterns, readability, maintainability)'
+    result: PASS
+    notes: >-
+      Componentes de checkout reutilizáveis (CartItemRow com/sem stepper,
+      SelectableRow para hub+PIX+cartão, SummaryLinkRow para hub+forma de
+      pagamento) evitam duplicação nas 6 telas. format.ts centraliza
+      formatReais (antes duplicado por tela na 0.4/0.5). CartContext isola o
+      estado local de carrinho/hub/pagamento/CPF/cartões com useCallback/useMemo
+      corretos. Comentários [IDS]/[AUTO-DECISION]/[TECH DEBT] documentam cada
+      decisão. Narrowing de payment.type tratado (bug TS2339 corrigido pelo @dev
+      capturando `const payment = cart.payment`).
+  - id: 2
+    name: 'Unit tests (coverage, passing)'
+    result: N/A
+    notes: >-
+      Sem testes de UI automatizados — mesma decisão consciente das Stories
+      0.1–0.5 (casca visual, MVP). O cálculo de taxa/total é composição trivial
+      (subtotal * percent + subtotal) sobre dados já validados: @keepit/config
+      tem index.test.ts validando os placeholders e o contrato de
+      order.port.create é testado em packages/core-data (Story 0.2). Nenhuma
+      lógica de negócio nova isolável a testar per Dev Notes/Testing.
+  - id: 3
+    name: 'Acceptance criteria met'
+    result: PASS
+    notes: >-
+      AC1: 6 telas (Carrinho, Checkout, EscolhaRetirada, Pagamento,
+      AdicionarCartao em screens/home/ + ModalCPF em screens/modals/)
+      substituem os stubs da 0.3 sem rename de rota (navigation/types.ts só
+      adicionou onSubmit ao ModalCPF); modal CPF exibido só quando
+      !cart.cpfCollected (guard no botão Pagar do Checkout). AC2: subtotal =
+      Σ(preco_snapshot_reais * quantidade) do CartContext; taxaServicoReais =
+      subtotalReais * (businessConfig.taxaKeepitPercent/100); total = subtotal +
+      taxa — grep confirmou zero número mágico/hex nas telas. AC3: botão Pagar
+      chama order.port.create (mock, getDataClient) — sem fetch/SDK/tokenização/
+      QR PIX; AdicionarCartao só grava {ultimo4, bandeira, nomeNoCartao}, nunca
+      PAN completo/CVV. AC4: 100% via @keepit/ui-tokens, zero hex hardcoded.
+  - id: 4
+    name: 'No regressions'
+    result: PASS
+    notes: >-
+      `pnpm --filter @keepit/cliente typecheck` → exit 0 (rodado nesta revisão).
+      File List restrito a apps/cliente/** (DetalheProduto.tsx/discoveryDisplay.ts
+      da 0.5 ajustados para religar addItem ao CartContext — mudança aditiva).
+      order.port.create recebe exatamente o CreatePedidoInput publicado
+      (cliente_id, estabelecimento_id, hub_id, itens[{produto_id,quantidade}],
+      forma_pagamento) — contrato verificado. `lint` é `echo skipped` desde a
+      0.1. RESSALVA em MNT-001: pnpm-lock.yaml não reflete a nova dep
+      @keepit/config; typecheck só passa graças ao symlink manual.
+  - id: 5
+    name: 'Performance'
+    result: N/A
+    notes: >-
+      Casca visual sem rede/persistência real. useMemo para subtotal e para o
+      value do Context evita recomputo; máscaras de cartão/CPF/validade são O(n)
+      triviais. Sem superfície de performance mensurável no Épico 0.
+  - id: 6
+    name: 'Security (OWASP basics)'
+    result: PASS
+    notes: >-
+      Nenhum dado sensível de cartão persistido/enviado — AdicionarCartao deriva
+      ultimo4 do input e descarta número completo/CVV (nunca saem do state local
+      da tela). Sem chamadas a gateway/Asaas, sem tokenização, sem segredos, sem
+      QR PIX real. CPF apenas mascarado visualmente (sem validação/envio). Único
+      "cartão salvo" é o mock •••• 4242 já usado como referência no protótipo.
+  - id: 7
+    name: 'Documentation'
+    result: PASS
+    notes: >-
+      Dev Agent Record exaustivo (cobertura por AC, [AUTO-DECISION]s de taxa/
+      mapa/1-loja/callback-em-params, [TECH DEBT] de cart/card port e updateCpf,
+      débitos de lockfile/CodeRabbit/device). Docstrings por tela citando o PNG
+      de referência e a regra de negócio/fonte. Change Log atualizado. QA Results
+      preenchido nesta revisão.
+
+top_issues:
+  - id: 'REQ-001'
+    severity: medium
+    category: requirements
+    finding: >-
+      "Taxa de serviço" é regra de negócio 🔴 ABERTA (docs/PERGUNTAS_REGRAS_
+      NEGOCIO.md §1.3: existe taxa p/ o comprador? quanto? Keepit ou hub?). A
+      impl usa businessConfig.taxaKeepitPercent (12%, placeholder) aplicado ao
+      subtotal — decisão correta (lê de config, não inventa nem hardcoda), MAS o
+      mapeamento "taxaKeepitPercent = Taxa de serviço cobrada do cliente" NÃO
+      está confirmado pelo stakeholder. O valor exibido diverge do protótipo
+      (cliente-04 mostra R$ 3,90 sobre R$ 64,40 ≈ 6%; 12% renderiza R$ 7,73) —
+      esperado, pois o número do protótipo é ilustrativo, mas visível.
+    suggested_action: >-
+      Escalar ao stakeholder (via Caio) ANTES de modelar pagamento no Épico 1:
+      (a) há taxa de serviço cobrada do cliente? qual %? (b) vai p/ Keepit ou
+      hub? (c) há linha separada de "taxa de deslocamento" por-loja? Se a decisão
+      diferir (ex.: taxa absorvida pelo lojista, sem linha ao cliente), revisar
+      Checkout.tsx. Registrar em PERGUNTAS_REGRAS_NEGOCIO §1.3.
+  - id: 'MNT-001'
+    severity: medium
+    category: code
+    finding: >-
+      apps/cliente/package.json ganhou "@keepit/config": "workspace:*" mas o
+      @dev criou o symlink em node_modules/@keepit/config manualmente SEM rodar
+      `pnpm install` (conforme instrução) — pnpm-lock.yaml está stale em relação
+      à nova dependência. O typecheck só passa por causa do symlink manual; um
+      `pnpm install --frozen-lockfile` (CI) ou checkout limpo pode falhar ou
+      recriar o link de forma diferente.
+    suggested_action: >-
+      @devops rodar `pnpm install` real para reconciliar o lockfile antes do
+      próximo git push/PR e confirmar que o symlink é recriado corretamente pelo
+      workspace. Bloqueante para push, não para InReview→Done.
+  - id: 'ARCH-001'
+    severity: medium
+    category: code
+    finding: >-
+      Não existe port de carrinho (carrinho/carrinho_itens) nem de cartão salvo
+      (clientes_cartoes) em packages/core-data (Story 0.2 não as expõe). Todo o
+      estado de carrinho/hub/pagamento/cartões vive em CartContext local
+      (apps/cliente), perdido ao reiniciar o app (sem AsyncStorage). Aceitável
+      como casca do Épico 0 (a missão autorizou context local quando não há
+      port), mas cria uma fronteira mock/real inconsistente: pedido usa port
+      real, carrinho não.
+    suggested_action: >-
+      @architect definir port de carrinho + cartão (cart.port / payment-method)
+      em core-data ANTES do Épico 1, e migrar o CartContext para hooks sobre
+      essas ports. Registrar como débito de arquitetura da fronteira mock/real.
+  - id: 'ARCH-002'
+    severity: low
+    category: code
+    finding: >-
+      Flag "CPF já coletado" vive em CartContext.cpfCollected (estado de sessão)
+      porque auth.port não tem updateCpf/similar para persistir clientes.cpf —
+      reinicia a false a cada boot. Dentro do escopo aceitável do Épico 0 ("não
+      reaparecer na mesma sessão"), mas não é persistência real. Também:
+      ModalCPF é acionado via callback onSubmit em route.params (não
+      serializável) — funciona sem deep-link/state persistence no Épico 0.
+    suggested_action: >-
+      Ao implementar auth/persistência real (Épico 1), adicionar updateCpf à
+      auth.port e mover cpfCollected para o perfil do cliente. Se state
+      persistence/deep-link for habilitado, substituir o callback-em-params por
+      um mecanismo serializável (ex.: retorno via estado global/evento).
+  - id: 'REQ-002'
+    severity: low
+    category: requirements
+    finding: >-
+      Fidelidade visual (AC4) não validada em simulador iOS/emulador Android —
+      sandbox sem ambiente visual. Débito herdado dos gates 0.1–0.5. Comparação
+      feita lendo os 3 PNGs de referência contra o JSX/estilos. Desvios
+      conscientes já documentados: (a) sem mapa em EscolhaRetirada (decisão
+      Rodada 4 prevalece sobre o protótipo — lista de hubs fiel: Hub Centro/Rua
+      das Flores 120, Hub Jardins/Av. Paulista 900, Hub Vila Nova/Rua Verde 45,
+      distâncias 0,8/2,1/3,4 km; "Aberto até" calculado do mock = 20h p/ os 3,
+      diverge dos 22h/20h/21h fictícios do PNG); (b) Carrinho e Checkout
+      separados em 2 telas (o protótipo cliente-04 é a combinada) — per AC1 que
+      lista as duas; (c) form "Adicionar cartão" virou rota própria com link "+
+      Adicionar novo cartão" (o protótipo cliente-13 combina numa só tela) — per
+      AC1 que lista Pagamento e Adicionar cartão separados.
+    suggested_action: >-
+      Rodar as 6 telas + modal em device/simulador e comparar 1:1 com os 3 PNGs
+      antes de fechar o Épico 0. Confirmar com @po/UX se a decomposição
+      Carrinho/Checkout e Pagamento/AdicionarCartao (por AC1) é aceita vs. as
+      telas combinadas do protótipo, e se o mapa entra antes do lançamento
+      (docs/design-refs/INDEX.md#Conflitos).
+  - id: 'DOC-001'
+    severity: low
+    category: docs
+    finding: >-
+      CodeRabbit (`coderabbit --prompt-only -t uncommitted`) não executado —
+      ambiente Linux nativo sem WSL (`wsl: command not found`), e o CLI roda via
+      WSL neste projeto. Mesma limitação dos gates anteriores (0.5 DOC-002) e
+      prevista pela missão ("CodeRabbit pode estar ausente"). O @qa também não
+      conseguiu executá-lo neste sandbox.
+    suggested_action: >-
+      @devops/CI rodar CodeRabbit em ambiente com WSL/CLI antes do PR, se
+      desejado. Não bloqueia — sem infra para executar no sandbox.
+
+waiver: { active: false }
+
+# --- Notas do revisor ---
+review_notes: |
+  Gate CONCERNS (não PASS) para RASTREAR 6 débitos não-bloqueantes — nenhum
+  impede o objetivo da story (fluxo completo de compra em casca visual, 100%
+  mock, para revisão de UX). AC1–AC4 atendidos a nível de código; typecheck
+  verde (verificado, exit 0); zero hex/valor financeiro hardcoded; taxa lida de
+  businessConfig.taxaKeepitPercent; nenhuma cobrança real (order.port.create
+  mock, contrato conferido; cartão só ultimo4/bandeira/nome); rotas preservadas
+  sem rename.
+
+  As [AUTO-DECISION]s da missão foram avaliadas e são ACEITÁVEIS para o Épico 0:
+    - Mapa omitido em EscolhaRetirada — decisão Rodada 4 (docs/ARQUITETURA.md)
+      PREVALECE sobre o protótipo; lista de hubs fiel aos cards da referência.
+      Correto, não reprovado. Ver REQ-002 (revisão de stakeholder p/ lançamento).
+    - Taxa = taxaKeepitPercent (12%, placeholder de config, não número final) —
+      OK como placeholder; ver REQ-001 (follow-up stakeholder §1.3).
+    - CartContext local (sem port de carrinho/cartão) — aceitável como casca;
+      ver ARCH-001 (port de carrinho/pagamento antes do Épico 1).
+    - "1 pedido = 1 loja" no addItem (troca de loja reinicia o carrinho) — honra
+      a regra fechada da Rodada 5.
+    - order.port.create no botão Pagar (port real) em vez de estado local — boa
+      decisão: Story 0.7 já poderá consumir order.listMine.
+
+  Follow-ups por prioridade:
+    1. REQ-001 — mapeamento/valor da Taxa de serviço (§1.3 🔴) → stakeholder/Caio.
+    2. MNT-001 — `pnpm install` p/ reconciliar lockfile (bloqueante p/ push) → @devops.
+    3. ARCH-001 — port de carrinho/cartão antes do Épico 1 → @architect.
+    4. ARCH-002 — updateCpf na auth.port + callback-em-params → Épico 1.
+    5. REQ-002 — validação em device + decisão de decomposição de telas → @po/UX.
+    6. DOC-001 — CodeRabbit → @devops/CI quando houver WSL.

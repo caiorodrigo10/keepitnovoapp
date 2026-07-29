@@ -1,0 +1,12 @@
+{
+  "name": "@keepit/supabase",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "echo \"supabase start (not yet configured)\"",
+    "build": "echo skipped",
+    "lint": "echo skipped",
+    "typecheck": "echo skipped",
+    "test": "echo skipped"
+  }
+}

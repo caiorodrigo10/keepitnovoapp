@@ -1,0 +1,86 @@
+schema: 1
+story: '1.4'
+gate: CONCERNS
+status_reason: 'Objetivo funcional (conexão end-to-end ao keepit-dev) e segurança do service_role plenamente atendidos; divergência no histórico de migrations (remoto vs. arquivo local) quebra o fluxo `supabase db push`/`db pull` documentado no README.'
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-07-29T00:00:00Z'
+
+waiver: { active: false }
+
+top_issues:
+  - id: 'MNT-001'
+    severity: medium
+    finding: >-
+      Divergência de histórico de migrations. O `supabase migration list --linked`
+      mostra a migration aplicada remotamente como `20260729151310` (aplicada via MCP
+      pelo orquestrador), mas o arquivo versionado pelo @dev é `20260729151625`. O CLI
+      confirma o mismatch ("The remote database's migration history does not match local
+      files") e um `supabase db pull`/`db push` falha até rodar `supabase migration repair`.
+      O conteúdo SQL é equivalente, mas os identificadores de versão divergem — logo o
+      "Caminho 2 — CLI local (db push)" do README NÃO é executável hoje sem reparo,
+      contradizendo a afirmação "não há divergência de fonte de verdade".
+    suggested_action: >-
+      Reconciliar o histórico (ex.: `supabase migration repair --status reverted 20260729151310`
+      + `--status applied 20260729151625`, OU renomear o arquivo local para o timestamp
+      `20260729151310` que o banco registrou) e ajustar a nota do README. Não bloqueia a
+      story canário, mas deve ser resolvido antes da primeira migration de schema real
+      (backend/dados) para não travar `db push`.
+  - id: 'DOC-001'
+    severity: low
+    finding: >-
+      JSDoc de `createServiceRoleClient()` (packages/supabase-client/src/index.ts, linhas
+      54-56) ainda afirma que `SUPABASE_SERVICE_ROLE_KEY` "ainda não foi preenchida no .env
+      local". Verificação independente: hoje o `.env` contém uma service_role real (formato
+      JWT `eyJ...`, len 219) — populada via CLI após a sessão de código. O comentário está
+      desatualizado.
+    suggested_action: 'Remover/atualizar o comentário para não induzir a erro futuros leitores.'
+  - id: 'DOC-002'
+    severity: low
+    finding: >-
+      Imprecisão nas Completion Notes / Task 1 do @dev: afirma que a `SUPABASE_SERVICE_ROLE_KEY`
+      "já estava preenchida no momento da execução". Isso era FALSO — no momento do dev era
+      placeholder; o orquestrador populou depois via `supabase projects api-keys`. O
+      comportamento defensivo do wrapper (`requireEnv`) foi validado corretamente
+      independentemente disso; a imprecisão é apenas de registro, não afeta o código.
+    suggested_action: 'Nota de precisão registrada; nenhuma ação de código necessária.'
+
+observations:
+  - 'Lint é `echo skipped` em todos os 9 workspaces (nenhum linter real configurado no monorepo) — estado pré-existente, não introduzido por esta story. 9/9 typecheck e 9/9 lint sem regressão.'
+  - 'CodeRabbit não executado (CLI ausente neste ambiente — graceful degradation conforme regra do framework).'
+
+evidence:
+  smoke_test:
+    command: 'pnpm --filter @keepit/supabase-client canary-check (node --env-file-if-exists=../../.env scripts/canary-check.mjs)'
+    exit_code: 0
+    output: |
+      [canary-check] OK — conexão com keepit-dev confirmada.
+      [canary-check] Linhas retornadas de _canary: 1
+      [
+        {
+          "id": 1,
+          "message": "keepit-dev canary ok — 2026-07-29"
+        }
+      ]
+    interpretation: >-
+      Retorno de 1 linha via anon key prova simultaneamente: (a) conectividade end-to-end
+      com o Supabase cloud real, (b) RLS ativa + policy pública de SELECT funcionando
+      (sem policy, a anon key retornaria 0 linhas numa tabela com RLS habilitada).
+  security_grep:
+    service_role_in_apps: 'NENHUMA ocorrência de service_role/createServiceRoleClient/SERVICE_ROLE em apps/cliente, apps/lojista, apps/admin'
+    service_role_scope: 'createServiceRoleClient e SUPABASE_SERVICE_ROLE_KEY aparecem SOMENTE em packages/supabase-client/src/index.ts'
+    hardcoded_secrets: 'NENHUM segredo hardcoded (eyJ.../sb_secret_/sb_publishable_) no código da story'
+    env_service_role: 'presente e real (formato JWT eyJ..., len 219) — valor NÃO impresso'
+  typecheck: '9/9 successful (FULL TURBO)'
+  lint: '9/9 successful (echo skipped em todos)'
+  rls_migration: 'arquivo 20260729151625_init_canary.sql contém `enable row level security` + policy `canary_public_select ... for select using (true)` — bate com o comportamento aplicado (confirmado funcionalmente pelo smoke test)'
+  config_layout: 'apps/supabase/supabase/config.toml (layout oficial do `supabase init`, project_id = jhhbewnmnorhmsdvfppo) — ACEITÁVEL/correto, documentado no README'
+
+acceptance_criteria:
+  AC1: PASS  # projeto keepit-dev existe, .env preenchido (incl. service_role real hoje)
+  AC2: PASS  # config.toml + link (layout oficial subpasta supabase/)
+  AC3: PASS  # migration _canary com RLS + policy pública versionada
+  AC4: CONCERNS  # aplicada e funcional, mas histórico de versão diverge do arquivo local (MNT-001)
+  AC5: PASS  # tipos gerados em shared-types/src/supabase.ts, reexport, typecheck verde
+  AC6: PASS  # createClient()/createServiceRoleClient() tipados, env sem hardcode, falha em runtime
+  AC7: PASS  # smoke test real executado, 1 linha retornada
+  AC8: PASS  # README documenta migrations + gen types (ressalva: Caminho 2 db push impactado por MNT-001)

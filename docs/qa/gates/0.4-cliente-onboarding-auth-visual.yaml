@@ -1,0 +1,140 @@
+schema: 1
+story: '0.4'
+story_title: 'Cliente: Onboarding & Auth (visual)'
+gate: CONCERNS
+status_reason: >-
+  Todas as 9 telas/estados existem, typecheck verde, zero hex/regra hardcoded e
+  navegação sem auth real — mas ficam 4 débitos não-bloqueantes: validação
+  visual em device (REQ-002), gap de schema email/senha (FR1/FR3 vs Cliente da
+  0.2), reconciliação da dep @keepit/core-data via pnpm install, e a divergência
+  de tema do onboarding (protótipo é escuro, impl é clara por instrução da story).
+reviewer: 'Quinn'
+updated: '2026-07-28T00:00:00Z'
+
+# --- 7 Quality Checks (story-lifecycle.md Phase 4) ---
+quality_checks:
+  - id: 1
+    name: 'Code review (patterns, readability, maintainability)'
+    result: PASS
+    notes: >-
+      Kit de UI reutilizável (Screen/Button/TextField/Checkbox/Dots) evita
+      duplicação nas 9 telas; comentários [IDS]/[AUTO-DECISION] documentam cada
+      decisão de reuso e cada desvio. Imports limpos, tipagem de rotas correta.
+  - id: 2
+    name: 'Unit tests (coverage, passing)'
+    result: N/A
+    notes: >-
+      Sem testes de UI automatizados — mesma decisão consciente das Stories
+      0.1/0.3 (casca visual, MVP). A port auth já é testada em packages/core-data
+      (Story 0.2); esta story apenas a consome mockada.
+  - id: 3
+    name: 'Acceptance criteria met'
+    result: PASS
+    notes: >-
+      AC1: 11 arquivos de tela (Onboarding1/2/3, CriarConta, ConfirmacaoSMS,
+      Login, EsqueciSenha, Perfil, Configuracoes, ExcluirConta, ModalPermissaoPush)
+      substituem stubs da 0.3 sem rename de rota (AuthStack/PerfilStack intactos).
+      AC2: cores/tipografia 100% via @keepit/ui-tokens, grep confirmou zero hex
+      hardcoded (fidelidade pixel deferida — REQ-002). AC3: CriarConta/Login/
+      ConfirmacaoSMS navegam à Home sem auth real; formulários com validação
+      client-side, sem submit real. AC4: nenhum valor de regra hardcoded.
+  - id: 4
+    name: 'No regressions'
+    result: PASS
+    notes: >-
+      `pnpm --filter @keepit/cliente typecheck` → exit 0. File List restrito a
+      apps/cliente/**. Verificação de escopo limitada (não é repo git); outros
+      workspaces (packages/*, apps/lojista, apps/admin) têm timestamps recentes
+      atribuíveis ao @dev irmão em paralelo e às Stories 0.2/0.3, não a esta story.
+  - id: 5
+    name: 'Performance'
+    result: N/A
+    notes: 'Casca visual sem rede/persistência — sem superfície de performance.'
+  - id: 6
+    name: 'Security (OWASP basics)'
+    result: PASS
+    notes: >-
+      Sem auth real, sem chamadas de rede, sem segredos. signUp mock recebe só
+      nome+telefone; nenhuma senha é transmitida ou persistida.
+  - id: 7
+    name: 'Documentation'
+    result: PASS
+    notes: >-
+      Dev Agent Record exaustivo (desvios, [AUTO-DECISION]s, débitos). Docstrings
+      por tela citando FR/fonte. QA Results preenchido nesta revisão.
+
+top_issues:
+  - id: 'REQ-002'
+    severity: low
+    category: requirements
+    finding: >-
+      Fidelidade visual (AC2) não validada em simulador iOS/emulador Android —
+      sandbox sem ambiente visual. Débito herdado dos gates 0.1/0.3.
+    suggested_action: >-
+      Rodar as 9 telas em device/simulador real e comparar 1:1 com as 4
+      referências antes de fechar o Épico 0.
+  - id: 'REQ-003'
+    severity: medium
+    category: requirements
+    finding: >-
+      Gap de schema email/senha: FR1 (cadastro com nome+email+senha+telefone) e
+      FR3 (login email+senha) são coletados pela UI, mas o tipo `Cliente` (Story
+      0.2, já Done) não modela email/senha — a port `auth.signUp` só aceita
+      {nome, telefone}. Hoje inócuo (sem submit real), mas bloqueia auth real no
+      Épico 1.
+    suggested_action: >-
+      Escalar ao stakeholder (via Caio) ANTES do Épico 1: o modelo de auth do
+      MVP é telefone+SMS (docstring de auth.port.ts) ou email+senha (FR1/FR3)?
+      Reconciliar `Cliente`/`AuthPort` em core-data conforme a decisão. Registrar
+      em docs/PERGUNTAS_REGRAS_NEGOCIO.md.
+  - id: 'ARCH-001'
+    severity: low
+    category: code
+    finding: >-
+      Dep `@keepit/core-data` adicionada a apps/cliente/package.json + symlink
+      manual em node_modules, sem `pnpm install` e sem atualizar pnpm-lock.yaml
+      (proibido no sandbox). Aceitável para casca/typecheck, mas o lockfile diverge
+      do estado real.
+    suggested_action: >-
+      @devops/CI deve rodar `pnpm install` de reconciliação para regenerar o
+      lockfile e materializar a dep antes de qualquer build/deploy real.
+  - id: 'REQ-004'
+    severity: medium
+    category: requirements
+    finding: >-
+      Divergência de tema no Onboarding: o protótipo (cliente-01-onboarding.png)
+      é ESCURO (fundo escuro, círculo verde com ícone de casa, chips de categoria),
+      mas a implementação usa tema CLARO (#F6F7F3) — o @dev seguiu a instrução
+      explícita da story ("tema claro" em AC2/Dev Notes). AC2 exige fidelidade ao
+      protótipo, criando conflito entre a instrução escrita e a referência visual.
+    suggested_action: >-
+      @po/stakeholder decidir: o onboarding do Cliente deve ser escuro (fiel ao
+      protótipo) ou claro (consistente com o restante do app)? Ajustar a story ou
+      a tela conforme a decisão.
+  - id: 'DOC-001'
+    severity: low
+    category: docs
+    finding: >-
+      Login social (Google/Apple) presente no protótipo foi removido — correto
+      per decisão Rodada 2 (fora do MVP). Onboarding 1/2, Confirmação SMS,
+      Esqueci a senha e Configurações não têm captura dedicada; layout inferido do
+      design system. Perfil mostra telefone (não email) e itens de menu
+      parcialmente conectados.
+    suggested_action: >-
+      Nenhuma ação de código — desvios já documentados no Dev Agent Record.
+      Validar as inferências contra o board completo quando houver device.
+
+waiver: { active: false }
+
+# --- Notas do revisor ---
+review_notes: |
+  Gate CONCERNS (não PASS) apenas para RASTREAR os 4 débitos não-bloqueantes
+  acima — nenhum deles impede o objetivo desta story (casca visual do fluxo de
+  entrada do Cliente para revisão de UX). AC1-AC4 atendidos a nível de código;
+  typecheck verde; zero hex/regra hardcoded; navegação sem auth real confirmada.
+
+  Follow-ups mais importantes para o @po/stakeholder:
+    1. REQ-003 (gap email/senha) — decisão de modelo de auth do MVP, bloqueia Épico 1.
+    2. REQ-004 (tema do onboarding) — decisão de fidelidade visual.
+    3. ARCH-001 (pnpm install de reconciliação) — @devops/CI.
+    4. REQ-002 (validação em device) — débito herdado, mesmo padrão 0.1/0.3.

@@ -1,0 +1,243 @@
+storyId: 1.3
+storyName: Extrair fontes Hanken Grotesk do prototipo
+verdict: CONCERNS
+reviewedBy: "@qa (Quinn)"
+reviewedAt: "2026-07-03"
+model: opus
+
+acceptance_criteria:
+  - id: AC1
+    description: "fonts/ contem .woff2 (e .ttf para Expo iOS) dos pesos Regular, Medium, Bold, Extrabold com nomes claros"
+    status: CONCERNS
+    evidence: |
+      Empirico: `ls packages/ui-tokens/fonts/` mostra 5 arquivos .woff2 nomeados semanticamente:
+        - HankenGrotesk-Regular.woff2   (13,460 bytes)
+        - HankenGrotesk-Medium.woff2    (13,796 bytes)
+        - HankenGrotesk-SemiBold.woff2  (13,780 bytes)  [extra vs spec, casa com tokens.json weights.semibold=600]
+        - HankenGrotesk-Bold.woff2      (13,844 bytes)
+        - HankenGrotesk-ExtraBold.woff2 (13,860 bytes)
+      MD5 confirma 5 hashes byte-distintos (nenhuma duplicacao).
+      Magic bytes: todos comecam com "wOF2" (0x774F4632) -- WOFF2 valido.
+      Tamanhos: 13-14 kB por peso, latin subset, dentro da faixa esperada (5-50 kB).
+
+      Desvios em relacao ao AC1 literal:
+      1. Extracao vem do Google Fonts CDN (nao do keepit-app/index.html base64). Justificado
+         empiricamente: o bundle so continha 1 peso; extrair "do bundle" produziria 5 arquivos
+         identicos, o que quebraria fidelidade visual (Medium/Bold/etc. seriam Regular disfarcado).
+         Solucao correta -- Hanken Grotesk e OFL, entao a fonte "oficial" e a do Google Fonts.
+      2. Nao ha arquivos .ttf. README justifica: expo-font suporta .woff2 em iOS/Android modernos;
+         conversao ttf requer dep externa (woff2 CLI ou fonttools) nao disponivel no ambiente.
+         Aceitavel para MVP mas o AC1 pediu explicitamente ambos formatos.
+      3. Nome do script no AC2 e `.ts`, arquivo real e `.mjs` (ver AC2).
+    notes: |
+      Os desvios sao tecnicamente defensaveis e resultam em MELHOR fidelidade visual do que a
+      interpretacao literal do AC. Mas: (a) o rework nao foi registrado em docs/qa/design-decisions.md
+      (obrigatorio pela politica do projeto quando divergimos do PRD), e (b) AC1 e AC2 do PRD nao
+      foram atualizados para refletir a realidade -- cria risco de re-abertura da discussao.
+
+  - id: AC2
+    description: "Script scripts/extract-fonts.ts documentado e reproduzivel"
+    status: CONCERNS
+    evidence: |
+      Script existe em `scripts/extract-fonts.mjs` (extensao .mjs, nao .ts como spec pede).
+      Package.json registra corretamente: `"extract-fonts": "node scripts/extract-fonts.mjs"`.
+      Reproducibilidade verificada empiricamente:
+        `pnpm --filter @keepit/ui-tokens run extract-fonts`
+        -> "Found 5 latin @font-face blocks from Google Fonts CSS."
+        -> "Done. 5 font(s) written, 0 missing."
+        -> "Distinct file hashes: 5 of 5"
+        -> "All font weights are byte-distinct."
+        Exit 0, arquivos gerados corretamente.
+      Sem dependencias externas alem de Node.js built-ins (fetch, fs, path, crypto).
+      Codigo tem comentarios claros explicando o quirk do User-Agent Chrome 60 (necessario porque
+      UA moderno retorna variable font, que serve pra qualquer peso -- inutil pra useFonts).
+      Auto-teste embutido: valida MD5 dos 5 arquivos e falha (process.exit(1)) se detectar duplicacao.
+    notes: |
+      Divergencia de extensao (.ts -> .mjs) e trivial mas o PRD nao foi atualizado. Recomendo
+      atualizar docs/prd/epics/1-setup-fundacao.md AC2 para "scripts/extract-fonts.mjs" ou registrar
+      em design-decisions.md junto com o desvio do AC1.
+
+  - id: AC3
+    description: "Exports em expo.ts prontos para uso com useFonts do Expo"
+    status: CONCERNS
+    evidence: |
+      src/expo.ts exporta `fonts: Record<string, string>` com 5 entradas mapeando
+      `HankenGrotesk-{Regular,Medium,SemiBold,Bold,ExtraBold}` -> path relativo para o .woff2.
+      Uso pretendido em Expo:
+        `import { fonts } from '@keepit/ui-tokens'; useFonts(fonts);`
+      Tipagem: `FontKey = keyof typeof fonts` exportado.
+      Typecheck: 7/7 successful (cache hit, mas empiricamente valido em run limpo tambem).
+
+      **ISSUE HIGH:** o JSDoc do export (linhas 37-42) contem documentacao OBSOLETA:
+        "Nota: o bundle do prototipo usa um arquivo woff2 por unicode-subset, nao por peso...
+         Os arquivos nomeados em fonts/ sao IDENTICOS em bytes, mas nomeados individualmente..."
+      Isso descreve o comportamento da PRIMEIRA tentativa (extracao do bundle) e contradiz a
+      realidade atual (5 arquivos byte-distintos, MD5 diferentes). Um dev futuro lendo o JSDoc
+      vai acreditar que os arquivos sao redundantes -- exatamente o oposto da verdade.
+
+  - id: AC4
+    description: "Exports em tailwind.js configuram fontFamily.sans como Hanken Grotesk"
+    status: PASS
+    evidence: |
+      src/tailwind.js linha 36-38:
+        fontFamily: { sans: [tokens.typography.fontFamily, 'system-ui', 'sans-serif'] }
+      tokens.typography.fontFamily = "Hanken Grotesk" (confirmado no gate 1.2).
+      Fallback chain correto (system-ui + sans-serif) para casos onde a fonte custom nao carrega.
+      Nota: tailwind.js nao referencia diretamente os arquivos .woff2 -- isso e correto, pois
+      no Next.js os arquivos sao carregados via `next/font/local` (documentado no README).
+
+quality_checks:
+  code_review: CONCERNS
+  unit_tests: N/A
+  acceptance_criteria: CONCERNS
+  regressions: PASS
+  performance: PASS
+  security: PASS
+  documentation: CONCERNS
+
+issues:
+  - severity: high
+    category: code
+    description: |
+      packages/ui-tokens/src/expo.ts linhas 37-42 contem JSDoc OBSOLETO da primeira tentativa
+      (extracao do bundle). O comentario diz que "Os arquivos nomeados em fonts/ sao identicos
+      em bytes" -- isso e falso apos o rework. MD5sum confirma 5 hashes distintos.
+      Um dev lendo esse JSDoc para debug de fontes vai concluir errado que os arquivos sao redundantes.
+    recommendation: |
+      Substituir o JSDoc pelo texto correto:
+        "Os 5 arquivos woff2 sao byte-distintos (um por peso), baixados do Google Fonts CDN
+         via `scripts/extract-fonts.mjs`. Reextracao: `pnpm --filter @keepit/ui-tokens run extract-fonts`."
+      Bloqueia PASS -- deve ser corrigido antes de fechar a Story.
+
+  - severity: medium
+    category: requirements
+    description: |
+      A decisao de trocar a fonte de extracao (keepit-app/index.html -> Google Fonts CDN) e o quirk
+      do User-Agent Chrome 60 nao estao registrados em docs/qa/design-decisions.md. A politica do
+      projeto (ver header desse arquivo e o gate 1.2) e: "toda decisao que diverge do PRD deve ser
+      formalmente registrada aqui". O README explica bem, mas o log formal e o canal esperado por
+      auditorias futuras.
+    recommendation: |
+      Adicionar entrada em docs/qa/design-decisions.md no formato existente:
+        "## 2026-07-03 -- Story 1.3 -- Fontes extraidas do Google Fonts CDN (nao do bundle)"
+      com: (1) Contexto (AC1 pedia extracao do bundle base64), (2) Evidencia empirica (bundle
+      tinha 1 peso replicado 5x), (3) Decisao (Google Fonts CDN + UA Chrome 60), (4) Efeito
+      colateral (dependencia de internet para reextrair; Google Fonts pode mudar API no futuro).
+
+  - severity: medium
+    category: requirements
+    description: |
+      AC1 pediu explicitamente ".ttf para Expo iOS". Implementacao entrega apenas .woff2.
+      README (secao "Por que nao ha .ttf?") justifica: expo-font suporta woff2 em iOS moderno e
+      conversao requer dep externa. Justificativa e razoavel para MVP, mas o AC PRD literal nao
+      esta atendido -- se um dev futuro fizer verificacao de conformidade contra o PRD, vai marcar
+      como falha. Ideal: atualizar o AC1 no PRD para "woff2 (ttf opcional se necessario)" OU
+      confirmar em Story 1.6 que useFonts+.woff2 funciona no simulador iOS real (nao so em Android).
+    recommendation: |
+      Duas opcoes:
+      (a) Atualizar docs/prd/epics/1-setup-fundacao.md Story 1.3 AC1 removendo a exigencia .ttf
+          E registrar em design-decisions.md, OU
+      (b) Validar empiricamente na Story 1.6 (tela canario) que .woff2 renderiza a fonte
+          corretamente no simulador iOS. Se sim, atualizar PRD; se nao, gerar os .ttf agora
+          (`pip install fonttools` + `pyftsubset` OU `woff2` CLI via apt).
+
+  - severity: low
+    category: requirements
+    description: |
+      AC2 do PRD pede `scripts/extract-fonts.ts` (extensao .ts). Arquivo real e `.mjs`. Trivial
+      mas cria drift entre spec e realidade. Package.json ja aponta corretamente para `.mjs`.
+    recommendation: |
+      Atualizar AC2 no PRD para `.mjs` (ou registrar em design-decisions.md junto ao item MEDIUM
+      acima). Escolha do `.mjs` e correta -- evita precisar de ts-node/tsx no build pipeline
+      so pra rodar um script one-off.
+
+  - severity: low
+    category: code
+    description: |
+      Script hardcoda User-Agent Chrome 60 (2017) sem TTL/versionamento. Se o Google Fonts mudar
+      o comportamento do UA legacy (removendo ou mudando o formato retornado), o script quebra
+      silenciosamente -- pode retornar variable font (todos os pesos apontando pra mesma URL),
+      o que faria a validacao byte-distinct falhar corretamente (exit 1) mas sem mensagem util.
+    recommendation: |
+      Adicionar log especifico na validacao: "if hashes.size < extracted.length, log message
+      apontando para 'possivelmente Google Fonts mudou politica de UA-based response -- verificar
+      URL da CSS API'". Baixa prioridade -- ja falha corretamente, so cria melhor UX quando falhar.
+
+  - severity: low
+    category: performance
+    description: |
+      Total de fontes: ~65kB (5 x ~13kB). Razoavel para MVP mobile, mas cada peso e um bundle
+      separado -- 5 requests para baixar tudo. Se algum dia quiser otimizar, expo-font suporta
+      variable font (1 arquivo ~35kB total). Nao urgente -- MVP nao precisa.
+    recommendation: |
+      Nao acionar agora. Se performance de startup do app virar issue, considerar migrar para
+      variable font (`Hanken_Grotesk-VariableFont_wght.ttf` do Google Fonts) e ajustar useFonts.
+
+notes: |
+  Analise da trajetoria da Story:
+
+  Primeira tentativa do @dev seguiu AC1 literalmente e extraiu do bundle. Descoberta empirica:
+  o bundle so continha 1 peso replicado 5x. A tentativa produziu 5 arquivos identicos, o que
+  QUEBRARIA fidelidade visual -- todos os pesos seriam Regular disfarcado. A decisao do
+  orquestrador de mudar para Google Fonts CDN foi TECNICAMENTE CORRETA. Sem isso, a Story
+  entregava zero valor visual (o objetivo do package "fonts oficial sem depender de CDN em
+  runtime" e alcancado -- baixamos uma vez, empacotamos localmente; o Google Fonts CDN e
+  usado apenas em build-time, nao em runtime).
+
+  Verificacoes empiricas todas passam:
+  - 5 arquivos .woff2, 13-14 kB cada, magic bytes "wOF2" validos -> fontes WOFF2 corretas.
+  - 5 MD5s distintos -> um peso diferente por arquivo (nao redundantes).
+  - Script reproduz corretamente do zero (rodei durante a review, log em anexo).
+  - typecheck: 7/7 successful.
+  - Sem regressoes em Stories 1.1 e 1.2 (typecheck cross-package continua passando).
+  - Sem dependencias novas em package.json.
+  - Fetch feito apenas para fonts.googleapis.com e fonts.gstatic.com (URLs oficiais Google
+    Fonts, servico OFL/open). Sem input externo controlavel por atacante. Escrita restrita
+    a packages/ui-tokens/fonts/.
+
+  A justificativa tecnica para o desvio e SOLIDA e o resultado final e MELHOR do que a
+  interpretacao literal do PRD. Mas: como e um desvio consciente do AC1 e do AC2, precisa
+  ser formalmente registrado em docs/qa/design-decisions.md (mesmo padrao aplicado a Story 1.2
+  para o desvio de radii.card). A ausencia desse registro e o principal ponto que puxa o
+  verdict para CONCERNS.
+
+  Alem disso, o HIGH em expo.ts (JSDoc obsoleto contradizendo a realidade) e um bug de
+  documentacao real -- um dev futuro que ler o comentario para entender por que ha 5 arquivos
+  vai concluir errado que sao redundantes. Precisa ser corrigido antes de fechar a Story.
+
+  Comparado com o gate 1.2: mesma logica de CONCERNS (implementacao boa, decisoes tecnicas
+  corretas, mas rastreabilidade formal incompleta). Nao ha nada bloqueante para a Story 1.6
+  (tela canario) alem de ajustar a documentacao.
+
+next_action:
+  - "Corrigir JSDoc de expo.ts (linhas 37-42) para refletir a realidade: arquivos byte-distintos vindos do Google Fonts CDN. Este e o unico item HIGH."
+  - "Registrar em docs/qa/design-decisions.md a decisao 'Fontes vindas do Google Fonts CDN, nao do bundle keepit-app' com evidencia empirica e explicacao do UA Chrome 60. Seguir formato existente."
+  - "Atualizar docs/prd/epics/1-setup-fundacao.md Story 1.3 AC1 (remover exigencia .ttf, apontar para design-decisions) e AC2 (.mjs em vez de .ts). Alternativamente, deixar como esta e apontar tudo para design-decisions."
+  - "Story 1.6 (canario cliente iOS) deve VALIDAR EMPIRICAMENTE que useFonts + .woff2 funciona no simulador iOS. Se sim, fecha a preocupacao MEDIUM sobre .ttf; se nao, gerar .ttf antes."
+  - "Apos os 4 pontos acima, verdict pode ser reavaliado para PASS. Sem eles, permanece CONCERNS -- nao bloqueia proximas stories mas deixa debito de rastreabilidade."
+
+follow_ups_applied:
+  date: "2026-07-03"
+  applied_by: "orchestrator (post-QA cleanup)"
+  changes:
+    - issue_ref: "HIGH (expo.ts JSDoc obsoleto)"
+      change: "Reescrito o bloco JSDoc do export 'fonts' em packages/ui-tokens/src/expo.ts removendo afirmacao falsa sobre arquivos identicos e apontando para docs/qa/design-decisions.md."
+      status: RESOLVED
+    - issue_ref: "MEDIUM (decisao Google Fonts CDN nao registrada)"
+      change: "Adicionada entrada '2026-07-03 -- Story 1.3 -- Fontes Hanken Grotesk baixadas do Google Fonts CDN' em docs/qa/design-decisions.md, com evidencia empirica (4 UUIDs no manifest, 5 pesos apontando pros mesmos UUIDs), causa raiz (bundler v0/Lovable), efeitos colaterais (necessidade de internet, sem .ttf) e referencia ao gate."
+      status: RESOLVED
+    - issue_ref: "MEDIUM (.ttf ausente)"
+      change: "Deixado como esta por ser aceitavel para MVP. Validacao empirica de .woff2 no simulador iOS deve virar AC explicito da Story 1.6."
+      status: DEFERRED_TO_STORY_1.6
+    - issue_ref: "LOW (.mjs vs .ts no AC2)"
+      change: "Deixado como esta -- .mjs puro evita necessidade de tsx/ts-node e mantem 'sem deps novas'."
+      status: ACCEPTED
+    - issue_ref: "LOW (UA Chrome 60 hardcoded)"
+      change: "Deixado como esta -- comentario no proprio arquivo explica motivo. Se Google mudar politica, script falhara claramente e sera revisado."
+      status: ACCEPTED
+  verification:
+    - "pnpm turbo run typecheck: 7 successful, 7 total"
+    - "5 arquivos woff2 byte-distintos em packages/ui-tokens/fonts/ (MD5 verificado)"
+    - "design-decisions.md atualizado com nova entrada Story 1.3"
+    - "expo.ts com JSDoc corrigido"
+  ready_for_story: "1.4 (Projeto Supabase dev + wrapper); validacao empirica .woff2 no simulador iOS fica para 1.6"
