@@ -319,12 +319,22 @@ As telas de Criar conta e Login do protótipo (`cliente-09-criar-conta.png`, `cl
 ### 10.3 🟡 Tema do onboarding do Cliente
 O onboarding do protótipo (`cliente-01-onboarding.png`) é **dark** (fundo escuro, círculo verde com casa), enquanto o restante do app Cliente é claro. Ponto de fidelidade puro (não é regra de negócio) — será corrigido para dark. Registrado aqui só para ciência; não bloqueia. → CAIO (fidelidade).
 
-### 10.4 🔴 Modelo de autenticação do Cliente: telefone/SMS vs e-mail/senha
-As telas coletam **e-mail + senha + telefone** (Rodada 2), mas o modelo de dados atual (`Cliente`) e a `auth.port` só modelam **nome + telefone** (fluxo SMS). Antes do Épico 1 (auth real) é preciso cravar: o login do MVP é **e-mail+senha**, **telefone+SMS**, ou ambos? Impacta schema Supabase e Supabase Auth. → STAKEHOLDER + CAIO.
+### 10.4 ✅ Modelo de autenticação do Cliente — RESOLVIDO (Rodada 6, 2026-07-29)
+Login do Cliente é **e-mail + senha** (Supabase Auth nativo). **Sem confirmação de SMS no MVP** (economia de Zenvia + simplicidade). Telefone é campo **opcional, não verificado**. Ver `## Decisões → Rodada 6`.
 
 ---
 
 ## Decisões (fechadas)
+
+### Rodada 6 — 2026-07-29 (Caio)
+
+#### Autenticação do Cliente (resolve 10.4 — destrava o Épico 2)
+
+- **[Login do Cliente]** **E-mail + senha** (padrão, Supabase Auth nativo). É o que as telas de Criar conta/Login (Story 0.4) já mostram.
+- **[SMS]** **Sem confirmação por SMS no MVP.** Corta custo/integração Zenvia agora; entra em v2 se necessário.
+- **[Telefone]** Campo **opcional e não verificado** no cadastro (informativo). CPF continua obrigatório no 1º checkout (Rodada 2).
+- **[Fallback do PIN]** Sem SMS, o PIN vive só no app; se o cliente perde acesso, ele **re-loga (e-mail+senha)** e vê o PIN de novo. Substitui o fallback por SMS previsto na Rodada 2.
+- **[Impacto técnico]** Ajustar `Cliente`/`auth.port` para e-mail+senha (+ telefone opcional). Lojista/Admin (Épico 3) também e-mail+senha.
 
 ### Rodada 1 — 2026-07-02 (Caio, sujeito a validação do stakeholder)
 
