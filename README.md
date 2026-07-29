@@ -45,3 +45,6 @@ pnpm dev              # Levantar todos os apps em modo dev
 Toda **Pull Request para `main`** dispara o workflow `.github/workflows/ci.yml`, que roda
 `pnpm turbo run lint typecheck test` em todos os workspaces. PRs com lint/typecheck/test
 quebrados não devem ser mergeadas. (Requer o repositório hospedado no GitHub — Story 1.5.)
+
+<!-- smoke test: valida a execução do workflow de CI em um PR (Story 1.5, AC3) -->
+
