@@ -47,4 +47,5 @@ Toda **Pull Request para `main`** dispara o workflow `.github/workflows/ci.yml`,
 quebrados não devem ser mergeadas. (Requer o repositório hospedado no GitHub — Story 1.5.)
 
 <!-- smoke test: valida a execução do workflow de CI em um PR (Story 1.5, AC3) -->
+<!-- ci re-trigger: synchronize event p/ PR #1 (repo agora público, Actions grátis) -->
 
