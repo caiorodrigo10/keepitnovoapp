@@ -1,0 +1,262 @@
+schema: 1
+story: '2.1'
+story_title: 'Onboarding "Como funciona" — persistir flag de exibição única'
+gate: CONCERNS
+status_reason: >-
+  AC4 (a-f) atendido integralmente a nível de código: os 5 pontos de escrita da
+  flag estão corretos e cobrem todas as saídas do onboarding, a rota inicial
+  condicional é sólida, o botão de reset está corretamente atrás de `__DEV__`,
+  `authGuard.ts` não foi tocado e a dependência foi instalada de forma limpa
+  (lockfile atualizado — o débito ARCH-001 da 0.4 NÃO se repetiu). O gate é
+  CONCERNS por um motivo central: esta story entrega 100% comportamento de
+  runtime e nenhuma linha dela foi jamais executada — sem device/simulador e
+  sem teste automatizado (`apps/cliente` tem `lint` e `test` = `echo skipped`),
+  a única evidência é `tsc --noEmit`. Débitos rastreados abaixo, nenhum
+  bloqueante para fechar a story.
+reviewer: 'Quinn'
+updated: '2026-07-30T00:00:00Z'
+
+# --- 7 Quality Checks (story-lifecycle.md Phase 4) ---
+quality_checks:
+  - id: 1
+    name: 'Code review (patterns, readability, maintainability)'
+    result: PASS
+    notes: >-
+      `onboardingFlag.ts` é um módulo pequeno, coeso e bem documentado: chave
+      namespaced (`@keepit/cliente:onboarding_visto`), 3 funções assíncronas com
+      responsabilidade única, comentário [IDS] CREATE justificando por que não
+      virou port de `@keepit/core-data` (estado de UI/dispositivo, não dado de
+      domínio) — mesmo padrão de `cancelamentoPolicy.ts`. `AuthStack.tsx`
+      documenta no próprio arquivo por que o navigator só monta após a leitura
+      resolver (`initialRouteName` não é reativo pós-mount em react-navigation),
+      o que evita que um futuro leitor "simplifique" e reintroduza o bug.
+      Cleanup do `useEffect` com flag `mounted` correto (sem setState após
+      unmount). `getOnboardingVisto()` nunca rejeita (try/catch interno), então
+      o `.then()` sem `.catch()` não gera unhandled rejection.
+  - id: 2
+    name: 'Unit tests (coverage, passing)'
+    result: CONCERNS
+    notes: >-
+      Zero testes. `apps/cliente/package.json` tem `"test": "echo skipped"` e
+      `"lint": "echo skipped"` — ou seja, o "27/27 verde" do `pnpm qa` significa,
+      para esta story, apenas `tsc --noEmit`. `onboardingFlag.ts` é o candidato
+      mais fácil possível a teste unitário do repositório inteiro (3 funções
+      puras sobre um storage mockável), e a própria story previa que "um teste
+      Vitest/Jest simples é bem-vindo mas não é bloqueante". Não foi feito, e
+      não havia runner configurado no app — ver TEST-002.
+  - id: 3
+    name: 'Acceptance criteria met'
+    result: PASS
+    notes: >-
+      AC4a: flag ausente → `getOnboardingVisto()` retorna `false` →
+      `initialRouteName='Onboarding1'`. AC4b: **auditados os 4 pontos de saída**
+      do onboarding e todos gravam a flag — Onboarding1 "Pular" (l.40),
+      Onboarding2 "Pular" (l.36), Onboarding3 "Criar conta" (l.34) e "Já tenho
+      conta · Entrar" (l.41). Grep de `navigate(` nas 3 telas confirma que as
+      ÚNICAS outras navegações são `Onboarding1→2` e `2→3` (avanço interno, que
+      corretamente NÃO deve gravar). **Não existe caminho de saída do onboarding
+      sem gravação da flag.** AC4c: flag `true` → `initialRouteName='Login'`
+      (não `CriarConta`), sem Onboarding na pilha de volta. AC4d: reset +
+      `Alert` de feedback, sem tentar remount/deslogar — exatamente como o @po
+      desambiguou. AC4e: grep `fetch\(|axios|supabase` nos 6 arquivos tocados =
+      zero. AC4f: `git diff apps/cliente/src/navigation/authGuard.ts` vazio,
+      `AUTH_GUARD_ENABLED = false` confirmado por leitura, arquivo ausente do
+      File List. AC1/AC2/AC3 fora do escopo desta story (ver DOC-002).
+  - id: 4
+    name: 'No regressions'
+    result: PASS
+    notes: >-
+      `pnpm --filter @keepit/cliente typecheck` → exit 0. `pnpm qa` → 27/27
+      (re-executado por mim; FULL TURBO por cache, inputs inalterados desde a
+      execução do @dev). Diff restrito ao File List declarado. As 3 telas de
+      onboarding só ganharam uma chamada `void setOnboardingVisto()` dentro de
+      `onPress` existentes — nenhuma alteração de layout/estilo/copy, então a
+      fidelidade visual entregue pela 0.4 está preservada.
+      `Configuracoes.tsx` ganhou um bloco novo no fim, sem tocar nada anterior.
+  - id: 5
+    name: 'Performance'
+    result: PASS
+    notes: >-
+      Uma leitura de `AsyncStorage` no mount do `AuthStack` (chave única,
+      valor de 4 bytes) e uma escrita fire-and-forget por saída do onboarding.
+      Sem rede, sem loop, sem polling. O único efeito perceptível é o frame de
+      loading transitório — ver UX-001.
+  - id: 6
+    name: 'Security (OWASP basics)'
+    result: PASS
+    notes: >-
+      Escolha `AsyncStorage` (não `expo-secure-store`) **auditada e aprovada**:
+      o dado é um booleano de UX, sem valor para um atacante — o pior caso de
+      adulteração é o usuário pular ou repetir uma tela explicativa. Usar
+      Keychain/Keystore aqui seria overkill e violaria o princípio "nada além do
+      necessário" do `CLAUDE.md`. Chave namespaced evita colisão futura. Nenhum
+      dado pessoal, credencial ou segredo é gravado. `__DEV__` garante que a
+      superfície de manipulação de estado não existe em produção (ver DEV-001).
+  - id: 7
+    name: 'Documentation'
+    result: PASS
+    notes: >-
+      Story com Dev Agent Record honesto — o @dev declarou explicitamente que a
+      validação foi por inspeção de código/tipos e não por execução, sem
+      maquiar como "testado". Esse é o comportamento correto e vale registro.
+      Fail-open documentado nos docstrings do próprio helper. Change Log
+      atualizado. Nenhuma regra de negócio inventada.
+
+top_issues:
+  - id: 'TEST-001'
+    severity: medium
+    category: tests
+    finding: >-
+      **Nenhuma linha desta story foi jamais executada.** Sem simulador/emulador
+      no sandbox e sem teste automatizado, os 3 cenários do AC4 (primeira
+      abertura → onboarding; concluir → reabrir → cai em Login; reset em dev →
+      reabrir → onboarding volta) foram validados apenas por inspeção de código
+      e `tsc --noEmit`. Isto é materialmente diferente do débito REQ-002 das
+      Stories 0.1/0.4: lá o não-validado era **fidelidade de pixel** (o código
+      rodava, só não se sabia se estava bonito); aqui o não-validado é o
+      **entregável inteiro** — persistência, roteamento condicional e o primeiro
+      módulo NATIVO do monorepo (`@react-native-async-storage/async-storage`).
+      Typecheck prova que os tipos casam; não prova que o módulo nativo linka,
+      que a leitura resolve, nem que a rota inicial correta é escolhida em
+      runtime. Risco residual real, ainda que baixo (AsyncStorage vem embutido
+      no Expo Go e a lógica é trivial).
+    suggested_action: >-
+      Executar os 3 cenários do AC4 em device/Expo Go na primeira oportunidade
+      em que houver ambiente. **Ancorar essa verificação no DoD da Story 2.6**
+      (sessão real), que é quando o `AuthStack` volta a ser alcançável no boot —
+      ver ARCH-002. Enquanto isso, TEST-002 é a mitigação barata e imediata.
+  - id: 'TEST-002'
+    severity: low
+    category: tests
+    finding: >-
+      `apps/cliente` não tem runner de teste nem lint reais (`"test": "echo
+      skipped"`, `"lint": "echo skipped"`), então o gate oficial `pnpm qa`
+      (27/27) não exercita nada além de `tsc` neste app. `onboardingFlag.ts` é
+      testável em ~15 linhas com um mock de `AsyncStorage` (get/set/reset +
+      caminho de fail-open), o que cobriria boa parte do risco do TEST-001 sem
+      precisar de device. Gap de infraestrutura do projeto, não falha da 2.1.
+    suggested_action: >-
+      Configurar Vitest (ou jest-expo) em `apps/cliente` e começar por
+      `onboardingFlag.test.ts`. Habilitar ESLint real no app na mesma passada —
+      hoje o "lint" citado em `quality_gate_tools` desta story é nominal.
+  - id: 'UX-001'
+    severity: low
+    category: code
+    finding: >-
+      O estado transitório do `AuthStack.tsx` (l.45-48) renderiza uma `View`
+      com `darkColors.bg.primary`. Isso é coerente quando o destino é
+      `Onboarding1` (tema dark, via `OnboardingScreen`), mas **incoerente
+      quando a flag é `true`**: o destino é `Login`, que usa `lightColors`.
+      Para o usuário recorrente — justamente o caso de uso que esta story
+      cria — o caminho é splash → frame escuro → tela clara, com risco de
+      flash escuro visível se a leitura do AsyncStorage demorar mais que um
+      frame (plausível em cold start de Android). Não há risco de montar o
+      navigator com rota errada: o `Stack.Navigator` só é criado depois de
+      `initialRoute !== null`, e o guard `mounted` impede setState órfão — essa
+      parte está correta.
+    suggested_action: >-
+      Manter o splash nativo visível até a flag resolver
+      (`expo-splash-screen` + `preventAutoHideAsync`/`hideAsync`), ou, como
+      correção mínima, pintar o placeholder com a cor do destino
+      (`visto ? lightColors.bg.primary : darkColors.bg.primary`) — o que exige
+      guardar o valor lido antes de decidir a rota. Não bloqueante; só será
+      observável quando ARCH-002 for resolvido.
+  - id: 'ARCH-002'
+    severity: low
+    category: requirements
+    finding: >-
+      Com `AUTH_GUARD_ENABLED = false`, `RootNavigator` monta `MainTabs` e o
+      `AuthStack` **nunca é montado no boot** — ou seja, todo o comportamento
+      entregue por esta story fica dormente no build atual. Isso é correto e
+      esperado (é a pré-condição AC4f, herdada da Story 0.3), mas amplifica o
+      TEST-001: o código só será exercitado de verdade semanas depois, na
+      Story 2.6, quando a sessão real for introduzida — longe do contexto de
+      quem o escreveu.
+    suggested_action: >-
+      Registrar explicitamente na Story 2.6 que, ao ligar a sessão real, os 3
+      cenários do AC4 da 2.1 devem ser verificados empiricamente como parte do
+      seu DoD. Não reabrir a 2.1 por isso.
+  - id: 'OBS-001'
+    severity: low
+    category: code
+    finding: >-
+      Escolha de fail-open **auditada e aprovada**: `getOnboardingVisto()`
+      retorna `false` em qualquer erro de leitura, e as escritas engolem erro
+      silenciosamente. Está correto — o pior caso é o onboarding reaparecer
+      (irritação mínima, ~15s), enquanto o fail-closed (assumir "visto" e ir
+      para `Login`) esconderia a explicação do produto de um usuário novo, que
+      é pior, e travar o boot seria inaceitável. A escolha está documentada nos
+      docstrings do helper. Duas ressalvas menores, não acionáveis agora:
+      (a) os `catch` são completamente silenciosos, sem nem um `console.warn`
+      sob `__DEV__`, o que dificultará diagnosticar um storage quebrado;
+      (b) as escritas são fire-and-forget (`void`) imediatamente seguidas de
+      `navigation.navigate()` — se o app for morto nos milissegundos seguintes,
+      a flag se perde. Ambas degradam para "onboarding reaparece", coerente com
+      a política declarada.
+    suggested_action: >-
+      Opcional: adicionar `if (__DEV__) console.warn(...)` nos 3 `catch`.
+      Nenhuma ação obrigatória.
+  - id: 'DOC-002'
+    severity: low
+    category: docs
+    finding: >-
+      **Débito conhecido, fora do escopo desta story — não é falha da
+      implementação.** AC1/AC2/AC3 do épico (pager "Passo 1 de 3", copy literal
+      dos 3 cards, rótulo "Continuar") estavam errados/sem fonte no protótipo e
+      foram corrigidos pelo @pm em 2026-07-30 em
+      `docs/prd/epics/2-auth-cliente.md`. As telas 1/3 e 2/3 são reconstrução
+      assistida (o protótipo só tem a captura da tela final,
+      `cliente-01-onboarding.png`), e a palavra "PIN" não aparece em nenhuma
+      das 3 telas. A pergunta de produto associada está aberta e rastreada como
+      **10.7 🟡** em `docs/PERGUNTAS_REGRAS_NEGOCIO.md` ("O PIN de retirada
+      precisa ser explicado ao cliente antes do cadastro?").
+    suggested_action: >-
+      Nenhuma ação nesta story. Acompanhar a resposta de 10.7 (Caio/
+      stakeholder) e abrir story de ajuste de copy do onboarding se a decisão
+      exigir mencionar o PIN antes do cadastro.
+
+waiver: { active: false }
+
+# --- Notas do revisor ---
+review_notes: |
+  Story pequena por desenho e recorte correto — o escopo AC4-only é legítimo,
+  já que as 3 telas vieram prontas da Story 0.4. O tamanho NÃO foi penalizado.
+
+  O que foi auditado ponto a ponto, conforme solicitado:
+
+  1. **5 pontos de escrita da flag** — todos corretos e completos. Grep de
+     `navigate(` nas 3 telas prova que não existe caminho de saída do
+     onboarding que deixe de gravar a flag (o bug clássico desta feature NÃO
+     está presente). Avanços internos (1→2, 2→3) corretamente não gravam.
+  2. **Race condition / rota errada** — não há. O `Stack.Navigator` só é
+     montado depois de `initialRoute !== null`, e o cleanup com `mounted`
+     impede setState após unmount. O problema remanescente é apenas cosmético
+     (UX-001: placeholder dark antes de uma `Login` clara).
+  3. **Fail-open** — escolha certa e documentada (OBS-001).
+  4. **`__DEV__` guard** — `{__DEV__ ? (...) : null}` é o padrão canônico;
+     Metro/Hermes elimina o bloco em release (`__DEV__ === false`). O botão
+     não vaza para produção. Ver DEV-001 nas notas de segurança do check 6.
+  5. **`authGuard.ts`** — confirmado intacto por `git diff` (vazio) e por
+     leitura direta (`AUTH_GUARD_ENABLED = false`). Ausente do File List.
+  6. **AsyncStorage vs SecureStore** — decisão alinhada ao "nada além do
+     necessário"; `expo-secure-store` seria overkill para um booleano de UX.
+  7. **Instalação da dependência** — mérito a registrar: `npx expo install`
+     fixou `2.2.0` (compatível com SDK 57), o `pnpm-lock.yaml` foi atualizado
+     (+27 linhas) e o pacote está materializado em `node_modules/.pnpm`. O
+     débito ARCH-001 do gate 0.4 (symlink manual, lockfile divergente) **não
+     se repetiu**.
+
+  **Por que CONCERNS e não PASS:** por um único motivo, e ele é honesto —
+  nenhuma linha desta story rodou. O @dev declarou isso explicitamente em vez
+  de maquiar, o que é o comportamento certo, e eu não vou validar
+  empiricamente o que não foi validado empiricamente. Diferente das Stories
+  0.1/0.4, onde o não-testado era estética, aqui o não-testado é o entregável
+  inteiro somado à primeira integração de módulo nativo do monorepo. O gate
+  CONCERNS existe exatamente para carregar esse débito adiante (TEST-001) sem
+  travar a story, cuja implementação está correta em tudo que é auditável sem
+  device.
+
+  **Não é dívida que precise ser paga antes de o Épico 2 avançar** — porque
+  o `AuthStack` está inalcançável no boot (ARCH-002), o código está dormente
+  e não pode quebrar nada hoje. Vira dívida **bloqueante da Story 2.6**, que
+  é onde ele acorda.

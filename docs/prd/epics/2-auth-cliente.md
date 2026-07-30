@@ -20,10 +20,17 @@ Ao final: um cliente novo consegue baixar o app, criar conta com e-mail + senha,
 **I want** ver 3 telas explicando como o Keepit funciona (comprar → esperar → retirar no hub com PIN),
 **so that** eu entenda o modelo antes de criar conta.
 
+> **Correção de rastreabilidade (2026-07-30) — Article IV (No Invention).** As ACs 1, 2 e 3 foram reescritas após conferência direta contra as fontes (`docs/design-refs/cliente-01-onboarding.png`, `docs/design-refs/_design-system-legend.png`, `keepit-app/index.html` e o código já entregue no Épico 0). O que estava errado na versão anterior:
+> - **AC1** exigia um pager textual *"Passo 1 de 3"*. Esse rótulo **existe no protótipo, mas em outra tela** — o *Cadastro do estabelecimento* do **Lojista** (frame "P6"). O onboarding do Cliente não tem rótulo de passo; o indicador é de **dots**.
+> - **AC2** tratava as três frases como copy de três telas de onboarding. As frases **existem literalmente** em `keepit-app/index.html`, porém no bloco **"COMO FUNCIONA"** da legenda do design system (cards "1 · Compra", "2 · Pronto", "3 · Encontro") — um explicador do sistema de design, **não** texto de tela. O protótipo tem **uma única** tela de onboarding do Cliente (frame "01 · Onboarding").
+> - **AC3** pedia *"Continuar"* e *"Já tem conta? Entrar"*. O protótipo diz **"Já tenho conta · Entrar"** (o código está certo, a AC estava errada); *"Continuar"* é botão do frame P6 do Lojista e não ocorre no fluxo do Cliente.
+>
+> **AC4 não foi alterada.** ACs não foram renumeradas. A lacuna de copy das telas 1/3 e 2/3 está registrada como pergunta aberta **10.7** em `docs/PERGUNTAS_REGRAS_NEGOCIO.md` — **não inventar texto substituto até a resposta**.
+
 **Acceptance Criteria:**
-1: 3 telas com pager indicator ("Passo 1 de 3") replicando o protótipo.
-2: Textos fiéis: "Escolhe lojas locais na plataforma", "Pedido fica pronto no hub Keepit", "Retira com código PIN no ponto".
-3: Botão "Continuar" avança; na última tela, botão "Criar conta" e link "Já tem conta? Entrar".
+1: Fluxo de onboarding em **tema dark** (decisão 10.3), com indicador de progresso por **dots** (componente `Dots` do design system, entregue no Épico 0) — **sem** rótulo textual de passo. Fonte: `docs/design-refs/cliente-01-onboarding.png` + frame "01 · Onboarding" de `keepit-app/index.html`. O protótipo capturou **apenas a tela final**; as telas 1/3 e 2/3 entregues no Épico 0 (Story 0.4) são reconstruções assistidas, sem captura correspondente — condição documentada nos próprios arquivos `Onboarding1.tsx`/`Onboarding2.tsx` e sujeita à pergunta 10.7.
+2: **Copy verificada — tela final (3/3):** título *"Tudo perto de você, retirado no hub."* e subtexto *"Compre de farmácias, lojas e conveniências locais e retire tudo em um ponto de encontro Keepit."*, exatamente como em `cliente-01-onboarding.png` / `keepit-app/index.html`. **Copy não verificada — telas 1/3 e 2/3:** o protótipo **não fornece** texto de tela para elas. As frases *"Escolhe lojas locais na plataforma"*, *"Pedido fica pronto no hub Keepit"* e *"Retira com código PIN no ponto"* pertencem ao bloco "COMO FUNCIONA" da legenda do design system (`_design-system-legend.png`, onde inclusive o card 2 aparece cortado e o card 3 não aparece) e **não podem ser promovidas a copy de onboarding sem decisão de produto**. Vale o texto atualmente em código até a pergunta **10.7** ser respondida; **não substituir por copy nova**.
+3: **Navegação e rótulos.** Tela final (3/3): CTA **"Criar conta"** e link **"Já tenho conta · Entrar"** (com o separador `·`), fiéis ao protótipo. Telas 1/3 e 2/3: botão de avanço e atalho para o cadastro conforme entregue no Épico 0 (`"Avançar"` / `"Pular"`) — rótulos **sem fonte no protótipo** (consequência direta de não haver captura dessas telas), cobertos pela mesma pendência 10.7. Os rótulos *"Continuar"* e *"Já tem conta? Entrar"* da versão anterior desta AC **não existem** no fluxo do Cliente e foram removidos.
 4: Onboarding só aparece uma vez (flag persistida em AsyncStorage/SecureStore); reset possível via "Redefinir onboarding" em dev.
 
 ---

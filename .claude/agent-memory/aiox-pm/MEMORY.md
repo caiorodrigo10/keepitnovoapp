@@ -1,1 +1,2 @@
-- [Dívida documental da remoção do SMS](project_sms_removal_doc_debt.md) — 10.4 já aplicada no PRD/ARQUITETURA; falta `docs/architecture/` e o código; lacunas 10.5 e 10.6 abertas
+- [Dívida documental da remoção do SMS](project_sms_removal_doc_debt.md) — 10.4 já aplicada no PRD/ARQUITETURA; falta `docs/architecture/` e o código; lacunas 10.5, 10.6 e 10.7 abertas
+- [design-refs não são fonte única](project_design_refs_nao_sao_fonte_unica.md) — PNGs são recortes cortados; grepar `keepit-app/index.html` antes de acusar copy de invenção

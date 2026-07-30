@@ -5,6 +5,7 @@ import { darkColors, spacing, typography } from '@keepit/ui-tokens';
 
 import { OnboardingScreen } from '../../components/onboarding/OnboardingScreen';
 import { Button, Dots } from '../../components/ui';
+import { setOnboardingVisto } from '../../lib/onboardingFlag';
 import type { AuthStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Onboarding3'>;
@@ -26,8 +27,22 @@ export default function Onboarding3({ navigation }: Props) {
           <View style={styles.dotsRow}>
             <Dots total={3} activeIndex={2} theme="dark" />
           </View>
-          <Button title="Criar conta" onPress={() => navigation.navigate('CriarConta')} />
-          <Pressable style={styles.loginRow} onPress={() => navigation.navigate('Login')} hitSlop={8}>
+          <Button
+            title="Criar conta"
+            onPress={() => {
+              // Fim do onboarding (AC4b): marca como visto antes de navegar.
+              void setOnboardingVisto();
+              navigation.navigate('CriarConta');
+            }}
+          />
+          <Pressable
+            style={styles.loginRow}
+            onPress={() => {
+              void setOnboardingVisto();
+              navigation.navigate('Login');
+            }}
+            hitSlop={8}
+          >
             <Text style={styles.loginText}>
               Já tenho conta · <Text style={styles.loginTextBold}>Entrar</Text>
             </Text>

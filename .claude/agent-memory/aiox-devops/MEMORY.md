@@ -1,1 +1,2 @@
 - [CI Actions não roda (nível de conta)](project_ci_actions_not_running.md) — 0 runs mesmo com repo público; causa é a conta caiorodrigo10 (billing/e-mail verificado), não o repo
+- [Push exige AIOX_ACTIVE_AGENT=devops](project_push_hook_env.md) — hook de autoridade bloqueia push de subagente sem a env declarada no comando

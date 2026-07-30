@@ -6,6 +6,7 @@ import { darkColors, spacing, typography } from '@keepit/ui-tokens';
 import { OnboardingScreen } from '../../components/onboarding/OnboardingScreen';
 import { Button } from '../../components/ui';
 import { Dots } from '../../components/ui';
+import { setOnboardingVisto } from '../../lib/onboardingFlag';
 import type { AuthStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Onboarding1'>;
@@ -32,7 +33,15 @@ export default function Onboarding1({ navigation }: Props) {
             <Dots total={3} activeIndex={0} theme="dark" />
           </View>
           <Button title="Avançar" onPress={() => navigation.navigate('Onboarding2')} />
-          <Pressable style={styles.skip} onPress={() => navigation.navigate('CriarConta')} hitSlop={8}>
+          <Pressable
+            style={styles.skip}
+            onPress={() => {
+              // "Pular" = já viu o suficiente para não repetir (AC4b).
+              void setOnboardingVisto();
+              navigation.navigate('CriarConta');
+            }}
+            hitSlop={8}
+          >
             <Text style={styles.skipText}>Pular</Text>
           </Pressable>
         </View>

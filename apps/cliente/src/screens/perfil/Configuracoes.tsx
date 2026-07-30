@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { Screen } from '../../components/ui';
+import { resetOnboardingVisto } from '../../lib/onboardingFlag';
 import type { PerfilStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<PerfilStackParamList, 'Configuracoes'>;
@@ -58,6 +59,18 @@ export default function Configuracoes({ navigation }: Props) {
       <Pressable style={styles.dangerRow} onPress={() => navigation.navigate('ExcluirConta')}>
         <Text style={styles.dangerLabel}>Excluir minha conta</Text>
       </Pressable>
+
+      {__DEV__ ? (
+        <Pressable
+          style={styles.devRow}
+          onPress={() => {
+            void resetOnboardingVisto();
+            Alert.alert('Onboarding redefinido', 'Reabra o app para vê-lo novamente.');
+          }}
+        >
+          <Text style={styles.devLabel}>[DEV] Redefinir onboarding</Text>
+        </Pressable>
+      ) : null}
     </Screen>
   );
 }
@@ -114,5 +127,15 @@ const styles = StyleSheet.create({
     fontFamily: 'HankenGrotesk-SemiBold',
     fontSize: typography.sizes.lg.fontSize,
     color: lightColors.accent.warning,
+  },
+  devRow: {
+    alignItems: 'center',
+    marginTop: spacing['5'],
+    paddingVertical: spacing['3'],
+  },
+  devLabel: {
+    fontFamily: 'HankenGrotesk-Medium',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.text.secondary,
   },
 });

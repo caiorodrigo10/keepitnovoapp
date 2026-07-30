@@ -342,6 +342,20 @@ Em aberto:
 
 **Enquanto não decidido, o Épico 3 assume:** `admin_users` **sem coluna de papel** (todos os admins têm os mesmos poderes) e **provisionamento manual via SQL**, por ser o menor escopo compatível com o MVP e com o volume esperado (4-5 hubs, poucos lojistas). Se a resposta trouxer papéis, o custo é uma migration + checagens de RLS por papel — não é retrabalho grande, mas é melhor saber antes da Story 3.7. → **STAKEHOLDER + CAIO**.
 
+### 10.7 🟡 O PIN de retirada precisa ser explicado ao cliente antes do cadastro? — aberto (revelado na correção das ACs da Story 2.1, 2026-07-30)
+
+**O fato.** A palavra **"PIN" não aparece em nenhuma das telas de onboarding do Cliente** (confirmado por grep em `apps/cliente/src/screens/auth/`). E não aparece porque **o protótipo não dá base para ela**: `keepit-app/index.html` tem **uma única** tela de onboarding do Cliente (frame "01 · Onboarding"), cuja copy fala de proximidade e ponto de retirada — *"Tudo perto de você, retirado no hub."* — e **não menciona PIN**. A frase *"Retira com código PIN no ponto"* existe no arquivo, mas no bloco **"COMO FUNCIONA"** da legenda do design system (card "3 · Encontro"), que é material explicativo do sistema de design, não texto de tela.
+
+**Por que isso é decisão de produto, não de fidelidade.** O Épico 2 define o onboarding como *"comprar → esperar → retirar no hub com PIN"*, e o PIN é justamente o **mecanismo que diferencia o Keepit de um marketplace comum**: é ele que materializa o encontro físico no hub. Se o cliente não entende que vai precisar de um código de 4 dígitos para retirar, ele conhece só metade do modelo antes de decidir criar conta.
+
+**Trade-off:**
+- **(a) Não explicar o PIN antes do cadastro** — onboarding mais curto, menos atrito, maior conversão para "Criar conta". O cliente descobre o PIN no primeiro pedido (tela "Seu pedido", Épico 7). Risco: expectativa quebrada no momento da retirada e suporte evitável ("como eu pego meu pedido?").
+- **(b) Explicar o PIN no onboarding** — o cliente entende o modelo completo (comprar → pronto no hub → retirar com código) antes de se cadastrar, o que qualifica quem entra e reduz fricção no primeiro encontro físico. Custo: mais um passo/mais texto no funil de entrada, com perda de conversão no topo.
+
+**Impacto direto:** conteúdo das telas de onboarding e **ACs 1-3 da Story 2.1**. Enquanto não decidido, as telas 1/3 e 2/3 ficam com a copy reconstruída já entregue no Épico 0 e **nenhum texto novo é escrito** — a AC2 da Story 2.1 registra explicitamente essa proibição. Observação de escopo: a resposta também define se as telas 1/3 e 2/3 continuam existindo — hoje elas são reconstrução sem captura, já que o protótipo tem só uma tela de onboarding.
+
+→ **Decisão de produto: CAIO ou STAKEHOLDER.** Não há default assumido.
+
 ---
 
 ## Decisões (fechadas)

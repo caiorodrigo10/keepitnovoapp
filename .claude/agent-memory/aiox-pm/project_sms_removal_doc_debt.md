@@ -13,6 +13,6 @@ A decisão 10.4 (2026-07-29) removeu a confirmação por SMS via Zenvia do MVP, 
 
 **Why:** a reconciliação foi feita em rodadas escopadas por arquivo para manter os diffs revisáveis e permitir agentes em paralelo — o que sobrou é dívida consciente, não esquecimento.
 
-**How to apply:** antes de tratar um desses docs como fonte de verdade sobre auth, grep por "Zenvia"/"SMS". Se ainda citar SMS, a decisão 10.4 prevalece. Checar também as duas lacunas abertas que nasceram dessa reconciliação: **10.5** (confirmação de e-mail obrigatória — vale para os 3 perfis, muda ACs 2.3/2.6/2.11 e 3.2/3.6/3.7) e **10.6** (papéis internos de admin e provisionamento de `admin_users` — muda a Story 3.7).
+**How to apply:** antes de tratar um desses docs como fonte de verdade sobre auth, grep por "Zenvia"/"SMS". Se ainda citar SMS, a decisão 10.4 prevalece. Checar também as duas lacunas abertas que nasceram dessa reconciliação: **10.5** (confirmação de e-mail obrigatória — vale para os 3 perfis, muda ACs 2.3/2.6/2.11 e 3.2/3.6/3.7) e **10.6** (papéis internos de admin e provisionamento de `admin_users` — muda a Story 3.7). Uma terceira lacuna, **10.7** (explicar o PIN no onboarding do Cliente), nasceu de outra frente — ver [[design-refs-nao-sao-fonte-unica]].
 
 **Nuance que já foi decidida e não deve ser reaberta:** o telefone é opcional só para o **Cliente**. Para o **Lojista** continua **obrigatório** (Rodada 2 o exige no onboarding; Rodada 5 o usa como WhatsApp de contato) — a 10.4 só o tornou *não verificado*.
