@@ -5,7 +5,9 @@
 > - O telefone do lojista **não é verificado** (nenhuma coluna `telefone_confirmado` em `estabelecimentos`), mas **continua obrigatório**: a Rodada 2 o lista entre os dados exigidos no onboarding e a Rodada 5 o usa como número de WhatsApp do botão "Falar com o lojista". A 10.4 tornou o telefone *opcional* apenas para o **Cliente** — não revogou a exigência para o lojista.
 > - **Nenhuma story foi removida** deste épico (as 12 seguem ativas) e **nenhuma foi renumerada**.
 >
-> **Pendência aberta que atinge este épico:** a **10.5 🟡** (confirmação de e-mail obrigatória) vale também para lojista e admin — se o Supabase Auth exigir confirmação de e-mail, o lojista cai numa tela de "confirme seu e-mail" antes da tela "Em análise" (Story 3.6) e o admin antes do painel. **Não decidida.** Enquanto isso, o épico assume o mesmo default do Épico 2: sem confirmação obrigatória. Ver `docs/PERGUNTAS_REGRAS_NEGOCIO.md → 10.5` e `→ Decisões → Rodada 6 — 2026-07-29`.
+> **Decisão técnica provisória (2026-07-30) — 10.5 `Confirm email` OFF.** O que este épico antes descrevia como "assume o mesmo default do Épico 2" deixou de ser default silencioso: existe **decisão técnica provisória** formalizada em `docs/PERGUNTAS_REGRAS_NEGOCIO.md → 10.5`, com racional (atrito zero, coerência com o protótipo, mitigações já no escopo) e **gatilho de revisão** (volume relevante de recuperação de acesso por e-mail errado → ligar ON). Como `Confirm email` é **configuração por projeto** no Supabase Auth, a decisão é **necessariamente única para cliente, lojista e admin** — não dá para ligar só para um perfil. É reversível sem migration. **Não é decisão do stakeholder** e **não fecha o risco de negócio** correspondente, que segue pendente. Se a 10.5 for revertida para ON, o lojista ganha uma tela "confirme seu e-mail" entre o cadastro (Story 3.2) e a tela "Em análise" (Story 3.6), e o admin idem antes do painel (Story 3.7). Afeta as Stories **3.2**, **3.6** e **3.7** — que continuam válidas como escritas.
+>
+> **Decisão técnica provisória (2026-07-30) — 10.6 `admin_users` lista plana.** Idem: o que a Story 3.7 antes marcava como "assumido enquanto a 10.6 não é decidida" agora está formalizado em `docs/PERGUNTAS_REGRAS_NEGOCIO.md → 10.6` — `admin_users` **sem coluna de papel** (todo admin pode tudo) + **provisionamento manual via SQL**, com racional (1-2 operadores no MVP; princípio nº 4 do `CLAUDE.md`) e **gatilho de revisão** (time > 2-3 pessoas ou exigência de segregação de função). Reversível com `ALTER TABLE ADD COLUMN` + RLS por papel sobre tabela nova e pequena. **Não é decisão do stakeholder:** seguem pendentes **quantas pessoas** operam o painel e se há **segregação de responsabilidade exigida**. Afeta a Story **3.7 (AC7)**.
 
 ## Expanded Goal
 
@@ -44,7 +46,7 @@ Este é o épico que introduz o **admin web** e o **primeiro fluxo com Asaas** (
 1: Tela "Passo 1 de 3" com campos: nome fantasia, CNPJ (máscara), telefone (máscara), nome do responsável, e-mail, senha.
 2: Aceite de Termos e Política (checkbox obrigatório).
 3: Validação de CNPJ formato + Story 3.3.
-4: Sucesso avança **direto** para Story 3.4 — **não há etapa de confirmação por SMS** (decisão 10.4).
+4: Sucesso avança **direto** para Story 3.4 — **não há etapa de confirmação por SMS** (decisão 10.4) **nem de confirmação de e-mail** (decisão técnica provisória **10.5**, `Confirm email` OFF — não mais um default implícito). Se a 10.5 for revertida para ON, entra uma tela "confirme seu e-mail" antes de prosseguir.
 5: A conta do lojista é criada no **Supabase Auth com e-mail + senha** (mesmo mecanismo do cliente, Story 2.3). Senha mín. 8 caracteres.
 6: O **telefone continua obrigatório** (Rodada 2: dado exigido no onboarding; Rodada 5: é o WhatsApp do botão "Falar com o lojista"), mas é **não verificado** — a tela não promete SMS nem código de confirmação, e não existe coluna `telefone_confirmado` em `estabelecimentos`.
 
@@ -100,7 +102,7 @@ Este é o épico que introduz o **admin web** e o **primeiro fluxo com Asaas** (
 **Acceptance Criteria:**
 1: Tela com título "Em análise", texto explicativo ("Estamos revisando seu cadastro. Você receberá um e-mail e uma notificação quando for aprovado. Isso costuma levar até 2 dias úteis.").
 2: Botão "Falar com Keepit" (WhatsApp) disponível.
-3: Se o lojista logar de novo enquanto em análise, cai nessa tela.
+3: Se o lojista logar de novo enquanto em análise, cai nessa tela — **sem tela intermediária de confirmação de e-mail** (decisão técnica provisória **10.5**, `Confirm email` OFF). Se a 10.5 for revertida para ON, esta tela passa a ser precedida por "confirme seu e-mail".
 4: Push token capturado após aceite de notificação.
 
 ---
@@ -118,7 +120,7 @@ Este é o épico que introduz o **admin web** e o **primeiro fluxo com Asaas** (
 4: RLS permite acesso apenas a admins (tabela `admin_users` consultada).
 5: Migration cria `admin_users (id uuid PK referencing auth.users, criado_em)` e política RLS: `EXISTS (SELECT 1 FROM admin_users WHERE id = auth.uid())`.
 6: O login do admin web é **e-mail + senha** via Supabase Auth (decisão 10.4) — **sem SMS, sem 2FA e sem SSO no MVP**.
-7: ⚠️ **Assumido enquanto a pendência 10.6 não é decidida:** `admin_users` é uma **lista plana sem coluna de papel** (todo admin pode tudo) e contas são **provisionadas manualmente via SQL** (não há tela de auto-cadastro nem de convite de admin). Se a 10.6 fechar com papéis internos, esta AC muda. Ver `docs/PERGUNTAS_REGRAS_NEGOCIO.md → 10.6`.
+7: 🟠 **Decisão técnica provisória 10.6 (2026-07-30) — não é decisão do stakeholder:** `admin_users` é uma **lista plana sem coluna de papel** (todo admin pode tudo) e contas são **provisionadas manualmente via SQL** (não há tela de auto-cadastro nem de convite de admin). Racional e **gatilho de revisão** (time > 2-3 pessoas ou exigência de segregação de função) em `docs/PERGUNTAS_REGRAS_NEGOCIO.md → 10.6`. Se a 10.6 fechar com papéis internos, esta AC muda — reversão prevista: `ALTER TABLE admin_users ADD COLUMN papel ...` + RLS por papel. **Segue pendente do stakeholder** quantas pessoas operam o painel e se há segregação de responsabilidade exigida.
 
 ---
 

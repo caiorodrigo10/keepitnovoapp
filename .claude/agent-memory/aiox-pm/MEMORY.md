@@ -1,2 +1,4 @@
-- [Dívida documental da remoção do SMS](project_sms_removal_doc_debt.md) — 10.4 já aplicada no PRD/ARQUITETURA; falta `docs/architecture/` e o código; lacunas 10.5, 10.6 e 10.7 abertas
-- [design-refs não são fonte única](project_design_refs_nao_sao_fonte_unica.md) — PNGs são recortes cortados; grepar `keepit-app/index.html` antes de acusar copy de invenção
+- [Dívida documental da remoção do SMS](project_sms_removal_doc_debt.md) — 10.4 aplicada no PRD/ARQUITETURA; falta `docs/architecture/` e o código; 10.7 resolvida, 10.5/10.6 provisórias
+- [Decisões técnicas provisórias](feedback_decisoes_tecnicas_provisorias.md) — como fechar pendência sem virar "decidido pelo stakeholder": racional + gatilho + risco de negócio destacado como pendente
+- [design-refs não são fonte única](project_design_refs_nao_sao_fonte_unica.md) — PNGs são recortes cortados; grepar `keepit-app/index.html` antes de acusar copy de invenção; inclui mapa de offsets por frame
+- [Nunca citar fonte falsa em AC](feedback_nao_citar_fonte_falsa_em_ac.md) — AC com fonte inventada é pior que AC sem fonte: desliga o ceticismo do @dev e do @qa

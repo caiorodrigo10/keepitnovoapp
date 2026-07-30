@@ -12,6 +12,7 @@ Legenda de prioridade:
 - 🔴 **Bloqueia início do desenvolvimento** — sem essa resposta, não dá para modelar o domínio.
 - 🟡 **Bloqueia uma parte específica** — pode começar por outra parte.
 - 🟢 **Pode ser decidido durante o desenvolvimento** — não trava nada agora.
+- 🟠 **Decisão técnica provisória em vigor** — existe uma escolha registrada, com racional e gatilho de revisão, que **destrava o desenvolvimento**; mas a parte de **risco/regra de negócio** segue pendente de validação do stakeholder. Não confundir com decisão fechada.
 
 ---
 
@@ -322,17 +323,67 @@ O onboarding do protótipo (`cliente-01-onboarding.png`) é **dark** (fundo escu
 ### 10.4 ✅ Modelo de autenticação do Cliente — RESOLVIDO (Rodada 6, 2026-07-29)
 Login do Cliente é **e-mail + senha** (Supabase Auth nativo). **Sem confirmação de SMS no MVP** (economia de Zenvia + simplicidade). Telefone é campo **opcional, não verificado**. Ver `## Decisões → Rodada 6`.
 
-### 10.5 🟡 Confirmação de e-mail é obrigatória para usar o app? — aberto (revelado na reconciliação do Épico 2, 2026-07-30)
+### 10.5 🟠 Confirmação de e-mail é obrigatória para usar o app? — **decisão técnica provisória (2026-07-30) — pendente validação do stakeholder**
+
+> **Status:** não é decisão fechada. É a formalização de um default que o Épico 2 **já operava implicitamente**, agora com racional escrito, gatilho de revisão e a parte de negócio explicitamente destacada como pendente. **Não foi decidida pelo stakeholder.**
+
+**Decisão técnica provisória:** `Confirm email` **OFF** no Supabase Auth durante o MVP — opção **(a)**: cadastro navega direto para a home.
+
+**Racional:**
+- **Atrito zero no funil de entrada** e coerência com o protótipo, que não mostra nenhuma tela "confirme seu e-mail".
+- É o comportamento que o Épico 2 já assume nas ACs escritas (Story 2.3 AC5, 2.6 AC4, 2.11 AC1) — formalizar apenas torna explícito o que já vale, em vez de deixar um default silencioso.
+- O risco principal (**e-mail digitado errado → cliente perde o "Esqueci a senha" da Story 2.7 → perde o fallback de acesso ao PIN por re-login, definido na 10.4**) tem **duas mitigações que já estão no escopo do MVP**, não são trabalho novo:
+  - **Story 2.8, AC3** — o cliente pode corrigir o e-mail na tela de perfil (com confirmação via Supabase Auth).
+  - **Story 2.10** — suporte humano por WhatsApp da Keepit, canal já previsto.
+- **Custo de reversão ≈ zero:** `Confirm email` é **configuração por projeto** no Supabase, não schema. Ligar depois não exige migration, refactor nem retrabalho de tela — no máximo uma tela intermediária, se a decisão mudar.
+
+**Gatilho de revisão (explícito):** se aparecer **volume relevante de clientes pedindo recuperação de acesso por e-mail errado** (medido pelos chamados de WhatsApp da Story 2.10), **reverter para `Confirm email` ON**. Reavaliar também antes do go-live público, se o volume esperado subir.
+
+**⚠️ O QUE CONTINUA PENDENTE DE VALIDAÇÃO DO STAKEHOLDER — risco operacional de negócio, não escolha técnica:**
+> A Keepit aceita que um cliente que digitou o e-mail errado dependa de **suporte humano (WhatsApp)** para recuperar o acesso ao **PIN de uma compra já paga**? Isso implica: cliente com dinheiro retido, produto separado, encontro no hub marcado — e o desbloqueio dependendo de alguém responder no WhatsApp. Quem decide o apetite a esse risco é o dono da Keepit, não o desenvolvedor.
+>
+> Se a resposta for "não aceitamos", a decisão provisória cai e vale a opção (b) — `Confirm email` ON.
+
+**Ampliação (2026-07-30, reconciliação do Épico 3):** a configuração `Confirm email` do Supabase Auth é **por projeto**, então esta decisão provisória vale **igualmente para cliente, lojista e admin** — não dá para ligar só para um perfil sem trabalho extra. Se a confirmação virar obrigatória, o lojista ganha uma tela "confirme seu e-mail" entre o cadastro (Story 3.2) e a tela "Em análise" (Story 3.6), e o admin idem antes do painel (Story 3.7).
+
+---
+
+#### 10.5-histórico (formulação original da pergunta, mantida por rastreabilidade)
 Com a saída do SMS (10.4), o **e-mail vira o único canal verificável** da conta do cliente — e a decisão 10.4 não diz se ele precisa ser confirmado. O Supabase Auth tem a opção "Confirm email" ligada por padrão. Duas alternativas, com trade-off real:
 
 - **(a) Sem confirmação obrigatória** (`Confirm email` off): cadastro → home imediatamente, atrito zero. Risco: e-mail digitado errado = cliente **perde o "Esqueci a senha"** (Story 2.7) e, por consequência, o acesso ao PIN via re-login (fallback da 10.4). Também abre espaço para contas com e-mail de terceiros.
 - **(b) Confirmação obrigatória** (`Confirm email` on): cadastro → tela "confirme seu e-mail" → só então home. Garante recuperação de conta e o fallback do PIN. Custo: um passo a mais no funil e risco de e-mail cair em spam.
 
-Impacto direto: Story 2.3 (AC5, para onde navega o signup), Story 2.6 (login de conta não confirmada), Story 2.11 (momento do prompt de push). **Enquanto não decidido, o Épico 2 assume (a)** — navegação direta para a home, como escrito nas ACs — por ser o comportamento que as telas do protótipo já mostram. → **STAKEHOLDER** (ou Caio, se quiser fechar como decisão técnica).
+Impacto direto: Story 2.3 (AC5, para onde navega o signup), Story 2.6 (login de conta não confirmada), Story 2.11 (momento do prompt de push). ~~**Enquanto não decidido, o Épico 2 assume (a)**~~ → **SUPERSEDED (2026-07-30):** o assumido implícito virou **decisão técnica provisória (a)** com racional e gatilho de revisão — ver bloco 10.5 acima. Continua pendente do stakeholder **apenas a parte de risco operacional** (dependência de suporte humano para recuperar PIN de compra paga), não a escolha de configuração.
 
 **Ampliação (2026-07-30, reconciliação do Épico 3):** a mesma pergunta vale para **lojista e admin**, que também autenticam por e-mail + senha. Se a confirmação for obrigatória, o lojista ganha uma tela "confirme seu e-mail" entre o cadastro (Story 3.2) e a tela "Em análise" (Story 3.6), e o admin idem antes do painel (Story 3.7). O Épico 3 assume o mesmo default (a) até a decisão sair. Como a configuração `Confirm email` do Supabase Auth é **por projeto**, a decisão é necessariamente **única para os três perfis** — não dá para ligar só para o lojista sem trabalho extra.
 
-### 10.6 🟡 Criação de contas de admin Keepit e papéis internos — aberto (revelado na reconciliação do Épico 3, 2026-07-30)
+### 10.6 🟠 Criação de contas de admin Keepit e papéis internos — **decisão técnica provisória (2026-07-30) — pendente validação do stakeholder**
+
+> **Status:** não é decisão fechada. Formaliza o default que a Story 3.7 **já assume**, com racional e condição de reversão. **Não foi decidida pelo stakeholder.**
+
+**Decisão técnica provisória:**
+- **`admin_users` como lista plana** — **sem coluna de papel**. Todo admin pode tudo (aprovar lojista, forçar cancelamento, executar reembolso, bloquear cliente).
+- **Provisionamento manual via SQL** no Supabase. Sem tela de auto-cadastro e sem fluxo de convite entre admins.
+
+**Racional:**
+- O MVP prevê **1-2 pessoas operando o painel**, com volume baixo (4-5 hubs, poucos lojistas — Rodada 1). Separar *financeiro* / *operações* / *admin geral* é **complexidade sem demanda comprovada**, o que contraria o princípio nº 4 do `CLAUDE.md` ("nada além do necessário").
+- Uma tela de convite entre admins **não existe em nenhuma story** — criá-la agora seria escopo novo, não reconciliação.
+- **Custo de adiar é baixo, custo de antecipar é real:** adicionar papel depois é `ALTER TABLE admin_users ADD COLUMN papel ...` + checagens de RLS por papel — migration trivial sobre uma tabela pequena e nova. Antecipar custa modelagem, RLS por papel e UI de gestão de papéis, tudo antes de saber se é necessário.
+
+**Gatilho de revisão (explícito):** se o time de operação passar de **2-3 pessoas** ou se surgir exigência de **segregação de função** (ex.: quem executa reembolso ≠ quem aprova lojista), a decisão cai e entra a coluna de papel.
+
+**⚠️ O QUE CONTINUA PENDENTE DE VALIDAÇÃO DO STAKEHOLDER:**
+> 1. **Quantas pessoas** de fato vão operar o painel admin no MVP?
+> 2. Existe **separação de responsabilidade exigida** entre elas — por controle interno, exigência contábil ou simples desconforto em dar poder de estorno a todo mundo? (ex.: quem executa reembolso ≠ quem aprova lojista)
+>
+> Se forem **mais de 2-3 pessoas com funções distintas**, a decisão provisória muda antes da Story 3.7 ser implementada.
+
+Nota: esta pergunta é a versão concreta do item **6.2** (Acesso — papéis internos), que segue sem resposta.
+
+---
+
+#### 10.6-histórico (formulação original da pergunta, mantida por rastreabilidade)
 A decisão 10.4 fecha o **como** o admin entra (e-mail + senha, sem SSO), mas não fecha o **quem cria** a conta nem **se existem papéis distintos**. A pergunta 6.2 já tocava o tema e segue sem resposta; a reconciliação do Épico 3 a tornou concreta porque a Story 3.7 cria a tabela `admin_users` e precisa saber se ela tem coluna de papel.
 
 Em aberto:
@@ -340,9 +391,27 @@ Em aberto:
 - **Papéis**: `admin_users` é uma lista plana (todo admin pode tudo: aprovar lojista, forçar cancelamento, executar reembolso, bloquear cliente) ou precisa separar *financeiro* / *operações* / *admin geral* (item 6.2)?
 - **Quantas pessoas** usam o painel no MVP? Com 1-2 pessoas, lista plana basta e a pergunta vira 🟢.
 
-**Enquanto não decidido, o Épico 3 assume:** `admin_users` **sem coluna de papel** (todos os admins têm os mesmos poderes) e **provisionamento manual via SQL**, por ser o menor escopo compatível com o MVP e com o volume esperado (4-5 hubs, poucos lojistas). Se a resposta trouxer papéis, o custo é uma migration + checagens de RLS por papel — não é retrabalho grande, mas é melhor saber antes da Story 3.7. → **STAKEHOLDER + CAIO**.
+~~**Enquanto não decidido, o Épico 3 assume:** `admin_users` sem coluna de papel + provisionamento manual via SQL.~~ → **SUPERSEDED (2026-07-30):** o assumido implícito virou **decisão técnica provisória** com racional e gatilho de revisão — ver bloco 10.6 acima. Continua pendente do stakeholder **quantas pessoas operam o painel e se há segregação de função exigida**.
 
-### 10.7 🟡 O PIN de retirada precisa ser explicado ao cliente antes do cadastro? — aberto (revelado na correção das ACs da Story 2.1, 2026-07-30)
+### 10.7 ✅ Copy das telas de onboarding do Cliente — RESOLVIDA por fidelidade ao protótipo (2026-07-30)
+
+**Por que deixou de ser pergunta.** A dúvida nasceu de uma premissa que a verificação direta derrubou: a de que as frases dos cards seriam material só do design system, sem status de copy de produto. Conferindo o **arquivo-fonte** (`keepit-app/index.html`, bloco `COMO FUNCIONA`, offset ~270394), as três frases estão **literalmente escritas no protótipo**:
+
+| Card | Frase (literal, `keepit-app/index.html`) |
+|---|---|
+| `1 · Compra` | *"Escolhe lojas locais na plataforma"* |
+| `2 · Pronto` | *"Pedido fica pronto no hub Keepit"* |
+| `3 · Encontro` | *"Retira com código PIN no ponto"* |
+
+O **princípio nº 1 do `CLAUDE.md`** ("fidelidade ao protótipo: a interface visual deve ser exatamente como em `keepit-app/index.html`") torna o protótipo a **fonte autoritativa de conteúdo**. Usar essas frases não é inventar copy — é o oposto: é substituir a copy reconstruída (que **foi** inventada no Épico 0, com a limitação anotada nos próprios arquivos) pelo texto real da fonte. Logo, **não há decisão de produto a tomar aqui**: a pergunta se dissolve na aplicação do princípio.
+
+**Ressalva registrada (não bloqueia):** o protótipo tem **uma única** tela de onboarding do Cliente (frame "01 · Onboarding"). A existência de **três** telas é decisão de estrutura do Épico 0, não do protótipo — o que a 10.7 resolve é a **copy**, não o número de telas. Consequência: como a tela 3/3 reproduz a captura real (*"Tudo perto de você, retirado no hub."*, que **não** menciona PIN), a frase do card 3 (*"Retira com código PIN no ponto"*) **não vai para nenhuma tela**, e o cliente segue **sem ver a palavra PIN antes do cadastro**. Isso é o que o protótipo determina. Se o stakeholder quiser explicitar o PIN no funil de entrada, é **pedido novo de produto** (abrir pergunta nova), não pendência desta.
+
+**Ajuste pendente no código (não implementado nesta rodada):** `apps/cliente/src/screens/auth/Onboarding1.tsx` e `Onboarding2.tsx` ainda carregam a copy reconstruída (*"Compre em lojas perto de você"* / *"Seu pedido fica pronto no Keepit"* + subtextos inventados). Devem passar a usar as frases verificadas acima. **Story pequena de copy a ser criada** — não fazer junto de outra alteração para manter o diff auditável.
+
+---
+
+### 10.7-histórico (texto original da pergunta, mantido por rastreabilidade)
 
 **O fato.** A palavra **"PIN" não aparece em nenhuma das telas de onboarding do Cliente** (confirmado por grep em `apps/cliente/src/screens/auth/`). E não aparece porque **o protótipo não dá base para ela**: `keepit-app/index.html` tem **uma única** tela de onboarding do Cliente (frame "01 · Onboarding"), cuja copy fala de proximidade e ponto de retirada — *"Tudo perto de você, retirado no hub."* — e **não menciona PIN**. A frase *"Retira com código PIN no ponto"* existe no arquivo, mas no bloco **"COMO FUNCIONA"** da legenda do design system (card "3 · Encontro"), que é material explicativo do sistema de design, não texto de tela.
 
@@ -354,11 +423,62 @@ Em aberto:
 
 **Impacto direto:** conteúdo das telas de onboarding e **ACs 1-3 da Story 2.1**. Enquanto não decidido, as telas 1/3 e 2/3 ficam com a copy reconstruída já entregue no Épico 0 e **nenhum texto novo é escrito** — a AC2 da Story 2.1 registra explicitamente essa proibição. Observação de escopo: a resposta também define se as telas 1/3 e 2/3 continuam existindo — hoje elas são reconstrução sem captura, já que o protótipo tem só uma tela de onboarding.
 
-→ **Decisão de produto: CAIO ou STAKEHOLDER.** Não há default assumido.
+→ ~~**Decisão de produto: CAIO ou STAKEHOLDER.** Não há default assumido.~~ **SUPERSEDED (2026-07-30):** ver o bloco 10.7 acima. A premissa de que as frases seriam "material do design system, não texto de tela" não se sustenta: elas estão literalmente em `keepit-app/index.html`, que o `CLAUDE.md` define como fonte autoritativa de conteúdo. Vale a fidelidade ao protótipo.
+
+### 10.8 🟡 Arquitetura de navegação da conta do Cliente — Perfil e Configurações são telas separadas? — **NOVA (2026-07-30), sem default assumido**
+
+**O fato, verificado no arquivo-fonte.** A tela **"Configurações do Cliente"** que a Story 2.9 descreve **não existe no protótipo**:
+
+| Verificação em `keepit-app/index.html` | Resultado |
+|---|---|
+| String `Configurações` | **2 ocorrências**, ambas em **453585** e **455290** — dentro do frame **P11 · "Configurações & equipe"** do **Lojista** (rótulo P11 em 453486). **Nenhuma no app do Cliente** (faixa 272043–374606). |
+| String `Excluir` / `excluir` | **0 ocorrências** em todo o arquivo. |
+| *Notificações* (331393) e *Ajuda & suporte* (332280) no Cliente | Existem — como **itens de menu dentro do Perfil**, frame **08 · Perfil** (faixa 325034–335223), não como tela própria. |
+
+O protótipo do Cliente, portanto, mostra **uma única superfície de conta**: o Perfil, com menu interno (*Meus pedidos*, *Hubs favoritos*, *Formas de pagamento*, *Notificações*, *Ajuda & suporte*). Não há tela de Configurações e não há item de exclusão de conta.
+
+**Por que isso é pergunta de produto e não de fidelidade.** As Stories **2.8 (Perfil)**, **2.9 (Configurações + Excluir conta)** e **2.10 (Ajuda & suporte)** foram escritas assumindo **duas telas** (Perfil e Configurações) e hoje **disputam a mesma superfície de UI** sem que ninguém tenha decidido a arquitetura de navegação. *Notificações* e *Ajuda & suporte* aparecem **nas duas** (menu do Perfil no protótipo; seções da Configurações na 2.9). Além disso, "Excluir minha conta" é **obrigatório por compliance Apple 5.1.1(v)** — precisa existir em algum lugar, e o protótipo não diz onde.
+
+**A pergunta:**
+> No app do Cliente, **Perfil e Configurações são telas separadas** (como as Stories 2.9/2.10 assumem hoje), ou **tudo vive dentro do Perfil** como o protótipo mostra — com *Notificações*, *Ajuda & suporte*, *Termos*, *Política* e *Excluir minha conta* virando itens do menu do frame 08?
+
+Sub-itens que a resposta precisa fechar:
+- Onde fica **"Excluir minha conta"** (item obrigatório Apple, sem fonte no protótipo)?
+- *Notificações* no Perfil é **item de menu com chevron** (leva a outra tela) ou **toggle inline**? No frame 08 tem chevron, mas a Story 2.9 AC3 pede toggle persistido em `clientes.notificacoes_ativas`.
+- Itens do menu do protótipo **sem story** (*Meus pedidos*, *Hubs favoritos*, *Formas de pagamento*) entram nesta superfície ou são de outros épicos?
+
+**Impacto direto:** Stories **2.8**, **2.9** e **2.10** do Épico 2 (ACs marcadas como dependentes desta pergunta).
+
+**⚠️ NENHUM DEFAULT ASSUMIDO.** Diferente da 10.5 e da 10.6, aqui **não** existe decisão técnica provisória: escolher entre "duas telas" e "tudo no Perfil" é decisão de **arquitetura de produto** com efeito direto no que o cliente vê, e o protótipo — fonte autoritativa pelo princípio nº 1 do `CLAUDE.md` — aponta para "tudo no Perfil", enquanto as stories já escritas apontam para "duas telas". Um agente não resolve esse conflito. → **CAIO / STAKEHOLDER.**
+
+---
+
+## Decisões técnicas provisórias (🟠 — **NÃO fechadas**, pendentes de validação do stakeholder)
+
+> Registro separado de propósito. Nada nesta seção foi decidido pelo dono da Keepit. São escolhas **técnicas** que o desenvolvimento **já operava como default implícito**; formalizá-las apenas troca um default silencioso por um default auditável — com racional, custo de reversão e gatilho de revisão. A parte de **regra/risco de negócio** de cada uma continua explicitamente aberta e está destacada no bloco correspondente.
+
+| Data | Tema | Decisão provisória | Reversibilidade | O que segue pendente do stakeholder |
+|---|---|---|---|---|
+| 2026-07-30 | **Confirmação de e-mail** (10.5) | `Confirm email` **OFF** no Supabase Auth — cadastro navega direto para a home (opção (a)). Vale para cliente, lojista e admin (config é por projeto). | **Alta** — config por projeto, sem migration nem refactor. Gatilho: volume relevante de pedidos de recuperação por e-mail errado → ligar ON. | Se a Keepit aceita que um cliente com e-mail errado dependa de **suporte humano (WhatsApp)** para recuperar o PIN de uma **compra já paga**. |
+| 2026-07-30 | **Contas de admin** (10.6) | `admin_users` como **lista plana** (sem coluna de papel) + **provisionamento manual via SQL**. | **Alta** — `ALTER TABLE ADD COLUMN` + RLS por papel, sobre tabela nova e pequena. Gatilho: time > 2-3 pessoas ou exigência de segregação de função. | **Quantas pessoas** operam o painel e se há **segregação de responsabilidade exigida** (ex.: quem estorna ≠ quem aprova lojista). |
+
+Fonte de ambas: **@pm (Morgan), formalizando default já assumido pelos Épicos 2 e 3** — a pedido do Caio, e **sem** substituir a decisão do stakeholder.
 
 ---
 
 ## Decisões (fechadas)
+
+### Rodada 7 — 2026-07-30 (fidelidade ao protótipo)
+
+#### Copy do onboarding do Cliente (resolve 10.7)
+
+- **[Copy das telas 1/3 e 2/3]** Passam a usar as frases **literais do protótipo**: tela 1/3 → *"Escolhe lojas locais na plataforma"*; tela 2/3 → *"Pedido fica pronto no hub Keepit"*. A copy reconstruída no Épico 0 é descartada.
+- **[Tela 3/3]** **Inalterada** — já reproduz literalmente a captura `cliente-01-onboarding.png` (*"Tudo perto de você, retirado no hub."*).
+- **[Card 3 · Encontro]** A frase *"Retira com código PIN no ponto"* **não vai para nenhuma tela**, porque a tela 3/3 tem copy própria capturada. Consequência aceita: o cliente **não vê a palavra "PIN" antes do cadastro** — é o que o protótipo determina.
+- **[Fonte]** `keepit-app/index.html`, bloco `COMO FUNCIONA` (offset ~270394), cards `1 · Compra`, `2 · Pronto`, `3 · Encontro` — verificado por leitura direta do arquivo, não por PNG de design-ref.
+- **[Natureza da decisão]** **Não é decisão de produto.** É aplicação do **princípio nº 1 do `CLAUDE.md`** (fidelidade ao protótipo em visual **e conteúdo**), que define `keepit-app/index.html` como fonte autoritativa. Por isso não requer stakeholder.
+- **[Ajuste pendente no código]** `apps/cliente/src/screens/auth/Onboarding1.tsx` e `Onboarding2.tsx` — **story pequena de copy**, ainda não implementada.
+- **[Fonte da decisão]** Fidelidade ao protótipo (princípio 1 do `CLAUDE.md`).
 
 ### Rodada 6 — 2026-07-29 (Caio)
 
