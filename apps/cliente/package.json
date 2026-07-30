@@ -8,7 +8,7 @@
     "build": "echo skipped",
     "lint": "echo skipped",
     "typecheck": "tsc --noEmit",
-    "test": "echo skipped"
+    "test": "vitest run"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.7",
@@ -33,6 +33,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "^1.2.0"
   }
 }
