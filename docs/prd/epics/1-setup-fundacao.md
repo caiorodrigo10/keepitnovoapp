@@ -90,8 +90,21 @@ Este épico não entrega valor direto ao usuário final, mas elimina o risco de 
 **Acceptance Criteria:**
 1: `.github/workflows/ci.yml` roda em `pull_request` para `main`.
 2: Steps: setup pnpm, install, `turbo run lint typecheck test`.
-3: Passa em uma PR de teste (branch dummy).
+3: ~~Passa em uma PR de teste (branch dummy).~~ 🔴 **BLOQUEADO — dispensado do MVP (2026-07-30, Caio).**
 4: README do repositório documenta o requisito.
+
+> **Status: `Done` com AC3 waived.** AC1, AC2 e AC4 estão entregues (`ci.yml` correto e ativo,
+> README documentado). AC3 é impossível de validar: o GitHub **não cria nenhuma run** neste
+> repositório mesmo público, com Actions habilitado e workflow `active` — bloqueio a nível de
+> **conta** (`caiorodrigo10`), fora do alcance do time. Diagnóstico completo em
+> `.claude/agent-memory/aiox-devops/project_ci_actions_not_running.md`.
+>
+> **Substituto acordado:** gate de qualidade **local e obrigatório** via `pnpm qa`
+> (= `turbo run lint typecheck test`, exatamente o mesmo comando do `ci.yml`), rodado antes de
+> cada commit. Quando as Actions destravarem, o `ci.yml` já cobre o mesmo comando — nada muda.
+>
+> **Dívida conhecida:** `lint` é `echo skipped` em todos os workspaces (não há ESLint
+> configurado). O gate prova **tipos e testes**, não estilo.
 
 ---
 
@@ -162,8 +175,8 @@ Este épico não entrega valor direto ao usuário final, mas elimina o risco de 
 
 ## Definition of Done
 
-- [ ] Stories ativas `Done`: **1.4 (Supabase dev + client)**, **1.5 (CI)**, **1.8-deploy (Vercel)**, **1.9 (ports Supabase esqueleto)**. Stories 1.1/1.2/1.3 já `Done` (herança); 1.6/1.7/1.8-boot migradas ao Épico 0.
+- [ ] Stories ativas `Done`: **1.4 (Supabase dev + client)** ✅, **1.5 (CI)** ✅ *(AC3 waived)*, **1.8-deploy (Vercel)** ⬜, **1.9 (ports Supabase esqueleto)** ✅, **1.10 (reconciliação ports)** ✅. Stories 1.1/1.2/1.3 já `Done` (herança); 1.6/1.7/1.8-boot migradas ao Épico 0.
 - [ ] Projeto Supabase `keepit-dev` na nuvem, migration canário aplicada, smoke test de conexão passando.
 - [ ] `createDataClient({ source: 'supabase' })` resolve para o esqueleto de ports sem quebrar nenhuma tela do Épico 0.
-- [ ] CI verde em PR de teste.
+- [x] ~~CI verde em PR de teste.~~ **Waived (2026-07-30)** — Actions bloqueado a nível de conta. Substituído por gate local obrigatório `pnpm qa` antes de cada commit (mesma cadeia do `ci.yml`). Ver Story 1.5.
 - [ ] Deploy admin na Vercel funcionando.

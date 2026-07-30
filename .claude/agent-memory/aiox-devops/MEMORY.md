@@ -1,0 +1,1 @@
+- [CI Actions não roda (nível de conta)](project_ci_actions_not_running.md) — 0 runs mesmo com repo público; causa é a conta caiorodrigo10 (billing/e-mail verificado), não o repo
