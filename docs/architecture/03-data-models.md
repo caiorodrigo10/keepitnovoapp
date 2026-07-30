@@ -48,7 +48,6 @@ Aplicado nas tabelas mutáveis via `CREATE TRIGGER trg_{tabela}_atualizado BEFOR
 ```
 auth.users (Supabase Auth)
 ├── clientes (1:1)
-│   ├── clientes_confirmacao_telefone (1:N — histórico)
 │   ├── clientes_cartoes (1:N)
 │   └── carrinho (1:N por estabelecimento)
 │       └── carrinho_itens (1:N)
@@ -79,12 +78,14 @@ VIEW carteira_lojista (calculada de pedidos + saques + debitos)
 
 Espelha `auth.users` para dados de perfil do cliente. Criado via trigger em `auth.users`.
 
+> **Reconciliado com a decisão 10.4 (2026-07-29):** autenticação do Cliente é **e-mail + senha** (Supabase Auth nativo), **sem SMS no MVP**. Consequências neste schema: (a) `telefone` é **nullable** (campo opcional no cadastro); (b) a coluna `telefone_confirmado` **saiu** — o telefone não é verificado; (c) a tabela `clientes_confirmacao_telefone` saiu do MVP (ver 1.2).
+> Este bloco é a fonte de verdade do DDL e **bate com a Story 2.3 do Épico 2** (`docs/prd/epics/2-auth-cliente.md`), que define o subconjunto mínimo criado na migration do Épico 2 (`id`, `nome`, `telefone` nullable, `cpf` nullable, `criado_em`). As demais colunas abaixo pertencem a épicos posteriores (push, bloqueio, soft delete) e entram por migrations incrementais.
+
 ```sql
 CREATE TABLE clientes (
   id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   nome text NOT NULL,
-  telefone text NOT NULL,
-  telefone_confirmado boolean NOT NULL DEFAULT false,
+  telefone text,                                     -- opcional e NÃO verificado (decisão 10.4)
   cpf text,                                          -- só no primeiro checkout
   expo_push_token text,
   notificacoes_ativas boolean NOT NULL DEFAULT true,
@@ -96,7 +97,10 @@ CREATE TABLE clientes (
   excluido_em timestamptz
 );
 
-CREATE INDEX idx_clientes_telefone ON clientes(telefone);
+-- Índice parcial: telefone virou nullable com a 10.4 e a maioria das linhas pode ficar NULL.
+-- Uso restante: busca administrativa de cliente por telefone no painel. Não há mais lookup por
+-- telefone em fluxo de autenticação (o SMS saiu do MVP).
+CREATE INDEX idx_clientes_telefone ON clientes(telefone) WHERE telefone IS NOT NULL;
 CREATE INDEX idx_clientes_cpf ON clientes(cpf) WHERE cpf IS NOT NULL;
 CREATE INDEX idx_clientes_bloqueado ON clientes(bloqueado) WHERE bloqueado = true;
 ```
@@ -111,7 +115,7 @@ BEGIN
   VALUES (
     NEW.id,
     COALESCE(NEW.raw_user_meta_data->>'nome', ''),
-    COALESCE(NEW.raw_user_meta_data->>'telefone', '')
+    NULLIF(NEW.raw_user_meta_data->>'telefone', '')  -- telefone opcional: ausente/vazio vira NULL
   );
   RETURN NEW;
 END;
@@ -122,7 +126,14 @@ CREATE TRIGGER trg_criar_cliente_signup
   FOR EACH ROW EXECUTE FUNCTION criar_cliente_apos_signup();
 ```
 
-### 1.2 `clientes_confirmacao_telefone`
+### 1.2 `clientes_confirmacao_telefone` — REMOVIDA DO MVP
+
+> **Removida do MVP pela decisão 10.4 (2026-07-29)** — sem confirmação de telefone por SMS: corta o custo e a integração com a Zenvia, e o telefone do Cliente passa a ser opcional e não verificado. Candidata a voltar em v2 se a verificação de número virar necessária.
+>
+> **Não criar esta tabela na migration inicial.** Nada mais no schema depende dela: a única FK era `cliente_id → clientes(id)` (partindo desta tabela, some junto), não há job `pg_cron` de limpeza de códigos expirados, e as RLS correspondentes foram removidas de `05-security.md` (§3.2). O DDL original fica abaixo por rastreabilidade.
+
+<details>
+<summary>DDL original (v2 — não aplicar no MVP)</summary>
 
 Códigos SMS enviados via Zenvia.
 
@@ -144,6 +155,8 @@ CREATE INDEX idx_conf_tel_ativos ON clientes_confirmacao_telefone(cliente_id)
 ```
 
 **Rate limit** (implementado em Edge Function): máximo 3 códigos por telefone por hora.
+
+</details>
 
 ### 1.3 `clientes_cartoes`
 
@@ -263,6 +276,8 @@ CREATE INDEX idx_falhas_estab_data ON estabelecimentos_falhas(estabelecimento_id
 ### 1.7 `admin_users`
 
 Simples flag: se você existe aqui, é admin da Keepit.
+
+> ⚠️ **Pendência 10.6 🟡** (`docs/PERGUNTAS_REGRAS_NEGOCIO.md`): provisionamento de contas admin e existência de papéis internos ainda **não foram decididos**. O DDL abaixo assume o default do Épico 3 — **lista plana, sem coluna de papel**, com inserção manual via SQL. Se a decisão trouxer papéis, é uma migration adicional + granularidade nas policies que hoje usam `is_admin()`.
 
 ```sql
 CREATE TABLE admin_users (
@@ -726,15 +741,16 @@ Ordem sugerida do schema inicial:
 2. Trigger utilitário `set_atualizado_em`
 3. `admin_users` + função `is_admin()`
 4. `clientes` + trigger de signup
-5. `clientes_confirmacao_telefone`
-6. `estabelecimentos` + horários + falhas
-7. `hubs` + horários
-8. `produtos`
-9. `carrinho` + itens
-10. `pedidos` + itens
-11. `reembolsos_pendentes`, `saques`, `chargebacks`, `debitos_lojista`
-12. View `carteira_lojista`
-13. `clientes_cartoes`
-14. Jobs pg_cron
+5. `estabelecimentos` + horários + falhas
+6. `hubs` + horários
+7. `produtos`
+8. `carrinho` + itens
+9. `pedidos` + itens
+10. `reembolsos_pendentes`, `saques`, `chargebacks`, `debitos_lojista`
+11. View `carteira_lojista`
+12. `clientes_cartoes`
+13. Jobs pg_cron
+
+*(A antiga etapa 5, `clientes_confirmacao_telefone`, saiu com a decisão 10.4 — ver §1.2. As demais foram renumeradas.)*
 
 Ver `docs/architecture/05-security.md` para as políticas RLS de cada tabela.

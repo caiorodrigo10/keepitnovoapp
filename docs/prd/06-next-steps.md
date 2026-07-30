@@ -13,7 +13,7 @@ Ao final do PRD, dois handoffs formais para os próximos agentes AIOX.
 - Ler `keepit-app/index.html` (protótipo — para entender as telas que serão implementadas).
 
 **Deliverables:**
-1. `docs/architecture/01-system-design.md` — diagrama de contexto e componentes (Supabase, Asaas, Zenvia, Expo Push, os 3 apps).
+1. `docs/architecture/01-system-design.md` — diagrama de contexto e componentes (Supabase, Asaas, Expo Push, os 3 apps). *(A **Zenvia** saiu da lista pela decisão 10.4, 2026-07-29: sem SMS no MVP — autenticação de Cliente, Lojista e Admin é e-mail + senha via Supabase Auth. Candidata a v2; não deve aparecer no diagrama de contexto do MVP.)*
 2. `docs/architecture/02-tech-stack.md` — stack explícito com versões travadas de todas as bibliotecas.
 3. `docs/architecture/03-data-models.md` — schema completo das tabelas Supabase, com relações, tipos, defaults, constraints, e políticas RLS por tabela. Use `packages/ui-tokens/schema-design-tmpl.yaml` como referência.
 4. `docs/architecture/04-patterns.md` — padrões de código para Edge Functions, gestão de sessão no Expo, estrutura de pastas dentro de cada app, convenção de nomenclatura, tratamento de erros.
@@ -21,6 +21,7 @@ Ao final do PRD, dois handoffs formais para os próximos agentes AIOX.
 
 **Restrições:**
 - Fidelidade 100% ao stack decidido em `04-technical.md`. Não repropor stack.
+- Ler `docs/PERGUNTAS_REGRAS_NEGOCIO.md` antes de modelar autenticação: a decisão **10.4** (2026-07-29) fecha e-mail + senha para os três perfis e tira o SMS/Zenvia do MVP; as pendências **10.5** (confirmação de e-mail obrigatória?) e **10.6** (provisionamento e papéis de admin) seguem **abertas** e afetam o desenho de auth.
 - Não introduzir tecnologia nova sem justificar por que a decisão anterior não serve.
 - Priorizar simplicidade. Cada decisão passa pelo filtro "solo dev consegue manter".
 

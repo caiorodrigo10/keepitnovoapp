@@ -2,7 +2,7 @@
 
 Consolidação dos follow-ups levantados pelos gates de QA das Stories 0.1–0.13. **Nenhum é bloqueante do Épico 0** (todas as stories estão `Done` com gate CONCERNS), mas os itens ARCH/config devem ser resolvidos **antes de o Épico 1 plugar o backend real**, senão a fronteira mock→Supabase quebra.
 
-Status em 2026-07-28.
+Status em 2026-07-28. **Atualizado em 2026-07-30** (reconciliação com a decisão 10.4, fechada em 2026-07-29): a pendência 10.4 saiu de 🔴 aberta para ✅ resolvida e virou dívida de código; as pendências 10.5 e 10.6 foram acrescentadas como abertas.
 
 ## ✅ Já reconciliado nesta rodada
 - **`pnpm install` real** executado — deps de workspace (`@keepit/core-data`, `@keepit/config`, react-navigation) agora no `pnpm-lock.yaml`; os symlinks manuais criados pelos @dev durante a paralelização não são mais necessários. `pnpm turbo run typecheck` = 9/9.
@@ -31,9 +31,19 @@ _Resolvido pela Story 1.10 (2026-07-29) — ver entrada correspondente em "✅ J
 - ~~**Percentuais de reembolso** (100/90/10/80/20 — matriz da Rodada 2) centralizados hoje em `apps/cliente/src/lib/cancelamentoPolicy.ts`. Migrar para `businessConfig`.~~
 
 ## 🟡 Stakeholder (ver `PERGUNTAS_REGRAS_NEGOCIO.md` seção 10)
-- 10.1 Mapa na tela de escolha do ponto de retirada (protótipo tem; decisão dizia "sem mapa").
-- 10.2 Login social Google/Apple (protótipo tem; decisão = fora do MVP).
-- 10.4 🔴 Modelo de auth do Cliente: telefone/SMS vs e-mail/senha — bloqueia auth real do Épico 1; o tipo `Cliente`/`auth.port` só modelam nome+telefone.
+- 10.1 Mapa na tela de escolha do ponto de retirada (protótipo tem; decisão dizia "sem mapa"). **Segue aberta.**
+- 10.2 Login social Google/Apple (protótipo tem; decisão = fora do MVP). **Segue aberta.**
+- ~~10.4 🔴 Modelo de auth do Cliente: telefone/SMS vs e-mail/senha — bloqueia auth real do Épico 1.~~ → **✅ RESOLVIDA em 2026-07-29 (Rodada 6, Caio).** Auth de **Cliente, Lojista e Admin** é **e-mail + senha** (Supabase Auth nativo); **sem SMS no MVP** (Zenvia cortada, candidata a v2). Telefone do **Cliente** é **opcional e não verificado**; o telefone do **Lojista** continua **obrigatório**, apenas não verificado. Fallback de acesso ao PIN passa a ser **re-login com e-mail + senha**. Não bloqueia mais o Épico 1. Ver `PERGUNTAS_REGRAS_NEGOCIO.md → Decisões → Rodada 6 — 2026-07-29`.
+- **10.5 🟡 Confirmação de e-mail obrigatória para usar o app?** — **aberta**, surgiu da reconciliação do Épico 2 (2026-07-30) e foi ampliada para lojista/admin na reconciliação do Épico 3. Sem SMS, o e-mail vira o único canal verificável; a config `Confirm email` do Supabase é por projeto, então a decisão vale para os três perfis. Épicos 2 e 3 assumem provisoriamente "sem confirmação obrigatória".
+- **10.6 🟡 Criação de contas de admin Keepit e papéis internos** — **aberta**, surgiu da reconciliação do Épico 3 (2026-07-30). A 10.4 fecha *como* o admin entra, não *quem cria* a conta nem se há papéis distintos. Épico 3 assume `admin_users` sem coluna de papel e provisionamento manual via SQL.
+
+## 🔴 Dívida de código herdada da 10.4 (implementação, não decisão)
+
+A decisão 10.4 está fechada, mas o **código ainda não a reflete**: o tipo `Cliente` e o `auth.port` em `packages/core-data` foram modelados na fase mock com **apenas nome + telefone**, sem e-mail/senha. Isso é dívida real, não pendência de stakeholder.
+
+- **Ajuste esperado:** `Cliente` ganha `email` (obrigatório) e mantém `telefone` como **opcional/nullable**; `auth.port` passa a expor signup/login por e-mail + senha (Supabase Auth) e o caminho de recuperação de senha.
+- **Onde acontece:** **Stories 2.3 e 2.6 do Épico 2** (`docs/prd/epics/2-auth-cliente.md`), já reconciliadas com a 10.4 — a 2.3 cria a tabela `clientes` sem `telefone_confirmado` e a 2.6 define o login/re-login como fallback do PIN.
+- **Atenção:** não uniformizar com o Lojista — o telefone do lojista **continua obrigatório** (só deixou de ser verificado).
 
 ## 🟡 Infra / testes
 - **Test runner nos apps** — `apps/{cliente,lojista,admin}` têm `test = echo skipped`; nenhuma cobertura automatizada de UI/mock local (só `packages/core-data`/`config` têm Vitest). Story de infra para adicionar runner (TEST-001 recorrente).

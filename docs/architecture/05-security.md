@@ -92,7 +92,12 @@ CREATE POLICY sem_insert_direto_clientes ON clientes
   WITH CHECK (false);
 ```
 
-### 3.2 `clientes_confirmacao_telefone`
+### 3.2 `clientes_confirmacao_telefone` — REMOVIDA DO MVP
+
+> **Removida do MVP pela decisão 10.4 (2026-07-29)** — sem confirmação de telefone por SMS, a tabela não existe (ver `03-data-models.md` §1.2). Estas policies **não devem entrar na migration inicial**; sem a tabela, o `ALTER TABLE` falharia e quebraria a migration. Texto original mantido por rastreabilidade, já que o SMS é candidato a v2.
+
+<details>
+<summary>Policies originais (v2 — não aplicar no MVP)</summary>
 
 Escrita só via Edge Function `service_role`. Cliente só lê próprio histórico se precisar.
 
@@ -111,6 +116,8 @@ CREATE POLICY sem_escrita_direta ON clientes_confirmacao_telefone
 ```
 
 **Nota:** Edge Function usa `SUPABASE_SERVICE_ROLE_KEY` que ignora RLS por natureza — a policy só protege contra escrita via cliente/anon key.
+
+</details>
 
 ### 3.3 `clientes_cartoes`
 
@@ -436,14 +443,15 @@ Isso faz a view respeitar RLS das tabelas `pedidos`, `saques`, `debitos_lojista`
 | `SUPABASE_SERVICE_ROLE_KEY` | **Apenas Edge Functions** (env do Supabase) | Nunca no app mobile |
 | `ASAAS_API_KEY` | Env das Edge Functions | Só backend |
 | `ASAAS_WEBHOOK_TOKEN` | Env das Edge Functions | Só backend (valida header do webhook) |
-| `ZENVIA_API_TOKEN` | Env das Edge Functions | Só backend |
 | `EXPO_ACCESS_TOKEN` | GitHub Actions Secret | Só CI para builds |
 
-**Regra absoluta**: nada de `SUPABASE_SERVICE_ROLE_KEY`, `ASAAS_API_KEY` ou `ZENVIA_API_TOKEN` no bundle dos apps mobile. Se aparecer em `apps/cliente/` ou `apps/lojista/`, é vulnerabilidade crítica.
+*(`ZENVIA_API_TOKEN` **saiu pela decisão 10.4 (2026-07-29)** — sem SMS no MVP, não há integração com a Zenvia e nenhum ambiente precisa dessa variável. Volta junto com o SMS se ele entrar em v2.)*
+
+**Regra absoluta**: nada de `SUPABASE_SERVICE_ROLE_KEY` ou `ASAAS_API_KEY` no bundle dos apps mobile. Se aparecer em `apps/cliente/` ou `apps/lojista/`, é vulnerabilidade crítica.
 
 ### 4.2 Rotação
 
-- Chaves Asaas e Zenvia: rotacionar a cada 6 meses ou imediatamente após qualquer suspeita de vazamento.
+- Chave Asaas (`ASAAS_API_KEY`): rotacionar a cada 6 meses ou imediatamente após qualquer suspeita de vazamento.
 - `SUPABASE_SERVICE_ROLE_KEY`: rotacionar via Supabase Dashboard; atualizar env das Edge Functions e do CI.
 - `ASAAS_WEBHOOK_TOKEN`: rotacionar sempre que reconfigurar webhook no Asaas.
 
@@ -489,8 +497,11 @@ SELECT convert_from(
 
 ## 5. Autenticação admin
 
-- Admin usa **mesmo Supabase Auth** que cliente e lojista (email + senha).
+- Admin usa **mesmo Supabase Auth** que cliente e lojista (e-mail + senha) — confirmado pela **decisão 10.4 (2026-07-29)**: os três perfis usam e-mail + senha, sem SMS, sem SSO.
 - Diferença: existência em `admin_users` (adicionada manualmente via SQL do owner).
+- ⚠️ **Pendências que tocam esta seção e ainda não estão decididas** (`docs/PERGUNTAS_REGRAS_NEGOCIO.md`):
+  - **10.5 🟡** — se a confirmação de e-mail é obrigatória. A opção `Confirm email` do Supabase Auth é **configuração por projeto**, portanto vale igualmente para cliente, lojista e admin. Até a decisão sair, assume-se `off` (mesmo default do Épico 2/3). Não implementar nada específico de confirmação antes da resposta.
+  - **10.6 🟡** — provisionamento de contas admin e existência de papéis. Até a decisão sair, `admin_users` é **lista plana sem coluna de papel** e a inserção é manual via SQL — que é o que este documento e `03-data-models.md` §1.7 descrevem. Se a resposta trouxer papéis, muda a tabela e as policies que hoje usam `is_admin()` sem granularidade.
 - **Sem 2FA no MVP** — decisão consciente para reduzir escopo. Adicionar quando houver mais de 2 admins.
 - Admin **não usa os apps mobile** — só o admin web. RLS impede que um admin faça login no app do cliente e veja algo estranho (o app cliente só usa policies orientadas a cliente).
 
@@ -517,8 +528,8 @@ SELECT convert_from(
 
 ### 6.5 Rate limiting
 
-- **Zenvia SMS**: max 3 códigos por telefone por hora — implementado em Edge Function.
-- **Login**: Supabase Auth já tem proteção nativa contra brute-force (delay progressivo).
+- *(O rate limit de SMS — "max 3 códigos por telefone por hora" — **saiu pela decisão 10.4 (2026-07-29)**, junto com a integração Zenvia. Volta com o SMS em v2, se houver.)*
+- **Login**: Supabase Auth já tem proteção nativa contra brute-force (delay progressivo). É a única barreira de força bruta relevante do MVP, já que os três perfis (cliente, lojista, admin) autenticam por e-mail + senha.
 - **API pública**: Supabase gerencia rate limit por IP no seu edge. MVP não precisa camada adicional.
 
 ### 6.6 Log de dados sensíveis
@@ -565,12 +576,13 @@ Edge Functions administrativas (aprovar/rejeitar/suspender/estornar) inserem em 
 - [ ] Tentar `SELECT * FROM clientes` como lojista e confirmar que só vê os que fizeram pedido nele (na verdade, lojista não deve poder ler `clientes` — se precisar do nome, sai via join no `pedidos`).
 - [ ] Tentar `SELECT service_role_key` de dentro do bundle mobile — não deve existir.
 - [ ] Testar webhook Asaas com token errado — deve retornar 401.
-- [ ] Testar SMS com telefone repetindo — deve bloquear na 4ª tentativa/hora.
+- [ ] Tentar `INSERT`/`UPDATE` em `clientes` com `id` de outro usuário — deve falhar (RLS).
 - [ ] Confirmar botão "excluir minha conta" abre WhatsApp com mensagem correta em iOS e Android.
 
 ## 9. O que fica para depois (v2+)
 
 - 2FA para admin.
+- **Verificação de telefone por SMS** (tabela `clientes_confirmacao_telefone`, integração Zenvia, `ZENVIA_API_TOKEN`, rate limit de códigos) — removida do MVP pela decisão 10.4 (2026-07-29); volta aqui se a verificação de número virar necessária.
 - Rate limiting customizado (Cloudflare ou similar) se abusos aparecerem.
 - Encryption-at-rest total do banco (Supabase já faz por padrão via disk encryption; explicitamente comunicado nas Políticas).
 - Certificate pinning nos apps mobile.
