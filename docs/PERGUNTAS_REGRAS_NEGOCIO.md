@@ -322,6 +322,14 @@ O onboarding do protótipo (`cliente-01-onboarding.png`) é **dark** (fundo escu
 ### 10.4 ✅ Modelo de autenticação do Cliente — RESOLVIDO (Rodada 6, 2026-07-29)
 Login do Cliente é **e-mail + senha** (Supabase Auth nativo). **Sem confirmação de SMS no MVP** (economia de Zenvia + simplicidade). Telefone é campo **opcional, não verificado**. Ver `## Decisões → Rodada 6`.
 
+### 10.5 🟡 Confirmação de e-mail é obrigatória para usar o app? — aberto (revelado na reconciliação do Épico 2, 2026-07-30)
+Com a saída do SMS (10.4), o **e-mail vira o único canal verificável** da conta do cliente — e a decisão 10.4 não diz se ele precisa ser confirmado. O Supabase Auth tem a opção "Confirm email" ligada por padrão. Duas alternativas, com trade-off real:
+
+- **(a) Sem confirmação obrigatória** (`Confirm email` off): cadastro → home imediatamente, atrito zero. Risco: e-mail digitado errado = cliente **perde o "Esqueci a senha"** (Story 2.7) e, por consequência, o acesso ao PIN via re-login (fallback da 10.4). Também abre espaço para contas com e-mail de terceiros.
+- **(b) Confirmação obrigatória** (`Confirm email` on): cadastro → tela "confirme seu e-mail" → só então home. Garante recuperação de conta e o fallback do PIN. Custo: um passo a mais no funil e risco de e-mail cair em spam.
+
+Impacto direto: Story 2.3 (AC5, para onde navega o signup), Story 2.6 (login de conta não confirmada), Story 2.11 (momento do prompt de push). **Enquanto não decidido, o Épico 2 assume (a)** — navegação direta para a home, como escrito nas ACs — por ser o comportamento que as telas do protótipo já mostram. → **STAKEHOLDER** (ou Caio, se quiser fechar como decisão técnica).
+
 ---
 
 ## Decisões (fechadas)

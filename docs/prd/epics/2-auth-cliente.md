@@ -1,10 +1,12 @@
 # Épico 2 — Auth & Onboarding do Cliente
 
+> **Reconciliação (2026-07-30) — decisão 10.4 (Rodada 6, 2026-07-29):** a autenticação do Cliente é **e-mail + senha** (Supabase Auth nativo), **sem confirmação por SMS no MVP** (corta custo/integração Zenvia; entra em v2 se necessário). O telefone passa a ser **campo opcional e não verificado**. Por isso as **Stories 2.4 (Edge Function SMS Zenvia)** e **2.5 (tela de confirmação SMS)** foram **removidas do MVP** — texto original mantido abaixo por rastreabilidade, caso o SMS volte em v2. As demais stories **não foram renumeradas**. Ver `docs/PERGUNTAS_REGRAS_NEGOCIO.md → Decisões → Rodada 6 — 2026-07-29`.
+
 ## Expanded Goal
 
-Entregar o **caminho de entrada completo** para o cliente: onboarding "Como funciona" com fidelidade ao protótipo, cadastro com e-mail + senha + telefone, confirmação de telefone por SMS via Zenvia, login, recuperação de senha, tela de perfil e configurações (incluindo botão de exclusão de conta compliance Apple). Sem esse épico, ninguém entra no app do cliente.
+Entregar o **caminho de entrada completo** para o cliente: onboarding "Como funciona" com fidelidade ao protótipo, cadastro com e-mail + senha (telefone opcional, não verificado), login, recuperação de senha, tela de perfil e configurações (incluindo botão de exclusão de conta compliance Apple). Sem esse épico, ninguém entra no app do cliente.
 
-Ao final: um cliente novo consegue baixar o app, criar conta, confirmar telefone, entrar, e sair, com todos os textos e visuais coerentes com o protótipo.
+Ao final: um cliente novo consegue baixar o app, criar conta com e-mail + senha, entrar, e sair, com todos os textos e visuais coerentes com o protótipo.
 
 ## Prerequisites
 
@@ -29,16 +31,17 @@ Ao final: um cliente novo consegue baixar o app, criar conta, confirmar telefone
 ### Story 2.2 — Tela de criar conta
 
 **As a** novo cliente,
-**I want** criar minha conta com nome, e-mail, senha e telefone,
+**I want** criar minha conta com nome, e-mail e senha (telefone opcional),
 **so that** eu possa começar a comprar.
 
 **Acceptance Criteria:**
 1: Tela replica o protótipo (fundo claro, campos empilhados, botão "Criar conta" verde).
-2: Campos: nome completo, e-mail, senha (mín. 8 caracteres), telefone (máscara BR).
+2: Campos **obrigatórios**: nome completo, e-mail, senha (mín. 8 caracteres). Campo **opcional**: telefone (máscara BR), rotulado como "Telefone (opcional)".
 3: Checkbox "Aceito os Termos de Uso e Política de Privacidade" com links stub (`keepit.app/termos` e `/privacidade`) — obrigatório para prosseguir.
-4: Validação em tempo real (e-mail formato, senha comprimento, telefone completo).
+4: Validação em tempo real: e-mail (formato) e senha (comprimento) bloqueiam o submit. Telefone só é validado **se preenchido** (formato BR completo); telefone vazio **não** bloqueia o cadastro.
 5: Mensagens de erro claras em português.
 6: CPF **não** é solicitado nesta tela (é solicitado no primeiro checkout — Épico 6).
+7: O telefone é **informativo e não verificado** (decisão 10.4) — a tela não promete SMS nem confirmação de número.
 
 ---
 
@@ -49,15 +52,17 @@ Ao final: um cliente novo consegue baixar o app, criar conta, confirmar telefone
 **so that** minha conta exista e permita login futuro.
 
 **Acceptance Criteria:**
-1: Migration cria tabela `clientes (id uuid PK referencing auth.users, nome text, telefone text, telefone_confirmado bool default false, cpf text nullable, criado_em timestamptz default now())`.
+1: Migration cria tabela `clientes (id uuid PK referencing auth.users, nome text, telefone text nullable, cpf text nullable, criado_em timestamptz default now())`. **Sem coluna `telefone_confirmado`** — telefone não é verificado no MVP (decisão 10.4).
 2: RLS ativada: cliente só pode ler/atualizar sua própria linha.
-3: Trigger insere linha em `clientes` automaticamente ao criar user em `auth.users` (com metadata nome + telefone).
+3: Trigger insere linha em `clientes` automaticamente ao criar user em `auth.users` (com metadata nome + telefone, sendo telefone possivelmente nulo).
 4: Erro de e-mail já existente é mostrado claramente na tela.
-5: Sucesso navega para Story 2.4 (confirmação SMS).
+5: Sucesso **navega direto para a home** do cliente (home vazia; Épico 5 preenche depois). Não há etapa intermediária de confirmação de telefone.
 
 ---
 
 ### Story 2.4 — Edge Function envia SMS de confirmação via Zenvia
+
+> **Removida do MVP pela decisão 10.4 (2026-07-29).** Sem confirmação de telefone por SMS: corta o custo e a integração com a Zenvia, e o telefone passa a ser campo opcional e não verificado. Candidata a voltar em v2 se a verificação de número virar necessária. Texto original mantido por rastreabilidade.
 
 **As a** cliente que acabou de cadastrar,
 **I want** receber um SMS com código de 4-6 dígitos para confirmar meu telefone,
@@ -72,6 +77,8 @@ Ao final: um cliente novo consegue baixar o app, criar conta, confirmar telefone
 ---
 
 ### Story 2.5 — Tela de confirmação SMS
+
+> **Removida do MVP pela decisão 10.4 (2026-07-29).** Sem SMS não existe código a confirmar; o cadastro (Story 2.3) navega direto para a home. A tela `ConfirmacaoSMS` da casca visual (Épico 0, Stories 0.3/0.4) fica **fora do fluxo de navegação** do MVP. Candidata a voltar em v2 junto com a Story 2.4. Texto original mantido por rastreabilidade.
 
 **As a** cliente que recebeu o SMS,
 **I want** digitar o código na tela do app,
@@ -96,8 +103,9 @@ Ao final: um cliente novo consegue baixar o app, criar conta, confirmar telefone
 1: Tela replica o protótipo ("Bem-vindo de volta", campos e-mail/senha, botão "Entrar").
 2: Link "Esqueci a senha" abaixo da senha.
 3: Erro de credencial inválida mostrado como toast.
-4: Ao entrar, se `telefone_confirmado = false`, redireciona para tela de confirmação SMS (Story 2.5).
+4: Ao entrar, navega direto para a home do cliente — **não há redirecionamento condicional** por estado de telefone (decisão 10.4).
 5: Sessão persistida (refresh token via Supabase Auth).
+6: Re-login com e-mail + senha é o caminho de recuperação de acesso ao **PIN** de um pedido em andamento (fallback definido na decisão 10.4, em substituição ao envio por SMS). O PIN em si é exibido pelo Épico 7.
 
 ---
 
@@ -118,14 +126,14 @@ Ao final: um cliente novo consegue baixar o app, criar conta, confirmar telefone
 ### Story 2.8 — Tela de perfil do cliente
 
 **As a** cliente logado,
-**I want** ver e editar meu nome, e-mail e telefone,
+**I want** ver e editar meu nome, e-mail e telefone (opcional),
 **so that** eu mantenha meus dados atualizados.
 
 **Acceptance Criteria:**
 1: Tela "Perfil" replica o protótipo (avatar circular com iniciais, nome grande, e-mail abaixo, botões de ações).
 2: Editar nome atualiza em `clientes`.
 3: Editar e-mail dispara fluxo de confirmação (via Supabase Auth).
-4: Editar telefone dispara novo SMS de confirmação (reusa Story 2.4).
+4: Editar telefone faz **update direto** em `clientes.telefone` (sem verificação, sem SMS — decisão 10.4). O cliente pode inclusive **limpar** o campo, já que o telefone é opcional.
 5: Logout funciona (limpa sessão e volta para login).
 
 ---
@@ -158,12 +166,12 @@ Ao final: um cliente novo consegue baixar o app, criar conta, confirmar telefone
 
 ### Story 2.11 — Solicitar permissão de push notification
 
-**As a** cliente que confirmou telefone,
+**As a** cliente que acabou de criar a conta,
 **I want** ser convidado a habilitar notificações no momento certo,
 **so that** eu receba updates dos meus pedidos.
 
 **Acceptance Criteria:**
-1: Após confirmação SMS bem-sucedida (Story 2.5), app solicita permissão de push nativa (iOS/Android).
+1: **Novo gatilho (decisão 10.4):** o prompt de permissão de push nativa (iOS/Android) é disparado **na primeira entrada na home após o signup bem-sucedido (Story 2.3)** — ponto que substitui a antiga confirmação SMS (Story 2.5, removida). O prompt roda **uma única vez** por instalação (flag persistida); não reaparece a cada login.
 2: Se aceitar, `expoPushToken` é salvo em `clientes.expo_push_token` via Edge Function.
 3: Se recusar, `clientes.notificacoes_ativas = false`; app continua funcionando normalmente.
 4: Toggle em Configurações (Story 2.9) permite reativar (com novo prompt de permissão).
@@ -172,8 +180,8 @@ Ao final: um cliente novo consegue baixar o app, criar conta, confirmar telefone
 
 ## Definition of Done
 
-- [ ] Todas as 11 stories `Done`.
-- [ ] Um cliente novo consegue: baixar app → onboarding → cadastrar → confirmar SMS → entrar → editar perfil → logout → login novamente.
+- [ ] Todas as **9 stories ativas** `Done`: 2.1, 2.2, 2.3, 2.6, 2.7, 2.8, 2.9, 2.10, 2.11. *(2.4 e 2.5 removidas do MVP pela decisão 10.4 — mantidas no documento por rastreabilidade; numeração das demais preservada.)*
+- [ ] Um cliente novo consegue: baixar app → onboarding → cadastrar (e-mail + senha, telefone opcional) → cair direto na home → editar perfil → logout → login novamente.
 - [ ] Todos os textos e visuais coerentes com o protótipo (aprovação visual manual).
 - [ ] Botão "Excluir conta" testado — abre WhatsApp com mensagem correta.
 - [ ] Push notification token capturado no banco após aceite.
