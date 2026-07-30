@@ -28,7 +28,7 @@ Herança do trabalho de fundação já concluído (originalmente Épico 1, Stori
 
 **NÃO entra** (fica para o Épico 1 e para os épicos 2–9):
 - Projeto Supabase real, migrations, `gen types`, RLS.
-- Auth real (Supabase Auth, SMS Zenvia, sessão). No Épico 0, "login" apenas navega.
+- Auth real (Supabase Auth, sessão). No Épico 0, "login" apenas navega. *(Este item citava "SMS Zenvia" — o SMS saiu do MVP pela decisão 10.4, ver nota de reconciliação abaixo da Story 0.4.)*
 - Integração Asaas, pagamento, tokenização, webhooks, carteira real.
 - Regras de negócio com side-effect real (timeout via `pg_cron`, PIN gerado no servidor, matriz de cancelamento com efeitos, liberação D+7).
 - Upload real de fotos (Storage) — imagem é placeholder/local no mock.
@@ -137,6 +137,10 @@ O princípio nº1 (fidelidade 100% ao protótipo) é **verificável**, não aspi
 2: Fidelidade visual verificada contra o protótipo (cores, spacing, tipografia, textos).
 3: "Login"/"Criar conta" navegam para a Home sem autenticação real; campos renderizados sem submit real.
 4: Nenhum valor de regra hard-coded; qualquer texto de taxa/prazo vem de `packages/config`.
+
+> **Nota de reconciliação (2026-07-30) — decisão 10.4 (Rodada 6, 2026-07-29):** o MVP passou a autenticar o cliente só com **e-mail + senha**, **sem confirmação por SMS**. A tela **`ConfirmacaoSMS`**, construída aqui (AC1) e roteada na Story 0.3, **continua existindo no código mas fica fora do fluxo de navegação do MVP** (órfã).
+> As Stories **0.3 e 0.4 permanecem `Done`** e **não são reabertas**: foram entregues corretamente conforme o escopo vigente à época, com gate de QA. Não há retrabalho a fazer no Épico 0 — a remoção da tela do fluxo é tratada como parte da implementação do Épico 2.
+> Rastreabilidade do "porquê": **Épico 2, Story 2.5 (removida do MVP)** e **Story 2.4 (Edge Function Zenvia, removida)** em `docs/prd/epics/2-auth-cliente.md`. Se o SMS voltar em v2, a tela já existe e pode ser religada ao fluxo.
 
 ---
 
@@ -247,7 +251,7 @@ Status em 2026-07-28 (orquestração completa: @sm → @po → @dev → @qa em t
 - [x] **Todo dado vem de `packages/core-data` (mock)**; nenhum valor financeiro/operacional hard-coded (verificado por grep nos gates) — valores em `packages/config`. ⚠️ *Percentuais de reembolso ainda em `cancelamentoPolicy.ts` a migrar para o config — ver reconciliação.*
 - [x] **Estados loading / vazio / erro** exercitáveis via injeção do mock (`AsyncCallOptions` / `DevStateToggle`).
 
-**Débitos pré-Épico-1 (não bloqueiam o Épico 0):** consolidados em `docs/EPICO_0_RECONCILIACAO.md` — principalmente estender as ports de `core-data` (admin-ops, order lado-lojista/cliente, product delete/ativo, store write, analytics) que hoje vivem como adaptadores locais nos apps, migrar percentuais de reembolso para o config, e as pendências de stakeholder (mapa, login social, modelo de auth) em `PERGUNTAS_REGRAS_NEGOCIO.md` seção 10.
+**Débitos pré-Épico-1 (não bloqueiam o Épico 0):** consolidados em `docs/EPICO_0_RECONCILIACAO.md` — principalmente estender as ports de `core-data` (admin-ops, order lado-lojista/cliente, product delete/ativo, store write, analytics) que hoje vivem como adaptadores locais nos apps, migrar percentuais de reembolso para o config, e as pendências de stakeholder em `PERGUNTAS_REGRAS_NEGOCIO.md` seção 10 — hoje **mapa (10.1)** e **login social (10.2)** seguem abertas; o **modelo de auth (10.4)** foi **resolvido** na Rodada 6 (e-mail + senha, sem SMS), deixando a tela `ConfirmacaoSMS` órfã (ver nota na Story 0.4) e abrindo a nova pendência **10.5** (confirmação de e-mail obrigatória?).
 
 ## Riscos e mitigação
 

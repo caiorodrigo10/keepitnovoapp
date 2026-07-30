@@ -330,6 +330,18 @@ Com a saída do SMS (10.4), o **e-mail vira o único canal verificável** da con
 
 Impacto direto: Story 2.3 (AC5, para onde navega o signup), Story 2.6 (login de conta não confirmada), Story 2.11 (momento do prompt de push). **Enquanto não decidido, o Épico 2 assume (a)** — navegação direta para a home, como escrito nas ACs — por ser o comportamento que as telas do protótipo já mostram. → **STAKEHOLDER** (ou Caio, se quiser fechar como decisão técnica).
 
+**Ampliação (2026-07-30, reconciliação do Épico 3):** a mesma pergunta vale para **lojista e admin**, que também autenticam por e-mail + senha. Se a confirmação for obrigatória, o lojista ganha uma tela "confirme seu e-mail" entre o cadastro (Story 3.2) e a tela "Em análise" (Story 3.6), e o admin idem antes do painel (Story 3.7). O Épico 3 assume o mesmo default (a) até a decisão sair. Como a configuração `Confirm email` do Supabase Auth é **por projeto**, a decisão é necessariamente **única para os três perfis** — não dá para ligar só para o lojista sem trabalho extra.
+
+### 10.6 🟡 Criação de contas de admin Keepit e papéis internos — aberto (revelado na reconciliação do Épico 3, 2026-07-30)
+A decisão 10.4 fecha o **como** o admin entra (e-mail + senha, sem SSO), mas não fecha o **quem cria** a conta nem **se existem papéis distintos**. A pergunta 6.2 já tocava o tema e segue sem resposta; a reconciliação do Épico 3 a tornou concreta porque a Story 3.7 cria a tabela `admin_users` e precisa saber se ela tem coluna de papel.
+
+Em aberto:
+- **Provisionamento**: não existe tela de auto-cadastro de admin. Quem insere a linha em `admin_users` — Caio via SQL no Supabase, ou um admin existente convida outro pelo painel (exige tela nova, não prevista em nenhuma story)?
+- **Papéis**: `admin_users` é uma lista plana (todo admin pode tudo: aprovar lojista, forçar cancelamento, executar reembolso, bloquear cliente) ou precisa separar *financeiro* / *operações* / *admin geral* (item 6.2)?
+- **Quantas pessoas** usam o painel no MVP? Com 1-2 pessoas, lista plana basta e a pergunta vira 🟢.
+
+**Enquanto não decidido, o Épico 3 assume:** `admin_users` **sem coluna de papel** (todos os admins têm os mesmos poderes) e **provisionamento manual via SQL**, por ser o menor escopo compatível com o MVP e com o volume esperado (4-5 hubs, poucos lojistas). Se a resposta trouxer papéis, o custo é uma migration + checagens de RLS por papel — não é retrabalho grande, mas é melhor saber antes da Story 3.7. → **STAKEHOLDER + CAIO**.
+
 ---
 
 ## Decisões (fechadas)
@@ -394,9 +406,11 @@ Impacto direto: Story 2.3 (AC5, para onde navega o signup), Story 2.6 (login de 
 
 #### Cadastro do cliente
 
-- **[Campos obrigatórios no cadastro]** E-mail + senha + telefone. CPF é **opcional** no cadastro.
+> ⚠️ **Dois itens deste bloco foram SUPERSEDED pela Rodada 6 (2026-07-29 — decisão 10.4).** Mantidos abaixo como registro histórico da Rodada 2. Vale o texto da Rodada 6.
+
+- ~~**[Campos obrigatórios no cadastro]** E-mail + senha + telefone.~~ → **SUPERSEDED (10.4):** telefone é **opcional e não verificado** no cadastro do Cliente. Obrigatórios: nome, e-mail, senha. CPF segue **opcional** no cadastro.
 - **[CPF]** Obrigatório no **primeiro checkout** (necessário para NF e anti-fraude).
-- **[Confirmação de telefone]** SMS com código de 4-6 dígitos. Serve também como fallback caso o cliente perca acesso ao app antes da retirada.
+- ~~**[Confirmação de telefone]** SMS com código de 4-6 dígitos. Serve também como fallback caso o cliente perca acesso ao app antes da retirada.~~ → **SUPERSEDED (10.4):** **sem SMS no MVP.** O fallback de acesso ao PIN passa a ser **re-login com e-mail + senha**.
 - **[Login social]** **Fora do MVP**. Só e-mail + senha inicialmente. Apple/Google entra em v2.
 - **[Guest checkout]** **Não**. Cadastro obrigatório antes de comprar.
 

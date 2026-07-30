@@ -26,7 +26,7 @@ Princípios de UX que atravessam o produto:
 ### App do Cliente (tema claro)
 
 1. Onboarding "Como funciona" (3 telas)
-2. Login / Criar conta / Confirmação SMS
+2. Login / Criar conta / Esqueci minha senha — ~~Confirmação SMS~~ **removida do MVP pela decisão 10.4 (2026-07-29)**: a tela `ConfirmacaoSMS` existe na casca visual (Épico 0) mas fica **fora do fluxo de navegação** do MVP; o cadastro navega direto para a home. Candidata a v2.
 3. Home — hubs próximos + categorias
 4. Hub selecionado — lojas do hub (com estado Aberta/Fechada/Pausada)
 5. Busca (por produto + por loja)

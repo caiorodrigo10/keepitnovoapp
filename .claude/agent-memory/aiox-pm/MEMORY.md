@@ -1,1 +1,1 @@
-- [Dívida documental da remoção do SMS](project_sms_removal_doc_debt.md) — decisão 10.4 aplicada só no Épico 2; PRD/ARQUITETURA ainda citam Zenvia
+- [Dívida documental da remoção do SMS](project_sms_removal_doc_debt.md) — 10.4 já aplicada no PRD/ARQUITETURA; falta `docs/architecture/` e o código; lacunas 10.5 e 10.6 abertas

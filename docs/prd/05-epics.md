@@ -10,7 +10,7 @@ O MVP é entregue em **10 épicos**. Cada épico entrega valor demonstrável e s
 |---|---|---|
 | 0 | [Casca Visual (UI-first)](./epics/0-casca-visual.md) | Construir todas as telas dos 3 apps com dados mock e fidelidade total ao protótipo, navegáveis ponta-a-ponta, sobre uma camada de dados assíncrona trocável (`packages/core-data`). |
 | 1 | [Fundação Backend & CI](./epics/1-setup-fundacao.md) | Projeto Supabase na nuvem, wrapper `supabase-client` tipado, esqueleto Supabase das ports de `core-data`, e CI garantindo qualidade — pronto para substituir os mocks por dados reais. |
-| 2 | [Auth & Onboarding do Cliente](./epics/2-auth-cliente.md) | Cliente consegue baixar o app, criar conta, confirmar telefone por SMS, logar e ver seu perfil — com fidelidade visual ao protótipo. |
+| 2 | [Auth & Onboarding do Cliente](./epics/2-auth-cliente.md) | Cliente consegue baixar o app, criar conta com e-mail + senha (telefone opcional e não verificado), logar, recuperar senha e ver seu perfil — com fidelidade visual ao protótipo. Sem confirmação por SMS (decisão 10.4). |
 | 3 | [Auth & Onboarding do Lojista + Aprovação Admin](./epics/3-lojista-aprovacao.md) | Lojista consegue se cadastrar; admin consegue aprovar e criar subconta Asaas; lojista aprovado consegue logar e ver o painel vazio. |
 | 4 | [Cadastros Base — Hubs & Catálogo](./epics/4-cadastros-base.md) | Admin cadastra hubs; lojista cadastra produtos com fotos, define horários e ticket mínimo; base pronta para receber pedidos. |
 | 5 | [Descoberta & Busca do Cliente](./epics/5-descoberta-busca.md) | Cliente escolhe hub, vê lojas do hub filtradas por raio de atendimento e estado, navega catálogos e detalhe de produto, faz busca por produto e por loja. |

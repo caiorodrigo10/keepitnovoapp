@@ -24,7 +24,7 @@ keepitnovoapp/
 ## Service Architecture: Monolítico via Supabase (Backend-as-a-Service)
 
 - **Backend**: **Supabase** entrega PostgreSQL + Auth + Storage + Edge Functions + Row-Level Security em um único serviço gerenciado. Não há backend Node/Fastify separado.
-- **Regras de negócio** rodam em **Edge Functions Deno** (aceite com timeout, geração de PIN, cálculo de saldo/carteira virtual, saque, webhooks Asaas, envio de SMS Zenvia, cálculo Haversine).
+- **Regras de negócio** rodam em **Edge Functions Deno** (aceite com timeout, geração de PIN, cálculo de saldo/carteira virtual, saque, webhooks Asaas, cálculo Haversine).
 - **Autorização** vive em **RLS** (Row-Level Security). Cliente vê só seus pedidos; lojista vê só o que é do seu estabelecimento; admin tem acesso amplo. Nenhuma regra crítica de autorização vive só no client-side.
 - **Storage**: fotos de produto, foto de fachada, foto de hub em **Supabase Storage** com URLs assinadas.
 - **Jobs / cron**: `pg_cron` do Supabase para verificar timeout de aceite a cada minuto (regra dos 10 min).
@@ -60,7 +60,9 @@ keepitnovoapp/
 - **Deploy admin**: Vercel com deploy contínuo automático (main → produção).
 - **Deploy mobile**: EAS Build + EAS Submit manuais quando quiser publicar. Sem EAS Update no MVP.
 - **Ambientes**: 2 projetos Supabase distintos, **ambos hospedados na nuvem** (`keepit-dev` e `keepit-prod`). Sem staging. **Sem Supabase local via Docker/CLI** (decisão 2026-07-03 — solo dev, setup mais rápido).
-- **Provider de SMS**: **Zenvia** (~R$ 0,08/SMS), disparado por Edge Function. Não usa Supabase Auth Phone (evita custo do provider embutido).
+- **Autenticação (Cliente, Lojista e Admin)**: **Supabase Auth nativo com e-mail + senha**. Recuperação de senha por e-mail. Não usa Supabase Auth Phone nem OTP por SMS. *(Se a confirmação de e-mail será obrigatória é a pendência **10.5**, ainda em aberto — ver `docs/PERGUNTAS_REGRAS_NEGOCIO.md`.)*
+- ~~**Provider de SMS**: **Zenvia** (~R$ 0,08/SMS), disparado por Edge Function.~~
+  > **Removido do MVP pela decisão 10.4 (2026-07-29)** — sem confirmação de telefone por SMS, não há provider de SMS no MVP. Nenhuma Edge Function, chave de ambiente (`ZENVIA_API_TOKEN`) ou dependência Zenvia deve ser criada. Candidato a v2. Ver FR2 em `02-requirements.md`.
 - **Push notifications**: **Expo Push Notifications** (grátis) via `expo-server-sdk` dentro de Edge Function.
 - **Validação de CNPJ**: **BrasilAPI** (grátis, sem chave) chamada por Edge Function.
 - **Sem provider de mapa**. Distâncias calculadas por Haversine em Edge Function. Confirmação: protótipo não usa mapa visual.

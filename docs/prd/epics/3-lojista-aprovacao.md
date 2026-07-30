@@ -1,5 +1,12 @@
 # Épico 3 — Auth & Onboarding do Lojista + Aprovação Admin
 
+> **Reconciliação (2026-07-30) — decisão 10.4 (Rodada 6, 2026-07-29):** a decisão fecha que **Lojista e Admin também autenticam com e-mail + senha** (Supabase Auth nativo) e que **não há confirmação por SMS no MVP** (Zenvia fora; candidata a v2). Consequências neste épico:
+> - Nenhuma etapa de confirmação de telefone por SMS existe no cadastro do lojista nem no login do admin — o cadastro do passo 1 vai direto para o passo 2 (Story 3.4).
+> - O telefone do lojista **não é verificado** (nenhuma coluna `telefone_confirmado` em `estabelecimentos`), mas **continua obrigatório**: a Rodada 2 o lista entre os dados exigidos no onboarding e a Rodada 5 o usa como número de WhatsApp do botão "Falar com o lojista". A 10.4 tornou o telefone *opcional* apenas para o **Cliente** — não revogou a exigência para o lojista.
+> - **Nenhuma story foi removida** deste épico (as 12 seguem ativas) e **nenhuma foi renumerada**.
+>
+> **Pendência aberta que atinge este épico:** a **10.5 🟡** (confirmação de e-mail obrigatória) vale também para lojista e admin — se o Supabase Auth exigir confirmação de e-mail, o lojista cai numa tela de "confirme seu e-mail" antes da tela "Em análise" (Story 3.6) e o admin antes do painel. **Não decidida.** Enquanto isso, o épico assume o mesmo default do Épico 2: sem confirmação obrigatória. Ver `docs/PERGUNTAS_REGRAS_NEGOCIO.md → 10.5` e `→ Decisões → Rodada 6 — 2026-07-29`.
+
 ## Expanded Goal
 
 Habilitar o **caminho de entrada do lojista** — cadastro em 3 passos com todos os dados operacionais e financeiros — e o **primeiro fluxo do admin da Keepit** — login + aprovação/rejeição de lojistas com criação de subconta Asaas. Ao final: um lojista consegue se cadastrar, ser aprovado por um admin, e logar no app do lojista para ver painel (vazio no início).
@@ -9,7 +16,7 @@ Este é o épico que introduz o **admin web** e o **primeiro fluxo com Asaas** (
 ## Prerequisites
 
 - Épico 1 concluído.
-- Épico 2 concluído (Supabase Auth já configurado).
+- Épico 2 concluído (Supabase Auth já configurado com **e-mail + senha**, sem provider de SMS).
 - Conta Asaas sandbox criada; `ASAAS_API_KEY` no `.env`.
 
 ## Stories
@@ -37,7 +44,9 @@ Este é o épico que introduz o **admin web** e o **primeiro fluxo com Asaas** (
 1: Tela "Passo 1 de 3" com campos: nome fantasia, CNPJ (máscara), telefone (máscara), nome do responsável, e-mail, senha.
 2: Aceite de Termos e Política (checkbox obrigatório).
 3: Validação de CNPJ formato + Story 3.3.
-4: Sucesso avança para Story 3.4.
+4: Sucesso avança **direto** para Story 3.4 — **não há etapa de confirmação por SMS** (decisão 10.4).
+5: A conta do lojista é criada no **Supabase Auth com e-mail + senha** (mesmo mecanismo do cliente, Story 2.3). Senha mín. 8 caracteres.
+6: O **telefone continua obrigatório** (Rodada 2: dado exigido no onboarding; Rodada 5: é o WhatsApp do botão "Falar com o lojista"), mas é **não verificado** — a tela não promete SMS nem código de confirmação, e não existe coluna `telefone_confirmado` em `estabelecimentos`.
 
 ---
 
@@ -108,6 +117,8 @@ Este é o épico que introduz o **admin web** e o **primeiro fluxo com Asaas** (
 3: Clique em uma linha abre detalhe do lojista com todos os dados dos 3 passos + foto de fachada + dados da Receita.
 4: RLS permite acesso apenas a admins (tabela `admin_users` consultada).
 5: Migration cria `admin_users (id uuid PK referencing auth.users, criado_em)` e política RLS: `EXISTS (SELECT 1 FROM admin_users WHERE id = auth.uid())`.
+6: O login do admin web é **e-mail + senha** via Supabase Auth (decisão 10.4) — **sem SMS, sem 2FA e sem SSO no MVP**.
+7: ⚠️ **Assumido enquanto a pendência 10.6 não é decidida:** `admin_users` é uma **lista plana sem coluna de papel** (todo admin pode tudo) e contas são **provisionadas manualmente via SQL** (não há tela de auto-cadastro nem de convite de admin). Se a 10.6 fechar com papéis internos, esta AC muda. Ver `docs/PERGUNTAS_REGRAS_NEGOCIO.md → 10.6`.
 
 ---
 
@@ -146,11 +157,12 @@ Este é o épico que introduz o **admin web** e o **primeiro fluxo com Asaas** (
 **so that** eu acesse o painel.
 
 **Acceptance Criteria:**
-1: Mesma estrutura do login do cliente (Story 2.6), mas no tema dark.
+1: Mesma estrutura do login do cliente (Story 2.6) — **e-mail + senha** via Supabase Auth (decisão 10.4) — mas no tema dark. Link "Esqueci a senha" reaproveita o fluxo da Story 2.7 (redefinição por e-mail).
 2: Após login: se status `ativo`, vai para painel (vazio, com placeholder "Você ainda não tem pedidos" — épicos 4+ preenchem).
 3: Se `em_analise`, vai para tela Story 3.6.
 4: Se `rejeitado`, vai para tela com motivo (Story 3.9 parte final).
 5: Se `suspenso`, tela avisa e oferece WhatsApp da Keepit.
+6: O roteamento pós-login depende **somente do status do estabelecimento** — **não há redirecionamento condicional por estado de telefone** (decisão 10.4).
 
 ---
 
@@ -183,8 +195,9 @@ Este é o épico que introduz o **admin web** e o **primeiro fluxo com Asaas** (
 
 ## Definition of Done
 
-- [ ] Todas as 12 stories `Done`.
-- [ ] Lojista consegue: onboarding → 3 passos de cadastro → tela "Em análise" → ser aprovado por admin → logar → editar perfil → logout.
-- [ ] Admin consegue: login → ver pendentes → aprovar (cria subconta Asaas sandbox verificável) → rejeitar com motivo.
+- [ ] Todas as **12 stories ativas** `Done` (3.1–3.12). *(Nenhuma story removida pela decisão 10.4 — o épico nunca teve story dedicada a SMS; a reconciliação foi de ACs.)*
+- [ ] Lojista consegue: onboarding → 3 passos de cadastro (**e-mail + senha, sem etapa de SMS**) → tela "Em análise" → ser aprovado por admin → logar → editar perfil → logout.
+- [ ] Admin consegue: login (**e-mail + senha**) → ver pendentes → aprovar (cria subconta Asaas sandbox verificável) → rejeitar com motivo.
+- [ ] Nenhuma coluna de verificação de telefone (`telefone_confirmado`) e nenhuma chamada a provider de SMS em todo o épico.
 - [ ] Fidelidade visual dark validada em ambos.
 - [ ] Auditoria: cada aprovação/rejeição fica logada.

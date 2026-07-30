@@ -2,7 +2,7 @@
 
 **Para:** Thiago (Keepit)
 **De:** Caio (desenvolvimento)
-**Data:** 2026-07-03
+**Data:** 2026-07-03 · **Revisado em 2026-07-30** (decisão 10.4 — autenticação por e-mail + senha, sem SMS; impacto em fornecedores e custos nos itens 5.4, 7, 8.3 e 9)
 **Objetivo:** Validar o que já foi feito, alinhar regras de negócio e destravar os acessos necessários para seguir do protótipo até apps publicados nas lojas.
 
 ---
@@ -16,7 +16,7 @@ O que já está pronto (documentação e fundação técnica):
 - ✅ **Entendimento do produto** — cada tela do protótipo mapeada, personas, sistema de design.
 - ✅ **Escopo do MVP fechado** — 3 apps (Cliente, Lojista, Admin) + 1 backend.
 - ✅ **Regras de negócio propostas em 6 rodadas de decisão** — quase 30 decisões documentadas (fluxo do pedido, custódia, taxas, cancelamento, PIN, cadastros, admin).
-- ✅ **Arquitetura técnica escolhida** — Expo (apps nativos iOS+Android), Next.js (admin), Supabase (backend), Asaas (pagamento), Zenvia (SMS).
+- ✅ **Arquitetura técnica escolhida** — Expo (apps nativos iOS+Android), Next.js (admin), Supabase (backend), Asaas (pagamento).
 - ✅ **PRD completo em 9 épicos e stories detalhadas** — pronto para desenvolvimento sequencial.
 - ✅ **Estrutura do repositório** — monorepo com apps/cliente, apps/lojista, apps/admin, pacotes compartilhados.
 - ✅ **Avaliação técnica dos gateways** — Asaas vs Pagar.me comparados com checklist e recomendação.
@@ -24,7 +24,8 @@ O que já está pronto (documentação e fundação técnica):
 O que **falta para começar de fato a codar**:
 
 - ⚠️ **Sua validação das regras de negócio** que propus — tudo abaixo está com o meu chute técnico marcado como "sujeito à validação do stakeholder".
-- ⚠️ **Acessos e contas** que só você (dono da Keepit) pode criar — Asaas, Apple Developer, Google Play, Zenvia, domínio.
+- ⚠️ **Acessos e contas** que só você (dono da Keepit) pode criar — Asaas, Apple Developer, Google Play, domínio.
+  - 📉 **Uma conta a menos do que na versão anterior deste documento:** a **Zenvia (SMS) saiu** do MVP. Isso te poupa a abertura de mais um cadastro com CNPJ e **zera o único custo mensal recorrente do projeto** — ver item 9.
 
 ---
 
@@ -46,7 +47,7 @@ Marketplace hiperlocal **click-and-collect** com **hub compartilhado de bairro**
 
 ## 3. Jornada do Cliente (end-to-end)
 
-1. Abre o app, cria conta (e-mail + senha + telefone). Confirma telefone por SMS.
+1. Abre o app e cria conta com **e-mail + senha** (telefone é opcional e não verificado). **Sem confirmação por SMS** — decisão de 2026-07-29, ver item 5.4.
 2. **Escolhe primeiro o hub** perto dele (vê lista de hubs por distância).
 3. Vê as lojas que atendem esse hub (lojas fora do raio de atendimento não aparecem).
 4. Navega catálogo ou busca (por produto ou por loja).
@@ -66,7 +67,7 @@ Marketplace hiperlocal **click-and-collect** com **hub compartilhado de bairro**
 
 ## 4. Jornada do Lojista (end-to-end)
 
-1. Baixa o app do Lojista, cria conta, confirma telefone.
+1. Baixa o app do Lojista e cria conta com **e-mail + senha** (mesmo modelo do Cliente — sem SMS).
 2. Preenche cadastro do estabelecimento: **CNPJ, categoria, endereço da loja, raio de atendimento em km, tempo médio de entrega em min, taxa de deslocamento, chave PIX, horário por dia da semana**, foto de fachada (opcional).
 3. Estabelecimento fica **"Em análise"** — cliente ainda não vê essa loja.
 4. **Admin Keepit revisa e aprova manualmente** no painel. Se aprovado, backend cria automaticamente a subconta Asaas do lojista.
@@ -119,7 +120,11 @@ Todas essas decisões estão em `docs/PERGUNTAS_REGRAS_NEGOCIO.md`. Aqui as mais
 
 ### 5.4 Onboarding
 
-- **Cliente**: e-mail + senha + telefone; SMS de confirmação; CPF só no primeiro checkout; sem login social; sem guest checkout.
+- **Cliente**: **e-mail + senha**; telefone **opcional e não verificado**; CPF só no primeiro checkout; sem login social; sem guest checkout.
+  - **Confirmação por SMS foi removida do MVP pela decisão 10.4 (2026-07-29)** — motivo: elimina uma integração externa (Zenvia), zera o custo recorrente de SMS e tira atrito do cadastro. Fica como candidata a v2 se surgir problema de fraude/contas falsas.
+  - **Lojista e Admin usam o mesmo modelo** (e-mail + senha).
+  - Consequência no PIN de retirada: se o cliente perder o acesso ao celular, ele **faz login de novo com e-mail e senha** em outro aparelho e vê o PIN. Não há reenvio de PIN por SMS.
+  - 🟡 **Ainda em aberto (10.5):** se vamos **exigir confirmação do e-mail** antes de liberar o app. Com a saída do SMS, o e-mail vira o único canal verificável da conta — é o que garante o "Esqueci minha senha". Trade-off: exigir confirmação protege a recuperação de conta, mas adiciona um passo no cadastro. Preciso da sua posição.
 - **Lojista**: aprovação **manual** pela Keepit. Validação de CNPJ automática (BrasilAPI, grátis). **Farmácia sem medicamento tarjado** no MVP (evita ANVISA/receita).
 - **1 conta lojista = 1 estabelecimento**. Rede/multi-unidade fica para v2.
 
@@ -183,7 +188,7 @@ O Asaas **não tem escrow nativo** com liberação sob comando (nenhum gateway B
 | Apps mobile | **Expo (React Native)** | Uma codebase por app, roda iOS e Android. Elimina custo de manter Swift + Kotlin em paralelo. |
 | Painel admin | **Next.js** hospedado na Vercel | Rápido de fazer, deploy grátis no free tier. |
 | Backend | **Supabase** (PostgreSQL + Auth + Storage + Edge Functions + RLS) | 1 serviço só resolve banco, auth, storage e regras. Free tier atende. |
-| SMS | **Zenvia** | ~R$ 0,08/SMS, doc em português. Mais barato que o SMS embutido do Supabase Auth. |
+| SMS | **Nenhum** | ~~Zenvia~~ **removido do MVP pela decisão 10.4 (2026-07-29)** — sem verificação de telefone, não há SMS a enviar. Uma integração e um fornecedor a menos. |
 | Validação de CNPJ | **BrasilAPI** | Grátis, sem chave, dados direto da Receita. |
 | Push mobile | **Expo Push Notifications** | Grátis. |
 | Mapa | **Nenhum** | O protótipo não usa mapa visual (confirmado). Distância cliente↔hub calculada por fórmula matemática. |
@@ -218,7 +223,7 @@ Essa é a parte prática do documento. Para conseguir seguir com implementação
 
 | Serviço | Custo | Por quê |
 |---|---|---|
-| **Zenvia** (SMS) | ~R$ 10-50/mês no volume inicial | Envio de SMS de confirmação de telefone. Cadastro com CNPJ. |
+| ~~**Zenvia** (SMS)~~ | ~~R$ 10-50/mês~~ → **R$ 0** | ❌ **Não precisa mais criar.** Removido do MVP pela decisão 10.4 (2026-07-29) — sem confirmação de telefone por SMS. Era o único fornecedor com custo mensal recorrente. |
 | **Vercel** (admin web) | R$ 0 (free tier) | Hospedagem do painel admin. |
 | **WhatsApp Business** | Grátis | Número único da Keepit para os botões "Falar com Keepit" no app. |
 | **Contador especializado em marketplace** | Fora do software | ⚠️ Necessário **antes do go-live** por causa da reforma tributária (CBS/IBS 2027 exige do marketplace responsabilidade solidária quando lojista não emite NF). |
@@ -235,9 +240,23 @@ Essa é a parte prática do documento. Para conseguir seguir com implementação
 | Supabase (free) | R$ 0 |
 | Vercel (free) | R$ 0 |
 | Expo EAS (free) | R$ 0 |
-| Zenvia SMS | ~R$ 10-50/mês |
+| ~~Zenvia SMS~~ | ~~R$ 10-50/mês~~ → **R$ 0** (removido) |
 | Asaas | Por transação (comissão dele sai do fluxo) |
-| **Total fixo estimado** | **~R$ 700 no primeiro ano** + ~R$ 10-50/mês de SMS |
+| **Total fixo estimado** | **~R$ 700 no primeiro ano — e R$ 0/mês recorrente** |
+
+### 9.1 📉 O que mudou nesta versão: a saída do SMS reduziu o custo
+
+A decisão de **tirar a confirmação por SMS do MVP** (2026-07-29) eliminou o **único custo mensal recorrente** do projeto. Comparativo explícito:
+
+| | Versão anterior (com Zenvia) | **Versão atual (sem SMS)** |
+|---|---|---|
+| Custos fixos do ano 1 | ~R$ 700 | **~R$ 700** (sem mudança) |
+| Custo mensal recorrente | R$ 10-50/mês | **R$ 0/mês** |
+| **Total no 1º ano** | ~R$ 820 a ~R$ 1.300 | **~R$ 700** |
+| Economia no 1º ano | — | **R$ 120 a R$ 600** |
+| Fornecedores a contratar | 6 (Asaas, Apple, Google, Expo, domínio, Zenvia) | **5** (Zenvia sai) |
+
+Além do dinheiro, o ganho é de simplicidade: **uma conta a menos para você abrir com CNPJ**, uma integração a menos para manter e um passo a menos no cadastro do cliente. Se no futuro aparecer problema de contas falsas, o SMS volta como item de v2.
 
 Quando o volume subir, ordem esperada de **R$ 200-500/mês** de infra.
 
@@ -251,10 +270,11 @@ Quando o volume subir, ordem esperada de **R$ 200-500/mês** de infra.
 
 1. Ler este documento e me dizer se está de acordo com a proposta geral.
 2. Marcar 1h para revisar as regras de negócio (item 5) e fechar o que ainda está como placeholder — principalmente **taxa Keepit real**, **prazo de repasse** e **regras de cancelamento**.
-3. Criar conta no **Asaas sandbox** e me passar as credenciais.
-4. Iniciar processo do **Apple Developer** e **Google Play** (esses têm prazo de aprovação, precisa começar antes).
-5. Registrar o **domínio da Keepit** se ainda não existe.
-6. Indicar contador para tocar em paralelo a parte fiscal/tributária.
+3. Fechar a pendência **10.5** — se o cliente precisa **confirmar o e-mail** antes de usar o app (item 5.4). É rápido de decidir e destrava o fluxo de cadastro.
+4. Criar conta no **Asaas sandbox** e me passar as credenciais.
+5. Iniciar processo do **Apple Developer** e **Google Play** (esses têm prazo de aprovação, precisa começar antes).
+6. Registrar o **domínio da Keepit** se ainda não existe.
+7. Indicar contador para tocar em paralelo a parte fiscal/tributária.
 
 **Da minha parte (Caio) após seu OK:**
 

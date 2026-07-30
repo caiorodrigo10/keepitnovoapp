@@ -6,9 +6,10 @@ Regras de negócio detalhadas por trás de cada FR estão em `docs/PERGUNTAS_REG
 
 ## Functional Requirements — Cliente (App)
 
-- **FR1**: O sistema permite cadastro do cliente com **nome, e-mail, senha e telefone**, exigindo aceite explícito dos Termos de Uso e Política de Privacidade.
-- **FR2**: O sistema envia SMS via Zenvia com código de 4-6 dígitos para **confirmação de telefone** logo após o cadastro.
-- **FR3**: O sistema permite **login** do cliente com e-mail e senha, incluindo fluxo "esqueci minha senha" via e-mail.
+- **FR1**: O sistema permite cadastro do cliente com **nome, e-mail e senha** (obrigatórios) e **telefone opcional e não verificado** (informativo), exigindo aceite explícito dos Termos de Uso e Política de Privacidade.
+- **FR2**: ~~O sistema envia SMS via Zenvia com código de 4-6 dígitos para **confirmação de telefone** logo após o cadastro.~~
+  > **Removido do MVP pela decisão 10.4 (2026-07-29)** — a autenticação do Cliente é e-mail + senha (Supabase Auth nativo), **sem confirmação por SMS**: corta o custo e a integração com a Zenvia, e o telefone vira campo opcional e não verificado (ver FR1). **Nenhum agente deve implementar envio de SMS no MVP.** Candidato a voltar em v2 se a verificação de número virar necessária. O identificador **FR2 não foi reaproveitado nem renumerado** — as referências cruzadas existentes continuam válidas apontando para este item removido. Ver `docs/PERGUNTAS_REGRAS_NEGOCIO.md → Decisões → Rodada 6 — 2026-07-29`.
+- **FR3**: O sistema permite **login** do cliente com e-mail e senha, incluindo fluxo "esqueci minha senha" via e-mail. Esse re-login é também o **fallback de acesso ao PIN** (FR16) caso o cliente perca acesso ao app — substitui o fallback por SMS previsto na Rodada 2. *(Se a confirmação de e-mail passa a ser obrigatória é a pendência **10.5**, ainda em aberto.)*
 - **FR4**: O cliente é apresentado a um **onboarding de 3 telas** ("Como funciona") no primeiro uso, seguindo o protótipo fielmente.
 - **FR5**: O cliente **escolhe primeiro um hub** próximo (lista ordenada por distância via Haversine, calculada a partir do GPS do device).
 - **FR6**: Após escolher o hub, o cliente vê as **lojas disponíveis no hub** (dentro do raio de atendimento de cada lojista), com estado (Aberta / Fechada / Pausada) exibido.
@@ -88,11 +89,11 @@ Regras de negócio detalhadas por trás de cada FR estão em `docs/PERGUNTAS_REG
 - **NFR8**: Backend com **p95 de latência < 1s** em requests normais (excluindo chamadas ao Asaas).
 - **NFR9**: **LGPD** — direito à exclusão de conta acionável dentro do app via botão que abre WhatsApp da Keepit; execução da exclusão é manual pelo admin.
 - **NFR10**: **Apple Guideline 5.1.1(v)** — botão de exclusão de conta obrigatório dentro do app do cliente e do lojista.
-- **NFR11**: Custos de infraestrutura no início **≤ R$ 150/mês**, apoiado nos free tiers de Supabase, Vercel e no volume moderado de SMS Zenvia.
+- **NFR11**: Custos de infraestrutura no início **≤ R$ 150/mês**, apoiado nos free tiers de Supabase e Vercel. (A linha de SMS Zenvia saiu da conta com a decisão 10.4 — ver FR2.)
 - **NFR12**: **Testes unitários** cobrindo regras críticas: geração e validação de PIN, cálculo de saldo/carteira virtual, matriz de cancelamento, validação temporal do pedido, cálculo Haversine, cálculo da taxa Keepit e da taxa de deslocamento.
 - **NFR13**: **CI** com GitHub Actions rodando `lint + typecheck + test` em cada pull request.
 - **NFR14**: **Deploys**: admin em Vercel com deploy contínuo automatizado (main); backend Supabase migrations aplicadas manualmente com `supabase db push`; apps mobile publicados via EAS Build + Submit manual.
 - **NFR15**: **Fidelidade ao princípio "sem escalabilidade prematura"** — proibido introduzir cache distribuído, filas assíncronas, microserviços, feature flags complexos, sharding, réplicas de leitura ou similar no MVP.
 - **NFR16**: **Testabilidade manual** — cada Story deve ser verificável manualmente por um único desenvolvedor operando sozinho (Caio) sem depender de ambientes coletivos.
 - **NFR17**: **Compliance nas lojas** — passar na revisão da App Store e Google Play na primeira submissão de produção (metadata, ícones, screenshots, política de privacidade linkada, exclusão de conta implementada).
-- **NFR18**: **Segurança básica** — chaves de API do Asaas, Zenvia, Supabase service role apenas em Edge Functions ou variáveis de ambiente do servidor; nunca no bundle do app mobile.
+- **NFR18**: **Segurança básica** — chaves de API do Asaas e Supabase service role apenas em Edge Functions ou variáveis de ambiente do servidor; nunca no bundle do app mobile.

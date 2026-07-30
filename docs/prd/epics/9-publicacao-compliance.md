@@ -67,11 +67,12 @@ Este é o épico do **"empurrar pra loja"**. Depende de todos os anteriores.
 
 **Acceptance Criteria:**
 1: Documento `docs/tests/smoke-manual.md` com passo a passo:
-   - Cliente: cadastro → SMS → login → escolher hub → escolher loja → adicionar produto → checkout PIX → aguardar aceite (simular pelo lojista em outro device) → mostrar PIN → confirmar (pelo lojista) → recibo → cancelar novo pedido → excluir conta.
-   - Lojista: cadastro → aprovação admin → login → cadastrar produto → configurar horário → aceitar pedido → marcar "saindo" → digitar PIN → ver carteira → solicitar saque.
-   - Admin: aprovar lojista → processar reembolso → suspender lojista → dashboard.
+   - Cliente: cadastro (e-mail + senha, telefone opcional) → **home** → logout → login → escolher hub → escolher loja → adicionar produto → checkout PIX (CPF no 1º checkout) → aguardar aceite (simular pelo lojista em outro device) → mostrar PIN → confirmar (pelo lojista) → recibo → cancelar novo pedido → "esqueci a senha" (redefinição por e-mail) → excluir conta.
+   - Lojista: cadastro (e-mail + senha, 3 passos, **sem etapa de SMS**) → tela "Em análise" → aprovação admin → login → cadastrar produto → configurar horário → aceitar pedido → marcar "saindo" → digitar PIN → ver carteira → solicitar saque.
+   - Admin: login (e-mail + senha) → aprovar lojista → processar reembolso → suspender lojista → dashboard.
 2: Cada passo tem critério de "OK".
 3: Rodar a suite inteira antes de submissão.
+4: **Nenhum passo do roteiro depende de recebimento de SMS** (decisão 10.4 — sem confirmação por SMS no MVP). O único canal de e-mail exercitado é o de redefinição de senha (Story 2.7).
 
 ---
 
@@ -158,7 +159,7 @@ Este é o épico do **"empurrar pra loja"**. Depende de todos os anteriores.
 **so that** usuários Android instalem.
 
 **Acceptance Criteria:**
-1: Todas as declarações de privacidade preenchidas (Data Safety form): coletamos e-mail, telefone, localização, dados de pedido.
+1: Todas as declarações de privacidade preenchidas (Data Safety form): coletamos e-mail, telefone (**opcional no app Cliente, obrigatório no app Lojista** — decisão 10.4; em nenhum dos dois é verificado), localização, dados de pedido.
 2: Content rating questionnaire respondido.
 3: URL de política de privacidade preenchida.
 4: Trilha "Production" com 100% rollout.

@@ -35,14 +35,16 @@ keepitnovoapp/
 
 - **Mobile**: **Expo (React Native)**. Uma codebase por app, rodando iOS e Android. Elimina o custo de manter Swift + Kotlin em paralelo.
 - **Admin web**: **Next.js** hospedado na **Vercel**.
-- **Backend**: **Supabase**. Um único projeto Supabase fornece PostgreSQL, Auth (email + senha), Storage, Edge Functions (para webhooks Asaas, integração Zenvia SMS, jobs) e Row-Level Security para autorização por papel.
+- **Backend**: **Supabase**. Um único projeto Supabase fornece PostgreSQL, Auth (email + senha), Storage, Edge Functions (para webhooks Asaas e jobs) e Row-Level Security para autorização por papel.
 - **Storage** (imagens de produto e fachada): Supabase Storage.
-- **Autenticação**: Supabase Auth com email + senha. Confirmação de telefone via SMS Zenvia disparada por Edge Function (não usa Supabase Auth Phone).
+- **Autenticação**: **Supabase Auth com e-mail + senha**, para os três perfis — **Cliente, Lojista e Admin**. Telefone é campo **opcional e não verificado**. Sem verificação por SMS.
+  - **Removido do MVP pela decisão 10.4 (2026-07-29)** — a confirmação de telefone por SMS (Zenvia, disparada por Edge Function) saiu do escopo: corta custo recorrente e uma integração externa inteira. Candidata a v2.
+  - Pendente relacionado: **10.5 🟡** — se a confirmação de e-mail (`Confirm email` do Supabase Auth) será obrigatória. Ver `docs/PERGUNTAS_REGRAS_NEGOCIO.md`.
 
 ### 2.3 Serviços externos
 
 - **Asaas** — pagamento, custódia e repasse.
-- **Zenvia** — SMS de confirmação de telefone (~R$ 0,08/SMS).
+- ~~**Zenvia** — SMS de confirmação de telefone~~ — **Removido do MVP pela decisão 10.4 (2026-07-29)** — sem verificação de telefone no MVP; nenhum provider de SMS é contratado. Candidato a v2.
 - **BrasilAPI** — validação de CNPJ na Receita (grátis, sem chave).
 - **Expo Push Notifications** — notificações mobile (grátis).
 - **Sem provider de mapa** — o protótipo não usa mapa visual. Distância cliente↔hub é calculada com fórmula de Haversine em Edge Function a partir do lat/long de cada hub e do GPS do device.
@@ -64,7 +66,7 @@ Ver detalhamento completo em `docs/PERGUNTAS_REGRAS_NEGOCIO.md → Decisões`. R
 - **Ticket mínimo**: R$ 20 global; loja pode definir mínimo próprio (prevalece se definido).
 - **Validação temporal no checkout**: bloqueia pedido se `agora + tempo_médio_lojista + 10min ≤ horário_fechamento_hub` não puder ser cumprido.
 - **Aceite** manual, timeout **10 min**.
-- **PIN**: 4 dígitos, único por pedido, **5 tentativas** para o lojista digitar (bloqueio de 5 min após esgotar). Sem fallback de reenvio para o cliente — perda de acesso ao app aciona suporte WhatsApp.
+- **PIN**: 4 dígitos, único por pedido, **5 tentativas** para o lojista digitar (bloqueio de 5 min após esgotar). **Sem reenvio por SMS/WhatsApp.** O PIN vive só no app: se o cliente perde acesso ao device, ele **re-loga com e-mail + senha** e vê o PIN de novo (decisão 10.4). Se também perdeu acesso ao e-mail, aciona o suporte via WhatsApp.
 - **Encontro sincronizado, sem armazenagem no hub** — produto fica na loja até o momento do encontro.
 - **Cliente não apareceu**: 20% ao cliente / 80% ao lojista.
 - **Lojista não apareceu**: 100% de reembolso + penalidade de qualidade.
@@ -86,7 +88,7 @@ Ver detalhamento completo em `docs/PERGUNTAS_REGRAS_NEGOCIO.md → Decisões`. R
 - **Fotos de produto**: upload pelo lojista via app, sem moderação prévia.
 
 ### Cliente
-- E-mail + senha + telefone; CPF só no checkout; SMS de confirmação via Zenvia; sem login social; sem guest checkout.
+- E-mail + senha (obrigatórios) + telefone **opcional e não verificado**; CPF só no primeiro checkout; **sem confirmação por SMS** (decisão 10.4); sem login social; sem guest checkout.
 
 ### Suporte
 - Botão **"Falar com Keepit"** → abre WhatsApp da Keepit.
@@ -162,7 +164,7 @@ Ver detalhamento completo em `docs/gateway/asaas.md`.
 
 ## 6. Jornada do lojista
 
-1. Baixa o app do lojista → cria conta (e-mail, senha, telefone) → confirma SMS.
+1. Baixa o app do lojista → cria conta com **e-mail + senha** (telefone opcional, não verificado). **Sem confirmação por SMS** — a decisão 10.4 (2026-07-29) vale também para Lojista e Admin.
 2. Preenche cadastro do estabelecimento: CNPJ, nome fantasia, categoria, endereço da loja (lat/long), **raio de atendimento em km**, **tempo médio de entrega em min**, chave PIX de recebimento, foto de fachada.
 3. Estado do estabelecimento: **"Em análise"**. Cliente ainda não vê essa loja.
 4. Admin Keepit revisa no painel → aprova → backend cria subconta no Asaas.
@@ -185,10 +187,10 @@ Ver detalhamento completo em `docs/gateway/asaas.md`.
 
 **Decisão (2026-07-03):** dois projetos Supabase, **ambos na nuvem** — sem Docker/Supabase CLI local. Justificativa: solo dev, setup mais rápido, sem porta 5432 disputada com outro processo, custo zero (free tier atende 2 projetos pequenos).
 
-- **Desenvolvimento**: Expo Go / simulador iOS / emulador Android **conectados ao projeto Supabase `keepit-dev` (cloud)**; sandbox Asaas; SMS Zenvia em modo teste.
+- **Desenvolvimento**: Expo Go / simulador iOS / emulador Android **conectados ao projeto Supabase `keepit-dev` (cloud)**; sandbox Asaas. Sem provider de SMS (**removido do MVP pela decisão 10.4**).
   - Migrations aplicadas via `supabase db push --project-ref <dev>`.
   - Edge Functions deploy via `supabase functions deploy --project-ref <dev>`.
-- **Produção**: builds submetidos às lojas via EAS Submit; projeto Supabase `keepit-prod` (cloud); conta Asaas de produção; Zenvia em modo produção.
+- **Produção**: builds submetidos às lojas via EAS Submit; projeto Supabase `keepit-prod` (cloud); conta Asaas de produção. Sem provider de SMS.
   - Promoção dev → prod: aplicar migrations testadas via `supabase db push --project-ref <prod>` (versionadas em `apps/supabase/migrations/`).
 
 **O que NÃO teremos no MVP:**
@@ -209,16 +211,29 @@ Foco em custos recorrentes essenciais para publicar e operar o MVP.
 | Domínio próprio | ~R$ 40/ano | Anual |
 | Supabase — Free | R$ 0 | 500 MB DB, 1 GB storage, 50k MAU. Atende o começo. |
 | Supabase — Pro (quando necessário) | US$ 25/mês | 8 GB DB, 100 GB storage, backup diário. Migrar quando estourar o free. |
-| Zenvia SMS | ~R$ 10-50/mês | Volume MVP (dezenas a centenas de cadastros/mês) |
+| ~~Zenvia SMS~~ | ~~R$ 10-50/mês~~ → **R$ 0** | **Removido do MVP pela decisão 10.4 (2026-07-29)** — sem verificação de telefone por SMS |
 | Asaas | Por transação | Ver seção 5.3 |
 
-**Total no início**: aproximadamente **R$ 700 no primeiro ano** de custos fixos + ~R$ 10-50/mês de SMS. Com **R$ 0/mês recorrente** de infra enquanto os free tiers atenderem. Quando o volume subir, ordem esperada de **R$ 200-500/mês**.
+**Total no início**: aproximadamente **R$ 700 no primeiro ano** de custos fixos, com **R$ 0/mês recorrente** enquanto os free tiers atenderem.
+
+**Mudança em relação à versão anterior deste documento:** o custo recorrente de **R$ 10-50/mês de SMS caiu para R$ 0** com a saída do Zenvia (decisão 10.4). No primeiro ano isso significa **R$ 120 a R$ 600 a menos**; o custo total do ano 1 sai de ~R$ 820-1.300 para **~R$ 700**.
+
+Quando o volume subir, ordem esperada de **R$ 200-500/mês**.
 
 ### Nota sobre taxa Apple/Google (15–30%)
 
 **Não se aplica ao Keepit.** Essa taxa incide apenas sobre conteúdo/serviço *digital* consumido dentro do app (assinaturas, moedas virtuais, cursos, etc.). Marketplace de bens físicos e serviços entregues fora do app (comida, remédios, roupas retirados no hub) é explicitamente isento pela Apple e Google — o pagamento pode ir direto pelo Asaas, sem passar por In-App Purchase. É o mesmo enquadramento que iFood, Rappi, Uber Eats e Amazon usam.
 
-## 10. Decisões (rodadas 3 e 4)
+## 10. Decisões (rodadas 3, 4 e 6)
+
+### Rodada 6 — 2026-07-29 (autenticação — supersede parte da Rodada 4)
+
+- **[Autenticação]** **E-mail + senha** (Supabase Auth nativo) para **Cliente, Lojista e Admin**.
+- **[SMS]** **Sem confirmação por SMS no MVP.** **Zenvia sai do MVP inteiro** — nenhuma Edge Function de SMS, nenhuma conta a contratar, nenhum custo recorrente. Candidata a v2.
+- **[Telefone]** Campo **opcional e não verificado** no cadastro (informativo).
+- **[Fallback do PIN]** Re-login com e-mail + senha. Substitui o fallback por SMS previsto na Rodada 2.
+- **[Efeito no custo]** Remove R$ 10-50/mês do custo recorrente (seção 9).
+- **[Pendente]** **10.5 🟡** — confirmação de e-mail obrigatória ou não. Ainda em aberto; ver `docs/PERGUNTAS_REGRAS_NEGOCIO.md`.
 
 ### Rodada 3 — 2026-07-02
 
@@ -231,8 +246,8 @@ Foco em custos recorrentes essenciais para publicar e operar o MVP.
 ### Rodada 4 — 2026-07-02
 
 - Backend: **Supabase** (PostgreSQL + Auth + Storage + Edge Functions + RLS). Substitui a proposta anterior de Node.js/Fastify separado. Regras de negócio (aceite, PIN, saldo, saque) rodam em Edge Functions. Autorização por papel via RLS.
-- Autenticação: **Supabase Auth** com email + senha. Confirmação de telefone via SMS **Zenvia** disparada por Edge Function (não usa Supabase Auth Phone — evita custo do provider embutido).
-- Provider de SMS: **Zenvia** (~R$ 0,08/SMS, doc em português).
+- Autenticação: **Supabase Auth** com email + senha. ~~Confirmação de telefone via SMS **Zenvia** disparada por Edge Function.~~ → **Superseded pela Rodada 6 (2026-07-29, decisão 10.4)**: sem SMS no MVP.
+- ~~Provider de SMS: **Zenvia** (~R$ 0,08/SMS, doc em português).~~ → **Removido do MVP pela decisão 10.4 (2026-07-29)** — não há verificação de telefone, logo não há provider de SMS.
 - **Sem provider de mapa** — o protótipo não usa mapa visual (confirmado via inspeção do `keepit-app/index.html`). Distância cliente↔hub é calculada com fórmula de Haversine em Edge Function, a partir do lat/long dos hubs e do GPS do device.
 - Descartado: Node.js/Fastify + Railway + Google Maps (não são mais necessários dado o novo stack Supabase e a ausência de mapa).
 
