@@ -11,18 +11,18 @@ import type { AuthStackParamList } from '../../navigation/types';
 type Props = NativeStackScreenProps<AuthStackParamList, 'Onboarding2'>;
 
 /**
- * Onboarding 2/3 — "Pronto" (Task 1, AC1).
+ * Onboarding 2/3 — "Pronto" (Story 2.1.1, AC3/AC4/AC7).
  *
- * [Fonte da copy] `docs/design-refs/_design-system-legend.png` — card
- * "2 · Pronto": "Pedido fica pron[to...]" (texto cortado na captura da
- * legenda). Completado com copy consistente ao tom das demais telas —
- * mesma limitação de referência documentada em Onboarding1.
+ * [Fonte da copy] `keepit-app/index.html`, bloco "COMO FUNCIONA"
+ * (~offset 270394), card "2 · Pronto" (offset 270974): "Pedido fica pronto
+ * no hub Keepit" (offset 271076) — copy literal, confirmada por grep no
+ * protótipo (1 ocorrência). O bloco fornece uma única frase por card, por
+ * isso não há subtext para esta tela.
  */
 export default function Onboarding2({ navigation }: Props) {
   return (
     <OnboardingScreen
-      heading="Seu pedido fica pronto no Keepit"
-      subtext="A loja separa tudo e deixa esperando por você em um Hub Keepit perto de casa."
+      heading="Pedido fica pronto no hub Keepit"
       footer={
         <View>
           <View style={styles.dotsRow}>

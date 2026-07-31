@@ -8,7 +8,7 @@ import { OnboardingIllustration } from './OnboardingIllustration';
 
 interface OnboardingScreenProps {
   heading: string;
-  subtext: string;
+  subtext?: string;
   footer: ReactNode;
 }
 
@@ -22,6 +22,11 @@ interface OnboardingScreenProps {
  * onboarding usa tema dark — o resto do app Cliente permanece claro; por
  * isso o override é local (`Screen backgroundColor` + `darkColors` aqui),
  * nunca no default dos componentes compartilhados.
+ *
+ * [Fix 2.1.1] `subtext` é opcional: o card "COMO FUNCIONA" do protótipo
+ * (`keepit-app/index.html`) fornece só uma frase por tela para 1/3 e 2/3 —
+ * sem uma segunda linha para renderizar. Quando ausente, o `<Text>` do
+ * subtext não é renderizado (evita nó vazio no layout/leitor de tela).
  */
 export function OnboardingScreen({ heading, subtext, footer }: OnboardingScreenProps) {
   return (
@@ -30,7 +35,7 @@ export function OnboardingScreen({ heading, subtext, footer }: OnboardingScreenP
       <OnboardingIllustration />
       <View style={styles.textBlock}>
         <Text style={styles.heading}>{heading}</Text>
-        <Text style={styles.subtext}>{subtext}</Text>
+        {subtext ? <Text style={styles.subtext}>{subtext}</Text> : null}
       </View>
       <View style={styles.footer}>{footer}</View>
     </Screen>

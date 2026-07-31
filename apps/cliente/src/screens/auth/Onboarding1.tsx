@@ -12,21 +12,18 @@ import type { AuthStackParamList } from '../../navigation/types';
 type Props = NativeStackScreenProps<AuthStackParamList, 'Onboarding1'>;
 
 /**
- * Onboarding 1/3 — "Compra" (Task 1, AC1).
+ * Onboarding 1/3 — "Compra" (Story 2.1.1, AC1/AC2/AC7).
  *
- * [Fonte da copy] `docs/design-refs/_design-system-legend.png` — seção
- * "Como funciona", card "1 · Compra": "Escolhe lojas locais na plataforma".
- * Não há uma captura dedicada a esta tela específica no protótipo (só a
- * tela final — `cliente-01-onboarding.png` — foi capturada); layout
- * reconstruído a partir do card "Como funciona" da legenda + do mesmo
- * cartão ilustrativo/wordmark da tela final, documentado como inferência
- * assistida (mesma limitação de referência anotada nas Dev Notes da 0.4).
+ * [Fonte da copy] `keepit-app/index.html`, bloco "COMO FUNCIONA"
+ * (~offset 270394), card "1 · Compra" (offset 270646): "Escolhe lojas
+ * locais na plataforma" (offset 270748) — copy literal, confirmada por
+ * grep no protótipo (1 ocorrência). O bloco fornece uma única frase por
+ * card, por isso não há subtext para esta tela.
  */
 export default function Onboarding1({ navigation }: Props) {
   return (
     <OnboardingScreen
-      heading="Compre em lojas perto de você"
-      subtext="Escolha lojas locais na plataforma — farmácia, roupas, conveniência e muito mais."
+      heading="Escolhe lojas locais na plataforma"
       footer={
         <View>
           <View style={styles.dotsRow}>
