@@ -1,0 +1,1 @@
+- [Não aplicar no Supabase sem autorização](feedback_nao_aplicar_no_supabase_sem_autorizacao.md) — migrations são escritas e revisadas; Caio autoriza a aplicação em passo separado
