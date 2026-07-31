@@ -148,3 +148,21 @@ $$;
 CREATE TRIGGER trg_criar_cliente_signup
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.criar_cliente_apos_signup();
+
+-- -----------------------------------------------------------------------------
+-- Hardening — apontado pelo Supabase security advisor na aplicação real
+-- (lints 0028/0029: anon_/authenticated_security_definer_function_executable).
+--
+-- Toda função em `public` é exposta pelo PostgREST como RPC, e o EXECUTE é
+-- concedido por padrão a PUBLIC. Sem os REVOKE abaixo, a função do trigger fica
+-- chamável por qualquer um em /rest/v1/rpc/criar_cliente_apos_signup — sendo ela
+-- SECURITY DEFINER, ou seja, executando com os privilégios do dono.
+-- Esta função é gatilho de auth.users e NUNCA deve ser invocada como RPC.
+--
+-- NÃO REMOVER. Verificar com `get_advisors(type='security')` após qualquer
+-- alteração nesta função — um CREATE OR REPLACE não restaura os grants, mas
+-- um DROP + CREATE restaura, e a exposição volta silenciosamente.
+-- -----------------------------------------------------------------------------
+REVOKE EXECUTE ON FUNCTION public.criar_cliente_apos_signup() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.criar_cliente_apos_signup() FROM anon;
+REVOKE EXECUTE ON FUNCTION public.criar_cliente_apos_signup() FROM authenticated;
