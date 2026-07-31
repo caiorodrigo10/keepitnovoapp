@@ -453,6 +453,26 @@ Sub-itens que a resposta precisa fechar:
 
 ---
 
+### 10.9 🟡 Por quanto tempo o cliente permanece logado sem reautenticar? — **NOVA (2026-07-31), sem default assumido**
+
+**Origem.** Decisão de arquitetura de persistência de sessão (`docs/architecture/06-session-persistence.md`, §7). Ao decidir **como** a sessão sobrevive ao reinício do app, ficou explícito que ninguém decidiu **por quanto tempo** ela deve sobreviver.
+
+**O fato técnico.** Com o refresh token persistido em disco (decisão da §3 daquele documento), o cliente permanece logado **indefinidamente** enquanto abrir o app com alguma regularidade — esse é o comportamento de fábrica do Supabase Auth, e o MVP não tem nenhuma linha de código forçando expiração. O tempo de vida do refresh token é **configuração de projeto** no painel do Supabase, não código.
+
+**A pergunta:**
+> O cliente da Keepit deve permanecer logado indefinidamente, ou precisa reautenticar após um período (30 dias? 90 dias?)?
+
+**Por que é de negócio e não técnica.** É um trade-off entre conveniência e risco, e o risco é operacional, não técnico: a AC6 da Story 2.6 faz do **re-login com e-mail + senha** o caminho de recuperação do **PIN** de um pedido em andamento (fallback fixado na decisão 10.4, em substituição ao SMS). Sessão curta = mais gente reautenticando na porta do Hub, possivelmente sem lembrar a senha. Sessão longa = um aparelho perdido continua com acesso à conta até alguém pedir suporte.
+
+Sub-item que a resposta precisa fechar:
+- Existe algum caminho de **"sair de todos os dispositivos"** esperado no MVP, ou o suporte resolve caso a caso?
+
+**Impacto direto:** Story **2.6** (AC5, AC6) — apenas em configuração do projeto `keepit-dev`, sem impacto em código.
+
+**⚠️ NENHUM DEFAULT ASSUMIDO.** Enquanto a 10.9 não fechar, vale a configuração de fábrica do projeto, e nenhuma story deve escrever código que force ou assuma um prazo de expiração. → **CAIO / STAKEHOLDER.**
+
+---
+
 ## Decisões técnicas provisórias (🟠 — **NÃO fechadas**, pendentes de validação do stakeholder)
 
 > Registro separado de propósito. Nada nesta seção foi decidido pelo dono da Keepit. São escolhas **técnicas** que o desenvolvimento **já operava como default implícito**; formalizá-las apenas troca um default silencioso por um default auditável — com racional, custo de reversão e gatilho de revisão. A parte de **regra/risco de negócio** de cada uma continua explicitamente aberta e está destacada no bloco correspondente.

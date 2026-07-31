@@ -11,6 +11,7 @@ Documentos de arquitetura do Keepit MVP, produzidos pelo @architect (Aria).
 | [03-data-models.md](./03-data-models.md) | Schema completo Supabase + convenções | ✅ Produzido |
 | [04-patterns.md](#04-patterns) | Padrões de código, estrutura de pastas | ⏭ ver `docs/ARQUITETURA.md` |
 | [05-security.md](./05-security.md) | RLS policies + segredos + criptografia | ✅ Produzido |
+| [06-session-persistence.md](./06-session-persistence.md) | Persistência de sessão no `@keepit/supabase-client` (RN × web), storage adapter, bootstrap dos apps | ✅ Produzido |
 
 ## Escopo focado desta rodada
 
