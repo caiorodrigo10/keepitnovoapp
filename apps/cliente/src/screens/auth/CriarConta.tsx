@@ -32,9 +32,10 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * porque FR1 exige "nome, e-mail, senha e telefone" no cadastro — ver Dev
  * Agent Record para o registro completo do desvio.
  *
- * **Login social removido** (Google/Apple aparecem na captura, mas a
- * decisão de negócio da Rodada 2 tira login social do MVP) — ver Dev Agent
- * Record.
+ * **Login social não renderizado** (Google/Apple aparecem na captura) —
+ * a pendência 10.2 (login social) continua 🟡 aberta → STAKEHOLDER
+ * (`docs/PERGUNTAS_REGRAS_NEGOCIO.md`); enquanto não houver decisão, a UI
+ * não renderiza esses botões — ver Dev Agent Record.
  *
  * Sem submit real: `auth.port.signUp` do mock só aceita `{ nome, telefone }`
  * (Story 0.2 não modela e-mail/senha no `Cliente`) — chamado apenas para
@@ -72,9 +73,15 @@ export default function CriarConta({ navigation }: Props) {
     try {
       const client = getDataClient();
       await client.auth.signUp({ nome: nome.trim(), telefone: telefone.trim() });
+      // TODO(Story 2.3): navegar para a home após signUp real via Supabase Auth
+      // (destino depende da decisão 10.5). A navegação de sucesso deve entrar
+      // AQUI, dentro do try, logo após o await signUp(...) — nunca no finally,
+      // que roda também em caso de erro.
+    } catch (error) {
+      // TODO(Story 2.3): tratar erro de signUp real (ex.: e-mail duplicado) e
+      // exibir mensagem ao usuário; ver AC de erro da Story 2.3.
     } finally {
       setLoading(false);
-      // TODO(Story 2.3): navegar para a home após signUp real via Supabase Auth (destino depende da decisão 10.5).
     }
   }
 

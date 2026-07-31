@@ -16,9 +16,23 @@
  * Aplica a máscara progressiva `(11) 91234-5678` enquanto o usuário digita.
  * Aceita qualquer entrada (inclusive já mascarada) — extrai apenas os
  * dígitos e reaplica a máscara, limitando a 11 dígitos (DDD + 9 dígitos).
+ *
+ * Descarta o DDI `55` (Brasil) quando os dígitos brutos (antes de qualquer
+ * corte) têm 12 ou 13 posições e começam com `55` — caso de colar um número
+ * copiado no formato internacional (ex.: `+55 11 91234-5678`, WhatsApp).
+ * Entradas com 11 dígitos ou menos que começam com `55` **não** sofrem esse
+ * descarte: `55` é DDD legítimo (Santa Maria/RS), não DDI, e a distinção é
+ * só pelo comprimento total dos dígitos brutos. Entradas com 12/13 dígitos
+ * que não começam com `55`, ou com mais de 13 dígitos, mantêm o
+ * comportamento anterior (corte para os 11 primeiros dígitos).
  */
 export function maskTelefoneBR(value: string): string {
-  const digits = value.replace(/\D/g, '').slice(0, 11);
+  const rawDigits = value.replace(/\D/g, '');
+  const digitsWithoutDDI =
+    (rawDigits.length === 12 || rawDigits.length === 13) && rawDigits.startsWith('55')
+      ? rawDigits.slice(2)
+      : rawDigits;
+  const digits = digitsWithoutDDI.slice(0, 11);
 
   if (digits.length === 0) return '';
   if (digits.length <= 2) return `(${digits}`;

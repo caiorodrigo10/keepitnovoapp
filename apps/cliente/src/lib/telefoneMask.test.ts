@@ -35,6 +35,18 @@ describe('telefoneMask', () => {
     it('limita a 11 dígitos, descartando excesso', () => {
       expect(maskTelefoneBR('119123456789999')).toBe('(11) 91234-5678');
     });
+
+    it('descarta o DDI 55 em entrada colada com +55 (13 dígitos, celular)', () => {
+      expect(maskTelefoneBR('+55 11 91234-5678')).toBe('(11) 91234-5678');
+    });
+
+    it('descarta o DDI 55 em entrada colada com +55 (12 dígitos, fixo)', () => {
+      expect(maskTelefoneBR('+55 11 3333-4444')).toBe('(11) 3333-4444');
+    });
+
+    it('não descarta o 55 quando é DDD legítimo (Santa Maria/RS, 11 dígitos)', () => {
+      expect(maskTelefoneBR('55991234567')).toBe('(55) 99123-4567');
+    });
   });
 
   describe('isTelefoneBRValido', () => {
@@ -68,6 +80,10 @@ describe('telefoneMask', () => {
 
     it('retorna false para excesso de dígitos', () => {
       expect(isTelefoneBRValido('(11) 912345-6789')).toBe(false);
+    });
+
+    it('round-trip: telefone colado com DDI, mascarado, é válido', () => {
+      expect(isTelefoneBRValido(maskTelefoneBR('+55 11 91234-5678'))).toBe(true);
     });
   });
 });
