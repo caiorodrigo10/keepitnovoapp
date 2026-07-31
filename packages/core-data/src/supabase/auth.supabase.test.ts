@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@keepit/shared-types';
 
@@ -20,6 +20,17 @@ function fakeClient(signUpImpl: (...args: unknown[]) => unknown): SupabaseClient
   return {
     auth: {
       signUp: signUpImpl,
+    },
+  } as unknown as SupabaseClient<Database>;
+}
+
+/** Story 2.3.1 (Task 7) — fake client com `auth.onAuthStateChange` mockado. */
+function fakeClientWithAuthStateChange(
+  onAuthStateChangeImpl: (callback: (event: unknown, session: unknown) => void) => unknown,
+): SupabaseClient<Database> {
+  return {
+    auth: {
+      onAuthStateChange: onAuthStateChangeImpl,
     },
   } as unknown as SupabaseClient<Database>;
 }
@@ -93,5 +104,85 @@ describe('auth.supabase.ts — signUp (Story 2.3, Task 6)', () => {
     await expect(
       port.signUp({ nome: 'X', email: 'a@example.com', senha: '123', telefone: null }),
     ).rejects.not.toBeInstanceOf(EmailJaExisteError);
+  });
+});
+
+describe('auth.supabase.ts — onAuthStateChange (Story 2.3.1, Task 3/7, AC1/AC2)', () => {
+  it('mapeia session.user para Cliente via callback interno', () => {
+    const unsubscribe = vi.fn();
+    let capturedCallback: ((event: unknown, session: unknown) => void) | undefined;
+    const client = fakeClientWithAuthStateChange((callback: (event: unknown, session: unknown) => void) => {
+      capturedCallback = callback;
+      return { data: { subscription: { unsubscribe } } };
+    });
+
+    const port = createAuthSupabase(client);
+    const received: unknown[] = [];
+    const unsub = port.onAuthStateChange((cliente) => received.push(cliente));
+
+    expect(capturedCallback).toBeDefined();
+    capturedCallback!('SIGNED_IN', {
+      user: {
+        id: 'user-456',
+        created_at: '2026-07-31T12:00:00.000Z',
+        user_metadata: { nome: 'Fulano', telefone: '11988887777' },
+      },
+    });
+
+    expect(received).toEqual([
+      {
+        id: 'user-456',
+        nome: 'Fulano',
+        telefone: '11988887777',
+        cpf: null,
+        criado_em: '2026-07-31T12:00:00.000Z',
+      },
+    ]);
+
+    unsub();
+    expect(unsubscribe).toHaveBeenCalledOnce();
+  });
+
+  it('callback(null) quando session é null', () => {
+    let capturedCallback: ((event: unknown, session: unknown) => void) | undefined;
+    const client = fakeClientWithAuthStateChange((callback: (event: unknown, session: unknown) => void) => {
+      capturedCallback = callback;
+      return { data: { subscription: { unsubscribe: vi.fn() } } };
+    });
+
+    const port = createAuthSupabase(client);
+    const received: unknown[] = [];
+    port.onAuthStateChange((cliente) => received.push(cliente));
+
+    capturedCallback!('SIGNED_OUT', null);
+
+    expect(received).toEqual([null]);
+  });
+
+  it('resolveClient() memoizada devolve a mesma instância entre onAuthStateChange e signUp (AC2)', async () => {
+    const onAuthStateChangeMock = vi.fn(() => ({ data: { subscription: { unsubscribe: vi.fn() } } }));
+    const signUpMock = vi.fn(async () => ({
+      data: {
+        user: { id: 'user-789', created_at: '2026-07-31T12:00:00.000Z', identities: [{ id: 'identity-1' }] },
+        session: null,
+      },
+      error: null,
+    }));
+    const client = {
+      auth: {
+        onAuthStateChange: onAuthStateChangeMock,
+        signUp: signUpMock,
+      },
+    } as unknown as SupabaseClient<Database>;
+
+    const port = createAuthSupabase(client);
+    port.onAuthStateChange(() => {});
+    await port.signUp({ nome: 'X', email: 'x@example.com', senha: 'senha1234', telefone: null });
+
+    // Ambos os métodos foram chamados sobre o MESMO `client` passado
+    // explicitamente — prova de que `cachedClient` não foi substituído
+    // quando um `client` é injetado (Task 3, AC2).
+    expect(onAuthStateChangeMock).toHaveBeenCalledOnce();
+    expect(signUpMock).toHaveBeenCalledOnce();
   });
 });

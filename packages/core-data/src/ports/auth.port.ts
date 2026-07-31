@@ -103,4 +103,14 @@ export interface AuthPort {
   getById(clienteId: string, options?: AsyncCallOptions): Promise<Cliente | null>;
   /** Coleta de CPF no 1º checkout (Story 0.6) — grava `clientes.cpf`. */
   updateCpf(clienteId: string, cpf: string, options?: AsyncCallOptions): Promise<Cliente>;
+  /**
+   * Story 2.3.1 (AC1, fecha REL-006 do gate da Story 2.3): observa mudanças
+   * de sessão (login, logout, signup com sessão, refresh de token).
+   * Implementações DEVEM chamar `callback` pelo menos uma vez, de forma
+   * assíncrona, com o estado inicial conhecido — é o que permite ao
+   * consumidor (`RootNavigator`) saber quando sair do estado "ainda não se
+   * sabe" (`undefined`) para "sem sessão" (`null`) ou "com sessão"
+   * (`Cliente`). Retorna uma função de `unsubscribe`.
+   */
+  onAuthStateChange(callback: (cliente: Cliente | null) => void): () => void;
 }

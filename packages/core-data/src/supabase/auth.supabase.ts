@@ -25,7 +25,23 @@ export function createAuthSupabase(client?: SupabaseClient<Database>): AuthPort 
   // precisar. Evita exigir `SUPABASE_URL`/`SUPABASE_ANON_KEY` em ambientes
   // (ex.: CI de typecheck/test) que só verificam o contrato do esqueleto
   // para os métodos ainda não implementados.
-  const resolveClient = (): SupabaseClient<Database> => client ?? createClient();
+  //
+  // Story 2.3.1 (Task 3, AC2): memoizada dentro do closure de
+  // `createAuthSupabase()` — pré-condição para `onAuthStateChange` refletir
+  // as sessões criadas por `signUp`/`signIn` chamados através do mesmo
+  // `DataClient`. Antes desta story, `resolveClient` criava um
+  // `SupabaseClient` novo a cada chamada de método; cada instância tem seu
+  // próprio `GoTrueClient` interno, então duas instâncias distintas não
+  // compartilham estado de sessão em memória entre si — `onAuthStateChange`
+  // numa instância nunca veria o `signUp` de outra. Só `auth.supabase.ts`
+  // muda: os outros 7 adapters (`store`, `product`, `hub`, `order`,
+  // `wallet`, `admin`, `analytics`) não precisam de reatividade de sessão e
+  // mantêm o padrão anterior (ver Dev Notes da Story 2.3.1).
+  //
+  // Quando `client` é passado explicitamente (ex. testes), `cachedClient` é
+  // o próprio `client` recebido — nunca substituído.
+  let cachedClient: SupabaseClient<Database> | null = client ?? null;
+  const resolveClient = (): SupabaseClient<Database> => cachedClient ?? (cachedClient = createClient());
 
   return {
     /**
@@ -113,5 +129,39 @@ export function createAuthSupabase(client?: SupabaseClient<Database>): AuthPort 
     async updateCpf(_clienteId: string, _cpf: string, _options?: AsyncCallOptions): Promise<Cliente> {
       throw new NotImplementedError(PORT, 'updateCpf', EPIC);
     },
+
+    /**
+     * Story 2.3.1 (Task 3, AC1). Assina `resolveClient().auth.onAuthStateChange`
+     * — a mesma instância memoizada (AC2) usada por `signUp`, para que os
+     * eventos de sessão gerados por ele sejam observados aqui. Mapeia
+     * `session.user` → `Cliente` via `mapUserToCliente` (sem `SELECT` em
+     * `clientes` — mesma decisão/motivo já documentado no `signUp` desta
+     * story: RLS exigiria sessão, e ler o perfil completo é escopo de
+     * `getById`/2.6+).
+     */
+    onAuthStateChange(callback: (cliente: Cliente | null) => void): () => void {
+      const { data } = resolveClient().auth.onAuthStateChange((_event, session) => {
+        callback(session?.user ? mapUserToCliente(session.user) : null);
+      });
+      return () => data.subscription.unsubscribe();
+    },
+  };
+}
+
+/**
+ * Story 2.3.1 (Task 3): monta um `Cliente` a partir de `session.user`,
+ * mesmo padrão de honestidade já usado em `signUp` (Story 2.3, Task 6).
+ * `nome`/`telefone` lidos de `user_metadata` (mesmas chaves do "Contrato
+ * normativo de `raw_user_meta_data`" da Story 2.3). `cpf: null`,
+ * `bloqueado`/`motivo_bloqueio` ausentes (campos opcionais em `Cliente`) —
+ * coerente com o resto do arquivo. Não faz `SELECT` em `clientes`.
+ */
+function mapUserToCliente(user: { id: string; user_metadata?: Record<string, unknown>; created_at?: string }): Cliente {
+  return {
+    id: user.id,
+    nome: typeof user.user_metadata?.nome === 'string' ? user.user_metadata.nome : '',
+    telefone: typeof user.user_metadata?.telefone === 'string' ? user.user_metadata.telefone : null,
+    cpf: null,
+    criado_em: user.created_at ?? new Date().toISOString(),
   };
 }

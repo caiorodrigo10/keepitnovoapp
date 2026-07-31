@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import type { NativeStackScreenProps, NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { EmailJaExisteError, getDataClient } from '@keepit/core-data';
 import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 
 import { Button, Checkbox, Screen, TextField } from '../../components/ui';
 import { isTelefoneBRValido, maskTelefoneBR } from '../../lib/telefoneMask';
-import type { AuthStackParamList, RootStackParamList } from '../../navigation/types';
+import type { AuthStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'CriarConta'>;
 
@@ -47,22 +47,27 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * não renderiza esses botões — ver Dev Agent Record.
  *
  * Story 2.3: submit real via `auth.port.signUp` (Supabase Auth por
- * e-mail/senha, decisão 10.4). Em caso de sucesso, navega direto para a
- * home do cliente (AC5) — sem etapa de confirmação de telefone/e-mail,
- * respaldado pela decisão técnica 10.5 (`Confirm email` OFF).
+ * e-mail/senha, decisão 10.4).
  *
- * **Sessão pode vir nula.** `Confirm email` continua **ON** no `keepit-dev`
- * até o Caio aplicar a Task 4 (@data-engineer) manualmente — enquanto isso,
- * `client.auth.signUp` completa sem lançar erro, mas sem `session`/
- * `access_token` (Supabase não autentica até o e-mail ser confirmado). Este
- * componente **não finge que a sessão existe**: a navegação abaixo funciona
- * hoje porque `RootNavigator` decide `Auth` vs. `Main` via `isAuthenticated()`
- * (stub do Épico 0, `AUTH_GUARD_ENABLED = false` — sempre deixa passar, não
- * lê sessão real). No dia em que a Story 2.6 trocar esse guard por uma
- * checagem de sessão de verdade, esta tela vai precisar tratar
- * explicitamente o caso "criei a conta mas não tenho sessão ainda" (bloqueado
- * por 10.5 continuar sem fechamento de negócio) — não é resolvido aqui, é
- * reconhecido.
+ * **Story 2.3.1 (AC5, fecha REL-006):** a navegação para a home deixou de
+ * ser uma chamada explícita desta tela (a chamada de `navigation.getParent()`
+ * que forçava a troca de stack foi removida do `try`). Agora é consequência
+ * exclusiva de
+ * `RootNavigator` observar a sessão via `AuthPort.onAuthStateChange(...)` —
+ * se `signUp` retornar sessão, `onAuthStateChange` dispara com um `Cliente`
+ * e `RootNavigator` re-renderiza para `Main` sozinho, sem esta tela precisar
+ * saber disso.
+ *
+ * **Sessão pode vir nula (AC8).** `Confirm email` continua **ON** no
+ * `keepit-dev` até o Caio aplicar a Task 4 da Story 2.3 (@data-engineer)
+ * manualmente — enquanto isso, `client.auth.signUp` completa sem lançar
+ * erro, mas sem `session`/`access_token` (Supabase não autentica até o
+ * e-mail ser confirmado). Nesse estado, `onAuthStateChange` não dispara com
+ * um cliente não-nulo, e o usuário permanece nesta tela, sem crash e sem
+ * navegação — mesmo comportamento visível de hoje, agora por uma causa
+ * correta (ausência de sessão) em vez de uma rota inexistente. Esta story
+ * não adiciona nenhuma UI nova para esse caso (pendência de produto 10.5,
+ * não resolvida aqui).
  */
 export default function CriarConta({ navigation }: Props) {
   const [nome, setNome] = useState('');
@@ -107,11 +112,9 @@ export default function CriarConta({ navigation }: Props) {
         senha,
         telefone: telefone.trim() || null,
       });
-      // Navegação de sucesso (AC5) — DENTRO do try, logo após o await
-      // signUp(...), nunca no finally (reabriria REL-003, fechado na 2.2.1).
-      navigation
-        .getParent<NativeStackNavigationProp<RootStackParamList>>()
-        ?.navigate('Main', { screen: 'HomeTab', params: { screen: 'Home' } });
+      // Story 2.3.1 (AC5): nenhuma navegação explícita aqui — se `signUp`
+      // gerou sessão, `RootNavigator` observa via `onAuthStateChange` e
+      // troca para `Main` sozinho (ver JSDoc do componente).
     } catch (error) {
       // AC4 — distingue e-mail já cadastrado (mensagem específica) de
       // qualquer outro erro (mensagem genérica). Ver `EmailJaExisteError`

@@ -4,6 +4,22 @@ import { generateMockId, simulateAsync } from './async-helpers';
 import type { MockDb } from './db';
 
 export function createAuthMock(db: MockDb): AuthPort {
+  /**
+   * Story 2.3.1 (Task 2, AC1): pub/sub mínimo fechado sobre `db`, sem
+   * dependência nova (`Set` nativo). Notificado pelos 3 pontos que já mutam
+   * `db.sessionClienteId` (`signUp`, `signIn`, `signOut`) logo abaixo.
+   */
+  const listeners = new Set<(cliente: Cliente | null) => void>();
+
+  function currentSessionCliente(): Cliente | null {
+    return db.clientes.find((c) => c.id === db.sessionClienteId) ?? null;
+  }
+
+  function notifyAuthStateChange(): void {
+    const cliente = currentSessionCliente();
+    listeners.forEach((listener) => listener(cliente));
+  }
+
   return {
     signUp(input: SignUpInput, options?: AsyncCallOptions): Promise<Cliente> {
       return simulateAsync(
@@ -20,6 +36,7 @@ export function createAuthMock(db: MockDb): AuthPort {
           db.clientes.push(cliente);
           db.clienteCredenciais.push({ clienteId: cliente.id, email: input.email });
           db.sessionClienteId = cliente.id;
+          notifyAuthStateChange();
           return cliente;
         },
         {} as Cliente,
@@ -39,6 +56,7 @@ export function createAuthMock(db: MockDb): AuthPort {
             throw new Error(`[mock] Cliente bloqueado: ${cliente.motivo_bloqueio ?? 'sem motivo informado'}`);
           }
           db.sessionClienteId = cliente.id;
+          notifyAuthStateChange();
           return cliente;
         },
         {} as Cliente,
@@ -58,6 +76,7 @@ export function createAuthMock(db: MockDb): AuthPort {
       return simulateAsync(
         () => {
           db.sessionClienteId = null;
+          notifyAuthStateChange();
         },
         undefined,
         options,
@@ -110,6 +129,21 @@ export function createAuthMock(db: MockDb): AuthPort {
         {} as Cliente,
         options,
       );
+    },
+
+    onAuthStateChange(callback: (cliente: Cliente | null) => void): () => void {
+      listeners.add(callback);
+      // "Pelo menos uma vez, de forma assíncrona" (AC1) — via `simulateAsync`
+      // com `delayMs: 0`, mesmo padrão de latência genuína usado no resto do
+      // arquivo (nunca `Promise.resolve()` puro).
+      simulateAsync(() => currentSessionCliente(), null, { delayMs: 0 }).then((cliente) => {
+        if (listeners.has(callback)) {
+          callback(cliente);
+        }
+      });
+      return () => {
+        listeners.delete(callback);
+      };
     },
   };
 }

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { AuthPort } from '../ports/auth.port';
+import type { AuthPort, Cliente } from '../ports/auth.port';
 import { createAuthMock } from './auth.mock';
 import { createMockDb, type MockDb } from './db';
 
@@ -68,5 +68,57 @@ describe('auth.mock (contract)', () => {
   it('updateCpf writes clientes.cpf (Story 1.10, Task 3)', async () => {
     const cliente = await port.updateCpf('cliente-ana', '12345678900', { delayMs: 1 });
     expect(cliente.cpf).toBe('12345678900');
+  });
+
+  describe('onAuthStateChange (Story 2.3.1, Task 2/7, AC1)', () => {
+    it('notifica o estado atual (null) para quem se inscreve antes de qualquer signUp/signIn', async () => {
+      const received: (Cliente | null)[] = [];
+      port.onAuthStateChange((cliente) => received.push(cliente));
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      expect(received).toEqual([null]);
+    });
+
+    it('signUp/signIn disparam o callback com o Cliente correto', async () => {
+      const received: (Cliente | null)[] = [];
+      port.onAuthStateChange((cliente) => received.push(cliente));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      const cliente = await port.signUp(
+        { nome: 'Nova Cliente', email: 'nova@example.com', senha: 'senha1234', telefone: null },
+        { delayMs: 1 },
+      );
+
+      expect(received.at(-1)?.id).toBe(cliente.id);
+
+      await port.signOut({ delayMs: 1 });
+      const outro = await port.signIn('ana.souza@example.com', 'senha-qualquer', { delayMs: 1 });
+
+      expect(received.at(-1)?.nome).toBe(outro.nome);
+    });
+
+    it('signOut dispara o callback com null', async () => {
+      await port.signIn('ana.souza@example.com', 'senha-qualquer', { delayMs: 1 });
+
+      const received: (Cliente | null)[] = [];
+      port.onAuthStateChange((cliente) => received.push(cliente));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      await port.signOut({ delayMs: 1 });
+
+      expect(received.at(-1)).toBeNull();
+    });
+
+    it('a função de unsubscribe retornada para de notificar o callback', async () => {
+      const received: (Cliente | null)[] = [];
+      const unsubscribe = port.onAuthStateChange((cliente) => received.push(cliente));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      unsubscribe();
+      await port.signIn('ana.souza@example.com', 'senha-qualquer', { delayMs: 1 });
+
+      expect(received).toEqual([null]);
+    });
   });
 });
