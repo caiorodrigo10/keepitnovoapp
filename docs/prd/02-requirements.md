@@ -1,5 +1,12 @@
 # 02 — Requirements
 
+> **Importante — profundidade de implementação (2026-07-31):** os requisitos
+> abaixo permanecem intactos como inventário funcional e histórico. Para o
+> piloto, sua execução pode ser completa, simplificada, manual ou posterior,
+> conforme a matriz por Story em
+> [`07-plano-mvp-piloto.md`](./07-plano-mvp-piloto.md). Em caso de conflito de
+> prioridade, a matriz vence; o identificador FR nunca é apagado ou reutilizado.
+
 Requisitos funcionais (FR) e não-funcionais (NFR) do MVP. Cada item tem identificador estável, usado como referência nas Stories.
 
 Regras de negócio detalhadas por trás de cada FR estão em `docs/PERGUNTAS_REGRAS_NEGOCIO.md`.

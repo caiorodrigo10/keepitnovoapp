@@ -1,5 +1,10 @@
 # Épico 7 — Pagamento & Carteira
 
+> **Plano vigente (2026-07-31):** PIX e webhook são core; cartão, tokenização e
+> chargeback automático ficam preservados para retomada. Carteira mantém ledger
+> básico e repasse assistido. Ver
+> [`../07-plano-mvp-piloto.md`](../07-plano-mvp-piloto.md).
+
 ## Expanded Goal
 
 Integrar o Asaas em produção-sandbox e implementar o **modelo financeiro completo**: cobrança PIX e cartão, tokenização de cartão, webhooks de pagamento e chargeback, carteira virtual do lojista (saldo disponível/bloqueado calculado por SQL), saque via PIX externo, e o dashboard financeiro do lojista.

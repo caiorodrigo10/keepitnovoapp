@@ -1,5 +1,9 @@
 # Épico 8 — Painel Admin — Operação
 
+> **Plano vigente (2026-07-31):** manter as telas e ações reais, usando queries
+> diretas e processos manuais auditáveis onde a automação foi adiada. Ver
+> [`../07-plano-mvp-piloto.md`](../07-plano-mvp-piloto.md).
+
 ## Expanded Goal
 
 Habilitar o admin da Keepit para operar o dia a dia: a **fila de reembolsos manuais** (regra explícita do MVP), cancelamento forçado de pedido, bloqueio de cliente, suspensão de lojista, e o **dashboard financeiro geral da Keepit** (GMV, receita, rankings). Este épico é o que permite a Keepit rodar o produto em produção sem apagar incêndio no banco.

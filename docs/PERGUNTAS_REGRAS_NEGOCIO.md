@@ -1,5 +1,11 @@
 # Keepit — Perguntas de Regras de Negócio (pré-desenvolvimento)
 
+> **Decisão de execução do piloto (2026-07-31):** as regras e perguntas deste
+> arquivo permanecem preservadas. Quando uma regra exigir automação classificada
+> como `SIMPLE` ou `LATER`, a operação segue o plano em
+> [`prd/07-plano-mvp-piloto.md`](./prd/07-plano-mvp-piloto.md), sem inventar uma
+> decisão de negócio. Simplificação técnica não encerra pendência de stakeholder.
+
 **Propósito.** Antes de começar o desenvolvimento do MVP, precisamos travar decisões de negócio que impactam diretamente o modelo de dados, a integração de pagamento e os fluxos de estado dos pedidos. Este documento lista essas perguntas de forma organizada.
 
 **Como usar.**

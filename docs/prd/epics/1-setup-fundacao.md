@@ -1,5 +1,9 @@
 # Épico 1 — Fundação Backend & CI
 
+> **Plano vigente (2026-07-31):** preservar a fundação existente e concluir
+> somente infraestrutura necessária ao piloto. Ver classificação por Story em
+> [`../07-plano-mvp-piloto.md`](../07-plano-mvp-piloto.md).
+
 > **Reorganização (2026-07-27):** este épico foi reduzido. As Stories de fundação de renderização e tela canário (1.1 monorepo, 1.2 tokens, 1.3 fontes, 1.6/1.7/1.8 boot dos apps) foram absorvidas pelo novo **[Épico 0 — Casca Visual](./0-casca-visual.md)**. O Épico 1 remanescente cuida do **backend real (Supabase) e do CI**. As Stories 1.1, 1.2 e 1.3 já estavam `Done` (QA gates em `docs/qa/gates/`) e continuam válidas como pré-requisito herdado — mantidas abaixo por rastreabilidade histórica, mas seu objetivo operacional agora vive no Épico 0.
 
 ## Expanded Goal

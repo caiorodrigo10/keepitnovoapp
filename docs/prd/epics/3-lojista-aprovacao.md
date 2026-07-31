@@ -1,5 +1,9 @@
 # Épico 3 — Auth & Onboarding do Lojista + Aprovação Admin
 
+> **Plano vigente (2026-07-31):** preservar onboarding e telas; aprovação pode
+> usar conferência humana e não depende de subconta Asaas automática. Ver
+> [`../07-plano-mvp-piloto.md`](../07-plano-mvp-piloto.md).
+
 > **Reconciliação (2026-07-30) — decisão 10.4 (Rodada 6, 2026-07-29):** a decisão fecha que **Lojista e Admin também autenticam com e-mail + senha** (Supabase Auth nativo) e que **não há confirmação por SMS no MVP** (Zenvia fora; candidata a v2). Consequências neste épico:
 > - Nenhuma etapa de confirmação de telefone por SMS existe no cadastro do lojista nem no login do admin — o cadastro do passo 1 vai direto para o passo 2 (Story 3.4).
 > - O telefone do lojista **não é verificado** (nenhuma coluna `telefone_confirmado` em `estabelecimentos`), mas **continua obrigatório**: a Rodada 2 o lista entre os dados exigidos no onboarding e a Rodada 5 o usa como número de WhatsApp do botão "Falar com o lojista". A 10.4 tornou o telefone *opcional* apenas para o **Cliente** — não revogou a exigência para o lojista.

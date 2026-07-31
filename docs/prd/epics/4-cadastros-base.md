@@ -1,5 +1,9 @@
 # Épico 4 — Cadastros Base (Hubs & Catálogo)
 
+> **Plano vigente (2026-07-31):** manter hubs e catálogo reais com CRUD direto,
+> poucos hubs e sem motor geográfico. Ver
+> [`../07-plano-mvp-piloto.md`](../07-plano-mvp-piloto.md).
+
 ## Expanded Goal
 
 Preencher o "estoque de dados" que sustenta a operação: **admin cadastra hubs** e **lojista cadastra produtos**. Ao final: existem hubs cadastrados com localização e horário; existem produtos com foto, preço e descrição; existem horários de funcionamento configurados. Sistema pronto para o cliente descobrir (Épico 5) e fazer pedidos (Épico 6).

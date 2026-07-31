@@ -1,0 +1,238 @@
+execution:
+  id: keepit-mvp-pilot
+  title: Keepit MVP Pilot - Codex AIOX Orchestration
+  status: in_progress
+  orchestrator: aiox-master
+  runtime: codex
+  mode: interactive_epic_gates
+  created_at: '2026-07-31'
+
+  sources:
+    scope: docs/prd/07-plano-mvp-piloto.md
+    architecture: docs/architecture/07-mvp-pilot-backend.md
+    story_policy: docs/stories/README.md
+    deferred_backlog: docs/prd/08-backlog-pos-piloto.md
+    backup_tag: backup/pre-mvp-backend-simplification-2026-07-31
+
+  templates:
+    epic: .aiox-core/development/workflows/epic-orchestration.yaml
+    story: .aiox-core/development/workflows/story-development-cycle.yaml
+    inner_cycle: .aiox-core/development/workflows/development-cycle.yaml
+
+  concurrency:
+    total_slots: 4
+    orchestrator_slots: 1
+    max_parallel_stories: 2
+    reserved_review_slots: 1
+    worktree_isolation: true
+    shared_domain_parallelism: false
+    parallel_groups_are_candidates: true
+
+  model_routing:
+    availability_check_before_delegation: true
+    current_runtime:
+      callable_overrides: [sol, terra]
+      luna_callable_override: false
+    priorities:
+      development: [luna, terra, sol]
+      governance: [gpt, sol, terra]
+      high_risk_review: [sol, gpt, terra]
+    assignments:
+      orchestration:
+        preferred: gpt
+        fallback: sol
+      product_and_story_validation:
+        preferred: gpt
+        fallback: terra
+      frontend_and_screen_integration:
+        preferred: luna
+        fallback: terra
+      routine_backend_and_tests:
+        preferred: terra
+        fallback: luna
+      database_rls_payments_and_complex_debugging:
+        preferred: sol
+        fallback: terra
+      standard_qa:
+        preferred: terra
+        fallback: luna
+      high_risk_qa_and_wave_gate:
+        preferred: sol
+        fallback: gpt
+    rules:
+      - prefer_luna_or_terra_for_development
+      - fallback_luna_to_terra_when_unavailable
+      - reserve_sol_for_high_risk_or_cross_cutting_work
+      - record_model_and_fallback_reason_in_story_report
+
+  governance:
+    user_checkpoint: between_product_waves
+    wave_options: [GO, PAUSE, REVIEW, ABORT]
+    retries_per_story: 3
+    retries_per_wave_gate: 2
+    remote_operations_require_separate_approval: true
+    production_operations_require_separate_approval: true
+    execute_later_items: false
+    execute_removed_items: false
+
+  story_cycle:
+    - agent: sm
+      action: create_story
+      output: draft
+    - agent: po
+      action: validate_story
+      output: ready
+    - agent: architect
+      action: create_implementation_plan
+      output: implementation_yaml
+    - agent: data-engineer
+      action: review_database_security
+      condition: touches_database_or_rls_or_money
+    - agent: dev
+      action: implement_in_isolated_worktree
+      output: in_review
+    - agent: qa
+      action: quality_gate
+      output: PASS_or_CONCERNS_or_FAIL
+    - agent: devops
+      action: integrate_approved_story
+      condition: PASS_or_accepted_CONCERNS
+    - agent: aiox-master
+      action: update_state_and_report
+
+  waves:
+    - id: wave-0
+      name: Baseline and readiness
+      stories: []
+      agents: [aiox-master, devops, qa]
+      parallel: false
+      outputs:
+        - approved_plan
+        - clean_worktree
+        - baseline_commit
+        - baseline_qa
+        - orchestration_state
+      gate: clean_tree_and_pnpm_qa
+
+    - id: wave-1
+      name: Client authentication
+      stories: ['2.6', '2.7', '2.8', '2.9', '2.10']
+      depends_on: [wave-0]
+      parallel_groups:
+        - ['2.6']
+        - ['2.7', '2.10']
+        - ['2.8']
+        - ['2.9']
+      gate: client_auth_profile_support
+
+    - id: wave-2
+      name: Merchant and Admin identity
+      stories: ['3.1', '3.2', '3.3', '3.4', '3.5', '3.6', '3.7', '3.8', '3.9', '3.10', '3.11', '3.12']
+      depends_on: [wave-1]
+      parallel_groups:
+        - ['3.1', '3.2', '3.3']
+        - ['3.4']
+        - ['3.5']
+        - ['3.6', '3.7']
+        - ['3.8', '3.9']
+        - ['3.10', '3.11']
+        - ['3.12']
+      gate: merchant_approval_and_rls
+
+    - id: wave-3
+      name: Hubs and catalog
+      stories: ['4.1', '4.2', '4.3', '4.4', '4.5', '4.6', '4.7', '4.8']
+      depends_on: [wave-2]
+      parallel_groups:
+        - ['4.1', '4.3']
+        - ['4.2', '4.4']
+        - ['4.5', '4.7']
+        - ['4.6', '4.8']
+      gate: persistent_hubs_catalog_and_ownership
+
+    - id: wave-4
+      name: Discovery and search
+      stories: ['5.1', '5.2', '5.3', '5.4', '5.5', '5.6', '5.7', '5.8']
+      depends_on: [wave-3]
+      parallel_groups:
+        - ['5.1', '5.3']
+        - ['5.2']
+        - ['5.4', '5.5']
+        - ['5.6', '5.7']
+        - ['5.8']
+      gate: real_discovery_without_geo
+
+    - id: wave-5
+      name: Order and PIN without real payment
+      stories: ['6.1', '6.2', '6.3', '6.4', '6.5', '6.6', '6.7', '6.8', '6.9', '6.11', '6.12', '6.13', '6.14', '6.15', '6.16', '6.17', '6.18', '6.19', '6.20', '6.21']
+      excluded: ['6.10']
+      depends_on: [wave-4]
+      parallel_groups:
+        - ['6.1']
+        - ['6.2', '6.4']
+        - ['6.3', '6.5']
+        - ['6.6', '6.7']
+        - ['6.8', '6.9']
+        - ['6.11', '6.12']
+        - ['6.13', '6.14']
+        - ['6.15']
+        - ['6.16', '6.17']
+        - ['6.18', '6.19']
+        - ['6.20', '6.21']
+      gate: server_validated_order_pin_flow
+
+    - id: wave-6
+      name: PIX and ledger
+      stories: ['7.1', '7.2', '7.5', '7.6', '7.7', '7.8', '7.9', '7.10', '7.12']
+      excluded: ['7.3', '7.4', '7.11']
+      depends_on: [wave-5]
+      parallel_groups:
+        - ['7.1']
+        - ['7.2', '7.6']
+        - ['7.5']
+        - ['7.7', '7.12']
+        - ['7.8', '7.9']
+        - ['7.10']
+      gate: idempotent_pix_and_auditable_ledger
+
+    - id: wave-7
+      name: Admin operations
+      stories: ['8.1', '8.2', '8.3', '8.4', '8.5', '8.6', '8.7', '8.8']
+      depends_on: [wave-6]
+      parallel_groups:
+        - ['8.1', '8.3']
+        - ['8.2', '8.4']
+        - ['8.5', '8.6']
+        - ['8.7', '8.8']
+      gate: admin_can_operate_without_manual_database_edits
+
+    - id: wave-8
+      name: Publication and pilot launch
+      stories: ['1.8', '9.1', '9.2', '9.3', '9.4', '9.5', '9.6', '9.7', '9.8', '9.9', '9.10', '9.11']
+      depends_on: [wave-7]
+      parallel_groups:
+        - ['1.8', '9.1']
+        - ['9.2', '9.3']
+        - ['9.4']
+        - ['9.5', '9.6']
+        - ['9.7', '9.8']
+        - ['9.9', '9.10']
+        - ['9.11']
+      gate: production_vertical_slice_and_smoke
+
+  stop_conditions:
+    - scope_expansion
+    - unresolved_business_rule
+    - destructive_migration
+    - critical_or_high_security_issue
+    - production_money_movement
+    - unavailable_secret_or_credential
+    - unsafe_worktree_conflict
+    - story_retry_limit_reached
+    - wave_gate_retry_limit_reached
+
+  approval:
+    requested: true
+    approved: true
+    approved_at: '2026-07-31'
+    approved_by: user

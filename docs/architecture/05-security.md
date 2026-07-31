@@ -1,5 +1,10 @@
 # Security — RLS Policies e Gestão de Segredos
 
+> **Política do piloto (2026-07-31):** a simplificação de backend não reduz este
+> documento. RLS, ownership, segredos server-side, idempotência e autorização
+> administrativa continuam obrigatórios para todas as tabelas implementadas.
+> Ver [`07-mvp-pilot-backend.md`](./07-mvp-pilot-backend.md).
+
 **Autor:** @architect (Aria)
 **Data:** 2026-07-02
 **Escopo:** Políticas de segurança do Keepit MVP — Row-Level Security (RLS) por tabela, gestão de segredos, criptografia de dados sensíveis, autenticação admin, prevenção OWASP.

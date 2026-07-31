@@ -1,5 +1,15 @@
 # 06 — Next Steps
 
+> **Atualização de execução (2026-07-31):** antes de criar ou implementar uma
+> Story, ler [`07-plano-mvp-piloto.md`](./07-plano-mvp-piloto.md) e
+> [`../architecture/07-mvp-pilot-backend.md`](../architecture/07-mvp-pilot-backend.md).
+> As ACs históricas continuam visíveis, mas a classificação `CORE`, `SIMPLE`,
+> `UI_ONLY` ou `LATER` define o trabalho atual.
+> A política operacional para criação e validação está em
+> [`../stories/README.md`](../stories/README.md).
+> A execução no Codex deve seguir
+> [`../orchestration/CODEX-AIOX-MVP-ORCHESTRATION.md`](../orchestration/CODEX-AIOX-MVP-ORCHESTRATION.md).
+
 Ao final do PRD, dois handoffs formais para os próximos agentes AIOX.
 
 ## Handoff para @architect (Aria)
@@ -56,7 +66,9 @@ Cada Story do PRD (numeração `{epic}.{story}`, ex: `1.1`, `1.2`, ..., `9.11`) 
 - Dependências (stories anteriores necessárias).
 - Estimativa de esforço (T-shirt: XS/S/M/L).
 
-**Prioridade:** começar pelo **Épico 1** (todas as 8 stories). Depois avançar sequencialmente conforme épicos são desbloqueados.
+**Prioridade:** começar pelas Stories restantes do Épico 2 e seguir a ordem
+definida no plano do piloto. Stories `LATER` não devem ser fragmentadas para
+execução agora.
 
 **Restrições:**
 - Cada story deve caber em **uma sessão focada de 2-4 horas** de um dev solo. Se parecer maior, quebrar.
@@ -86,3 +98,10 @@ Depois que o @sm criar as stories, o @po **valida cada uma** com o checklist de 
 6. @qa → validar cada story antes de `Done`.
 7. Repetir 3-6 por épico.
 8. @devops (opcional) → CI/CD, submissão às lojas no Épico 9.
+
+## Regra adicional de aceite
+
+Uma Story `SIMPLE` está completa quando a interface executa uma ação real e
+observável, ainda que a operação final seja humana. Exemplo: solicitar saque
+cria um registro rastreável; não precisa transferir automaticamente. Uma Story
+`LATER` não pode gerar botão que simule sucesso no piloto.

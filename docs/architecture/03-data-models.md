@@ -1,5 +1,11 @@
 # Data Models — Schema Completo Supabase
 
+> **Uso no piloto (2026-07-31):** este schema permanece como modelo-alvo e não
+> foi descartado. As migrations devem introduzir somente as tabelas/colunas
+> necessárias às Stories `CORE` e `SIMPLE` da rodada atual, seguindo
+> [`07-mvp-pilot-backend.md`](./07-mvp-pilot-backend.md). `pg_cron`, Haversine e
+> estruturas exclusivas de cartão/chargeback não bloqueiam o piloto.
+
 **Autor:** @architect (Aria)
 **Data:** 2026-07-02
 **Escopo:** Modelo de dados formal do Keepit MVP para PostgreSQL/Supabase. Base para as migrations em `apps/supabase/migrations/`.
@@ -22,12 +28,14 @@ Este documento é normativo. Toda mudança de schema em produção passa por nov
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";     -- gen_random_uuid, digest, crypt
-CREATE EXTENSION IF NOT EXISTS "pg_cron";      -- jobs (timeout aceite, atraso lojista)
+CREATE EXTENSION IF NOT EXISTS "pg_cron";      -- pós-piloto: jobs de timeout/atraso
 CREATE EXTENSION IF NOT EXISTS "pgsodium";     -- criptografia at-rest da chave PIX
 CREATE EXTENSION IF NOT EXISTS "postgis";      -- OPCIONAL para geo — MVP usa Haversine em Edge Function
 ```
 
-**Nota:** no MVP não usamos PostGIS. Distância é calculada por Haversine em Edge Function TypeScript. PostGIS entra se houver muitos hubs e a query ficar lenta.
+**Nota:** no piloto não usamos PostGIS nem Haversine. A escolha do hub é por
+lista e a relação loja↔hub é explícita. Geolocalização volta quando o número de
+hubs justificar.
 
 ## Trigger utilitário compartilhado
 

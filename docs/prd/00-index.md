@@ -12,6 +12,8 @@
 | [04-technical.md](./04-technical.md) | Technical assumptions (stack, repo, arquitetura, testes) |
 | [05-epics.md](./05-epics.md) | Lista de épicos com goal statement + dependências |
 | [06-next-steps.md](./06-next-steps.md) | Prompts para @architect e @sm |
+| [07-plano-mvp-piloto.md](./07-plano-mvp-piloto.md) | Fonte de verdade para prioridade e profundidade do backend no piloto |
+| [08-backlog-pos-piloto.md](./08-backlog-pos-piloto.md) | Automações e integrações preservadas para retomada |
 | [epics/](./epics/) | Detalhamento de cada épico com stories numeradas |
 
 ## Contexto complementar
@@ -33,3 +35,4 @@ Quando o PRD parecer conflitar com esses documentos, **a fonte mais recente venc
 |---|---|---|---|
 | 2026-07-02 | 1.0 | Criação inicial do PRD | @pm (Morgan) |
 | 2026-07-27 | 1.1 | Estratégia UI-first: novo Épico 0 (Casca Visual — todas as telas mock, fidelidade total, camada `packages/core-data`); Épico 1 reduzido/renomeado para "Fundação Backend & CI"; Épicos 2–9 mantêm número/goal mas passam a "plugar backend na tela existente". Ver `epics/0-casca-visual.md`. | @architect (Aria) + Caio |
+| 2026-07-31 | 1.2 | Correção de curso: interface preservada; backend reclassificado em CORE/SIMPLE/UI_ONLY/LATER. Nenhuma Story apagada. Ver `07-plano-mvp-piloto.md` e o marco Git documentado em `../archive/README.md`. | Caio + AIOX Correct Course |

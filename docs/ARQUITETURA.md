@@ -1,5 +1,12 @@
 # Keepit — Arquitetura do MVP
 
+> **Overlay vigente (2026-07-31):** este documento preserva a visão completa e
+> continua válido como arquitetura-alvo. Para a implementação do piloto, a
+> profundidade obrigatória do backend está em
+> [`architecture/07-mvp-pilot-backend.md`](./architecture/07-mvp-pilot-backend.md).
+> Em conflito, o overlay vence. A versão anterior integral está no tag Git
+> `backup/pre-mvp-backend-simplification-2026-07-31`.
+
 Complementa `ENTENDIMENTO_APP.md`, `docs/ESCOPO_MVP.md` e `docs/PERGUNTAS_REGRAS_NEGOCIO.md`. Consolida as decisões técnicas do MVP.
 
 ## 1. Escopo (recap)

@@ -1,12 +1,19 @@
 # 01 — Goals, Background Context, Success Metrics
 
+> **Política vigente do piloto (2026-07-31):** preservar a interface detalhada
+> e validar uma fatia vertical com backend essencial para até aproximadamente
+> 200 usuários. Operações manuais explícitas são aceitas; sucessos fictícios
+> não são. Classificação completa em
+> [`07-plano-mvp-piloto.md`](./07-plano-mvp-piloto.md).
+
 ## Goals
 
 Resultados que o MVP do Keepit deve entregar:
 
 - Permitir que um cliente compre de uma loja local próxima e retire o pedido em um Hub Keepit compartilhado, sem precisar de entrega em domicílio.
 - Dar ao lojista uma via digital simples para receber, aceitar, preparar e entregar pedidos no hub — sem precisar montar operação de última-milha.
-- Operar o modelo de custódia da Keepit: segurar o pagamento até a entrega e repassar D+7 ao lojista, com saque sob demanda.
+- Provar o modelo financeiro com PIX, registro auditável de valores e repasse
+  inicialmente operado pelo admin; automação de saque não bloqueia o piloto.
 - Sustentar uma operação inicial com **4-5 hubs físicos** e **até dezenas de lojistas ativos**, sem necessidade de arquitetura escalável.
 - Validar em produção com usuários reais o modelo *click-and-collect* + encontro presencial no hub com PIN de 4 dígitos.
 - Publicar dois apps nativos (iOS + Android para Cliente e para Lojista) e um painel admin web para operação interna da Keepit.
@@ -24,7 +31,8 @@ O contexto operacional é conhecido e pequeno: **4-5 hubs físicos** iniciais, s
 O MVP será considerado **validado** quando:
 
 - **10 lojas ativas** operando pedidos com regularidade em produção.
-- Pedidos sendo **processados sem intervenção manual grave** no dia a dia — o admin da Keepit intervém apenas no que já é manual por design (aprovação de lojista, reembolsos, casos excepcionais).
+- Pedidos sendo processados ponta a ponta; a intervenção do admin em aprovação,
+  reembolso, repasse e exceções é aceitável e mensurada durante o piloto.
 - Os três apps (Cliente, Lojista, Admin) publicados e estáveis, sem retrabalho arquitetural relevante nos primeiros meses de operação.
 
 ## Não-metas explícitas do MVP

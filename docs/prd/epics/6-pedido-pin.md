@@ -1,5 +1,10 @@
 # Épico 6 — Pedido & PIN
 
+> **Plano vigente (2026-07-31):** o fluxo pedido → aceite → hub → PIN é core.
+> Push, timeout e exceções automáticas são substituídos por polling e operação
+> administrativa rastreável. Ver
+> [`../07-plano-mvp-piloto.md`](../07-plano-mvp-piloto.md).
+
 ## Expanded Goal
 
 Entregar o **coração do produto**: o ciclo de vida completo de um pedido. Cliente monta carrinho → checkout com validações → paga → lojista aceita em 10 min → prepara → sai pro hub → encontra o cliente → digita PIN → confirmação. Junto vem toda a matriz de cancelamento, no-shows e o tratamento de atraso do lojista.

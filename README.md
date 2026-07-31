@@ -2,6 +2,21 @@
 
 Marketplace hiperlocal click-and-collect. MVP com pnpm workspaces + Turborepo.
 
+## Plano vigente do piloto
+
+O produto preserva a interface detalhada e implementa primeiro o backend
+essencial da fatia PIX → pedido → aceite → hub → PIN. Antes de desenvolver uma
+Story, consulte:
+
+- [`docs/prd/07-plano-mvp-piloto.md`](docs/prd/07-plano-mvp-piloto.md) — prioridade e profundidade por Story;
+- [`docs/architecture/07-mvp-pilot-backend.md`](docs/architecture/07-mvp-pilot-backend.md) — arquitetura executável;
+- [`docs/stories/README.md`](docs/stories/README.md) — regras AIOX para SM, PO, Dev e QA;
+- [`docs/prd/08-backlog-pos-piloto.md`](docs/prd/08-backlog-pos-piloto.md) — automações preservadas para retomada.
+- [`docs/orchestration/CODEX-AIOX-MVP-ORCHESTRATION.md`](docs/orchestration/CODEX-AIOX-MVP-ORCHESTRATION.md) — plano de ondas e agentes no Codex, pendente de aprovação.
+
+O planejamento anterior permanece recuperável pelo tag Git
+`backup/pre-mvp-backend-simplification-2026-07-31`.
+
 ## Pré-requisitos
 
 - **Node.js** 20 ou superior (recomendado 22 LTS)
@@ -61,4 +76,3 @@ rodar, o `ci.yml` já cobre exatamente o mesmo comando — nada precisa mudar.
 `cliente`, `lojista`, `admin` e nos packages TS; `test` roda Vitest em `core-data` e
 `config`. O `lint` é `echo skipped` em todos os workspaces — ainda não há ESLint
 configurado. Tratar "qa verde" como prova de tipos e testes, não de estilo.
-

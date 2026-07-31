@@ -1,5 +1,9 @@
 # Épico 0 — Casca Visual (UI-first)
 
+> **Plano vigente (2026-07-31):** Stories 0.1–0.13 permanecem `DONE`. A
+> correção de curso preserva integralmente esta interface. Ver
+> [`../07-plano-mvp-piloto.md`](../07-plano-mvp-piloto.md).
+
 ## Expanded Goal
 
 Construir **todas as telas dos três apps** (Cliente, Lojista, Admin) com **fidelidade visual 100% ao protótipo `keepit-app/index.html`**, populadas por **dados mock**, e navegáveis ponta-a-ponta. Ao final deste épico, `pnpm turbo run dev` levanta os três apps e é possível percorrer todo o produto — descoberta, pedido, PIN, carteira, aprovação de lojista, operação admin — sem nenhum backend real.

@@ -1,5 +1,9 @@
 # Épico 5 — Descoberta & Busca do Cliente
 
+> **Plano vigente (2026-07-31):** preservar a interface; listar hubs e usar
+> busca SQL simples, sem GPS/Haversine no piloto. Ver
+> [`../07-plano-mvp-piloto.md`](../07-plano-mvp-piloto.md).
+
 ## Expanded Goal
 
 Dar ao cliente a **experiência de descoberta** completa: escolher um hub próximo, ver lojas do hub filtradas por raio de atendimento e horário, navegar catálogos, ver detalhes de produtos, e buscar por produto ou por loja. Ao final: o cliente tem tudo que precisa para achar o que quer comprar. O carrinho e o checkout são do Épico 6.

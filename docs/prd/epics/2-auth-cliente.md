@@ -1,5 +1,10 @@
 # Épico 2 — Auth & Onboarding do Cliente
 
+> **Plano vigente (2026-07-31):** manter toda a experiência de entrada, perfil
+> e suporte; push nativo não bloqueia o piloto. O texto abaixo permanece como
+> histórico funcional. A prioridade executável está em
+> [`../07-plano-mvp-piloto.md`](../07-plano-mvp-piloto.md).
+
 > **Reconciliação (2026-07-30) — decisão 10.4 (Rodada 6, 2026-07-29):** a autenticação do Cliente é **e-mail + senha** (Supabase Auth nativo), **sem confirmação por SMS no MVP** (corta custo/integração Zenvia; entra em v2 se necessário). O telefone passa a ser **campo opcional e não verificado**. Por isso as **Stories 2.4 (Edge Function SMS Zenvia)** e **2.5 (tela de confirmação SMS)** foram **removidas do MVP** — texto original mantido abaixo por rastreabilidade, caso o SMS volte em v2. As demais stories **não foram renumeradas**. Ver `docs/PERGUNTAS_REGRAS_NEGOCIO.md → Decisões → Rodada 6 — 2026-07-29`.
 
 > **Decisão técnica provisória (2026-07-30) — 10.5 `Confirm email` OFF.** Até aqui, o Épico 2 navegava direto para a home **sem decisão registrada** — era um default silencioso. Agora existe **decisão técnica provisória** formalizada em `docs/PERGUNTAS_REGRAS_NEGOCIO.md → 10.5`: `Confirm email` **OFF** no Supabase Auth (opção (a)), com racional (atrito zero, coerência com o protótipo, mitigações já no escopo pelas Stories 2.8/2.10) e **gatilho de revisão** (volume relevante de recuperação de acesso por e-mail errado → ligar ON). É **config por projeto**, reversível sem migration. **Não é decisão do stakeholder** e **não fecha o risco de negócio**: segue pendente de validação se a Keepit aceita que um cliente com e-mail errado dependa de suporte humano para recuperar o PIN de uma **compra já paga**. Afeta as Stories **2.3 (AC5)**, **2.6 (AC4)** e **2.11 (AC1)** — que continuam válidas como escritas.

@@ -1,5 +1,12 @@
 # Keepit — Escopo do MVP
 
+> **Recorte operacional vigente (2026-07-31):** fidelidade e riqueza da
+> interface são preservadas; o backend prioriza a fatia vertical PIX → pedido →
+> aceite → hub → PIN → repasse registrado. Automações adiadas continuam
+> documentadas em [`prd/08-backlog-pos-piloto.md`](./prd/08-backlog-pos-piloto.md).
+> A matriz executável está em
+> [`prd/07-plano-mvp-piloto.md`](./prd/07-plano-mvp-piloto.md).
+
 Complemento de `ENTENDIMENTO_APP.md`. Este documento consolida o **escopo acordado** para o MVP e os princípios que devem guiar as decisões técnicas.
 
 ## Produtos que compõem o MVP

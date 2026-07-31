@@ -1,5 +1,9 @@
 # Épico 9 — Publicação & Compliance
 
+> **Plano vigente (2026-07-31):** publicação e compliance continuam `CORE`;
+> não são removidos pela simplificação do backend. Ver
+> [`../07-plano-mvp-piloto.md`](../07-plano-mvp-piloto.md).
+
 ## Expanded Goal
 
 Preparar o Keepit para produção pública: textos legais (Termos, Política), ícones e splash screens, metadata das lojas (descrição, screenshots, categoria), teste end-to-end, migração do Supabase dev → produção, troca do Asaas sandbox → produção após aprovação comercial, e submissão inicial à App Store + Play Store.

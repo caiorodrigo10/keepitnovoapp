@@ -12,6 +12,7 @@ Documentos de arquitetura do Keepit MVP, produzidos pelo @architect (Aria).
 | [04-patterns.md](#04-patterns) | Padrões de código, estrutura de pastas | ⏭ ver `docs/ARQUITETURA.md` |
 | [05-security.md](./05-security.md) | RLS policies + segredos + criptografia | ✅ Produzido |
 | [06-session-persistence.md](./06-session-persistence.md) | Persistência de sessão no `@keepit/supabase-client` (RN × web), storage adapter, bootstrap dos apps | ✅ Produzido |
+| [07-mvp-pilot-backend.md](./07-mvp-pilot-backend.md) | Overlay vigente: frontend completo + backend essencial, operações manuais auditáveis | ✅ Vigente |
 
 ## Escopo focado desta rodada
 
@@ -24,3 +25,4 @@ Se a operação crescer (time novo entrando, arquiteto externo revisando), vale 
 | Data | Versão | Descrição | Autor |
 |---|---|---|---|
 | 2026-07-02 | 1.0 | Criação de `03-data-models.md` e `05-security.md` | @architect (Aria) |
+| 2026-07-31 | 1.1 | Adição do overlay arquitetural do piloto; preserva stack e reduz automações prematuras | AIOX Correct Course |
