@@ -14,7 +14,7 @@ type Props = NativeStackScreenProps<AuthStackParamList, 'Onboarding2'>;
  * Onboarding 2/3 — "Pronto" (Story 2.1.1, AC3/AC4/AC7).
  *
  * [Fonte da copy] `keepit-app/index.html`, bloco "COMO FUNCIONA"
- * (~offset 270394), card "2 · Pronto" (offset 270974): "Pedido fica pronto
+ * (offset 270404), card "2 · Pronto" (offset 270974): "Pedido fica pronto
  * no hub Keepit" (offset 271076) — copy literal, confirmada por grep no
  * protótipo (1 ocorrência). O bloco fornece uma única frase por card, por
  * isso não há subtext para esta tela.

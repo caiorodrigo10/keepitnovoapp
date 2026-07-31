@@ -15,7 +15,7 @@ type Props = NativeStackScreenProps<AuthStackParamList, 'Onboarding1'>;
  * Onboarding 1/3 — "Compra" (Story 2.1.1, AC1/AC2/AC7).
  *
  * [Fonte da copy] `keepit-app/index.html`, bloco "COMO FUNCIONA"
- * (~offset 270394), card "1 · Compra" (offset 270646): "Escolhe lojas
+ * (offset 270404), card "1 · Compra" (offset 270646): "Escolhe lojas
  * locais na plataforma" (offset 270748) — copy literal, confirmada por
  * grep no protótipo (1 ocorrência). O bloco fornece uma única frase por
  * card, por isso não há subtext para esta tela.
