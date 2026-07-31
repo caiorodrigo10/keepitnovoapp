@@ -6,6 +6,7 @@ import { getDataClient } from '@keepit/core-data';
 import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 
 import { Button, Checkbox, Screen, TextField } from '../../components/ui';
+import { isTelefoneBRValido, maskTelefoneBR } from '../../lib/telefoneMask';
 import type { AuthStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'CriarConta'>;
@@ -37,7 +38,10 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  *
  * Sem submit real: `auth.port.signUp` do mock só aceita `{ nome, telefone }`
  * (Story 0.2 não modela e-mail/senha no `Cliente`) — chamado apenas para
- * exercitar o estado de loading do botão, sem bloquear a navegação.
+ * exercitar o estado de loading do botão. A navegação pós-submit para a tela
+ * de confirmação de número (Story 2.5, fora do MVP pela decisão 10.4) foi
+ * removida (Story 2.2); o destino de sucesso real é implementado na Story
+ * 2.3.
  */
 export default function CriarConta({ navigation }: Props) {
   const [nome, setNome] = useState('');
@@ -52,8 +56,10 @@ export default function CriarConta({ navigation }: Props) {
     const nextErrors: FormErrors = {};
     if (!nome.trim()) nextErrors.nome = 'Informe seu nome completo.';
     if (!EMAIL_REGEX.test(email.trim())) nextErrors.email = 'Informe um e-mail válido.';
-    if (senha.length < 6) nextErrors.senha = 'A senha precisa ter pelo menos 6 caracteres.';
-    if (!telefone.trim()) nextErrors.telefone = 'Informe seu telefone com DDD.';
+    if (senha.length < 8) nextErrors.senha = 'A senha precisa ter pelo menos 8 caracteres.';
+    if (telefone.trim() && !isTelefoneBRValido(telefone.trim())) {
+      nextErrors.telefone = 'Informe um telefone válido (com DDD).';
+    }
     if (!aceiteTermos) nextErrors.termos = 'É preciso aceitar os Termos e a Política de Privacidade.';
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -68,7 +74,7 @@ export default function CriarConta({ navigation }: Props) {
       await client.auth.signUp({ nome: nome.trim(), telefone: telefone.trim() });
     } finally {
       setLoading(false);
-      navigation.navigate('ConfirmacaoSMS');
+      // TODO(Story 2.3): navegar para a home após signUp real via Supabase Auth (destino depende da decisão 10.5).
     }
   }
 
@@ -105,9 +111,9 @@ export default function CriarConta({ navigation }: Props) {
         error={errors.senha}
       />
       <TextField
-        label="Telefone"
+        label="Telefone (opcional)"
         value={telefone}
-        onChangeText={setTelefone}
+        onChangeText={(value) => setTelefone(maskTelefoneBR(value))}
         placeholder="(11) 91234-5678"
         keyboardType="phone-pad"
         autoCapitalize="none"
