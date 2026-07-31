@@ -1,0 +1,85 @@
+schema: 1
+story: '2.2.1'
+gate: PASS
+status_reason: 'REL-001 e REL-003 fechados e verificados por bateria adversarial própria do @qa (14 entradas + idempotência + digitação incremental + backspace), não pelos testes do @dev. Os 15 testes originais de telefoneMask continuam intactos (0 linhas removidas no diff) e verdes. Diff restrito aos 3 arquivos do File List + story. Débitos remanescentes são todos pré-registrados e low.'
+reviewer: 'Quinn'
+updated: '2026-07-31T12:00:00Z'
+
+closed_issues:
+  - id: 'REL-001'
+    from_gate: '2.2'
+    severity_original: medium
+    status: CLOSED
+    evidence: 'maskTelefoneBR("+55 11 91234-5678") → "(11) 91234-5678" (antes: "(55) 11912-3456"). Caso mais traiçoeiro verificado pelo @qa: maskTelefoneBR("+55 55 99123-4567") → "(55) 99123-4567" (DDI 55 + DDD 55 Santa Maria, 13 dígitos, resultado correto). Guarda de não-regressão: maskTelefoneBR("(55) 99123-4567") (11 dígitos, DDD 55 legítimo) → "(55) 99123-4567", inalterado.'
+  - id: 'REL-003'
+    from_gate: '2.2'
+    severity_original: medium
+    status: CLOSED
+    evidence: 'CriarConta.tsx L73-85: try { signUp } catch (error) { TODO } finally { setLoading(false) }. finally contém EXCLUSIVAMENTE setLoading(false). Nenhum navigation.navigate em try/catch/finally — único hit no arquivo é L140 (link "Já tem conta? Entrar", dentro do JSX). Comentário L76-79 é inequívoco: navegação de sucesso vai "AQUI, dentro do try, logo após o await signUp(...) — nunca no finally, que roda também em caso de erro". O catch não inventou mensagem de negócio nova: corpo é só comentário TODO(Story 2.3), sem estado de UI novo, conforme AC3.'
+  - id: 'DOC-004'
+    from_gate: '2.2'
+    severity_original: low
+    status: CLOSED
+    evidence: 'JSDoc L35-38 não afirma mais decisão fechada. grep "Rodada 2" em CriarConta.tsx → 0 hits. Novo texto cita "pendência 10.2 (login social) continua 🟡 aberta → STAKEHOLDER". Confirmado independentemente pelo @qa em docs/PERGUNTAS_REGRAS_NEGOCIO.md L317-318: "### 10.2 🟡 Login social (Google / Apple) ... → STAKEHOLDER". UI segue sem botões sociais (nenhuma mudança de JSX no diff).'
+  - id: 'TEST-003'
+    from_gate: '2.2'
+    severity_original: low
+    status: PARTIAL
+    evidence: 'Casos (a) DDI e (d) round-trip adicionados, conforme decisão da story. (b) e (c) permanecem débito declarado.'
+
+top_issues:
+  - id: 'REL-004'
+    severity: low
+    finding: 'O catch de handleCriarConta engole o erro em silêncio (sem console.error, sem estado). Antes da story o erro virava unhandled rejection — ruidoso, mas visível no console. Agora fica invisível até a Story 2.3 implementar o tratamento real. É exatamente o que a AC3 pediu (proibiu console.error e UI nova), portanto não é defeito contra a story.'
+    suggested_action: 'Story 2.3: o catch DEVE ganhar tratamento real (mensagem ao usuário) — não deixar o bloco vazio ao integrar o Supabase Auth. Adicionalmente, `error` está bound e não usado; se a 2.3 não for usar o binding, trocar por `catch {`.'
+  - id: 'REL-005'
+    severity: low
+    finding: 'Efeito colateral inerente ao design da AC1 (não um bug de implementação): um usuário de DDD 55 que digitar um 12º dígito por engano vê o número reinterpretado como DDI e o "55" é perdido — backspace não o recupera, pois o dígito já saiu do estado. Ex.: digitando "5511912345678" caractere a caractere, o estado passa de "(55) 11912-3456" para "(11) 9123-4567" no 12º dígito. Verificado pelo @qa; consequência direta da regra "12/13 dígitos + startsWith(55) → strip" aprovada na AC1/@po.'
+    suggested_action: 'Nenhuma ação nesta story. Revisitar junto de REL-002 se/quando a validação de DDD real for implementada.'
+  - id: 'REL-002'
+    severity: low
+    status: 'DEBT (fora de escopo por decisão registrada na story)'
+    finding: 'isTelefoneBRValido continua aceitando DDD inexistente. Confirmado colateralmente na bateria adversarial: "0055 11 91234-5678" (15 dígitos) → "(00) 55119-1234" com isTelefoneBRValido → true; "+1 555 123 4567" → "(15) 55123-4567" → true.'
+    suggested_action: 'Conforme já registrado no gate 2.2 e nas Pendências relacionadas da story 2.2.1.'
+
+waiver: { active: false }
+
+evidence:
+  gate_command: 'pnpm qa --force --filter=@keepit/cliente'
+  gate_result: '3/3 tasks successful — lint (stub "echo skipped"), typecheck (tsc --noEmit, sem erros), test (26 passed: 19 telefoneMask + 7 onboardingFlag). Tempo 2.06s, cache bypass.'
+  regression_check: 'git show 7df0df5 -- apps/cliente/src/lib/telefoneMask.test.ts | grep -c "^-[^-]" → 0. Nenhuma linha dos 15 testes originais foi removida, alterada ou enfraquecida; o diff é puramente aditivo (+16 linhas, 4 casos novos). Contagem do arquivo: 19 testes = 15 originais + 4 novos.'
+  scope_check: 'git show 7df0df5 --name-only → exatamente apps/cliente/src/lib/telefoneMask.ts, apps/cliente/src/lib/telefoneMask.test.ts, apps/cliente/src/screens/auth/CriarConta.tsx, docs/stories/2.2.1.story.md. Nenhum toque em packages/core-data, navigation/, Login.tsx, EsqueciSenha.tsx. Nenhuma referência real a Supabase adicionada (único hit é texto de comentário TODO). Nenhuma validação em tempo real, nenhum botão social, REL-002 não tocado. git status limpo após a review.'
+  article_iv_check: 'Todas as fontes citadas no código e nos comentários foram reconferidas pelo @qa: (1) pendência 10.2 aberta → PERGUNTAS_REGRAS_NEGOCIO.md L317-318, confirmado; (2) decisão 10.5 citada no TODO → existe em L326 do mesmo documento como pendente; (3) "55 = DDD de Santa Maria/RS" é fato público de numeração, não regra de negócio da Keepit, e não é usado para decidir nada além de um caso de teste; (4) o JSDoc de telefoneMask.ts descreve apenas o comportamento implementado, sem invocar fonte externa. Nenhuma citação não-verificável encontrada.'
+  qa_adversarial_battery: |
+    Bateria escrita pelo próprio @qa em arquivo temporário (removido ao final), independente dos testes do @dev.
+    Tabela de saída real:
+      REL-001 original               | "+55 11 91234-5678"  -> "(11) 91234-5678"  valido=true   OK
+      DDI55+DDD55 Santa Maria 13 dig | "+55 55 99123-4567"  -> "(55) 99123-4567"  valido=true   OK
+      11 dig DDD 55 legitimo         | "(55) 99123-4567"    -> "(55) 99123-4567"  valido=true   OK (não alterado)
+      DDI com zeros >13              | "0055 11 91234-5678" -> "(00) 55119-1234"  valido=true   débito declarado (>13 díg)
+      DDI estrangeiro                | "+1 555 123 4567"    -> "(15) 55123-4567"  valido=true   débito declarado
+      13 digitos todos 5             | "5555555555555"      -> "(55) 55555-5555"  valido=true   conforme AC1
+      vazio                          | ""                   -> ""                 valido=true   OK
+      so simbolos                    | "()- +"              -> ""                 valido=true   OK
+      12 dig com DDI fixo            | "551133334444"       -> "(11) 3333-4444"   valido=true   OK
+      12 dig DDI estrangeiro         | "351912345678"       -> "(35) 19123-4567"  valido=true   fallback declarado (AC1)
+      >13 sem 55                     | "119123456789999"    -> "(11) 91234-5678"  valido=true   não-regressão AC2
+      16 dig com 55                  | "5511912345678999"   -> "(55) 11912-3456"  valido=true   fallback declarado (AC1)
+      10 dig fixo                    | "1133334444"         -> "(11) 3333-4444"   valido=true   OK
+      11 dig celular                 | "11912345678"        -> "(11) 91234-5678"  valido=true   OK
+    Idempotência mask(mask(x)) === mask(x): nenhuma quebra nas 14 entradas.
+    Digitação incremental de "55991234567" (DDD 55 real): converge para "(55) 99123-4567" sem nunca perder o 55.
+    Digitação incremental de "5511912345678": converge para "(11) 91234-5678" (ver REL-005 sobre o estado transitório).
+    Backspace a partir de "(11) 91234-5678": degrada de forma coerente, sem exceção nem estado inválido.
+
+nfr_validation:
+  security: { status: PASS, notes: 'Nenhum dado sensível novo, nenhuma rede, nenhum segredo. Telefone segue não verificado e apenas local.' }
+  performance: { status: PASS, notes: 'Máscara é O(n) sobre string curta; nenhuma alocação nova relevante.' }
+  reliability: { status: PASS, notes: 'REL-001 e REL-003 fechados. Débitos remanescentes são low e declarados.' }
+  maintainability: { status: PASS, notes: 'Correção mínima e legível; JSDoc atualizado descreve com precisão a regra dos 12/13 dígitos e o fallback.' }
+
+recommendations:
+  immediate: []
+  future:
+    - 'Story 2.3: preencher o catch com tratamento de erro real e colocar a navegação de sucesso dentro do try (REL-004).'
+    - 'Revisitar REL-002 + DDI estrangeiro/>13 dígitos + REL-005 quando o telefone virar dado operacional.'
