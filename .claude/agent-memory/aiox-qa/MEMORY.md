@@ -1,4 +1,5 @@
 - [Épico 0 — débito de reconciliação de ports](project_epico0_port_reconciliation.md) — ports lojista/admin local no app; consolidar promoção p/ core-data antes do Épico 1 (gaps 0.9/0.10/0.12/0.13)
 - [Divergência de histórico de migration](project_migration_history_divergence.md) — MCP aplica com timestamp != arquivo versionado pelo @dev; quebra db push/pull; checar em toda story com migration
 - [Débito de validação em device](project_debito_validacao_device.md) — sandbox sem simulador e `pnpm qa` só roda tsc nos apps RN; como calibrar severidade por tipo de risco
+- [AC de navegação pós-auth é inverificável até a 2.6](project_ac_navegacao_pos_auth.md) — rota `Main` inalcançável da AuthStack; `navigate('Main')` é inerte e silencioso nos 3 screens
 - [Greps de não-regressão miram o JSX, não o arquivo](feedback_greps_nao_regressao.md) — comentário/JSDoc que cita o removido é DOC, nunca FAIL de AC
