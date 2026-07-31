@@ -1,0 +1,38 @@
+schema: 1
+story: '2.2'
+gate: CONCERNS
+status_reason: 'Todas as 7 ACs atendidas e verificadas independentemente (fontes do protótipo reconferidas por grep próprio); débitos não-bloqueantes na robustez de isTelefoneBRValido/maskTelefoneBR e na documentação pré-existente do JSDoc.'
+reviewer: 'Quinn'
+updated: '2026-07-31T02:15:00Z'
+top_issues:
+  - id: 'REL-001'
+    severity: medium
+    finding: 'maskTelefoneBR corrompe silenciosamente entradas com DDI: "+55 11 91234-5678" vira "(55) 11912-3456", que passa em isTelefoneBRValido. Colar um número com +55 grava um telefone errado sem nenhum aviso.'
+    suggested_action: 'Descartar prefixo 55 quando os dígitos extraídos tiverem 12-13 posições (ou rejeitar explicitamente). Adicionar teste.'
+  - id: 'TEST-003'
+    severity: low
+    finding: 'Os 15 testes cobrem os casos declarados e não são complacentes, mas não cobrem: entrada com DDI, DDD fora da faixa BR, "(11)91234-5678" sem espaço, e round-trip mask→valido.'
+    suggested_action: 'Acrescentar esses 4 casos quando REL-001/REL-002 forem endereçados.'
+  - id: 'REL-002'
+    severity: low
+    finding: 'isTelefoneBRValido aceita DDDs inexistentes ((00), (01), (10)) e celulares de 9 dígitos que não começam com 9 ((11) 81234-5678). A AC4 pede apenas validação de formato, então não bloqueia.'
+    suggested_action: 'Restringir a /^\(\d{2}\) (\d{4}|9\d{4})-\d{4}$/ com DDD >= 11, se/quando o telefone virar dado operacional.'
+  - id: 'DOC-004'
+    severity: low
+    finding: 'JSDoc pré-existente (linha 35-37 de CriarConta.tsx, Épico 0) afirma que login social saiu "por decisão de negócio da Rodada 2", mas a pendência 10.2 continua ABERTA → STAKEHOLDER. Contradição documental. A AC1 NÃO é invalidada: o JSX não renderiza Google/Apple.'
+    suggested_action: 'Corrigir o comentário para citar 10.2 como pendência aberta. @dev acertou em não tocar (fora do File List desta story).'
+  - id: 'REL-003'
+    severity: medium
+    finding: 'handleCriarConta usa try/finally sem catch; com o mock nada rejeita, mas na Story 2.3 (Supabase real) qualquer erro vira unhandled rejection. Além disso, se a 2.3 puser navigate no finally, navegará também em caso de erro.'
+    suggested_action: 'Story 2.3: adicionar catch (já necessário para e-mail duplicado, AC dela) e colocar a navegação de sucesso no try, não no finally.'
+waiver: { active: false }
+evidence:
+  gate_command: 'pnpm qa --force --filter=@keepit/cliente'
+  gate_result: '3/3 tasks OK — lint (stub echo skipped), typecheck (tsc --noEmit limpo), test (22 passed: 7 onboardingFlag + 15 telefoneMask)'
+  sources_verified_by_qa:
+    - 'grep -obU "Aceito os " keepit-app/index.html → 339570 (1 ocorrência)'
+    - 'grep -obU "Política de Privacidade" keepit-app/index.html → 339697 (1 ocorrência)'
+    - 'grep -obU "Aceito os Termos e a Pol" → 0 ocorrências (frase quebrada por <span>) — offset 339522 confirmado FALSO'
+    - 'grep -ci "telefone" keepit-app/index.html → 0 (AC2: campo é adição funcional, sem fonte no protótipo)'
+    - 'grep -oc "CPF" keepit-app/index.html → 0 (AC6 confirmada)'
+    - 'Nenhuma citação de offset falso foi reproduzida no código ou nos comentários da implementação.'
