@@ -122,6 +122,31 @@ Ao final: um cliente novo consegue baixar o app, criar conta com e-mail + senha,
 
 ---
 
+### Story 2.5.1 — Bootstrap do cliente Supabase no app Cliente
+
+> **Adicionada em 2026-07-31 como pré-requisito técnico da Story 2.6.** A
+> arquitetura verificou que o cliente Supabase não persistia sessão em React
+> Native, que os apps recebiam o client por `core-data` (não diretamente) e
+> que o bootstrap precisa acontecer antes do primeiro `getDataClient()`. O
+> escopo completo está em `docs/architecture/06-session-persistence.md` §§1–6.
+> Esta Story não cria UI nem reativa SMS; ela torna o caminho de auth existente
+> executável no Expo e preserva o Admin web isolado de dependências RN.
+
+**Acceptance Criteria:**
+1: Configuração pública usada no app Expo é lida com prefixo `EXPO_PUBLIC_`, sem
+   expor `service_role` ou segredo de gateway.
+2: `createClient()` aceita opções de storage sem importar dependência React
+   Native dentro de `packages/supabase-client`.
+3: `createDataClient()` recebe e reutiliza um único `SupabaseClient` nos
+   adapters, sem criar oito instâncias independentes.
+4: O app Cliente injeta AsyncStorage no bootstrap antes do primeiro acesso aos
+   adapters de dados; nenhum app web recebe dependência React Native.
+5: Em device/simulador, uma sessão real sobrevive a fechar e reabrir o app.
+6: `@keepit/admin` continua com typecheck e build verdes, comprovando que o
+   adapter RN não vazou para o bundle Next.js.
+
+---
+
 ### Story 2.6 — Tela de login
 
 **As a** cliente existente,

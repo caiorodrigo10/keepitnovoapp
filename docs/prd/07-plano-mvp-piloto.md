@@ -77,6 +77,7 @@ GitHub Actions estiver indisponível, conforme decisão já registrada no Épico
 |---|---|---|
 | 2.1–2.3 | `DONE` | Inclui corretivas 2.1.1, 2.2.1 e 2.3.1. |
 | 2.4–2.5 | `REMOVED` | SMS já removido; documentos e tela órfã continuam arquivados. |
+| 2.5.1 | `CORE` | Bootstrap único do cliente Supabase no Expo; pré-requisito técnico de 2.6. |
 | 2.6 | `CORE` | Login real por e-mail e senha. |
 | 2.7 | `CORE` | Recuperação nativa do Supabase por e-mail. |
 | 2.8 | `CORE` | Perfil real com edição básica. |

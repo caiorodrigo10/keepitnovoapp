@@ -116,9 +116,10 @@ execution:
 
     - id: wave-1
       name: Client authentication
-      stories: ['2.6', '2.7', '2.8', '2.9', '2.10']
+      stories: ['2.5.1', '2.6', '2.7', '2.8', '2.9', '2.10']
       depends_on: [wave-0]
       parallel_groups:
+        - ['2.5.1']
         - ['2.6']
         - ['2.7', '2.10']
         - ['2.8']

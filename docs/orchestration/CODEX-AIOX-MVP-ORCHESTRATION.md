@@ -9,7 +9,7 @@
 ## Resumo executivo
 
 - 9 ondas contando a baseline.
-- 82 Stories restantes programadas, sem duplicidade.
+- 83 Stories restantes programadas, sem duplicidade.
 - 25 Stories funcionais já absorvidas como concluídas no plano do piloto.
 - 5 Stories `LATER` excluídas da execução atual.
 - 2 Stories `REMOVED` preservadas apenas para rastreabilidade.
@@ -122,12 +122,13 @@ ações exigem autorização separada.
 
 ### Onda 1 — Cliente autenticado
 
-**Escopo:** 2.6, 2.7, 2.8, 2.9 e 2.10.
+**Escopo:** 2.5.1, 2.6, 2.7, 2.8, 2.9 e 2.10.
 
-- 1A: 2.6 login real e sessão.
-- 1B: 2.7 recuperação e 2.10 suporte, em paralelo se os arquivos não colidirem.
-- 1C: 2.8 perfil real.
-- 1D: 2.9 configurações simples incorporadas ao perfil.
+- 1A: 2.5.1 bootstrap do cliente Supabase e persistência de sessão.
+- 1B: 2.6 login real e sessão, após 2.5.1.
+- 1C: 2.7 recuperação e 2.10 suporte, em paralelo se os arquivos não colidirem.
+- 1D: 2.8 perfil real.
+- 1E: 2.9 configurações simples incorporadas ao perfil.
 
 **Gate:** cadastro, logout, login, re-login, recuperação, perfil e suporte
 funcionam em device/browser aplicável; `pnpm qa` verde.
