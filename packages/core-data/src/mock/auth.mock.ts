@@ -12,13 +12,13 @@ export function createAuthMock(db: MockDb): AuthPort {
             id: generateMockId('cliente'),
             nome: input.nome,
             telefone: input.telefone,
-            telefone_confirmado: false,
             cpf: null,
             bloqueado: false,
             motivo_bloqueio: null,
             criado_em: new Date().toISOString(),
           };
           db.clientes.push(cliente);
+          db.clienteCredenciais.push({ clienteId: cliente.id, email: input.email });
           db.sessionClienteId = cliente.id;
           return cliente;
         },
@@ -27,12 +27,13 @@ export function createAuthMock(db: MockDb): AuthPort {
       );
     },
 
-    signIn(telefone: string, options?: AsyncCallOptions): Promise<Cliente> {
+    signIn(email: string, _senha: string, options?: AsyncCallOptions): Promise<Cliente> {
       return simulateAsync(
         () => {
-          const cliente = db.clientes.find((c) => c.telefone === telefone);
+          const credencial = db.clienteCredenciais.find((c) => c.email === email);
+          const cliente = credencial ? db.clientes.find((c) => c.id === credencial.clienteId) : undefined;
           if (!cliente) {
-            throw new Error(`[mock] Cliente não encontrado para telefone ${telefone}`);
+            throw new Error(`[mock] Cliente não encontrado para e-mail ${email}`);
           }
           if (cliente.bloqueado) {
             throw new Error(`[mock] Cliente bloqueado: ${cliente.motivo_bloqueio ?? 'sem motivo informado'}`);
@@ -73,11 +74,14 @@ export function createAuthMock(db: MockDb): AuthPort {
           if (!/^\d{4}$/.test(codigo)) {
             throw new Error('[mock] Código de confirmação inválido — esperado 4 dígitos');
           }
-          cliente.telefone_confirmado = true;
+          // Story 2.3: `telefone_confirmado` não existe mais em `Cliente`
+          // (decisão 10.4, telefone não é verificado no MVP) — este método
+          // segue existente só por contrato (`ConfirmacaoSMS.tsx` é stub
+          // inativo, fora do fluxo desde a decisão 10.4; não reativado).
           const confirmacao: ClienteConfirmacaoTelefone = {
             id: generateMockId('confirmacao'),
             cliente_id: clienteId,
-            telefone: cliente.telefone,
+            telefone: cliente.telefone ?? '',
             tentativas: 1,
             expira_em: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
             consumido_em: new Date().toISOString(),

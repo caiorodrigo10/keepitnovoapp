@@ -185,7 +185,8 @@ export function createAdminMock(db: MockDb): AdminPort {
             return db.clientes;
           }
           return db.clientes.filter(
-            (c) => c.nome.toLowerCase().includes(busca) || c.telefone.includes(busca),
+            // Story 2.3: `telefone` ficou nullable no schema físico (decisão 10.4).
+            (c) => c.nome.toLowerCase().includes(busca) || (c.telefone?.includes(busca) ?? false),
           );
         },
         [],

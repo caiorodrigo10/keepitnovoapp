@@ -13,25 +13,29 @@ describe('auth.mock (contract)', () => {
     port = createAuthMock(db);
   });
 
-  it('signUp resolves with the shape of Cliente', async () => {
-    const cliente = await port.signUp({ nome: 'Novo Cliente', telefone: '+5511900000000' }, { delayMs: 1 });
+  it('signUp resolves with the shape of Cliente (Story 2.3 — sem telefone_confirmado, sem email)', async () => {
+    const cliente = await port.signUp(
+      { nome: 'Novo Cliente', email: 'novo.cliente@example.com', senha: 'senha1234', telefone: '+5511900000000' },
+      { delayMs: 1 },
+    );
     expect(cliente).toMatchObject({
       nome: 'Novo Cliente',
       telefone: '+5511900000000',
-      telefone_confirmado: false,
       bloqueado: false,
     });
+    expect(cliente).not.toHaveProperty('telefone_confirmado');
+    expect(cliente).not.toHaveProperty('email');
     expect(typeof cliente.id).toBe('string');
   });
 
-  it('signIn finds a seeded fixture by telefone', async () => {
-    const cliente = await port.signIn('+5511987654321', { delayMs: 1 });
+  it('signIn finds a seeded fixture by email (Story 2.3 — decisão 10.4)', async () => {
+    const cliente = await port.signIn('ana.souza@example.com', 'senha-qualquer', { delayMs: 1 });
     expect(cliente.nome).toBe('Ana Souza');
   });
 
   it('currentUser reflects the mock session after signIn/signOut', async () => {
     expect(await port.currentUser({ delayMs: 1 })).toBeNull();
-    await port.signIn('+5511987654321', { delayMs: 1 });
+    await port.signIn('ana.souza@example.com', 'senha-qualquer', { delayMs: 1 });
     expect((await port.currentUser({ delayMs: 1 }))?.nome).toBe('Ana Souza');
     await port.signOut({ delayMs: 1 });
     expect(await port.currentUser({ delayMs: 1 })).toBeNull();

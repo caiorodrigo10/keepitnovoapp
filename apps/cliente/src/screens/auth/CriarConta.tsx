@@ -1,13 +1,13 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import type { NativeStackScreenProps, NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-import { getDataClient } from '@keepit/core-data';
+import { EmailJaExisteError, getDataClient } from '@keepit/core-data';
 import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 
 import { Button, Checkbox, Screen, TextField } from '../../components/ui';
 import { isTelefoneBRValido, maskTelefoneBR } from '../../lib/telefoneMask';
-import type { AuthStackParamList } from '../../navigation/types';
+import type { AuthStackParamList, RootStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'CriarConta'>;
 
@@ -18,6 +18,15 @@ interface FormErrors {
   telefone?: string;
   termos?: string;
 }
+
+/**
+ * Story 2.3 (Task 7, issue REL-004): mensagem sem fonte no protótipo
+ * (frame 09 não modela este estado de erro) — texto novo em pt-BR claro,
+ * não é regra de negócio (avaliado pelo @po contra o `CLAUDE.md`).
+ */
+const MSG_EMAIL_JA_CADASTRADO = 'Este e-mail já está cadastrado.';
+/** Mesma natureza da acima: texto novo, sem fonte no protótipo. */
+const MSG_ERRO_GENERICO = 'Não foi possível criar sua conta agora. Tente novamente em instantes.';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -37,12 +46,23 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * (`docs/PERGUNTAS_REGRAS_NEGOCIO.md`); enquanto não houver decisão, a UI
  * não renderiza esses botões — ver Dev Agent Record.
  *
- * Sem submit real: `auth.port.signUp` do mock só aceita `{ nome, telefone }`
- * (Story 0.2 não modela e-mail/senha no `Cliente`) — chamado apenas para
- * exercitar o estado de loading do botão. A navegação pós-submit para a tela
- * de confirmação de número (Story 2.5, fora do MVP pela decisão 10.4) foi
- * removida (Story 2.2); o destino de sucesso real é implementado na Story
- * 2.3.
+ * Story 2.3: submit real via `auth.port.signUp` (Supabase Auth por
+ * e-mail/senha, decisão 10.4). Em caso de sucesso, navega direto para a
+ * home do cliente (AC5) — sem etapa de confirmação de telefone/e-mail,
+ * respaldado pela decisão técnica 10.5 (`Confirm email` OFF).
+ *
+ * **Sessão pode vir nula.** `Confirm email` continua **ON** no `keepit-dev`
+ * até o Caio aplicar a Task 4 (@data-engineer) manualmente — enquanto isso,
+ * `client.auth.signUp` completa sem lançar erro, mas sem `session`/
+ * `access_token` (Supabase não autentica até o e-mail ser confirmado). Este
+ * componente **não finge que a sessão existe**: a navegação abaixo funciona
+ * hoje porque `RootNavigator` decide `Auth` vs. `Main` via `isAuthenticated()`
+ * (stub do Épico 0, `AUTH_GUARD_ENABLED = false` — sempre deixa passar, não
+ * lê sessão real). No dia em que a Story 2.6 trocar esse guard por uma
+ * checagem de sessão de verdade, esta tela vai precisar tratar
+ * explicitamente o caso "criei a conta mas não tenho sessão ainda" (bloqueado
+ * por 10.5 continuar sem fechamento de negócio) — não é resolvido aqui, é
+ * reconhecido.
  */
 export default function CriarConta({ navigation }: Props) {
   const [nome, setNome] = useState('');
@@ -52,6 +72,14 @@ export default function CriarConta({ navigation }: Props) {
   const [aceiteTermos, setAceiteTermos] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
   const [loading, setLoading] = useState(false);
+  /**
+   * Story 2.3 (Task 7): estado de erro de submit dedicado, separado de
+   * `FormErrors` (validação de campo) — decisão do @dev: `FormErrors` mapeia
+   * 1 erro por campo do form; o erro de `signUp` (ex.: e-mail duplicado) não
+   * é erro de um campo específico, é erro da operação inteira, então vai num
+   * banner próprio, não em `errors.email`.
+   */
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   function validate(): boolean {
     const nextErrors: FormErrors = {};
@@ -69,17 +97,30 @@ export default function CriarConta({ navigation }: Props) {
   async function handleCriarConta() {
     if (!validate()) return;
 
+    setSubmitError(null);
     setLoading(true);
     try {
       const client = getDataClient();
-      await client.auth.signUp({ nome: nome.trim(), telefone: telefone.trim() });
-      // TODO(Story 2.3): navegar para a home após signUp real via Supabase Auth
-      // (destino depende da decisão 10.5). A navegação de sucesso deve entrar
-      // AQUI, dentro do try, logo após o await signUp(...) — nunca no finally,
-      // que roda também em caso de erro.
+      await client.auth.signUp({
+        nome: nome.trim(),
+        email: email.trim(),
+        senha,
+        telefone: telefone.trim() || null,
+      });
+      // Navegação de sucesso (AC5) — DENTRO do try, logo após o await
+      // signUp(...), nunca no finally (reabriria REL-003, fechado na 2.2.1).
+      navigation
+        .getParent<NativeStackNavigationProp<RootStackParamList>>()
+        ?.navigate('Main', { screen: 'HomeTab', params: { screen: 'Home' } });
     } catch (error) {
-      // TODO(Story 2.3): tratar erro de signUp real (ex.: e-mail duplicado) e
-      // exibir mensagem ao usuário; ver AC de erro da Story 2.3.
+      // AC4 — distingue e-mail já cadastrado (mensagem específica) de
+      // qualquer outro erro (mensagem genérica). Ver `EmailJaExisteError`
+      // em `packages/core-data/src/supabase/auth-errors.ts`.
+      if (error instanceof EmailJaExisteError) {
+        setSubmitError(MSG_EMAIL_JA_CADASTRADO);
+      } else {
+        setSubmitError(MSG_ERRO_GENERICO);
+      }
     } finally {
       setLoading(false);
     }
@@ -90,6 +131,8 @@ export default function CriarConta({ navigation }: Props) {
       <Text style={styles.brand}>KEEPIT</Text>
       <Text style={styles.title}>Criar conta</Text>
       <Text style={styles.subtitle}>Compre em minutos no hub mais perto de você.</Text>
+
+      {!!submitError && <Text style={styles.submitError}>{submitError}</Text>}
 
       <TextField
         label="Nome completo"
@@ -166,6 +209,12 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.md.fontSize,
     color: lightColors.text.secondary,
     marginBottom: spacing['6'],
+  },
+  submitError: {
+    marginBottom: spacing['4'],
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.accent.warning,
   },
   checkboxBlock: {
     marginBottom: spacing['6'],

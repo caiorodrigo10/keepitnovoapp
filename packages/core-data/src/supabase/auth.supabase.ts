@@ -4,15 +4,17 @@ import { createClient } from '@keepit/supabase-client';
 
 import type { AuthPort, Cliente, ClienteConfirmacaoTelefone, SignUpInput } from '../ports/auth.port';
 import type { AsyncCallOptions } from '../types';
+import { EmailJaExisteError } from './auth-errors';
 import { NotImplementedError } from './not-implemented-error';
 
 const PORT = 'auth';
 const EPIC = 'Épico 2';
 
 /**
- * Esqueleto Supabase de `AuthPort` (Story 1.9). Cadastro/login do Cliente
- * (telefone + confirmação SMS) entra no Épico 2 — nenhum método aqui faz
- * chamada de rede ainda.
+ * Esqueleto Supabase de `AuthPort` (Story 1.9). `signUp` implementado na
+ * Story 2.3 (Task 6) — os demais métodos (login por e-mail/senha,
+ * `currentUser`, `signOut`, `getById`, `updateCpf`) continuam sem chamada
+ * de rede, escopo das Stories 2.6+.
  *
  * `client` é opcional — se omitido, instancia um `createClient()` novo
  * (anon key, respeita RLS) por chamada de `createAuthSupabase`, nunca um
@@ -20,18 +22,71 @@ const EPIC = 'Épico 2';
  */
 export function createAuthSupabase(client?: SupabaseClient<Database>): AuthPort {
   // Lazy: só instancia um `SupabaseClient` de verdade se algum método
-  // precisar (nenhum stub abaixo precisa hoje). Evita exigir
-  // `SUPABASE_URL`/`SUPABASE_ANON_KEY` em ambientes (ex.: CI de
-  // typecheck/test) que só verificam o contrato do esqueleto.
+  // precisar. Evita exigir `SUPABASE_URL`/`SUPABASE_ANON_KEY` em ambientes
+  // (ex.: CI de typecheck/test) que só verificam o contrato do esqueleto
+  // para os métodos ainda não implementados.
   const resolveClient = (): SupabaseClient<Database> => client ?? createClient();
-  void resolveClient;
 
   return {
-    async signUp(_input: SignUpInput, _options?: AsyncCallOptions): Promise<Cliente> {
-      throw new NotImplementedError(PORT, 'signUp', EPIC);
+    /**
+     * Story 2.3 (Task 6, AC1/AC3/AC4/AC5). Chaves de `options.data`
+     * (`nome`/`telefone`) seguem literalmente o "Contrato normativo de
+     * `raw_user_meta_data`" fixado nas Dev Notes da Story 2.3 — a função
+     * `criar_cliente_apos_signup()` (trigger, Task 3 do @data-engineer) lê
+     * exatamente essas chaves. `Cliente` retornado é construído a partir do
+     * que já se sabe (input + `data.user.id`), sem `SELECT` adicional em
+     * `clientes`: com `Confirm email` ainda ON no `keepit-dev` (ver Task 4,
+     * pendente — Caio aplica manualmente), `signUp` não retorna sessão
+     * (`session: null`), e sem sessão a RLS (`cliente_le_proprio`, `USING
+     * (id = auth.uid())`) bloquearia um `SELECT` com a anon key mesmo tendo
+     * acabado de criar a linha via trigger. Ler de volta exigiria
+     * `service_role` (não disponível/apropriado aqui) — por isso o retorno é
+     * montado localmente; é honesto porque espelha exatamente o que o
+     * trigger grava (mesmo `nome`/`telefone` enviados, `cpf: null`,
+     * `bloqueado`/`motivo_bloqueio` ausentes por não fazerem parte da
+     * migration desta story).
+     */
+    async signUp(input: SignUpInput, _options?: AsyncCallOptions): Promise<Cliente> {
+      const supabase = resolveClient();
+      const nome = input.nome.trim();
+      const telefone = input.telefone?.trim() || null;
+
+      const { data, error } = await supabase.auth.signUp({
+        email: input.email,
+        password: input.senha,
+        options: {
+          data: {
+            nome,
+            telefone,
+          },
+        },
+      });
+
+      if (error) {
+        if (error.code === 'user_already_exists' || error.code === 'email_exists') {
+          throw new EmailJaExisteError(input.email);
+        }
+        throw error;
+      }
+
+      // Obfuscação intencional do Supabase Auth (ver `auth-errors.ts`):
+      // e-mail já cadastrado + `Confirm email` ON retorna `error: null` mas
+      // `identities: []`.
+      if (!data.user || data.user.identities?.length === 0) {
+        throw new EmailJaExisteError(input.email);
+      }
+
+      const cliente: Cliente = {
+        id: data.user.id,
+        nome,
+        telefone,
+        cpf: null,
+        criado_em: data.user.created_at ?? new Date().toISOString(),
+      };
+      return cliente;
     },
 
-    async signIn(_telefone: string, _options?: AsyncCallOptions): Promise<Cliente> {
+    async signIn(_email: string, _senha: string, _options?: AsyncCallOptions): Promise<Cliente> {
       throw new NotImplementedError(PORT, 'signIn', EPIC);
     },
 

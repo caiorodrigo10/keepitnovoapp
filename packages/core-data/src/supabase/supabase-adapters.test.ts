@@ -24,10 +24,9 @@ async function expectNotImplemented(fn: (...args: any[]) => Promise<unknown>, ar
 }
 
 describe('supabase adapters (esqueleto — Story 1.9)', () => {
-  it('auth.supabase.ts — todo método rejeita com NotImplementedError', async () => {
+  it('auth.supabase.ts — todo método (exceto signUp, implementado na Story 2.3) rejeita com NotImplementedError', async () => {
     const port = createAuthSupabase();
-    await expectNotImplemented(port.signUp.bind(port), 1);
-    await expectNotImplemented(port.signIn.bind(port), 1);
+    await expectNotImplemented(port.signIn.bind(port), 2);
     await expectNotImplemented(port.currentUser.bind(port), 0);
     await expectNotImplemented(port.signOut.bind(port), 0);
     await expectNotImplemented(port.confirmPhone.bind(port), 2);

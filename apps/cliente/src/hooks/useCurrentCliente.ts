@@ -12,8 +12,17 @@ import { useAsyncResource, type AsyncResourceState } from '@keepit/core-data/hoo
  * `auth.signIn` com a fixture única em vez de inventar um cliente novo
  * (reason: reaproveita o único registro já existente no mock — Story 0.2 —
  * sem introduzir dado que não veio da port).
+ *
+ * [AUTO-DECISION] Story 2.3 (compile-fix fora do File List original da
+ * story, forçado pela mudança mandatória de assinatura de `signIn` na Task
+ * 5) → troquei `DEMO_TELEFONE` por `DEMO_EMAIL`/`DEMO_SENHA`, casados com
+ * `clientesCredenciaisFixture` (`packages/core-data/src/mock/fixtures/clientes.ts`)
+ * (reason: `signIn` passou a buscar por e-mail, não telefone — decisão
+ * 10.4; sem este ajuste `apps/cliente` não compila. `DEMO_SENHA` é
+ * ignorada pelo mock, que não valida senha).
  */
-const DEMO_TELEFONE = '+5511987654321';
+const DEMO_EMAIL = 'ana.souza@example.com';
+const DEMO_SENHA = 'demo-mock-senha';
 
 /**
  * [IDS] CREATE — não existe hook `useAuth`/`useCurrentCliente` em
@@ -34,7 +43,7 @@ export function useCurrentCliente(): AsyncResourceState<Cliente | null> {
       if (current) {
         return current;
       }
-      return client.auth.signIn(DEMO_TELEFONE);
+      return client.auth.signIn(DEMO_EMAIL, DEMO_SENHA);
     },
     null,
     [],

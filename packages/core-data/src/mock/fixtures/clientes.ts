@@ -10,7 +10,6 @@ export const clientesFixture: Cliente[] = [
     id: 'cliente-ana',
     nome: 'Ana Souza',
     telefone: '+5511987654321',
-    telefone_confirmado: true,
     cpf: null,
     bloqueado: false,
     motivo_bloqueio: null,
@@ -23,7 +22,6 @@ export const clientesFixture: Cliente[] = [
     id: 'lj-cliente-thiago',
     nome: 'Thiago F.',
     telefone: '+5511911111111',
-    telefone_confirmado: true,
     cpf: null,
     bloqueado: false,
     motivo_bloqueio: null,
@@ -33,7 +31,6 @@ export const clientesFixture: Cliente[] = [
     id: 'lj-cliente-marina',
     nome: 'Marina S.',
     telefone: '+5511922222222',
-    telefone_confirmado: true,
     cpf: null,
     bloqueado: false,
     motivo_bloqueio: null,
@@ -43,7 +40,6 @@ export const clientesFixture: Cliente[] = [
     id: 'lj-cliente-rafael',
     nome: 'Rafael T.',
     telefone: '+5511933333333',
-    telefone_confirmado: true,
     cpf: null,
     bloqueado: false,
     motivo_bloqueio: null,
@@ -53,7 +49,6 @@ export const clientesFixture: Cliente[] = [
     id: 'lj-cliente-bruno',
     nome: 'Bruno L.',
     telefone: '+5511944444444',
-    telefone_confirmado: true,
     cpf: null,
     bloqueado: false,
     motivo_bloqueio: null,
@@ -63,7 +58,6 @@ export const clientesFixture: Cliente[] = [
     id: 'lj-cliente-julia',
     nome: 'Júlia P.',
     telefone: '+5511955555555',
-    telefone_confirmado: true,
     cpf: null,
     bloqueado: false,
     motivo_bloqueio: null,
@@ -73,7 +67,6 @@ export const clientesFixture: Cliente[] = [
     id: 'lj-cliente-carla',
     nome: 'Carla M.',
     telefone: '+5511966666666',
-    telefone_confirmado: true,
     cpf: null,
     bloqueado: false,
     motivo_bloqueio: null,
@@ -86,7 +79,6 @@ export const clientesFixture: Cliente[] = [
     id: 'cliente-bruno',
     nome: 'Bruno Lima',
     telefone: '+5511976543210',
-    telefone_confirmado: true,
     cpf: null,
     bloqueado: true,
     motivo_bloqueio: 'Reincidência em não retirar pedidos (2 pedidos marcados nao_retirado_cliente).',
@@ -96,7 +88,6 @@ export const clientesFixture: Cliente[] = [
     id: 'cliente-carla',
     nome: 'Carla Mendes',
     telefone: '+5511965432109',
-    telefone_confirmado: true,
     cpf: null,
     bloqueado: false,
     motivo_bloqueio: null,
@@ -106,10 +97,24 @@ export const clientesFixture: Cliente[] = [
     id: 'cliente-diego',
     nome: 'Diego Alves',
     telefone: '+5511954321098',
-    telefone_confirmado: true,
     cpf: null,
     bloqueado: false,
     motivo_bloqueio: null,
     criado_em: '2026-06-20T18:45:00.000Z',
   },
+];
+
+/**
+ * Story 2.3 (Task 5) — [AUTO-DECISION] credenciais mock-only, fora do tipo
+ * `Cliente` → (reason: `Cliente` não tem `email`, decisão do @po nesta
+ * story — `email` é propriedade da sessão de auth, não do perfil. O mock de
+ * `signIn` (decisão 10.4: auth por e-mail/senha) precisa de alguma forma de
+ * localizar o cliente por e-mail sem violar isso; esta lista faz só esse
+ * papel de índice interno do mock, nunca é exposta via `AuthPort`). Usada
+ * por `auth.mock.ts#signIn` e por `useCurrentCliente` (apps/cliente) para
+ * manter a mesma sessão demo que existia antes desta story (fixture
+ * `cliente-ana`).
+ */
+export const clientesCredenciaisFixture: { clienteId: string; email: string }[] = [
+  { clienteId: 'cliente-ana', email: 'ana.souza@example.com' },
 ];

@@ -134,3 +134,5 @@ export * from './ports/product.port';
 export * from './ports/store.port';
 export * from './ports/wallet.port';
 export * from './types';
+/** Story 2.3 (Task 6/7) — `EmailJaExisteError`, consumido por `CriarConta.tsx` (AC4). */
+export * from './supabase/auth-errors';

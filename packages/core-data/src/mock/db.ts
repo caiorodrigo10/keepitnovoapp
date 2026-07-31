@@ -6,6 +6,7 @@ import type { Pedido } from '../ports/order.port';
 import type { Saque } from '../ports/wallet.port';
 import type { EstabelecimentoFalha, ReembolsoPendente } from '../ports/admin.port';
 import {
+  clientesCredenciaisFixture,
   clientesFixture,
   estabelecimentosFalhasFixture,
   estabelecimentosFixture,
@@ -36,6 +37,12 @@ export interface MockDb {
   falhas: EstabelecimentoFalha[];
   /** Sessão de auth mock atual (id do cliente logado, ou `null`). */
   sessionClienteId: string | null;
+  /**
+   * Story 2.3 (Task 5) — índice mock-only e-mail → cliente, usado só por
+   * `auth.mock.ts#signIn`/`signUp`. Não faz parte de nenhuma port
+   * (`Cliente` não tem `email`) — ver `clientesCredenciaisFixture`.
+   */
+  clienteCredenciais: { clienteId: string; email: string }[];
 }
 
 export function createMockDb(): MockDb {
@@ -54,6 +61,7 @@ export function createMockDb(): MockDb {
     reembolsos: structuredClone(reembolsosFixture),
     falhas: structuredClone(estabelecimentosFalhasFixture),
     sessionClienteId: null,
+    clienteCredenciais: structuredClone(clientesCredenciaisFixture),
   };
 }
 
