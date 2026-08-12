@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { StorePort } from '../ports/store.port';
 import { createMockDb, type MockDb } from './db';
-import { createStoreMock, deriveLojaEstado } from './store.mock';
+import { createStoreMock } from './store.mock';
 
 describe('store.mock (contract)', () => {
   let db: MockDb;
@@ -115,45 +115,7 @@ describe('store.mock (contract)', () => {
   });
 });
 
-describe('deriveLojaEstado', () => {
-  const baseLoja = {
-    id: 'x',
-    nome_fantasia: 'x',
-    categoria: 'x',
-    descricao: null,
-    foto_fachada_url: null,
-    endereco: 'x',
-    lat: 0,
-    lng: 0,
-    raio_atendimento_km: 1,
-    tempo_medio_entrega_min: 10,
-    taxa_deslocamento_reais: 0,
-    ticket_minimo_reais: null,
-    status: 'ativo' as const,
-    motivo_rejeicao: null,
-    motivo_suspensao: null,
-    pausado_manualmente: false,
-    horarios: [{ dia_semana: 3, aberto: true, hora_abre: '09:00', hora_fecha: '18:00' }],
-  };
-
-  it('returns "pausada" when pausado_manualmente = true, even inside horário', () => {
-    const wednesdayNoon = new Date('2026-07-29T12:00:00'); // wednesday
-    const estado = deriveLojaEstado({ ...baseLoja, pausado_manualmente: true }, wednesdayNoon);
-    expect(estado).toBe('pausada');
-  });
-
-  it('returns "aberta" within the configured horário', () => {
-    const wednesdayNoon = new Date('2026-07-29T12:00:00');
-    expect(deriveLojaEstado(baseLoja, wednesdayNoon)).toBe('aberta');
-  });
-
-  it('returns "fechada" outside the configured horário', () => {
-    const wednesdayNight = new Date('2026-07-29T22:00:00');
-    expect(deriveLojaEstado(baseLoja, wednesdayNight)).toBe('fechada');
-  });
-
-  it('returns "fechada" on a day without a horário entry', () => {
-    const thursdayNoon = new Date('2026-07-30T12:00:00'); // no horário seeded for this day
-    expect(deriveLojaEstado(baseLoja, thursdayNoon)).toBe('fechada');
-  });
-});
+// `deriveLojaEstado` foi relocada para `store.port.ts` (Story 5.3, AC4,
+// `[IDS] ADAPT`, fonte única mock/Supabase) — testes movidos para
+// `store.port.test.ts` junto de `validarHorariosSemanais` (mesmo padrão de
+// função pura compartilhada testada isoladamente de seus consumidores).

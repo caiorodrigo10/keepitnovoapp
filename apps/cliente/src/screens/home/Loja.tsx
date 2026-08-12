@@ -18,7 +18,8 @@ import { Screen } from '../../components/ui';
 import { useCatalogo } from '../../hooks/useCatalogo';
 import { useLojaEstado } from '../../hooks/useLojaEstado';
 import { useStoreDetail } from '../../hooks/useStoreDetail';
-import { getRatingPlaceholder } from '../../lib/discoveryDisplay';
+import { formatReais } from '../../lib/format';
+import { getRatingPlaceholder, resolveTicketMinimoReais } from '../../lib/discoveryDisplay';
 import type { HomeStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Loja'>;
@@ -38,6 +39,14 @@ const CATEGORIA_PRODUTO_LABEL: Record<string, string> = {
  * categoria de produto, lista de produtos, footer "Ver carrinho" (stub —
  * carrinho é Story 0.6). Os 3 estados de loja (AC1) desabilitam o catálogo
  * com overlay quando `fechada`/`pausada`.
+ *
+ * **Story 5.4 (AC4, AC5):** "Pedido mínimo: R$ X" (`resolveTicketMinimoReais`,
+ * COALESCE com `businessConfig.ticketMinimoReais` quando a loja não define o
+ * próprio) e a taxa de deslocamento (`Estabelecimento.taxa_deslocamento_reais`,
+ * já real) — dado já presente no domínio, sem porta/adapter novo. AC3 (botão
+ * "Falar com o lojista"/WhatsApp) permanece FORA — requer expor `telefone`
+ * publicamente, decisão de privacidade pendente (`docs/PERGUNTAS_REGRAS_NEGOCIO.md
+ * §4.5`).
  */
 export default function Loja({ route, navigation }: Props) {
   const { estabelecimentoId } = route.params;
@@ -91,6 +100,11 @@ export default function Loja({ route, navigation }: Props) {
               </View>
               <RatingLabel value={getRatingPlaceholder(loja.id)} />
             </View>
+          </View>
+
+          <View style={styles.infoRow}>
+            <Text style={styles.infoRowText}>Pedido mínimo: {formatReais(resolveTicketMinimoReais(loja))}</Text>
+            <Text style={styles.infoRowText}>Taxa de deslocamento: {formatReais(loja.taxa_deslocamento_reais)}</Text>
           </View>
 
           {catalogoDesabilitado && (
@@ -186,6 +200,17 @@ const styles = StyleSheet.create({
     color: lightColors.text.secondary,
     marginTop: 2,
     textTransform: 'capitalize',
+  },
+  infoRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing['3'],
+    marginBottom: spacing['4'],
+  },
+  infoRowText: {
+    fontFamily: 'HankenGrotesk-Medium',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.text.secondary,
   },
   avisoFechada: {
     backgroundColor: lightColors.bg.surface,

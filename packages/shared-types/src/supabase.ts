@@ -85,6 +85,20 @@
 // adapters desta Story (`product.supabase.ts`) não fazem embed tipado do
 // PostgREST com `estabelecimentos`.
 //
+// Bloco 04 / Story 5.2 (2026-08-12) — reconciliação manual adicional: a
+// tabela de junção `estabelecimentos_hubs` foi aplicada ao `keepit-dev` pela
+// migration
+// `apps/supabase/supabase/migrations/20260812213002_criar_estabelecimentos_hubs.sql`
+// (@data-engineer), mesma limitação de ambiente (sem `SUPABASE_ACCESS_TOKEN`
+// para `supabase gen types`). A entrada `estabelecimentos_hubs` abaixo
+// espelha EXATAMENTE o DDL da migration (PK composta
+// `(estabelecimento_id, hub_id)`, sem `id` próprio, só `criado_em` de
+// auditoria). `Relationships: []` — `store.supabase.ts#listByHub` (Story
+// 5.2) faz 2 queries separadas (`estabelecimentos_hubs` filtrado por
+// `hub_id`, depois `estabelecimentos` por `.in('id', ...)`), sem embed
+// tipado do PostgREST, mesmo padrão já usado pelas demais tabelas deste
+// arquivo.
+//
 // Regenerar via `supabase gen types typescript --project-id
 // jhhbewnmnorhmsdvfppo` (com login) substitui todos os blocos manuais sem
 // alteração de forma esperada.
@@ -265,6 +279,25 @@ export type Database = {
           aberto?: boolean
           hora_abre?: string | null
           hora_fecha?: string | null
+        }
+        Relationships: []
+      }
+      // Bloco 04 / Story 5.2 — ver comentário de reconciliação manual no topo do arquivo.
+      estabelecimentos_hubs: {
+        Row: {
+          estabelecimento_id: string
+          hub_id: string
+          criado_em: string
+        }
+        Insert: {
+          estabelecimento_id: string
+          hub_id: string
+          criado_em?: string
+        }
+        Update: {
+          estabelecimento_id?: string
+          hub_id?: string
+          criado_em?: string
         }
         Relationships: []
       }

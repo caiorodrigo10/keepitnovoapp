@@ -205,6 +205,18 @@ Protótipo mostra "Promoções" no dashboard do lojista.
 
 → STAKEHOLDER. Recomendação Claude: **fora do MVP**.
 
+### 4.5 🟡 Telefone do lojista visível ao cliente (WhatsApp) — levantada na Story 5.4
+O texto literal do Épico 5 (Story 5.4 AC3) prevê um botão "Falar com o lojista"
+que abre o WhatsApp do lojista. Isso exige expor `estabelecimentos.telefone` no
+domínio público (cliente/anônimo). Hoje o tipo `Estabelecimento` e a projeção
+pública (`ESTABELECIMENTO_COLUMNS`) **não** selecionam o telefone.
+- O telefone do lojista deve ser **público** para o cliente (privacidade/spam)?
+- Se sim, telefone **direto** ou via **proxy/mascaramento**?
+- O botão WhatsApp entra no MVP piloto ou fica para depois?
+
+→ STAKEHOLDER (privacidade). Story 5.4 AC3 marcada como **fora de escopo/gap
+registrado** até esta decisão. Não presumido no Draft.
+
 ---
 
 ## 5. Cliente
@@ -234,6 +246,19 @@ Não achei tela de avaliação pós-compra no protótipo, mas há ★ em lojas.
 ### 5.4 🟢 Notificações
 - Push (iOS + Android) — assumo que sim, para status do pedido.
 - SMS ou WhatsApp para PIN de retirada como fallback? → STAKEHOLDER
+
+### 5.5 🟡 Esconder lojas fechadas da listagem do hub — levantada na Story 5.3
+O texto literal do Épico 5 (Story 5.3 AC2) recomenda "não mostrar lojas fechadas
+no MVP (default: só abertas)". Esse filtro **não existe em nenhuma camada hoje**
+(nem no mock, nem no real): a listagem do hub (Story 5.2) mostra TODAS as lojas
+ativas/não-pausadas, e o cliente vê o badge "Fechado". A Story 5.3 **não** adiciona
+esse filtro — mantém paridade com o comportamento já testado do mock.
+- Lojas fechadas (fora do horário) devem ser **escondidas** da lista do hub, ou
+  **exibidas com badge "Fechado"** (comportamento atual)?
+- Se escondidas, há um modo "ver fechadas também"?
+
+→ CAIO/STAKEHOLDER (UX/regra). Story 5.3 AC2 mantida como **paridade com o mock +
+pergunta registrada**, não presumida no Draft.
 
 ---
 

@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import { createAdminSupabase } from './admin.supabase';
 import { createAnalyticsSupabase } from './analytics.supabase';
 import { createAuthSupabase } from './auth.supabase';
-import { createHubSupabase } from './hub.supabase';
 import { NotImplementedError } from './not-implemented-error';
 import { createOrderSupabase } from './order.supabase';
 import { createStoreSupabase } from './store.supabase';
@@ -30,20 +29,16 @@ describe('supabase adapters (esqueleto — Story 1.9)', () => {
     await expectNotImplemented(port.updateCpf.bind(port), 2);
   });
 
-  it('hub.supabase.ts — todo método rejeita com NotImplementedError', async () => {
-    const port = createHubSupabase();
-    await expectNotImplemented(port.listNearby.bind(port), 0);
-    await expectNotImplemented(port.getById.bind(port), 1);
-  });
+  // hub.supabase.ts — `listNearby`/`getById` são implementações reais desde
+  // a Story 5.1, cobertas em `hub.supabase.test.ts`.
 
   // store.supabase.ts — `getById` (Stories 4.7/4.8), `setPausadoManualmente`
-  // (Story 4.8) e `updateHorarios` (Story 4.7) já são implementações reais,
-  // cobertas em `store.supabase.test.ts`.
-  it('store.supabase.ts — listByHub/getCatalog/getState (Descoberta, Épico 5) rejeitam com NotImplementedError', async () => {
+  // (Story 4.8), `updateHorarios` (Story 4.7), `listByHub` (Story 5.2) e
+  // `getState` (Story 5.3) já são implementações reais, cobertas em
+  // `store.supabase.test.ts`.
+  it('store.supabase.ts — getCatalog (método morto, sem consumidor real) rejeita com NotImplementedError', async () => {
     const port = createStoreSupabase();
-    await expectNotImplemented(port.listByHub.bind(port), 1);
     await expectNotImplemented(port.getCatalog.bind(port), 1);
-    await expectNotImplemented(port.getState.bind(port), 1);
   });
 
   // product.supabase.ts — esqueleto encerrado: `list`/`create`/`uploadFoto`
@@ -97,8 +92,8 @@ describe('supabase adapters (esqueleto — Story 1.9)', () => {
   });
 
   it('mensagem de erro identifica port + método + épico correto (amostra por arquivo)', async () => {
-    await expect(createHubSupabase().listNearby()).rejects.toThrow(
-      '[core-data/supabase] hub.listNearby — implementar no Épico 5',
+    await expect(createStoreSupabase().getCatalog(undefined as never)).rejects.toThrow(
+      '[core-data/supabase] store.getCatalog — implementar no Épico 5',
     );
     await expect(createOrderSupabase().create(undefined as never)).rejects.toThrow(
       '[core-data/supabase] order.create — implementar no Épico 6',

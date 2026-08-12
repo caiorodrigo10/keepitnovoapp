@@ -4,6 +4,7 @@ import { createClient } from '@keepit/supabase-client';
 
 import type { Produto } from '../ports/product.port';
 import {
+  deriveLojaEstado,
   validarHorariosSemanais,
   type Estabelecimento,
   type EstabelecimentoHorario,
@@ -70,6 +71,32 @@ async function fetchHorarios(
     .map((h) => ({ dia_semana: h.dia_semana, aberto: h.aberto, hora_abre: h.hora_abre, hora_fecha: h.hora_fecha }));
 }
 
+type EstabelecimentoHubRow = {
+  estabelecimento_id: string;
+};
+
+/**
+ * Story 5.2 (AC2, AC6) — ids de `estabelecimentos` associados a um `hub_id`
+ * via `estabelecimentos_hubs`, sob a RLS `publico_ve_estab_hubs` já aplicada
+ * (migration `20260812213002_criar_estabelecimentos_hubs.sql`, fail-closed:
+ * só expõe o par se hub ativo E loja ativa/não-pausada/não-excluída). Hub
+ * sem nenhuma linha na junção resolve `[]` honesto (AC6) — nunca lança, nunca
+ * simula.
+ */
+async function fetchEstabelecimentoIdsPorHub(
+  supabase: SupabaseClient<Database>,
+  hubId: string,
+): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('estabelecimentos_hubs')
+    .select('estabelecimento_id')
+    .eq('hub_id', hubId);
+  if (error) {
+    throw error;
+  }
+  return ((data ?? []) as unknown as EstabelecimentoHubRow[]).map((row) => row.estabelecimento_id);
+}
+
 /**
  * Stories 4.7/4.8 — [AUTO-DECISION] ver JSDoc de `StorePort.getById`
  * (`ports/store.port.ts`) para o racional completo de por que este método
@@ -85,24 +112,7 @@ async function fetchHorarios(
  * campos — o coalesce só existe para satisfazer o contrato de tipo do
  * `StorePort` existente, não é lido por `HorariosDisponibilidade.tsx`.
  */
-async function fetchEstabelecimentoPorId(
-  supabase: SupabaseClient<Database>,
-  id: string,
-): Promise<Estabelecimento | null> {
-  const { data, error } = await supabase
-    .from('estabelecimentos')
-    .select(ESTABELECIMENTO_COLUMNS)
-    .eq('id', id)
-    .maybeSingle();
-  if (error) {
-    throw error;
-  }
-  if (!data) {
-    return null;
-  }
-  const row = data as unknown as EstabelecimentoRow;
-  const horarios = await fetchHorarios(supabase, id);
-
+function mapRowToEstabelecimento(row: EstabelecimentoRow, horarios: EstabelecimentoHorario[]): Estabelecimento {
   return {
     id: row.id,
     nome_fantasia: row.nome_fantasia,
@@ -124,21 +134,94 @@ async function fetchEstabelecimentoPorId(
   };
 }
 
+async function fetchEstabelecimentoPorId(
+  supabase: SupabaseClient<Database>,
+  id: string,
+): Promise<Estabelecimento | null> {
+  const { data, error } = await supabase
+    .from('estabelecimentos')
+    .select(ESTABELECIMENTO_COLUMNS)
+    .eq('id', id)
+    .maybeSingle();
+  if (error) {
+    throw error;
+  }
+  if (!data) {
+    return null;
+  }
+  const row = data as unknown as EstabelecimentoRow;
+  const horarios = await fetchHorarios(supabase, id);
+
+  return mapRowToEstabelecimento(row, horarios);
+}
+
 /**
- * Esqueleto Supabase de `StorePort` (Story 1.9). Navegação de loja/catálogo
- * pelo Cliente (`listByHub`/`getCatalog`/`getState`) continua Descoberta
- * (Épico 5, stub); `getById` (Stories 4.7/4.8, escopo estreito — ver JSDoc de
- * `fetchEstabelecimentoPorId`), `setPausadoManualmente` (Story 4.8) e
- * `updateHorarios` (Story 4.7) são escrita/leitura reais do Lojista (Épico
- * 4).
+ * Story 5.2 (AC2, AC3, AC6) — `estabelecimentos` cujo `id` está no conjunto
+ * `ids` (ids já filtrados pela junção `estabelecimentos_hubs`, via
+ * `fetchEstabelecimentoIdsPorHub`), com o filtro explícito `status = 'ativo'
+ * AND pausado_manualmente = false AND excluido_em IS NULL` aplicado na
+ * própria query — defesa em profundidade redundante com a RLS
+ * `publico_ve_estab_hubs`/`publico_ve_ativos` (mesmo padrão de
+ * `product.supabase.ts#list`), não uma substituição dela. `ids` vazio resolve
+ * `[]` sem tocar a rede (AC6 — hub sem associação).
+ */
+async function fetchEstabelecimentosPorIds(
+  supabase: SupabaseClient<Database>,
+  ids: string[],
+): Promise<Estabelecimento[]> {
+  if (ids.length === 0) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from('estabelecimentos')
+    .select(ESTABELECIMENTO_COLUMNS)
+    .in('id', ids)
+    .eq('status', 'ativo')
+    .eq('pausado_manualmente', false)
+    .is('excluido_em', null);
+  if (error) {
+    throw error;
+  }
+
+  const rows = (data ?? []) as unknown as EstabelecimentoRow[];
+  return Promise.all(
+    rows.map(async (row) => mapRowToEstabelecimento(row, await fetchHorarios(supabase, row.id))),
+  );
+}
+
+/**
+ * Esqueleto Supabase de `StorePort` (Story 1.9). `getCatalog` continua stub
+ * `Épico 5` — método MORTO sem consumidor real na UI (`Loja.tsx` usa
+ * `ProductPort.list`, Story 5.4 Dependencies), não implementado por nenhuma
+ * Story até aqui. `getById` (Stories 4.7/4.8, escopo estreito — ver JSDoc de
+ * `fetchEstabelecimentoPorId`), `setPausadoManualmente` (Story 4.8),
+ * `updateHorarios` (Story 4.7), `listByHub` (Story 5.2) e `getState`
+ * (Story 5.3) são leitura/escrita reais.
  */
 export function createStoreSupabase(client?: SupabaseClient<Database>): StorePort {
   let cachedClient: SupabaseClient<Database> | null = client ?? null;
   const resolveClient = (): SupabaseClient<Database> => cachedClient ?? (cachedClient = createClient());
 
   return {
-    async listByHub(_hubId: string, _options?: AsyncCallOptions): Promise<Estabelecimento[]> {
-      throw new NotImplementedError(PORT, 'listByHub', EPIC_DESCOBERTA);
+    /**
+     * Story 5.2 (AC2, AC3, AC6) — RECORTE HONESTO (substitui a Edge Function
+     * `lojas-por-hub` com Haversine do texto literal do épico): junção
+     * explícita `estabelecimentos_hubs` × `estabelecimentos`, sob a RLS
+     * `publico_ve_estab_hubs` já aplicada (hub ativo E loja
+     * ativa/não-pausada/não-excluída) + filtro client-side redundante
+     * (defesa em profundidade). Sem `raio_atendimento_km`/Haversine.
+     *
+     * A POPULAÇÃO de `estabelecimentos_hubs` é a decisão de negócio BR-HUB
+     * (pendente do Caio) — esta Story NÃO popula, NÃO cria UI/RPC de
+     * vínculo. Enquanto a associação não existir para um hub, este método
+     * resolve `[]` de forma correta e verificável (AC6) — nunca lança, nunca
+     * simula lojas.
+     */
+    async listByHub(hubId: string, _options?: AsyncCallOptions): Promise<Estabelecimento[]> {
+      const supabase = resolveClient();
+      const ids = await fetchEstabelecimentoIdsPorHub(supabase, hubId);
+      return fetchEstabelecimentosPorIds(supabase, ids);
     },
 
     async getCatalog(_estabelecimentoId: string, _options?: AsyncCallOptions): Promise<Produto[]> {
@@ -150,8 +233,23 @@ export function createStoreSupabase(client?: SupabaseClient<Database>): StorePor
       return fetchEstabelecimentoPorId(resolveClient(), id);
     },
 
-    async getState(_id: string, _options?: AsyncCallOptions): Promise<LojaEstado> {
-      throw new NotImplementedError(PORT, 'getState', EPIC_DESCOBERTA);
+    /**
+     * Story 5.3 (AC1, AC3, AC4) — reaproveita `fetchEstabelecimentoPorId`
+     * (já existente, Stories 4.7/4.8, mesma releitura sob a RLS
+     * `publico_ve_ativos`/`publico_ve_horarios`) e aplica `deriveLojaEstado`
+     * (fonte única compartilhada com o mock, `[IDS] ADAPT`, `store.port.ts`)
+     * ao resultado. Estabelecimento inexistente ou bloqueado pela RLS lança
+     * (mesmo padrão de `getById` para o restante do domínio) — nunca simula
+     * um estado.
+     */
+    async getState(id: string, _options?: AsyncCallOptions): Promise<LojaEstado> {
+      const estabelecimento = await fetchEstabelecimentoPorId(resolveClient(), id);
+      if (!estabelecimento) {
+        throw new Error(
+          `[core-data/supabase] getState — Estabelecimento não encontrado ou RLS bloqueando: ${id}.`,
+        );
+      }
+      return deriveLojaEstado(estabelecimento);
     },
 
     /**

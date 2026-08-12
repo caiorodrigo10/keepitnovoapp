@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@keepit/shared-types';
 
@@ -47,6 +47,8 @@ function makeQueryBuilder(result: QueryResult) {
   const builder: Record<string, unknown> = {};
   builder.select = vi.fn(() => builder);
   builder.eq = vi.fn(() => builder);
+  builder.in = vi.fn(() => builder);
+  builder.is = vi.fn(() => builder);
   builder.update = vi.fn(() => builder);
   builder.upsert = vi.fn(async () => result);
   builder.maybeSingle = vi.fn(async () => result);
@@ -55,16 +57,27 @@ function makeQueryBuilder(result: QueryResult) {
   return builder;
 }
 
-function fakeClient(results: { estabelecimentos?: QueryResult; estabelecimentos_horarios?: QueryResult }): {
+function fakeClient(results: {
+  estabelecimentos?: QueryResult;
+  estabelecimentos_horarios?: QueryResult;
+  estabelecimentos_hubs?: QueryResult;
+}): {
   client: SupabaseClient<Database>;
   from: (table: string) => unknown;
-  builders: { estabelecimentos: Record<string, unknown>; estabelecimentos_horarios: Record<string, unknown> };
+  builders: {
+    estabelecimentos: Record<string, unknown>;
+    estabelecimentos_horarios: Record<string, unknown>;
+    estabelecimentos_hubs: Record<string, unknown>;
+  };
 } {
   const builders = {
     estabelecimentos: makeQueryBuilder(results.estabelecimentos ?? { data: null, error: null }),
     estabelecimentos_horarios: makeQueryBuilder(results.estabelecimentos_horarios ?? { data: [], error: null }),
+    estabelecimentos_hubs: makeQueryBuilder(results.estabelecimentos_hubs ?? { data: [], error: null }),
   };
-  const from = vi.fn((table: string) => builders[table as 'estabelecimentos' | 'estabelecimentos_horarios']);
+  const from = vi.fn(
+    (table: string) => builders[table as 'estabelecimentos' | 'estabelecimentos_horarios' | 'estabelecimentos_hubs'],
+  );
   const client = { from } as unknown as SupabaseClient<Database>;
   return { client, from, builders };
 }
@@ -122,6 +135,72 @@ describe('store.supabase.ts — getById (Stories 4.7/4.8, AUTO-DECISION escopo e
     const port = createStoreSupabase(client);
 
     await expect(port.getById('estab-1')).rejects.toThrow(/network error/);
+  });
+});
+
+/**
+ * Story 5.3 (AC1, AC3, AC4) — `getState` reaproveita `fetchEstabelecimentoPorId`
+ * (mesmo fixture/builder de `getById` acima) + `deriveLojaEstado` (fonte
+ * única compartilhada com o mock, `store.port.ts`). Casos de borda exata
+ * (hora_abre/hora_fecha) já cobertos isoladamente em `store.port.test.ts` —
+ * aqui o foco é a integração ponta-a-ponta do adapter (releitura real +
+ * derivação), com o relógio controlado por `vi.setSystemTime`.
+ */
+describe('store.supabase.ts — getState (Story 5.3, AC1, AC3, AC4)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const HORARIO_QUARTA = [{ dia_semana: 3, aberto: true, hora_abre: '09:00', hora_fecha: '18:00' }];
+
+  it('retorna "pausada" quando pausado_manualmente=true, mesmo dentro do horário (AC3)', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-29T12:00:00')); // quarta-feira, dentro do horário
+    const { client } = fakeClient({
+      estabelecimentos: { data: { ...ESTABELECIMENTO_ROW, pausado_manualmente: true }, error: null },
+      estabelecimentos_horarios: { data: HORARIO_QUARTA, error: null },
+    });
+    const port = createStoreSupabase(client);
+
+    await expect(port.getState('estab-1')).resolves.toBe('pausada');
+  });
+
+  it('retorna "aberta" dentro do horário do dia corrente (AC1, AC4)', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-29T12:00:00'));
+    const { client } = fakeClient({
+      estabelecimentos: { data: ESTABELECIMENTO_ROW, error: null },
+      estabelecimentos_horarios: { data: HORARIO_QUARTA, error: null },
+    });
+    const port = createStoreSupabase(client);
+
+    await expect(port.getState('estab-1')).resolves.toBe('aberta');
+  });
+
+  it('retorna "fechada" fora do horário do dia corrente (AC1, AC4)', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-29T22:00:00'));
+    const { client } = fakeClient({
+      estabelecimentos: { data: ESTABELECIMENTO_ROW, error: null },
+      estabelecimentos_horarios: { data: HORARIO_QUARTA, error: null },
+    });
+    const port = createStoreSupabase(client);
+
+    await expect(port.getState('estab-1')).resolves.toBe('fechada');
+  });
+
+  it('lança quando o estabelecimento não existe / RLS bloqueia — nunca simula um estado (AC1)', async () => {
+    const { client } = fakeClient({ estabelecimentos: { data: null, error: null } });
+    const port = createStoreSupabase(client);
+
+    await expect(port.getState('estab-inexistente')).rejects.toThrow(/não encontrado/);
+  });
+
+  it('propaga o erro do SDK sem sucesso fictício', async () => {
+    const { client } = fakeClient({ estabelecimentos: { data: null, error: new Error('network error') } });
+    const port = createStoreSupabase(client);
+
+    await expect(port.getState('estab-1')).rejects.toThrow(/network error/);
   });
 });
 
@@ -214,5 +293,99 @@ describe('store.supabase.ts — updateHorarios (Story 4.7, AC1, AC3)', () => {
     await expect(
       port.updateHorarios('estab-1', [{ dia_semana: 1, aberto: true, hora_abre: '08:00', hora_fecha: '18:00' }]),
     ).rejects.toMatchObject({ message: expect.stringMatching(/check constraint/) });
+  });
+});
+
+const ESTABELECIMENTO_ROW_2 = { ...ESTABELECIMENTO_ROW, id: 'estab-2', nome_fantasia: 'Mercadinho Bom Preço' };
+
+/**
+ * Story 5.2 (AC2, AC3, AC6) — RECORTE HONESTO: a LEITURA (junção
+ * `estabelecimentos_hubs` × `estabelecimentos`) é testável agora; a
+ * POPULAÇÃO da associação (BR-HUB, pendente do Caio) não é desta Story —
+ * ver `docs/stories/5.2.story.md` Dependencies.
+ */
+describe('store.supabase.ts — listByHub (Story 5.2, AC2, AC3, AC6)', () => {
+  it('hub com 2 lojas associadas retorna as 2, com horarios de cada uma', async () => {
+    const { client, builders } = fakeClient({
+      estabelecimentos_hubs: {
+        data: [{ estabelecimento_id: 'estab-1' }, { estabelecimento_id: 'estab-2' }],
+        error: null,
+      },
+      estabelecimentos: { data: [ESTABELECIMENTO_ROW, ESTABELECIMENTO_ROW_2], error: null },
+      estabelecimentos_horarios: { data: HORARIOS_ROWS, error: null },
+    });
+    const port = createStoreSupabase(client);
+
+    const lojas = await port.listByHub('hub-1');
+
+    expect(builders.estabelecimentos_hubs.eq).toHaveBeenCalledWith('hub_id', 'hub-1');
+    expect(builders.estabelecimentos.in).toHaveBeenCalledWith('id', ['estab-1', 'estab-2']);
+    expect(builders.estabelecimentos.eq).toHaveBeenCalledWith('status', 'ativo');
+    expect(builders.estabelecimentos.eq).toHaveBeenCalledWith('pausado_manualmente', false);
+    expect(builders.estabelecimentos.is).toHaveBeenCalledWith('excluido_em', null);
+    expect(lojas.map((l) => l.id)).toEqual(['estab-1', 'estab-2']);
+    expect(lojas[0].horarios).toEqual(HORARIOS_ROWS);
+  });
+
+  it('hub sem nenhuma associação em estabelecimentos_hubs resolve [] sem consultar estabelecimentos (AC6)', async () => {
+    const { client, from } = fakeClient({ estabelecimentos_hubs: { data: [], error: null } });
+    const port = createStoreSupabase(client);
+
+    const lojas = await port.listByHub('hub-sem-lojas');
+
+    expect(lojas).toEqual([]);
+    expect(from).not.toHaveBeenCalledWith('estabelecimentos');
+  });
+
+  it('loja pausada/inativa associada ao hub NÃO aparece (filtro client-side redundante com a RLS)', async () => {
+    const { client, builders } = fakeClient({
+      estabelecimentos_hubs: {
+        data: [{ estabelecimento_id: 'estab-1' }, { estabelecimento_id: 'estab-pausada' }],
+        error: null,
+      },
+      // Simula o Postgres já filtrando a loja pausada pela cláusula
+      // `pausado_manualmente = false` — só a loja elegível volta na linha.
+      estabelecimentos: { data: [ESTABELECIMENTO_ROW], error: null },
+    });
+    const port = createStoreSupabase(client);
+
+    const lojas = await port.listByHub('hub-1');
+
+    expect(builders.estabelecimentos.in).toHaveBeenCalledWith('id', ['estab-1', 'estab-pausada']);
+    expect(lojas.map((l) => l.id)).toEqual(['estab-1']);
+  });
+
+  it('loja de outro hub NÃO aparece — só ids retornados pela junção deste hub_id chegam ao SELECT em estabelecimentos', async () => {
+    const { client, builders } = fakeClient({
+      // A RLS/query já filtra por `hub_id = :hubId` — uma loja associada a
+      // OUTRO hub simplesmente não aparece na resposta da junção, então
+      // nunca entra no `.in('id', ...)` da query seguinte.
+      estabelecimentos_hubs: { data: [{ estabelecimento_id: 'estab-1' }], error: null },
+      estabelecimentos: { data: [ESTABELECIMENTO_ROW], error: null },
+    });
+    const port = createStoreSupabase(client);
+
+    const lojas = await port.listByHub('hub-1');
+
+    expect(builders.estabelecimentos.in).toHaveBeenCalledWith('id', ['estab-1']);
+    expect(builders.estabelecimentos.in).not.toHaveBeenCalledWith('id', expect.arrayContaining(['estab-de-outro-hub']));
+    expect(lojas.map((l) => l.id)).toEqual(['estab-1']);
+  });
+
+  it('propaga erro do SDK na leitura da junção sem sucesso fictício', async () => {
+    const { client } = fakeClient({ estabelecimentos_hubs: { data: null, error: new Error('network error') } });
+    const port = createStoreSupabase(client);
+
+    await expect(port.listByHub('hub-1')).rejects.toThrow(/network error/);
+  });
+
+  it('propaga erro do SDK na leitura de estabelecimentos sem sucesso fictício', async () => {
+    const { client } = fakeClient({
+      estabelecimentos_hubs: { data: [{ estabelecimento_id: 'estab-1' }], error: null },
+      estabelecimentos: { data: null, error: new Error('network error') },
+    });
+    const port = createStoreSupabase(client);
+
+    await expect(port.listByHub('hub-1')).rejects.toThrow(/network error/);
   });
 });

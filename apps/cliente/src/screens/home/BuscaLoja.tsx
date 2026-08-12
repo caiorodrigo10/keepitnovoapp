@@ -13,9 +13,10 @@ import {
   toAsyncCallOptions,
   type DevSimState,
 } from '../../components/discovery';
-import { Screen } from '../../components/ui';
+import { Button, Screen } from '../../components/ui';
+import { useCart } from '../../context/CartContext';
 import { useSearchLojas } from '../../hooks/useSearchLojas';
-import { CATEGORIAS_BUSCA, DEFAULT_HUB_ID } from '../../lib/discoveryDisplay';
+import { CATEGORIAS_BUSCA } from '../../lib/discoveryDisplay';
 import type { HomeStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'BuscaLoja'>;
@@ -27,13 +28,38 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'BuscaLoja'>;
  * "PRODUTOS" (essa fica em `BuscaProduto`).
  */
 export default function BuscaLoja({ route, navigation }: Props) {
+  const cart = useCart();
   const [devState, setDevState] = useState<DevSimState>('normal');
   const options = toAsyncCallOptions(devState);
 
   const [query, setQuery] = useState(route.params?.query ?? '');
   const [categoria, setCategoria] = useState(route.params?.categoria ?? 'todos');
 
-  const { data: lojas, loading, error } = useSearchLojas(DEFAULT_HUB_ID, query, categoria, options);
+  // Story 5.6 (AC5) — mesma correção de escopo de hub (`cart.hubId`, não
+  // `DEFAULT_HUB_ID`) e guard de hub ausente, herdados aqui sem duplicar a
+  // decisão (ver `BuscaProduto.tsx` para o texto completo do raciocínio).
+  const hubId = cart.hubId;
+
+  const { data: lojas, loading, error } = useSearchLojas(hubId ?? '', query, categoria, options);
+
+  if (hubId === null) {
+    return (
+      <Screen>
+        <View style={styles.searchRow}>
+          <View style={styles.searchInput} />
+          <Pressable onPress={() => navigation.goBack()} hitSlop={8}>
+            <Text style={styles.cancelar}>Cancelar</Text>
+          </Pressable>
+        </View>
+
+        <AsyncStateBlock kind="empty" emptyLabel="Escolha um hub para buscar lojas perto de você." />
+
+        <View style={styles.guardButton}>
+          <Button title="Escolher hub" onPress={() => navigation.navigate('EscolhaRetirada')} />
+        </View>
+      </Screen>
+    );
+  }
 
   return (
     <Screen>
@@ -81,6 +107,9 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
+  },
+  guardButton: {
+    marginTop: spacing['4'],
   },
   cancelar: {
     fontFamily: 'HankenGrotesk-SemiBold',

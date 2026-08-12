@@ -1,3 +1,6 @@
+import { businessConfig } from '@keepit/config';
+import type { Estabelecimento } from '@keepit/core-data';
+
 /**
  * Dados de exibição usados pelas telas de Descoberta & Busca (Story 0.5) que
  * NÃO existem em `packages/core-data` e que esta story não pode inventar como
@@ -58,7 +61,13 @@ export function formatDistanciaKm(estabelecimentoId: string): string {
   return `${getDistanciaKm(estabelecimentoId).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km`;
 }
 
-/** Placeholder visual (AC1) — não existe tabela de rating no schema. */
+/**
+ * Placeholder visual (AC1) — não existe tabela de rating no schema.
+ * MVP-mock — implementar sistema de avaliação na v2 (Story 5.8, AC2:
+ * comentário alinhado ao texto literal do épico; nenhuma mudança de
+ * comportamento ou de valores — ver Story 0.5 para a decisão original dos
+ * valores por loja, preservada).
+ */
 export function getRatingPlaceholder(estabelecimentoId: string): number {
   return RATING_POR_ESTABELECIMENTO[estabelecimentoId] ?? RATING_FALLBACK;
 }
@@ -112,3 +121,15 @@ export const CATEGORIAS_BUSCA: CategoriaDiscovery[] = [
  * persistido entre sessões.
  */
 export const DEFAULT_HUB_ID = 'hub-centro';
+
+/**
+ * Story 5.4 (AC4) — "Pedido mínimo: R$ X" em `Loja.tsx`. `Estabelecimento.
+ * ticket_minimo_reais` já é `number | null` no domínio real (`store.port.ts`
+ * — `null` = "usa o global `businessConfig.ticketMinimoReais`", COALESCE já
+ * documentado no tipo, não um valor novo inventado por esta função). [IDS]
+ * REUSE de `businessConfig` (mesma constante já usada por `Checkout.tsx`,
+ * `cancelamentoPolicy.ts`), nunca um fallback hard-coded local.
+ */
+export function resolveTicketMinimoReais(estabelecimento: Pick<Estabelecimento, 'ticket_minimo_reais'>): number {
+  return estabelecimento.ticket_minimo_reais ?? businessConfig.ticketMinimoReais;
+}

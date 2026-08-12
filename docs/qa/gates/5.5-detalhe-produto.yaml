@@ -1,0 +1,36 @@
+schema: 1
+story: '5.5'
+gate: CONCERNS
+status_reason: 'Story de confirmação: `ProductPort.getById` já real desde 4.5 (sob RLS `publico_ve_produtos`); `DetalheProduto.tsx` já o consome via `useProductDetail`, mesmo adapter dos dois apps — nenhum código de produção novo, só testes (como o próprio CodeRabbit Focus Areas da Story antecipa). 3 testes novos exercitam explicitamente o caminho do CLIENTE em product.supabase.test.ts: produto visível → retorna; produto de loja pausada/RLS-bloqueia → null (nunca lança); produto inexistente → null. AC1 atendido; AC2 ("Já no carrinho: N") corretamente DELEGADO ao Épico 6 (fronteira declarada no Expanded Goal) — NÃO implementado, NÃO inventado (grep confirma ausência em DetalheProduto). Testes reexecutados fora do cache Turbo (vitest direto): product.supabase 27/27, cliente 41/41. CONCERNS (não PASS) porque o valor central da Story — a confirmação end-to-end AO VIVO de que publico_ve_produtos serve o app Cliente (antes só exercitado pelo Lojista, onde lojista_gerencia_produtos poderia mascarar) — NÃO foi executado: o client Supabase injetado simula o null da RLS, não prova a policy. Débito consistente com device/E2E do bloco. Nenhum critical/high.'
+reviewer: 'Quinn'
+updated: '2026-08-12T22:20:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: empirical
+    evidence: '`DetalheProduto.tsx` usa `client.product.getById` via `useProductDetail` (4.5) — mesmo adapter real, sem caminho paralelo. product.supabase getById: `.eq(''id'', id).maybeSingle()`, propaga erro do SDK, devolve null quando não visível. Testes do caminho Cliente: visível→retorna, loja pausada→null, inexistente→null. UI (foto grande, seletor de quantidade, CTA "Adicionar ao carrinho" ligado ao CartContext) já fiel ao protótipo desde 0.5/0.6.'
+  AC2:
+    status: DEFERRED
+    method: static
+    evidence: 'Indicador "Já no carrinho: N" NÃO implementado — grep ausente em DetalheProduto. Fronteira Épico 5/6 declarada no Expanded Goal do Épico ("O carrinho e o checkout são do Épico 6"). Embora CartContext.items já exista (tecnicamente simples), não foi puxado — decisão de escopo explícita, não presumida.'
+
+security:
+  status: PASS
+  notes: |
+    - CRÍTICO atendido: o caminho do Cliente só vê produto ativo de loja ativa/não-pausada. `publico_ve_produtos` (RLS pré-existente, 4.5) é a barreira; produto de loja pausada → null comprova o contrato observável (teste dedicado). getById NUNCA lança para RLS-block — devolve null honesto, sem tela branca.
+    - Nenhum código de produção novo → nenhuma nova superfície de risco. Leitura via anon key (`createClient()`), nenhum service_role no bundle do cliente.
+    - Nenhum dado sensível novo exposto (telefone/PIX fora — este detalhe é só do produto).
+
+issues:
+  - id: DEV-5.5-001
+    severity: medium
+    category: tests
+    description: 'O objetivo declarado da Story — confirmar AO VIVO que publico_ve_produtos serve o app Cliente (anônimo), onde o Lojista antes mascarava via lojista_gerencia_produtos — não foi executado contra o keepit-dev real. Os 3 testes usam client Supabase injetado: "produto de loja pausada → null" só reflete o null que o fake devolve, não a policy do Postgres filtrando de fato. O próprio teste documenta essa limitação.'
+    recommendation: 'Exercitar getById a partir do app Cliente autenticado como cliente (não lojista) contra o keepit-dev, com um produto de loja pausada real, na janela de validação em ambiente vivo/device.'
+
+recommendations:
+  immediate: []
+  future:
+    - 'Confirmação end-to-end real de publico_ve_produtos pelo app Cliente contra keepit-dev/device.'
+    - 'AC2 ("Já no carrinho: N") permanece no Épico 6 — só puxar para o 5 com decisão explícita do @po.'

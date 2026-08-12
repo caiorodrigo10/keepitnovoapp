@@ -35,7 +35,12 @@ describe('createDataClient', () => {
     expect(client.analytics).toBeDefined();
     expect(client.lojistaAuth).toBeDefined();
 
-    await expect(client.hub.listNearby()).rejects.toThrow(/implementar no Épico/);
+    // `hub.listNearby` era o sentinela zero-arg histórico deste teste, mas
+    // virou implementação real na Story 5.1 — `admin.refundQueue.list`
+    // continua stub (Épico 8), mesma assinatura zero-arg, mesmo papel de
+    // sonda genérica (cobertura exaustiva por adapter fica em
+    // `supabase-adapters.test.ts`).
+    await expect(client.admin.refundQueue.list()).rejects.toThrow(/implementar no Épico/);
   });
 
   it('creates isolated instances (no shared state between clients)', async () => {
@@ -87,7 +92,9 @@ describe('DATA_SOURCE env fallback (Story 1.9, AC4)', () => {
   it('reads DATA_SOURCE="supabase" from env as fallback when options.source is omitted', async () => {
     process.env.DATA_SOURCE = 'supabase';
     const client = createDataClient();
-    await expect(client.hub.listNearby()).rejects.toThrow(/implementar no Épico/);
+    // Ver comentário acima (Story 5.1) — `admin.refundQueue.list` substitui
+    // `hub.listNearby` como sonda zero-arg genérica de stub.
+    await expect(client.admin.refundQueue.list()).rejects.toThrow(/implementar no Épico/);
   });
 
   it('options.source explicit always wins over DATA_SOURCE env', async () => {
@@ -150,6 +157,8 @@ describe('createDataClient — supabaseClient injetado (Story 2.5.1, AC3)', () =
 
   it('supabaseClient omitido preserva o comportamento anterior (cada adapter cria/memoiza o próprio client)', async () => {
     const client = createDataClient({ source: 'supabase' });
-    await expect(client.hub.listNearby()).rejects.toThrow(/implementar no Épico/);
+    // Ver comentário acima (Story 5.1) — `admin.refundQueue.list` substitui
+    // `hub.listNearby` como sonda zero-arg genérica de stub.
+    await expect(client.admin.refundQueue.list()).rejects.toThrow(/implementar no Épico/);
   });
 });

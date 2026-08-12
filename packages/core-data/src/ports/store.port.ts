@@ -7,9 +7,11 @@ export type EstabelecimentoStatus = 'em_analise' | 'ativo' | 'rejeitado' | 'susp
  * "Estado da loja" (AC1) — valor DERIVADO, não uma coluna do schema:
  * `pausado_manualmente = true` → 'pausada'; fora do horário do dia corrente
  * (`estabelecimentos_horarios`) → 'fechada'; caso contrário → 'aberta'.
- * A derivação vive no mock (`store.mock.ts`) para não vazar lógica de data/hora
- * para o tipo de domínio.
- * [Source: docs/stories/0.2.story.md#Dev Notes]
+ * A derivação (`deriveLojaEstado`, abaixo) vive nesta port — não no tipo de
+ * domínio — e é a MESMA função reaproveitada pelos adapters mock e Supabase
+ * (Story 5.3, AC4; `[IDS] ADAPT` de `store.mock.ts`, mesmo padrão de
+ * `validarHorariosSemanais`).
+ * [Source: docs/stories/0.2.story.md#Dev Notes, docs/stories/5.3.story.md]
  */
 export type LojaEstado = 'aberta' | 'fechada' | 'pausada';
 
@@ -174,6 +176,42 @@ const HORA_REGEX = /^([01]\d|2[0-3]):([0-5]\d)$/;
 function paraMinutos(hora: string): number {
   const [h, m] = hora.split(':').map(Number);
   return h * 60 + m;
+}
+
+/**
+ * Story 5.3 (AC1, AC3, AC4) — `[IDS] ADAPT`: relocada de `store.mock.ts`
+ * (onde vivia desde a Story 0.2/1.10) para esta port, mesmo padrão de
+ * `validarHorariosSemanais` acima — fonte única de regra reaproveitada pelo
+ * adapter mock (`store.mock.ts#getState`) e pelo adapter Supabase
+ * (`store.supabase.ts#getState`), sem duplicar a lógica de horário entre os
+ * dois. Nenhuma mudança de comportamento em relação à versão original do
+ * mock — só de localização.
+ *
+ * Deriva o estado da loja (AC1) a partir de `pausado_manualmente` +
+ * `horarios` do dia/hora correntes: `pausado_manualmente = true` sempre
+ * vence (retorna 'pausada' mesmo dentro do horário de funcionamento, AC3);
+ * senão, sem horário cadastrado/fechado no dia corrente ou fora da janela
+ * `hora_abre <= agora < hora_fecha` → 'fechada'; caso contrário → 'aberta'.
+ * `now` é injetável (default `new Date()`) para ser testável sem depender
+ * do relógio real.
+ */
+export function deriveLojaEstado(estabelecimento: Estabelecimento, now: Date = new Date()): LojaEstado {
+  if (estabelecimento.pausado_manualmente) {
+    return 'pausada';
+  }
+
+  const diaSemana = now.getDay();
+  const horarioHoje = estabelecimento.horarios.find((h) => h.dia_semana === diaSemana);
+
+  if (!horarioHoje || !horarioHoje.aberto || !horarioHoje.hora_abre || !horarioHoje.hora_fecha) {
+    return 'fechada';
+  }
+
+  const horaAtual = now.getHours() * 60 + now.getMinutes();
+  const abreMin = paraMinutos(horarioHoje.hora_abre);
+  const fechaMin = paraMinutos(horarioHoje.hora_fecha);
+
+  return horaAtual >= abreMin && horaAtual < fechaMin ? 'aberta' : 'fechada';
 }
 
 /**
