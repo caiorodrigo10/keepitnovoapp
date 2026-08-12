@@ -231,6 +231,13 @@ export function createAuthMock(db: MockDb): AuthPort {
       return simulateAsync(() => db.clientes.find((c) => c.id === clienteId) ?? null, null, options);
     },
 
+    /**
+     * Story 6.5 (AC3) — "set once", defesa em profundidade (mesmo padrão do
+     * adapter Supabase, `auth.supabase.ts`): nunca sobrescreve um CPF já
+     * salvo. Se `cliente.cpf` já estiver preenchido, esta chamada é um
+     * no-op honesto — devolve o cliente ATUAL (com o CPF original), sem
+     * erro e sem gravar o valor recebido.
+     */
     updateCpf(clienteId: string, cpf: string, options?: AsyncCallOptions): Promise<Cliente> {
       return simulateAsync(
         () => {
@@ -238,7 +245,9 @@ export function createAuthMock(db: MockDb): AuthPort {
           if (!cliente) {
             throw new Error(`[mock] Cliente não encontrado: ${clienteId}`);
           }
-          cliente.cpf = cpf;
+          if (cliente.cpf == null) {
+            cliente.cpf = cpf;
+          }
           return cliente;
         },
         {} as Cliente,

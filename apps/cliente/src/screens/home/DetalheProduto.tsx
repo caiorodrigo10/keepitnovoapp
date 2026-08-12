@@ -4,6 +4,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
+import { FloatingCartButton } from '../../components/checkout';
 import { AsyncStateBlock, DevStateToggle, RatingLabel, toAsyncCallOptions, type DevSimState } from '../../components/discovery';
 import { ImagePlaceholder } from '../../components/discovery/ImagePlaceholder';
 import { Screen } from '../../components/ui';
@@ -29,6 +30,11 @@ function formatPreco(preco: number): string {
  * stub/`disabled` na Story 0.5) agora chama `useCart().addItem(...)` e
  * navega para `Carrinho` — é o ponto de entrada real do fluxo de checkout
  * desta story.
+ *
+ * **Story 6.1 (AC1/AC3):** `<FloatingCartButton>` adicionado como irmão de
+ * `<Screen>`. `cart.addItem` agora recebe um `onCommitted` — a navegação
+ * para `Carrinho` só acontece quando o item é REALMENTE adicionado (não
+ * dispara se o cliente cancelar a confirmação de troca de loja).
  */
 export default function DetalheProduto({ route, navigation }: Props) {
   const { produtoId } = route.params;
@@ -41,92 +47,104 @@ export default function DetalheProduto({ route, navigation }: Props) {
   const { data: loja } = useStoreDetail(produto?.estabelecimento_id ?? '', {});
 
   return (
-    <Screen>
-      <View style={styles.topBar}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={8} style={styles.roundButton}>
-          <Text style={styles.roundButtonIcon}>‹</Text>
-        </Pressable>
-        <View style={styles.roundButton}>
-          <Text style={styles.roundButtonIcon}>♡</Text>
-        </View>
-      </View>
-
-      <DevStateToggle value={devState} onChange={setDevState} />
-
-      {errorProduto ? (
-        <AsyncStateBlock kind="error" errorLabel="Não foi possível carregar este produto. Tente novamente." />
-      ) : loadingProduto ? (
-        <AsyncStateBlock kind="loading" />
-      ) : !produto ? (
-        <AsyncStateBlock kind="empty" emptyLabel="Produto não encontrado." />
-      ) : (
-        <>
-          <ImagePlaceholder uri={produto.foto_url} style={styles.foto} borderRadius={radii.card} />
-
-          <View style={styles.headerRow}>
-            <Text style={styles.nome}>{produto.nome}</Text>
-            <Text style={styles.preco}>{formatPreco(produto.preco_reais)}</Text>
+    <View style={styles.flexOne}>
+      <Screen>
+        <View style={styles.topBar}>
+          <Pressable onPress={() => navigation.goBack()} hitSlop={8} style={styles.roundButton}>
+            <Text style={styles.roundButtonIcon}>‹</Text>
+          </Pressable>
+          <View style={styles.roundButton}>
+            <Text style={styles.roundButtonIcon}>♡</Text>
           </View>
-          <Text style={styles.lojaNome}>
-            {loja?.nome_fantasia ?? '...'} · {produto.categoria_produto}
-          </Text>
+        </View>
 
-          <View style={styles.metaRow}>
-            <RatingLabel value={getRatingPlaceholder(produto.estabelecimento_id)} reviewCount={213} />
-            {produto.ativo && (
-              <View style={styles.estoqueBadge}>
-                <Text style={styles.estoqueBadgeLabel}>Em estoque</Text>
+        <DevStateToggle value={devState} onChange={setDevState} />
+
+        {errorProduto ? (
+          <AsyncStateBlock kind="error" errorLabel="Não foi possível carregar este produto. Tente novamente." />
+        ) : loadingProduto ? (
+          <AsyncStateBlock kind="loading" />
+        ) : !produto ? (
+          <AsyncStateBlock kind="empty" emptyLabel="Produto não encontrado." />
+        ) : (
+          <>
+            <ImagePlaceholder uri={produto.foto_url} style={styles.foto} borderRadius={radii.card} />
+
+            <View style={styles.headerRow}>
+              <Text style={styles.nome}>{produto.nome}</Text>
+              <Text style={styles.preco}>{formatPreco(produto.preco_reais)}</Text>
+            </View>
+            <Text style={styles.lojaNome}>
+              {loja?.nome_fantasia ?? '...'} · {produto.categoria_produto}
+            </Text>
+
+            <View style={styles.metaRow}>
+              <RatingLabel value={getRatingPlaceholder(produto.estabelecimento_id)} reviewCount={213} />
+              {produto.ativo && (
+                <View style={styles.estoqueBadge}>
+                  <Text style={styles.estoqueBadgeLabel}>Em estoque</Text>
+                </View>
+              )}
+            </View>
+
+            {produto.descricao && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Descrição</Text>
+                <Text style={styles.descricao}>{produto.descricao}</Text>
               </View>
             )}
-          </View>
 
-          {produto.descricao && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Descrição</Text>
-              <Text style={styles.descricao}>{produto.descricao}</Text>
+            <View style={styles.quantidadeRow}>
+              <Text style={styles.sectionTitle}>Quantidade</Text>
+              <View style={styles.stepper}>
+                <Pressable
+                  style={styles.stepperButton}
+                  onPress={() => setQuantidade((q) => Math.max(1, q - 1))}
+                  hitSlop={8}
+                >
+                  <Text style={styles.stepperButtonLabel}>−</Text>
+                </Pressable>
+                <Text style={styles.stepperValue}>{quantidade}</Text>
+                <Pressable style={styles.stepperButton} onPress={() => setQuantidade((q) => q + 1)} hitSlop={8}>
+                  <Text style={styles.stepperButtonLabel}>+</Text>
+                </Pressable>
+              </View>
             </View>
-          )}
 
-          <View style={styles.quantidadeRow}>
-            <Text style={styles.sectionTitle}>Quantidade</Text>
-            <View style={styles.stepper}>
-              <Pressable
-                style={styles.stepperButton}
-                onPress={() => setQuantidade((q) => Math.max(1, q - 1))}
-                hitSlop={8}
-              >
-                <Text style={styles.stepperButtonLabel}>−</Text>
-              </Pressable>
-              <Text style={styles.stepperValue}>{quantidade}</Text>
-              <Pressable style={styles.stepperButton} onPress={() => setQuantidade((q) => q + 1)} hitSlop={8}>
-                <Text style={styles.stepperButtonLabel}>+</Text>
-              </Pressable>
-            </View>
-          </View>
-
-          <Pressable
-            style={styles.addButton}
-            onPress={() => {
-              cart.addItem({
-                estabelecimentoId: produto.estabelecimento_id,
-                produtoId: produto.id,
-                nome: produto.nome,
-                precoReais: produto.preco_reais,
-                quantidade,
-              });
-              navigation.navigate('Carrinho');
-            }}
-          >
-            <Text style={styles.addButtonLabel}>Adicionar ao carrinho</Text>
-            <Text style={styles.addButtonPreco}>{formatPreco(produto.preco_reais * quantidade)}</Text>
-          </Pressable>
-        </>
-      )}
-    </Screen>
+            <Pressable
+              style={styles.addButton}
+              onPress={() => {
+                // Story 6.1 (AC3): `onCommitted` só dispara quando o item é
+                // REALMENTE adicionado — se a troca de loja exigir confirmação
+                // (`CartContext.addItem`), a navegação espera o cliente decidir
+                // em vez de ir para o Carrinho incondicionalmente.
+                cart.addItem(
+                  {
+                    estabelecimentoId: produto.estabelecimento_id,
+                    produtoId: produto.id,
+                    nome: produto.nome,
+                    precoReais: produto.preco_reais,
+                    quantidade,
+                  },
+                  () => navigation.navigate('Carrinho'),
+                );
+              }}
+            >
+              <Text style={styles.addButtonLabel}>Adicionar ao carrinho</Text>
+              <Text style={styles.addButtonPreco}>{formatPreco(produto.preco_reais * quantidade)}</Text>
+            </Pressable>
+          </>
+        )}
+      </Screen>
+      <FloatingCartButton onPress={() => navigation.navigate('Carrinho')} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  flexOne: {
+    flex: 1,
+  },
   topBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',

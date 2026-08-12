@@ -11,15 +11,17 @@ interface CartItemRowProps {
   /** Quando ausente, os controles +/- somem (linha somente leitura — usada no resumo do Checkout). */
   onIncrement?: () => void;
   onDecrement?: () => void;
+  /** Botão "remover item" dedicado (Story 6.1, AC2) — só renderizado na tela Carrinho, nunca no Checkout (somente leitura). */
+  onRemove?: () => void;
 }
 
 /**
  * [IDS] CREATE — linha de item do carrinho ("Protetor solar FPS 50 · R$
  * 39,90 · [− 1 +]"), fiel a `cliente-04-carrinho.png`. Reaproveitado por
- * Carrinho (com stepper) e Checkout (somente leitura, sem `onIncrement`/
- * `onDecrement`).
+ * Carrinho (com stepper + remover) e Checkout (somente leitura, sem
+ * `onIncrement`/`onDecrement`/`onRemove`).
  */
-export function CartItemRow({ item, onIncrement, onDecrement }: CartItemRowProps) {
+export function CartItemRow({ item, onIncrement, onDecrement, onRemove }: CartItemRowProps) {
   return (
     <View style={styles.row}>
       <ImagePlaceholder uri={null} borderRadius={radii.md} />
@@ -41,6 +43,16 @@ export function CartItemRow({ item, onIncrement, onDecrement }: CartItemRowProps
         </View>
       ) : (
         <Text style={styles.quantidadeReadonly}>x{item.quantidade}</Text>
+      )}
+      {onRemove && (
+        <Pressable
+          onPress={onRemove}
+          hitSlop={8}
+          style={styles.removeButton}
+          accessibilityLabel={`Remover ${item.nome} do carrinho`}
+        >
+          <Text style={styles.removeButtonLabel}>×</Text>
+        </Pressable>
       )}
     </View>
   );
@@ -97,5 +109,17 @@ const styles = StyleSheet.create({
     fontFamily: 'HankenGrotesk-Medium',
     fontSize: typography.sizes.sm.fontSize,
     color: lightColors.text.secondary,
+  },
+  removeButton: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: spacing['2'],
+  },
+  removeButtonLabel: {
+    fontFamily: 'HankenGrotesk-Bold',
+    fontSize: typography.sizes.lg.fontSize,
+    color: lightColors.text.tertiary,
   },
 });

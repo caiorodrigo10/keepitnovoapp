@@ -17,8 +17,23 @@
  * outro.
  */
 export const businessConfig = {
-  /** Taxa Keepit sobre subtotal_produtos_reais do pedido. Fonte: Rodada 6 "Taxa Keepit". */
-  taxaKeepitPercent: 12,
+  /**
+   * Taxa Keepit sobre subtotal_produtos_reais do pedido, cobrada do LOJISTA
+   * (nunca exibida ao cliente — deduzida internamente do repasse, Épico 7).
+   * Fechada em 10% pela Rodada 8 (`docs/PERGUNTAS_REGRAS_NEGOCIO.md`, linha
+   * 561), corrigindo o placeholder de 12% (Rodada 6). Story 6.2 (Onda 5) é
+   * quem aplica essa troca junto com os testes de `@keepit/config`.
+   */
+  taxaKeepitPercent: 10,
+  /**
+   * Taxa fixa (NÃO percentual) cobrada do CLIENTE por pedido, exibida no
+   * checkout como "Taxa de serviço". [!] PROVISÓRIA — recomendação do dev
+   * (Story 6.2, Rodada 8, `docs/PERGUNTAS_REGRAS_NEGOCIO.md` linhas 562-563),
+   * PENDENTE de ratificação do stakeholder. Nunca remover o indicador visual
+   * de "provisório" no checkout enquanto essa pendência não for fechada por
+   * uma Story futura.
+   */
+  taxaServicoCompradorReais: 2.9,
   /** Valor mínimo de saque do lojista (saques.valor_reais >= 200). Fonte: linha 318. */
   saqueMinimoReais: 200,
   /** Taxa fixa debitada do lojista em caso de chargeback. Fonte: linha 319. */
@@ -35,6 +50,17 @@ export const businessConfig = {
   carteiraLiberacaoDias: 7,
   /** Janela de tolerância no encontro cliente/lojista dentro do hub. Fonte: linha 335. */
   janelaToleranciaHubMin: 10,
+  /**
+   * Margem de segurança do checkout (Story 6.3, AC1, AC4) — usada na
+   * validação temporal síncrona: `agora + tempo_medio_entrega_min +
+   * margemHorarioPedidoMin <= hora_fecha do hub hoje`. Valor (10 min) vem
+   * literalmente do texto do épico (`docs/prd/epics/6-pedido-pin.md` Story
+   * 6.3 AC1), não é um placeholder pendente de stakeholder. DISTINTA de
+   * `janelaToleranciaHubMin` (tolerância no ENCONTRO cliente/lojista
+   * DENTRO do hub, fase pós-retirada, Story 6.14) — mesmo valor numérico
+   * por coincidência, conceitos diferentes, não reaproveitar um pelo outro.
+   */
+  margemHorarioPedidoMin: 10,
   /**
    * Matriz de cancelamento (Story 1.10, Task 9) — percentuais de reembolso
    * por fase, fechados na Rodada 2 de `docs/PERGUNTAS_REGRAS_NEGOCIO.md`.

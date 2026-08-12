@@ -22,11 +22,12 @@ async function expectNotImplemented(fn: (...args: any[]) => Promise<unknown>, ar
 }
 
 describe('supabase adapters (esqueleto — Story 1.9)', () => {
-  it('auth.supabase.ts — todo método (exceto signUp, signIn, currentUser e signOut, implementados nas Stories 2.3/2.6/2.8) rejeita com NotImplementedError', async () => {
+  // auth.supabase.ts — `updateCpf` é implementação real desde a Story 6.5,
+  // coberta em `auth.supabase.test.ts`.
+  it('auth.supabase.ts — todo método (exceto signUp, signIn, currentUser, signOut e updateCpf, implementados nas Stories 2.3/2.6/2.8/6.5) rejeita com NotImplementedError', async () => {
     const port = createAuthSupabase();
     await expectNotImplemented(port.confirmPhone.bind(port), 2);
     await expectNotImplemented(port.getById.bind(port), 1);
-    await expectNotImplemented(port.updateCpf.bind(port), 2);
   });
 
   // hub.supabase.ts — `listNearby`/`getById` são implementações reais desde

@@ -1,0 +1,20 @@
+schema: 1
+story: '6.5'
+gate: CONCERNS
+status_reason: 'Validador de CPF (mod 11, 2 DVs, rejeita sequências repetidas) e updateCpf real com autorização por auth.uid() e "set once" via .is(cpf,null) estão corretos e bem testados (mock). Débitos não-bloqueantes: caminho real Supabase/RLS validado apenas por mock; "set once" não é enforced na RLS (só no adapter); device com DATA_SOURCE=supabase não executado.'
+reviewer: 'Quinn'
+updated: '2026-08-12T23:40:00Z'
+top_issues:
+  - id: 'SEC-001'
+    severity: medium
+    finding: '"Set once" é garantido apenas no adapter (.is(cpf, null)); a RLS cliente_atualiza_proprio (WITH CHECK) só trava bloqueado, não o CPF. Uma chamada direta à API com a sessão do próprio cliente poderia sobrescrever o próprio CPF (escopo auth.uid() — nunca de outro usuário).'
+    suggested_action: 'Piloto: aceitável (dado auto-gerido, sem dinheiro). Avaliar enforcement do "set once" via RLS/trigger antes de emissão fiscal (Épico 9).'
+  - id: 'TEST-001'
+    severity: medium
+    finding: 'Comportamento real de PostgREST/RLS para o UPDATE ... WHERE id=uid AND cpf IS NULL e a semântica de 0-linhas (no-op honesto vs. perfil ausente) validados só com client mockado — nunca contra o keepit-dev real.'
+    suggested_action: 'Rodar verify contra o Supabase real na fase de piloto: CPF novo grava, segundo checkout (mesma sessão e após reabrir o app) não repede.'
+  - id: 'REL-001'
+    severity: low
+    finding: 'ModalCPF só persiste se cliente?.id estiver carregado; clique muito rápido durante o load pode reabrir o modal (no-op no backend graças ao set once). Sem impacto de integridade.'
+    suggested_action: 'Aceitável; verificar UX em device no piloto.'
+waiver: { active: false }

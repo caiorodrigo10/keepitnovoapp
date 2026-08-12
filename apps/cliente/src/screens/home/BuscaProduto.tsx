@@ -4,6 +4,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 
+import { FloatingCartButton } from '../../components/checkout';
 import {
   AsyncStateBlock,
   CategoryChips,
@@ -32,6 +33,9 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'BuscaProduto'>;
  * **Story 5.7 (AC2/AC4)**: ordem das seções corrigida para "LOJAS" antes de
  * "PRODUTOS" (antes era o inverso) — o épico pede cards de loja acima de
  * produto quando o termo bate em ambos.
+ *
+ * **Story 6.1 (AC1):** `<FloatingCartButton>` adicionado como irmão de
+ * `<Screen>` (só no ramo normal — não aparece no guard "escolha um hub").
  */
 export default function BuscaProduto({ route, navigation }: Props) {
   const cart = useCart();
@@ -91,61 +95,67 @@ export default function BuscaProduto({ route, navigation }: Props) {
   const semResultados = !loading && !error && produtos.length === 0 && lojas.length === 0;
 
   return (
-    <Screen>
-      <View style={styles.searchRow}>
-        <View style={styles.searchInput}>
-          <SearchBar value={query} onChangeText={setQuery} placeholder="Buscar produto" autoFocus />
+    <View style={styles.flexOne}>
+      <Screen>
+        <View style={styles.searchRow}>
+          <View style={styles.searchInput}>
+            <SearchBar value={query} onChangeText={setQuery} placeholder="Buscar produto" autoFocus />
+          </View>
+          <Pressable onPress={() => navigation.goBack()} hitSlop={8}>
+            <Text style={styles.cancelar}>Cancelar</Text>
+          </Pressable>
         </View>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={8}>
-          <Text style={styles.cancelar}>Cancelar</Text>
-        </Pressable>
-      </View>
 
-      <DevStateToggle value={devState} onChange={setDevState} />
+        <DevStateToggle value={devState} onChange={setDevState} />
 
-      <CategoryChips categorias={CATEGORIAS_BUSCA} selected={categoria} onSelect={setCategoria} />
+        <CategoryChips categorias={CATEGORIAS_BUSCA} selected={categoria} onSelect={setCategoria} />
 
-      {error ? (
-        <AsyncStateBlock kind="error" errorLabel="Não foi possível buscar agora. Tente novamente." />
-      ) : loading ? (
-        <AsyncStateBlock kind="loading" />
-      ) : semResultados ? (
-        <AsyncStateBlock kind="empty" emptyLabel={`Nenhum resultado para "${query}".`} />
-      ) : (
-        <>
-          {lojas.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>LOJAS</Text>
-              {lojas.map((loja) => (
-                <StoreCard
-                  key={loja.id}
-                  loja={loja}
-                  onPress={() => navigation.navigate('Loja', { estabelecimentoId: loja.id })}
-                />
-              ))}
-            </View>
-          )}
+        {error ? (
+          <AsyncStateBlock kind="error" errorLabel="Não foi possível buscar agora. Tente novamente." />
+        ) : loading ? (
+          <AsyncStateBlock kind="loading" />
+        ) : semResultados ? (
+          <AsyncStateBlock kind="empty" emptyLabel={`Nenhum resultado para "${query}".`} />
+        ) : (
+          <>
+            {lojas.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>LOJAS</Text>
+                {lojas.map((loja) => (
+                  <StoreCard
+                    key={loja.id}
+                    loja={loja}
+                    onPress={() => navigation.navigate('Loja', { estabelecimentoId: loja.id })}
+                  />
+                ))}
+              </View>
+            )}
 
-          {produtos.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>PRODUTOS</Text>
-              {produtos.map(({ produto, loja }) => (
-                <ProductRow
-                  key={produto.id}
-                  produto={produto}
-                  subtitulo={loja.nome_fantasia}
-                  onPress={() => navigation.navigate('DetalheProduto', { produtoId: produto.id })}
-                />
-              ))}
-            </View>
-          )}
-        </>
-      )}
-    </Screen>
+            {produtos.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>PRODUTOS</Text>
+                {produtos.map(({ produto, loja }) => (
+                  <ProductRow
+                    key={produto.id}
+                    produto={produto}
+                    subtitulo={loja.nome_fantasia}
+                    onPress={() => navigation.navigate('DetalheProduto', { produtoId: produto.id })}
+                  />
+                ))}
+              </View>
+            )}
+          </>
+        )}
+      </Screen>
+      <FloatingCartButton onPress={() => navigation.navigate('Carrinho')} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  flexOne: {
+    flex: 1,
+  },
   searchRow: {
     flexDirection: 'row',
     alignItems: 'center',

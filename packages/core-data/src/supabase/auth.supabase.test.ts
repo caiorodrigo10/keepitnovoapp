@@ -91,6 +91,53 @@ function fakeClientWithProfile(options: {
   } as unknown as SupabaseClient<Database>;
 }
 
+/**
+ * Story 6.5 (Task) — fake client com `auth.getUser` e um `.from('clientes')`
+ * encadeável para `updateCpf`: `update().eq().is().select().maybeSingle()`
+ * (escrita "set once") e `select().eq().maybeSingle()` (releitura pós 0
+ * linhas, mesmo padrão de `fakeClientWithProfile`, mas com o filtro extra
+ * `.is('cpf', null)` que a Story 2.8 não precisava).
+ */
+function fakeClientWithCpf(options: {
+  getUserImpl?: () => Promise<{ data: { user: unknown }; error: unknown }>;
+  updateImpl?: (
+    patch: unknown,
+    eqArgs: [string, unknown],
+    isArgs: [string, unknown],
+  ) => Promise<{ data: unknown; error: unknown }>;
+  selectImpl?: (eqArgs: [string, unknown]) => Promise<{ data: unknown; error: unknown }>;
+}): SupabaseClient<Database> {
+  const { getUserImpl, updateImpl, selectImpl } = options;
+
+  return {
+    auth: {
+      getUser: getUserImpl,
+    },
+    from: (table: string) => {
+      if (table !== 'clientes') {
+        throw new Error(`[test] tabela inesperada: ${table}`);
+      }
+      return {
+        update: (patch: unknown) => ({
+          eq: (...eqArgs: [string, unknown]) => ({
+            is: (...isArgs: [string, unknown]) => ({
+              select: () => ({
+                maybeSingle: () =>
+                  updateImpl ? updateImpl(patch, eqArgs, isArgs) : Promise.resolve({ data: null, error: null }),
+              }),
+            }),
+          }),
+        }),
+        select: () => ({
+          eq: (...eqArgs: [string, unknown]) => ({
+            maybeSingle: () => (selectImpl ? selectImpl(eqArgs) : Promise.resolve({ data: null, error: null })),
+          }),
+        }),
+      };
+    },
+  } as unknown as SupabaseClient<Database>;
+}
+
 /** Story 2.7 (Task) — marca de recuperação com leitura síncrona para asserção em teste. */
 function createRecoveryState(active = false): PasswordRecoveryState & { active(): boolean } {
   let value = active;
@@ -614,6 +661,105 @@ describe('auth.supabase.ts — updateProfile (Story 2.8, AC3, AC4, AC6)', () => 
     await expect(port.updateProfile('user-real', { nome: 'Novo Nome' })).rejects.toThrow(
       /RLS bloqueou a escrita ou o perfil não existe/,
     );
+  });
+});
+
+describe('auth.supabase.ts — updateCpf (Story 6.5, AC3)', () => {
+  it('grava o CPF filtrando pela sessão autenticada e por cpf IS NULL ("set once")', async () => {
+    const client = fakeClientWithCpf({
+      getUserImpl: async () => ({ data: { user: { id: 'user-real' } }, error: null }),
+      updateImpl: async (patch, [column, value], [isColumn, isValue]) => {
+        expect(patch).toEqual({ cpf: '11144477735' });
+        expect(column).toBe('id');
+        expect(value).toBe('user-real');
+        expect(isColumn).toBe('cpf');
+        expect(isValue).toBeNull();
+        return {
+          data: {
+            id: 'user-real',
+            nome: 'Fulano',
+            telefone: null,
+            cpf: '11144477735',
+            criado_em: '2026-08-12T00:00:00.000Z',
+          },
+          error: null,
+        };
+      },
+    });
+    const port = createAuthSupabase(client);
+
+    const atualizado = await port.updateCpf('user-real', '11144477735');
+    expect(atualizado.cpf).toBe('11144477735');
+  });
+
+  it('rejeita clienteId que não corresponde à sessão autenticada, sem chamar o SDK de escrita — nunca confia no clienteId da UI', async () => {
+    const updateSpy = vi.fn();
+    const client = fakeClientWithCpf({
+      getUserImpl: async () => ({ data: { user: { id: 'user-real' } }, error: null }),
+      updateImpl: updateSpy,
+    });
+    const port = createAuthSupabase(client);
+
+    await expect(port.updateCpf('user-outro-cliente', '11144477735')).rejects.toThrow(
+      /não corresponde à sessão autenticada/,
+    );
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it('set once: cliente já tem CPF → 0 linhas afetadas vira no-op honesto (relê e devolve o CPF original, sem erro)', async () => {
+    const client = fakeClientWithCpf({
+      getUserImpl: async () => ({ data: { user: { id: 'user-com-cpf' } }, error: null }),
+      updateImpl: async () => ({ data: null, error: null }),
+      selectImpl: async ([column, value]) => {
+        expect(column).toBe('id');
+        expect(value).toBe('user-com-cpf');
+        return {
+          data: {
+            id: 'user-com-cpf',
+            nome: 'Fulano',
+            telefone: null,
+            cpf: '52998224725',
+            criado_em: '2026-08-12T00:00:00.000Z',
+          },
+          error: null,
+        };
+      },
+    });
+    const port = createAuthSupabase(client);
+
+    const cliente = await port.updateCpf('user-com-cpf', '11144477735');
+    expect(cliente.cpf).toBe('52998224725');
+  });
+
+  it('trata 0 linhas + perfil realmente inexistente como erro explícito, nunca sucesso fictício', async () => {
+    const client = fakeClientWithCpf({
+      getUserImpl: async () => ({ data: { user: { id: 'user-fantasma' } }, error: null }),
+      updateImpl: async () => ({ data: null, error: null }),
+      selectImpl: async () => ({ data: null, error: null }),
+    });
+    const port = createAuthSupabase(client);
+
+    await expect(port.updateCpf('user-fantasma', '11144477735')).rejects.toThrow(
+      /RLS bloqueou a escrita ou o perfil não existe/,
+    );
+  });
+
+  it('propaga erro real do SDK sem mascarar como sucesso', async () => {
+    const error = { message: 'network down' };
+    const client = fakeClientWithCpf({
+      getUserImpl: async () => ({ data: { user: { id: 'user-real' } }, error: null }),
+      updateImpl: async () => ({ data: null, error }),
+    });
+    const port = createAuthSupabase(client);
+
+    await expect(port.updateCpf('user-real', '11144477735')).rejects.toBe(error);
+  });
+
+  it('rejeita sem sessão autenticada', async () => {
+    const client = fakeClientWithCpf({ getUserImpl: async () => ({ data: { user: null }, error: null }) });
+    const port = createAuthSupabase(client);
+
+    await expect(port.updateCpf('user-qualquer', '11144477735')).rejects.toThrow(/sem sessão autenticada/);
   });
 });
 

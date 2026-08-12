@@ -1,4 +1,8 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Alert } from 'react-native';
+
+import { loadCartState, saveCartState } from '../lib/cartStorage';
+import { shouldConfirmStoreSwitch } from '../lib/cartRules';
 
 /**
  * Item do carrinho local (Story 0.6) — espelha `carrinho_itens`
@@ -44,8 +48,24 @@ interface CartContextValue {
   payment: PaymentSelection | null;
   cpfCollected: boolean;
   cards: SavedCard[];
+  /**
+   * Intenção de nota fiscal (Story 6.2, AC6) — checkbox "Solicitar nota
+   * fiscal" no Checkout. NÃO cria pedido nem persiste em
+   * `pedidos.nf_solicitada` (tabela `pedidos` ainda não existe nas
+   * migrations aplicadas — fronteira do bloco). Fica em `CartContext` até a
+   * criação real do pedido (Story 6.6+/Épico 7) herdar esse valor.
+   */
+  nfSolicitada: boolean;
+  setNfSolicitada: (value: boolean) => void;
   subtotalReais: number;
-  addItem: (input: AddItemInput) => void;
+  /**
+   * `onCommitted` (Story 6.1, AC3) — chamado só quando o item é REALMENTE
+   * adicionado (imediatamente, ou depois do cliente confirmar a troca de
+   * loja). Não é chamado se o cliente cancelar a confirmação — permite às
+   * telas (ex.: `DetalheProduto`) navegar para o Carrinho só após o add
+   * ter efeito, em vez de navegar incondicionalmente.
+   */
+  addItem: (input: AddItemInput, onCommitted?: () => void) => void;
   incrementItem: (produtoId: string) => void;
   decrementItem: (produtoId: string) => void;
   removeItem: (produtoId: string) => void;
@@ -108,18 +128,21 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [payment, setPaymentState] = useState<PaymentSelection | null>(null);
   const [cpfCollected, setCpfCollected] = useState(false);
   const [cards, setCards] = useState<SavedCard[]>([DEFAULT_CARD]);
+  const [nfSolicitada, setNfSolicitadaState] = useState(false);
   const cardIdCounter = useRef(1);
 
   const addItem = useCallback(
-    ({ estabelecimentoId: novoEstabelecimentoId, produtoId, nome, precoReais, quantidade = 1 }: AddItemInput) => {
-      setEstabelecimentoId((atual) => {
-        const trocouDeLoja = atual !== null && atual !== novoEstabelecimentoId;
-
+    (
+      { estabelecimentoId: novoEstabelecimentoId, produtoId, nome, precoReais, quantidade = 1 }: AddItemInput,
+      onCommitted?: () => void,
+    ) => {
+      const commit = (limparCarrinhoAnterior: boolean) => {
+        setEstabelecimentoId(novoEstabelecimentoId);
         setItems((prevItems) => {
           // Regra fechada "1 pedido = 1 loja" — trocar de loja reinicia o
           // carrinho em vez de misturar itens de dois estabelecimentos.
           // [Source: docs/PERGUNTAS_REGRAS_NEGOCIO.md#Rodada 5]
-          const base = trocouDeLoja ? [] : prevItems;
+          const base = limparCarrinhoAnterior ? [] : prevItems;
           const existente = base.find((item) => item.produtoId === produtoId);
           if (existente) {
             return base.map((item) =>
@@ -128,11 +151,24 @@ export function CartProvider({ children }: { children: ReactNode }) {
           }
           return [...base, { produtoId, nome, precoSnapshotReais: precoReais, quantidade }];
         });
+        onCommitted?.();
+      };
 
-        return novoEstabelecimentoId;
-      });
+      // Story 6.1 (AC3): trocar de loja com o carrinho atual NÃO-VAZIO exige
+      // confirmação explícita ANTES de limpar (antes desta Story a troca
+      // acontecia silenciosamente). `shouldConfirmStoreSwitch` é a mesma
+      // regra fechada da Rodada 5, extraída como função pura testável.
+      if (shouldConfirmStoreSwitch(estabelecimentoId, novoEstabelecimentoId, items.length)) {
+        Alert.alert('Trocar de loja?', 'Isso vai limpar seu carrinho atual. Continuar?', [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Continuar', style: 'destructive', onPress: () => commit(true) },
+        ]);
+        return;
+      }
+
+      commit(false);
     },
-    [],
+    [estabelecimentoId, items],
   );
 
   const incrementItem = useCallback((produtoId: string) => {
@@ -156,6 +192,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const setHubId = useCallback((id: string) => setHubIdState(id), []);
   const setPayment = useCallback((selection: PaymentSelection) => setPaymentState(selection), []);
   const markCpfCollected = useCallback(() => setCpfCollected(true), []);
+  const setNfSolicitada = useCallback((value: boolean) => setNfSolicitadaState(value), []);
 
   const addCard = useCallback((card: Omit<SavedCard, 'id' | 'padrao'>) => {
     const novo: SavedCard = { ...card, id: `card-mock-${cardIdCounter.current++}`, padrao: false };
@@ -175,6 +212,39 @@ export function CartProvider({ children }: { children: ReactNode }) {
     [items],
   );
 
+  // Persistência via AsyncStorage (Story 6.1, AC3) — o carrinho sobrevive a
+  // fechar/reabrir o app no mesmo aparelho. `hydratedRef` evita que o efeito
+  // de escrita rode ANTES da leitura inicial terminar (o que sobrescreveria
+  // um carrinho salvo com o estado inicial vazio). Fail-open: erro de
+  // leitura/escrita (ver `lib/cartStorage.ts`) nunca trava a tela.
+  const hydratedRef = useRef(false);
+
+  useEffect(() => {
+    let ativo = true;
+    loadCartState().then((persisted) => {
+      if (!ativo) {
+        return;
+      }
+      if (persisted) {
+        setEstabelecimentoId(persisted.estabelecimentoId);
+        setItems(persisted.items);
+        setHubIdState(persisted.hubId);
+        setPaymentState(persisted.payment);
+      }
+      hydratedRef.current = true;
+    });
+    return () => {
+      ativo = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hydratedRef.current) {
+      return;
+    }
+    saveCartState({ estabelecimentoId, items, hubId, payment });
+  }, [estabelecimentoId, items, hubId, payment]);
+
   const value = useMemo<CartContextValue>(
     () => ({
       estabelecimentoId,
@@ -183,6 +253,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
       payment,
       cpfCollected,
       cards,
+      nfSolicitada,
+      setNfSolicitada,
       subtotalReais,
       addItem,
       incrementItem,
@@ -201,6 +273,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
       payment,
       cpfCollected,
       cards,
+      nfSolicitada,
+      setNfSolicitada,
       subtotalReais,
       addItem,
       incrementItem,
