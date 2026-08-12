@@ -20,7 +20,7 @@ export function CadastroHeader({ step }: CadastroHeaderProps) {
   return (
     <View style={styles.container}>
       <View style={styles.row}>
-        <Text style={[styles.logo, { color: darkColors.text.primary }]}>KEEPIT</Text>
+        <Text style={[styles.logo, { color: darkColors.text.primary }]}>KEEPITHUB</Text>
         <Text style={[styles.stepLabel, { color: darkColors.text.tertiary }]}>Passo {step} de 3</Text>
       </View>
       <View style={styles.progressRow}>

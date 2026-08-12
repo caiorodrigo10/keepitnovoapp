@@ -2,15 +2,24 @@
   "expo": {
     "name": "Keepit Lojista",
     "slug": "keepit-lojista",
-    "version": "0.0.0",
+    "scheme": "com.keepithub.lojista",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#1B1E1C",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.keepithub.lojista",
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
+      "package": "com.keepithub.lojista",
+      "versionCode": 1,
+      "permissions": [],
       "adaptiveIcon": {
         "backgroundColor": "#1B1E1C",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -21,6 +30,23 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#1B1E1C"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "e6fd72af-f4f1-4f53-801d-0baabd792f8f"
+      }
+    },
+    "owner": "keepithub"
   }
 }

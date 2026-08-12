@@ -58,6 +58,61 @@ describe('store.mock (contract)', () => {
     const relido = await port.getById('estab-farmacia-vida', { delayMs: 1 });
     expect(relido?.pausado_manualmente).toBe(true);
   });
+
+  it('updateHorarios substitui as 7 linhas e persiste através de um novo getById (Story 4.7, AC1, AC3)', async () => {
+    const novosHorarios = [
+      { dia_semana: 0, aberto: false, hora_abre: null, hora_fecha: null },
+      { dia_semana: 1, aberto: true, hora_abre: '10:00', hora_fecha: '20:00' },
+    ];
+
+    const atualizado = await port.updateHorarios('estab-farmacia-vida', novosHorarios, { delayMs: 1 });
+    expect(atualizado).toEqual(novosHorarios);
+
+    const relido = await port.getById('estab-farmacia-vida', { delayMs: 1 });
+    expect(relido?.horarios).toEqual(novosHorarios);
+  });
+
+  it('updateHorarios rejeita quando aberto=true e hora_abre >= hora_fecha, sem gravar nada (Story 4.7, AC1)', async () => {
+    const original = await port.getById('estab-farmacia-vida', { delayMs: 1 });
+
+    await expect(
+      port.updateHorarios(
+        'estab-farmacia-vida',
+        [{ dia_semana: 2, aberto: true, hora_abre: '18:00', hora_fecha: '08:00' }],
+        { delayMs: 1 },
+      ),
+    ).rejects.toThrow(/hora_abre/);
+
+    const relido = await port.getById('estab-farmacia-vida', { delayMs: 1 });
+    expect(relido?.horarios).toEqual(original?.horarios);
+  });
+
+  it('updateHorarios lança para estabelecimento inexistente', async () => {
+    await expect(
+      port.updateHorarios('does-not-exist', [{ dia_semana: 0, aberto: false, hora_abre: null, hora_fecha: null }], {
+        delayMs: 1,
+      }),
+    ).rejects.toThrow(/não encontrado/);
+  });
+
+  it('checkCnpjDisponivel sempre resolve true — mock não modela cnpj em Estabelecimento (Story 3.3, AC2, AC4)', async () => {
+    await expect(port.checkCnpjDisponivel('11.222.333/0001-81', { delayMs: 1 })).resolves.toBe(true);
+    // Mesmo CNPJ chamado de novo — ainda "disponível" (sem estado de duplicidade simulado nesta Story).
+    await expect(port.checkCnpjDisponivel('11.222.333/0001-81', { delayMs: 1 })).resolves.toBe(true);
+  });
+
+  it('checkCnpjDisponivel é genuinamente assíncrono e respeita forceError (Story 3.3, AC2)', async () => {
+    let resolved = false;
+    const promise = port.checkCnpjDisponivel('11.222.333/0001-81', { delayMs: 0 }).then(() => {
+      resolved = true;
+    });
+    expect(resolved).toBe(false);
+    await promise;
+
+    await expect(
+      port.checkCnpjDisponivel('11.222.333/0001-81', { forceError: true, delayMs: 1 }),
+    ).rejects.toThrow();
+  });
 });
 
 describe('deriveLojaEstado', () => {

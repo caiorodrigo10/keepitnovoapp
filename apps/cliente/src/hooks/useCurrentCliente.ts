@@ -2,30 +2,7 @@ import { getDataClient, type Cliente } from '@keepit/core-data';
 import { useAsyncResource, type AsyncResourceState } from '@keepit/core-data/hooks';
 
 /**
- * Telefone da única fixture do mock de `packages/core-data` (Story 0.2,
- * `clientesFixture`) — usado como fallback para popular Perfil/Configurações
- * com "dado mock" real (Task 6 da Story 0.4), já que o Épico 0 não tem um
- * fluxo de login real acionado no boot do app (`authGuard.ts` sempre deixa
- * passar direto para `MainTabs`, sem que `signIn`/`signUp` seja chamado).
- *
- * [AUTO-DECISION] Perfil sem sessão mock ativa no boot → chamar
- * `auth.signIn` com a fixture única em vez de inventar um cliente novo
- * (reason: reaproveita o único registro já existente no mock — Story 0.2 —
- * sem introduzir dado que não veio da port).
- *
- * [AUTO-DECISION] Story 2.3 (compile-fix fora do File List original da
- * story, forçado pela mudança mandatória de assinatura de `signIn` na Task
- * 5) → troquei `DEMO_TELEFONE` por `DEMO_EMAIL`/`DEMO_SENHA`, casados com
- * `clientesCredenciaisFixture` (`packages/core-data/src/mock/fixtures/clientes.ts`)
- * (reason: `signIn` passou a buscar por e-mail, não telefone — decisão
- * 10.4; sem este ajuste `apps/cliente` não compila. `DEMO_SENHA` é
- * ignorada pelo mock, que não valida senha).
- */
-const DEMO_EMAIL = 'ana.souza@example.com';
-const DEMO_SENHA = 'demo-mock-senha';
-
-/**
- * [IDS] CREATE — não existe hook `useAuth`/`useCurrentCliente` em
+ * [IDS] CREATE (Story 0.4) — não existe hook `useAuth`/`useCurrentCliente` em
  * `@keepit/core-data/hooks` (Story 0.2 só exporta useHubs/useOrders/
  * useStores/useWallet). Como `apps/cliente` não pode modificar
  * `packages/core-data` nesta story (fora do escopo — outro @dev trabalha em
@@ -33,19 +10,21 @@ const DEMO_SENHA = 'demo-mock-senha';
  * `apps/cliente/src/hooks` compõe `useAsyncResource` (exportado por
  * `@keepit/core-data/hooks`) com `getDataClient().auth`, reutilizando 100%
  * da infra assíncrona já validada pela Story 0.2 em vez de duplicá-la.
+ *
+ * **Story 2.6 (AC6, fecha REL-008 do gate 2.3.1):** removido o fallback
+ * `auth.signIn(DEMO_EMAIL, DEMO_SENHA)` quando `currentUser()` não
+ * encontrava sessão. Esse fallback existia para o Épico 0 (Home/Perfil
+ * abertos direto pelo stub `authGuard.ts`, sem login real acionado no
+ * boot). Com `RootNavigator` (Story 2.3.1) só montando `Main` — e portanto
+ * qualquer tela que use este hook — quando `onAuthStateChange` já entregou
+ * um `Cliente` não-nulo, este hook nunca deveria mais precisar criar uma
+ * sessão sozinho; fazer isso era um efeito colateral sobre a navegação
+ * raiz (login "fantasma" fora do fluxo de auth) e, com login real
+ * (Supabase), tentar `signIn` com uma senha fixa hard-coded contra o
+ * backend real falharia de qualquer forma.
  */
 export function useCurrentCliente(): AsyncResourceState<Cliente | null> {
   const client = getDataClient();
 
-  return useAsyncResource<Cliente | null>(
-    async () => {
-      const current = await client.auth.currentUser();
-      if (current) {
-        return current;
-      }
-      return client.auth.signIn(DEMO_EMAIL, DEMO_SENHA);
-    },
-    null,
-    [],
-  );
+  return useAsyncResource<Cliente | null>(() => client.auth.currentUser(), null, []);
 }

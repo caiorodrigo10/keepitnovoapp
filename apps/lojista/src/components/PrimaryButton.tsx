@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native';
 
 import { darkColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
@@ -9,27 +9,34 @@ import { darkColors, radii, spacing, typography } from '@keepit/ui-tokens';
  * anteriores eram stubs do factory `createScreenStub`, Story 0.3). Este é o
  * primeiro componente visual real reaproveitável entre as 9 telas desta
  * story — evita duplicar o mesmo `Pressable`/estilo em cada arquivo.
+ *
+ * `loading` — [IDS] ADAPT (Story 3.2, AC4: "estados loading/erro/sucesso" no
+ * submit do Passo 1), mesmo padrão de `apps/cliente/src/components/ui/Button.tsx`
+ * (Story 2.3): substitui o label por um `ActivityIndicator` e desabilita o
+ * `Pressable`.
  */
 export interface PrimaryButtonProps {
   label: string;
   onPress: () => void;
   variant?: 'brand' | 'warning';
   disabled?: boolean;
+  loading?: boolean;
 }
 
-export function PrimaryButton({ label, onPress, variant = 'brand', disabled = false }: PrimaryButtonProps) {
+export function PrimaryButton({ label, onPress, variant = 'brand', disabled = false, loading = false }: PrimaryButtonProps) {
   const bg = variant === 'warning' ? darkColors.accent.warning : darkColors.accent.brand;
+  const isDisabled = disabled || loading;
 
   return (
     <Pressable
       onPress={onPress}
-      disabled={disabled}
+      disabled={isDisabled}
       style={({ pressed }) => [
         styles.button,
-        { backgroundColor: bg, opacity: disabled ? 0.5 : pressed ? 0.85 : 1 },
+        { backgroundColor: bg, opacity: isDisabled ? 0.5 : pressed ? 0.85 : 1 },
       ]}
     >
-      <Text style={styles.label}>{label}</Text>
+      {loading ? <ActivityIndicator color={darkColors.bg.primary} /> : <Text style={styles.label}>{label}</Text>}
     </Pressable>
   );
 }

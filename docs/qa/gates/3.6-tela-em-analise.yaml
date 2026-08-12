@@ -1,0 +1,22 @@
+schema: 1
+story: '3.6'
+gate: CONCERNS
+status_reason: 'Copy honesta (sem prazo/SLA nem push), seam WA-001 centralizado em @keepit/config com número null e flag derivada false, botão "Falar com Keepit" genuinamente desabilitado (Pressable no-op + opacidade 0.5 + rótulo "(em breve)") sem nenhum wa.me/tel:/mailto:/número fabricado no código. AC1-AC4 atendidos; residuais não-bloqueantes apenas de verificação visual em device e cobertura de componente.'
+reviewer: 'Quinn'
+updated: '2026-08-12T13:15:00Z'
+
+top_issues:
+  - id: 'TEST-001'
+    severity: low
+    finding: 'Verificação visual em device/emulador não exercitada neste ambiente (headless). Tela é estática, só uma adição de botão desabilitado sobre layout já existente desde a Story 0.8 — risco visual baixo, mas o estado real do botão (opacidade 0.5 + rótulo) não foi confirmado renderizado.'
+    suggested_action: 'Confirmar em device/emulador: título/subtítulo honestos, botão "Falar com Keepit (em breve)" visivelmente desabilitado e sem reação ao toque, botão "Entendi" navegando para Login. Registrar evidência.'
+  - id: 'TEST-002'
+    severity: low
+    finding: 'Sem teste de componente para EmAnalise.tsx (nenhuma tela RN do monorepo tem teste de componente hoje — padrão vigente). A lógica real do seam (número null, flag false, guard anti-placeholder) está coberta por packages/config/src/support-contact.test.ts (3 casos, verdes).'
+    suggested_action: 'Aceitável para o padrão atual. Quando o monorepo adotar testes de componente RN, cobrir o estado disabled/label do botão como regressão.'
+  - id: 'MNT-001'
+    severity: low
+    finding: 'CodeRabbit self-healing não executou (auth signed out neste ambiente). Revisão manual do @qa não encontrou nenhum CRITICAL/HIGH; grep confirmou ausência de wa.me/tel:/mailto:/Linking.openURL/número fabricado nos arquivos tocados.'
+    suggested_action: 'Rodar CodeRabbit num ambiente autenticado antes do push, se disponível.'
+
+waiver: { active: false }

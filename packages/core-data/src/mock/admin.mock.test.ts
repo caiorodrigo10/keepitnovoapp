@@ -19,6 +19,47 @@ describe('admin.mock (contract)', () => {
     expect(pendentes.every((e) => e.status === 'em_analise')).toBe(true);
   });
 
+  // -------------------------------------------------------------------
+  // Story 3.7 (AC2, AC3) — EstabelecimentoAdmin (cnpj/telefone/etc.)
+  // -------------------------------------------------------------------
+
+  it('pendingStores expõe os campos administrativos (AC2: cnpj, telefone, criado_em)', async () => {
+    const pendentes = await port.pendingStores({ delayMs: 1 });
+    const padoca = pendentes.find((e) => e.id === 'estab-em-analise');
+    expect(padoca).toBeDefined();
+    expect(padoca).toMatchObject({
+      cnpj: expect.any(String),
+      telefone: expect.any(String),
+      responsavel_nome: expect.any(String),
+      criado_em: expect.any(String),
+      // Sempre null no piloto — Story 3.3 é SIMPLE, nunca inventado.
+      dados_receita: null,
+      aprovado_em: null,
+      aprovado_por: null,
+    });
+  });
+
+  it('pendingStoreDetail resolve o detalhe completo (AC3) e null para id inexistente', async () => {
+    const detalhe = await port.pendingStoreDetail('estab-em-analise', { delayMs: 1 });
+    expect(detalhe).toMatchObject({
+      id: 'estab-em-analise',
+      cnpj: expect.any(String),
+      chave_pix: expect.any(String),
+      chave_pix_tipo: expect.any(String),
+      dados_receita: null,
+    });
+    expect(detalhe?.foto_fachada_url_assinada).toBe(detalhe?.foto_fachada_url);
+
+    const inexistente = await port.pendingStoreDetail('estab-nao-existe', { delayMs: 1 });
+    expect(inexistente).toBeNull();
+  });
+
+  it('pendingStoreDetail funciona para estabelecimentos não-pendentes (paridade com getById administrativo)', async () => {
+    const detalhe = await port.pendingStoreDetail('estab-farmacia-vida', { delayMs: 1 });
+    expect(detalhe?.status).toBe('ativo');
+    expect(detalhe?.aprovado_em).not.toBeNull();
+  });
+
   it('approve transitions status to "ativo"', async () => {
     const estabelecimento = await port.approve('estab-em-analise', { delayMs: 1 });
     expect(estabelecimento.status).toBe('ativo');
@@ -48,6 +89,42 @@ describe('admin.mock (contract)', () => {
 
     await port.hubsCrud.delete(hub.id, { delayMs: 1 });
     expect(db.hubs.find((h) => h.id === hub.id)).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------
+  // Story 4.1 (AC1, AC2, AC4) — hubsCrud.list/getById/uploadFoto
+  // -------------------------------------------------------------------
+
+  it('hubsCrud.list includes inactive hubs (AC1) — distinct from hub.listNearby, which filters ativo', async () => {
+    await port.hubsCrud.update('hub-jardins', { ativo: false }, { delayMs: 1 });
+
+    const todos = await port.hubsCrud.list({ delayMs: 1 });
+    expect(todos.some((h) => h.id === 'hub-jardins' && h.ativo === false)).toBe(true);
+    expect(todos.length).toBe(db.hubs.length);
+  });
+
+  it('hubsCrud.list allows reactivating a hub previously deactivated (AC1, AC4)', async () => {
+    await port.hubsCrud.update('hub-jardins', { ativo: false }, { delayMs: 1 });
+    const reativado = await port.hubsCrud.update('hub-jardins', { ativo: true }, { delayMs: 1 });
+    expect(reativado.ativo).toBe(true);
+
+    const todos = await port.hubsCrud.list({ delayMs: 1 });
+    expect(todos.find((h) => h.id === 'hub-jardins')?.ativo).toBe(true);
+  });
+
+  it('hubsCrud.getById resolves an existing hub (including inactive) and null for a missing id', async () => {
+    await port.hubsCrud.update('hub-jardins', { ativo: false }, { delayMs: 1 });
+
+    const inativo = await port.hubsCrud.getById('hub-jardins', { delayMs: 1 });
+    expect(inativo?.ativo).toBe(false);
+
+    const inexistente = await port.hubsCrud.getById('hub-nao-existe', { delayMs: 1 });
+    expect(inexistente).toBeNull();
+  });
+
+  it('hubsCrud.uploadFoto echoes the received uri (mock has no real Storage) — never a fictitious upload', async () => {
+    const url = await port.hubsCrud.uploadFoto({ uri: 'blob:http://localhost/foto-hub', ext: 'jpg' }, { delayMs: 1 });
+    expect(url).toBe('blob:http://localhost/foto-hub');
   });
 
   it('refundQueue.list/process manage reembolsos pendentes', async () => {

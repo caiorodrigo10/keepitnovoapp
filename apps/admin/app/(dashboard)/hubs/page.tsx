@@ -11,7 +11,8 @@ import { useAdminHubs } from '../../../src/hooks/useAdminHubs';
 import { getAdminDataClient } from '../../../src/lib/adminClient';
 
 /**
- * CRUD de Hubs — listagem. Épico 0, Story 0.12 (AC1, AC2).
+ * CRUD de Hubs — listagem. Épico 0, Story 0.12 (AC1, AC2); dados reais +
+ * inativos visíveis/reativáveis, Story 4.1 (AC1, AC4).
  *
  * `?vazio=1` / `?erro=1` forçam os estados vazio/erro de carregamento (AC4
  * da Story 0.2), sem depender de backend real.
@@ -23,6 +24,7 @@ export default function HubsPage() {
 
   const { data: hubs, loading, error, refresh } = useAdminHubs({ forceEmpty, forceError });
   const [desativandoId, setDesativandoId] = useState<string | null>(null);
+  const [reativandoId, setReativandoId] = useState<string | null>(null);
 
   function handleDesativar(id: string) {
     setDesativandoId(id);
@@ -38,6 +40,25 @@ export default function HubsPage() {
       })
       .catch(() => {
         setDesativandoId(null);
+      });
+  }
+
+  /**
+   * Story 4.1 (AC1, AC4) — reverte a desativação acima. A lista já inclui
+   * hubs inativos (`useAdminHubs` → `admin.hubsCrud.list`, ver JSDoc do
+   * hook), então a reativação só precisa existir como ação nesta mesma
+   * tela — mesmo método (`hubsCrud.update`), só o valor de `ativo` muda.
+   */
+  function handleReativar(id: string) {
+    setReativandoId(id);
+    getAdminDataClient()
+      .admin.hubsCrud.update(id, { ativo: true })
+      .then(() => {
+        setReativandoId(null);
+        refresh();
+      })
+      .catch(() => {
+        setReativandoId(null);
       });
   }
 
@@ -98,9 +119,19 @@ export default function HubsPage() {
                 >
                   Editar
                 </Link>
-                <Button variant="danger" onClick={() => handleDesativar(hub.id)} disabled={desativandoId === hub.id}>
-                  {desativandoId === hub.id ? 'Excluindo…' : 'Excluir'}
-                </Button>
+                {hub.ativo ? (
+                  <Button variant="danger" onClick={() => handleDesativar(hub.id)} disabled={desativandoId === hub.id}>
+                    {desativandoId === hub.id ? 'Excluindo…' : 'Excluir'}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    onClick={() => handleReativar(hub.id)}
+                    disabled={reativandoId === hub.id}
+                  >
+                    {reativandoId === hub.id ? 'Reativando…' : 'Reativar'}
+                  </Button>
+                )}
               </div>
             </Card>
           ))}

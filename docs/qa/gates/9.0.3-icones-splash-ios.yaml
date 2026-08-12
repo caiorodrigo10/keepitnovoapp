@@ -1,0 +1,52 @@
+schema: 1
+story: '9.0.3'
+gate: PASS
+status_reason: 'Story config-only (dois `app.json` + dois `package.json` + `pnpm-lock.yaml`). As 5 ACs verificáveis estaticamente estão satisfeitas: `expo-splash-screen@57.0.5` em `dependencies` dos dois apps (não devDependencies), lockfile resolvido contra `expo@57.0.8` nos dois importers, bloco `expo.plugins` correto por app (cores `#F6F7F3`/`#1B1E1C`, `splash-icon.png` existente, `imageWidth 200`, `resizeMode contain`), ícones 1024x1024 confirmados, nenhuma arte nova. Não-regressão da 9.0.1 confirmada por diff: `version 1.0.0`, `ios.bundleIdentifier com.keepithub.*` e `ios.buildNumber "1"` intactos — a 9.0.3 apenas ADICIONOU o `plugins`. typecheck passa nos dois apps. AC3 (splash visível em device) corretamente diferida à Story 9.0.7 (build TestFlight), não marcada como feita.'
+reviewer: 'Quinn'
+updated: '2026-07-31T00:00:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static+file
+    evidence: '`file apps/cliente/assets/icon.png apps/lojista/assets/icon.png` → ambos PNG 1024x1024. Referenciados em `expo.icon = "./assets/icon.png"` nos dois `app.json`. `splash-icon.png` (também 1024x1024) igualmente presente nos dois `assets/`. Nenhum vetor refeito (escopo 9.2 não invadido).'
+  AC2:
+    status: MET
+    method: static+grep+lockfile
+    evidence: '`git diff apps/*/package.json` → `expo-splash-screen: "^57.0.5"` adicionado em `dependencies` (não `devDependencies`) dos dois apps. `pnpm-lock.yaml` (linhas 93 e 163) registra o pacote em ambos os importers, resolvido `57.0.5(expo@57.0.8)(typescript@5.9.3)` — compatível com `expo ~57.0.8`, mesma família SDK 57 de `expo-font`/`expo-status-bar`. Bloco `expo.plugins` presente nos dois `app.json` com `image: "./assets/splash-icon.png"`, `imageWidth: 200`, `resizeMode: "contain"`, `backgroundColor` = token de marca por app (`#F6F7F3` cliente / `#1B1E1C` lojista), batendo com o `backgroundColor` de topo já existente.'
+  AC3:
+    status: DEFERRED
+    method: n/a
+    evidence: 'Configuração declarativa entregue. Verificação visual da splash em device só é possível após a Story 9.0.7 gerar um build TestFlight real — a própria AC3 prevê que isso NÃO bloqueia o `Done` desta story. Corretamente registrada como pendência (não marcada como feita) tanto no story file quanto no roteiro de smoke test (9.0.8). Cores a validar em device: `#F6F7F3` (cliente) / `#1B1E1C` (lojista).'
+  AC4:
+    status: MET
+    method: static+diff
+    evidence: '`git diff --stat` da story toca apenas: dois `app.json`, dois `package.json`, `pnpm-lock.yaml`. Nenhum arquivo em `apps/*/assets/` alterado — nenhum screenshot de vitrine, wordmark opcional ou adaptive icon Android novo. O bloco `expo.android.adaptiveIcon` pré-existente permanece intacto nos dois `app.json` (não tocado pelo diff).'
+  AC5:
+    status: MET
+    method: static
+    evidence: 'Antecipação parcial da Story 9.2 registrada explicitamente no Dev Agent Record (Completion Notes): antecipado = instalação de `expo-splash-screen` + config do plugin de splash (cores + `splash-icon.png`) + confirmação de ícone iOS 1024x1024. Não antecipado (permanece 100% na 9.2): screenshots de vitrine, wordmark opcional, ícones/adaptive icon Android completos. Nenhuma edição do texto da 9.2 feita nesta story.'
+
+non_regression:
+  story_9_0_1_fields:
+    status: PRESERVED
+    evidence: 'Diff dos dois `app.json` contra HEAD mostra `plugins` como bloco puramente aditivo, coexistindo com os campos da 9.0.1 (que também estão dirty na working tree por trabalho paralelo): `version "1.0.0"`, `ios.bundleIdentifier "com.keepithub.cliente"/"com.keepithub.lojista"`, `ios.buildNumber "1"` — todos presentes e intactos no estado atual dos arquivos. A 9.0.3 NÃO sobrescreveu nenhum campo da 9.0.1, apesar de ambas editarem os mesmos `app.json`.'
+
+top_issues: []
+
+waiver: { active: false }
+
+# Notas não-bloqueantes
+notes:
+  - id: 'NIT-001'
+    severity: low
+    finding: '`expo-splash-screen` foi adicionado com range caret (`^57.0.5`), enquanto os demais pacotes `expo-*` da SDK (`expo-font ~57.0.1`, `expo-status-bar ~57.0.1`) usam til (`~`). Convenção Expo prefere `~` para pacotes de SDK. Funcionalmente inofensivo: o `pnpm-lock.yaml` pina 57.0.5 e resolve contra `expo@57.0.8`.'
+    suggested_action: 'Opcional — alinhar para `~57.0.5` numa passada futura de housekeeping de dependências. Não bloqueia.'
+  - id: 'DOC-001'
+    severity: low
+    finding: '`expo-doctor` não re-executado no sandbox (sem simulador/rede — mesma limitação de ambiente documentada desde a Story 0.1). @dev reportou 18/20 nos dois apps; as 2 falhas remanescentes (react duplicado do monorepo / drift de versão SDK) são pré-existentes e nenhuma menciona `expo-splash-screen`, confirmando reconhecimento do plugin.'
+    suggested_action: 'Aceitável. AC2 verificável estaticamente por conteúdo de `app.json`/`package.json`/lockfile — todos confirmados diretamente. Nenhuma ação requerida.'
+  - id: 'DOC-002'
+    severity: low
+    finding: 'CodeRabbit CLI indisponível no sandbox (auth não-interativa) — self-healing pulado com degradação graciosa.'
+    suggested_action: 'Aceitável: mudança config JSON pura + declaração de dependência, sem lógica de aplicação. Nenhuma ação requerida.'

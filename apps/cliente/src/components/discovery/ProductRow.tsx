@@ -3,6 +3,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { Produto } from '@keepit/core-data';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
+import { ImagePlaceholder } from './ImagePlaceholder';
+
 interface ProductRowProps {
   produto: Produto;
   onPress: () => void;
@@ -23,7 +25,7 @@ function formatPreco(preco: number): string {
 export function ProductRow({ produto, onPress, subtitulo }: ProductRowProps) {
   return (
     <Pressable style={styles.row} onPress={onPress}>
-      <View style={styles.thumb} />
+      <ImagePlaceholder uri={produto.foto_url} style={styles.thumb} borderRadius={radii.md} />
       <View style={styles.info}>
         <Text style={styles.nome} numberOfLines={1}>
           {produto.nome}

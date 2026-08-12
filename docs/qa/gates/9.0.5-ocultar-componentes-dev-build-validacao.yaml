@@ -1,0 +1,90 @@
+schema: 1
+story: '9.0.5'
+gate: CONCERNS
+status_reason: >-
+  ACs 1-4 verificadas empiricamente no repo (gate __DEV__ presente nos 2
+  componentes, 8 consumidores JSX, consumidor único, sem expo-dev-client,
+  profile pilot = distribution internal). AC5 (verificação visual em TestFlight)
+  é inverificável até o build da Story 9.0.7 — fechada por construção e rastreada
+  como residual, não marcada como verificada.
+reviewer: 'Quinn'
+updated: '2026-07-31T00:00:00Z'
+
+verification_method: >-
+  QA independente — não confiei no story file. Reconfirmado no repo por leitura
+  direta dos arquivos + grep filtrado por uso JSX real (não grep bruto).
+
+acceptance_criteria_review:
+  AC1_devstatetoggle_gate_and_consumers:
+    verdict: MET
+    evidence: >-
+      DevStateToggle.tsx L39-41: `if (!__DEV__) { return null; }` como primeira
+      instrução do corpo do componente (após a assinatura L38). grep por
+      `<DevStateToggle` (uso JSX) retorna exatamente 8 arquivos, um por tela da
+      AC1: BuscaLoja, BuscaProduto, DetalheProduto, EscolhaRetirada, Home, Hub,
+      Loja (home/) e MeusPedidos (pedidos/). O grep bruto de 12 arquivos inclui
+      barrel (discovery/index.ts), a própria definição e 2 menções em JSDoc
+      (useHubsList.ts, OrderStatusDevAdvancer.tsx) — nenhum renderiza o
+      componente. Superset interpretado corretamente.
+  AC2_orderstatusdevadvancer_gate_and_consumer:
+    verdict: MET
+    evidence: >-
+      OrderStatusDevAdvancer.tsx L21-23: mesmo gate `if (!__DEV__) return null`
+      como primeira instrução. grep por `<OrderStatusDevAdvancer` (uso JSX)
+      retorna consumidor único: ModalConfirmarPin.tsx. Confere com a AC2.
+  AC3_consistent_dev_gate_no_devclient:
+    verdict: MET
+    evidence: >-
+      Gate __DEV__ idêntico nos 2 componentes. grep de
+      `expo-dev-client|developmentClient` em package.json, app.json e eas.json
+      dos 2 apps retorna vazio (exit 1). eas.json (cliente e lojista): profile
+      `pilot` = `distribution: internal`, sem `developmentClient: true` — não é
+      build de dev-client, logo __DEV__ === false num IPA de release. Verificado
+      no estado ATUAL do working tree (que já contém as mudanças paralelas de
+      app.json/package.json), confirmando que essas mudanças não introduzem
+      dev-client.
+  AC4_components_preserved:
+    verdict: MET
+    evidence: >-
+      Nenhum dos 2 componentes foi apagado ou alterado. git diff não toca
+      DevStateToggle.tsx nem OrderStatusDevAdvancer.tsx.
+  AC5_testflight_visual_verification:
+    verdict: DEFERRED
+    evidence: >-
+      Inverificável agora — depende do build TestFlight da Story 9.0.7, ainda em
+      status Ready (não executada). A garantia "por construção" (gate __DEV__ +
+      ausência de dev-client) é sólida e cobre o comportamento; a confirmação
+      empírica no device permanece como residual rastreado. Corretamente NÃO
+      marcada como verificada no story file.
+
+zero_code_change_confirmation: >-
+  Esta story é de verificação pura. git diff não toca DevStateToggle.tsx,
+  OrderStatusDevAdvancer.tsx nem os eas.json (untracked, criados pela 9.0.2).
+  Confirmado zero mudança de código atribuível à 9.0.5.
+
+top_issues:
+  - id: 'REQ-001'
+    severity: low
+    finding: >-
+      AC5 (verificação visual em TestFlight) não pode ser confirmada
+      empiricamente nesta story — depende do build da 9.0.7. Fechada por
+      construção, não por observação em device.
+    suggested_action: >-
+      Rastrear como item residual: ao executar a Story 9.0.7, abrir as 8 telas
+      do Cliente + ModalConfirmarPin (pedido no_hub) no build TestFlight e
+      confirmar visualmente ausência de "Estado (dev):" e "Avançar status (dev):".
+      Registrar o resultado empírico então.
+  - id: 'DOC-001'
+    severity: low
+    finding: >-
+      O Dev Agent Record afirma que "git diff --stat não inclui nenhum arquivo
+      desta análise". Impreciso: apps/{cliente,lojista}/app.json e package.json
+      — arquivos verificados pela AC3 — estão modificados no working tree. As
+      mudanças pertencem a stories 9.0.x paralelas (expo-splash-screen, bundle
+      identifiers, version 1.0.0) e NÃO introduzem dev-client, então não afetam
+      as ACs desta story.
+    suggested_action: >-
+      Nota de precisão apenas. Nenhuma ação de código. Confirmado por QA que as
+      mudanças paralelas são benignas para o gate __DEV__.
+
+waiver: { active: false }

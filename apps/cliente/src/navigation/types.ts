@@ -15,8 +15,21 @@ export type AuthStackParamList = {
   Onboarding3: undefined;
   CriarConta: undefined;
   ConfirmacaoSMS: undefined;
-  Login: undefined;
+  /**
+   * `toast` adicionado pela Story 2.7 (AC4) — literal `'Senha redefinida'`,
+   * repassado por `RecuperarSenha` após sucesso. Opcional: toda navegação
+   * anterior a esta story continua chamando `navigate('Login')` sem params.
+   */
+  Login: { toast?: 'Senha redefinida' } | undefined;
   EsqueciSenha: undefined;
+  /**
+   * Story 2.7 (AC3) — decisão de arquitetura 0.1.3: única rota receptora
+   * do callback `com.keepithub.cliente://auth/reset`, mapeada pelo linking
+   * de `NavigationContainer` (`passwordRecoveryLinking.ts`). `recovery`
+   * nunca carrega token — só o resultado (`ready`/`invalid`) já decidido
+   * dentro da fronteira de dados.
+   */
+  RecuperarSenha: { recovery?: 'ready' | 'invalid' } | undefined;
 };
 
 export type HomeStackParamList = {
@@ -59,9 +72,13 @@ export type PedidosStackParamList = {
   LojistaNaoVeio: { pedidoId?: string } | undefined;
 };
 
+/**
+ * Story 2.8 (decisão 10.8, 2026-08-02): `Configuracoes` removida — não há
+ * mais tela de Configurações separada, a estrutura de menu do frame 08 vive
+ * inteira dentro de `Perfil` (ver `PerfilStack.tsx`).
+ */
 export type PerfilStackParamList = {
   Perfil: undefined;
-  Configuracoes: undefined;
   ExcluirConta: undefined;
 };
 

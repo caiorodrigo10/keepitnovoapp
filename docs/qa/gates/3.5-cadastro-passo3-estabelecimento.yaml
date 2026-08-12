@@ -1,0 +1,26 @@
+schema: 1
+story: '3.5'
+gate: CONCERNS
+status_reason: 'Escrita real de estabelecimento+7 horários entregue com atomicidade correta, RPC força auth.uid(), foto isolada por pasta {uid}/ e tipo manual de shared-types fiel à assinatura da RPC (sem divergência). Débitos não-bloqueantes: E2E/device+RLS reais não exercitados e categoria vazia pode ser gravada silenciosamente.'
+reviewer: 'Quinn'
+updated: '2026-08-12T13:05:00Z'
+
+top_issues:
+  - id: 'TEST-001'
+    severity: medium
+    finding: 'Fluxo real end-to-end (device/emulador → upload ao bucket fachadas → RPC criar_estabelecimento_completo → 7 horários → policies de Storage/RLS reais) nunca exercitado. Só testes unitários com clients fake. Esta é a Story que escreve dados operacionais reais.'
+    suggested_action: 'Rodar verificação manual em device contra keepit-dev: cadastro completo com e sem foto, reenvio idempotente, INSERT com dono_user_id != auth.uid() (deve ser bloqueado). Registrar evidência.'
+  - id: 'REQ-001'
+    severity: medium
+    finding: 'categoria chega '''' à RPC quando o lojista pula a seleção no Passo 2 (validateCadastroPasso2 NÃO valida categoria; default do draft é null; CadastroPasso3 faz draft.categoria ?? ''''). Como estabelecimentos.categoria é text NOT NULL SEM CHECK de enum, o INSERT SUCEDE com categoria vazia — NÃO gera erro genérico como o Dev Agent Record afirma. Cria estabelecimento em_analise sem categoria.'
+    suggested_action: 'Exigir categoria no validateCadastroPasso2 (escopo Story 3.4) OU adicionar CHECK de enum em estabelecimentos.categoria. Corrigir a afirmação inexata no Dev Agent Record. Fora do escopo desta Story, rastrear como débito.'
+  - id: 'MNT-001'
+    severity: low
+    finding: 'Tipo da RPC em packages/shared-types/src/supabase.ts foi reconciliado manualmente (ambiente sem SUPABASE_ACCESS_TOKEN). Verificado 1:1 com a migration 20260812123048 (17 params, ordem/nullability, returns uuid) — correto hoje, mas frágil a drift futuro.'
+    suggested_action: 'Regenerar oficialmente via supabase gen types typescript quando houver login disponível; substitui o bloco manual sem mudança de forma esperada.'
+  - id: 'MNT-002'
+    severity: low
+    finding: 'CodeRabbit self-healing não executou (coderabbit auth status = signed out). Nenhum CRITICAL/HIGH identificado pela revisão manual do @qa; compensado.'
+    suggested_action: 'Rodar CodeRabbit num ambiente autenticado antes do push, se disponível.'
+
+waiver: { active: false }

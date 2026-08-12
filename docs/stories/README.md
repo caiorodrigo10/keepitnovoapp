@@ -27,6 +27,28 @@ Toda Story criada após esta decisão deve declarar, logo após `## Status`:
 - Retomada futura: <FR/Story original ou N/A>
 ```
 
+## Modo de dados obrigatório
+
+Toda Story que toque clientes, lojas, produtos, hubs, pedidos ou dados de
+operação deve declarar, logo após a classificação do piloto:
+
+```markdown
+## Data Mode
+
+- Entidades: <clientes | lojas | produtos | ...>
+- Modo padrão: mock
+- Modo real: `DATA_SOURCE=supabase` — <qual comportamento real esta Story habilita>
+- Compatibilidade mock: <o que continua navegável e visualmente idêntico com `DATA_SOURCE=mock`>
+- Modo híbrido: proibido sem uma Story arquitetural que o defina por port.
+```
+
+`DATA_SOURCE=mock` é o padrão seguro e as fixtures em
+`packages/core-data/src/mock` são preservadas. Uma Story não pode apagar,
+renomear ou tornar os mocks inutilizáveis ao ligar um fluxo real. A ativação
+real deve ser explícita por ambiente; a ausência ou um valor inválido da flag
+continua selecionando mock. Isso permite validar cada fatia real sem alterar a
+experiência de demonstração de clientes, lojas e produtos.
+
 ## Regras para os agentes
 
 ### SM
@@ -55,6 +77,8 @@ Toda Story criada após esta decisão deve declarar, logo após `## Status`:
 
 - Manter as telas desacopladas por `packages/core-data`.
 - Implementar somente a profundidade classificada.
+- Preservar `DATA_SOURCE=mock` e suas fixtures; nunca trocar a fonte padrão
+  para real como efeito colateral de uma Story.
 - Não apagar ports ou UI futura; métodos fora do piloto devem ficar fora do
   caminho ativo e com comportamento explícito.
 

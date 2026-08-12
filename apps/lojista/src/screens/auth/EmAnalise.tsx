@@ -4,6 +4,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 
 import { darkColors, radii, spacing, typography } from '@keepit/ui-tokens';
+import { SUPORTE_WHATSAPP_DISPONIVEL } from '@keepit/config';
 
 import { PrimaryButton } from '../../components/PrimaryButton';
 import type { AuthStackParamList } from '../../navigation/types';
@@ -11,12 +12,23 @@ import type { AuthStackParamList } from '../../navigation/types';
 type Props = NativeStackScreenProps<AuthStackParamList, 'EmAnalise'>;
 
 /**
- * Tela "Em análise" — Story 0.8 (Task 7).
+ * Tela "Em análise" — Story 0.8 (Task 7), copy/botão revisados na Story 3.6.
  *
  * Sem tela literal no protótipo (ver Dev Notes). Comunica a regra já
  * decidida: aprovação é MANUAL pela Keepit (status inicial `em_analise` em
  * `estabelecimentos.status`) — sem prazo automático, sem menção a BrasilAPI.
- * CTA único "Entendi" navega para Login (ver Task 8/AUTO-DECISION).
+ * CTA principal "Entendi" navega para Login (ver Task 8/AUTO-DECISION,
+ * Story 0.8).
+ *
+ * Botão "Falar com Keepit" (Story 3.6, AC2) — **seam honesto** até WA-001
+ * (`docs/orchestration/PENDENCIAS-CAIO.md`) ser respondido:
+ * `SUPORTE_WHATSAPP_DISPONIVEL` (`@keepit/config`, centralizado para ser
+ * reaproveitado pelas Stories 2.9/2.10 do App Cliente também) é `false`
+ * enquanto o número oficial não existe, então o botão fica `disabled` — o
+ * `Pressable` de `PrimaryButton` não dispara `onPress` nesse estado — e o
+ * rótulo comunica por copy que o canal ainda não está ativo (dois sinais:
+ * estado visual + texto, como o AC2 exige). Quando WA-001 for respondido, a
+ * ativação é só a troca do valor em `@keepit/config`, sem redesenho.
  */
 export default function EmAnalise({ navigation }: Props) {
   return (
@@ -35,7 +47,14 @@ export default function EmAnalise({ navigation }: Props) {
           </Text>
         </View>
 
-        <PrimaryButton label="Entendi" onPress={() => navigation.navigate('Login')} />
+        <View style={styles.footer}>
+          <PrimaryButton
+            label={SUPORTE_WHATSAPP_DISPONIVEL ? 'Falar com Keepit' : 'Falar com Keepit (em breve)'}
+            onPress={() => {}}
+            disabled={!SUPORTE_WHATSAPP_DISPONIVEL}
+          />
+          <PrimaryButton label="Entendi" onPress={() => navigation.navigate('Login')} />
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -75,5 +94,8 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.md.fontSize,
     lineHeight: typography.sizes.md.lineHeight,
     textAlign: 'center',
+  },
+  footer: {
+    gap: spacing[3],
   },
 });

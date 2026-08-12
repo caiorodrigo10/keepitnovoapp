@@ -1,0 +1,141 @@
+schema: 1
+story: '3.2'
+gate: CONCERNS
+status_reason: >-
+  Todas as ACs verificáveis por código atendidas; o discriminador crítico
+  `role: 'lojista'` é comprovadamente enviado (teste) e o trigger corrigido
+  impede o `clientes` órfão; sem regressão (Admin sem dep React Native). Restam
+  débitos de baixa/média severidade: revisão formal de @architect da port,
+  confirmação live-DB do no-orphan, verificação device/E2E/CFG-001 e a
+  divergência de timestamp da migration local vs. remoto.
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-08-12T00:00:00Z'
+
+acceptance_criteria:
+  - id: AC1
+    status: PASS
+    note: >-
+      CadastroPasso1 ganhou telefone (maskTelefoneBR, obrigatório),
+      responsável, e-mail e senha (secureTextEntry). categoria/hub preservados
+      (gap conhecido documentado, não bloqueante).
+  - id: AC2
+    status: PASS
+    note: >-
+      Checkbox dark (ADAPT do Cliente, darkColors) obrigatório; validate()
+      bloqueia "Continuar" enquanto aceiteTermos=false, com erro inline.
+  - id: AC3
+    status: PASS
+    note: >-
+      validate() client-side: senha ≥8, EMAIL_REGEX básico, CNPJ 14 dígitos
+      (só contagem — DV/duplicidade são da 3.3), telefone 11 dígitos,
+      nome_fantasia/responsável não vazios. Erros inline, sem submit inválido.
+  - id: AC4
+    status: PASS
+    note: >-
+      handleContinuar chama lojistaAuth.signUp com loading/erro; adapter
+      Supabase envia role:'lojista'+metadata do Passo 1. Duplicado e outros
+      erros exibidos sem simular sucesso e sem avançar. Prova unit por client
+      injetado; wiring real @keepit/supabase-client não exercitado (débito).
+  - id: AC5
+    status: PASS
+    note: >-
+      Sucesso navega para CadastroPasso2 (rótulo "Passo 2 de 3" do wizard mock,
+      sem afirmar conclusão/em análise). nome_fantasia/cnpj/telefone/responsável
+      no CadastroDraftContext; email/senha só em useState local, nunca no draft.
+      Nenhuma escrita em estabelecimentos (grep + teste mock length antes/depois).
+  - id: AC6
+    status: PASS
+    note: >-
+      Nenhuma etapa SMS/confirmação de e-mail entre Passo 1 e Passo 2 — navegação
+      direta após o signUp resolver.
+  - id: AC7
+    status: CONCERNS
+    note: >-
+      Validado a nível de código: adapter envia role:'lojista' (teste captura
+      options.data) + migration desambigua_signup (CREATE OR REPLACE, guarda
+      NEW.raw_user_meta_data->>'role'='lojista' → RETURN NEW sem INSERT em
+      clientes). Confirmação end-to-end contra keepit-dev (signup de lojista NÃO
+      gera linha em clientes) fica como débito de verificação — não reprovável
+      sem device/DB neste ambiente.
+
+seven_checks:
+  code_review: CONCERNS   # adapters/mock/bootstrap fiéis ao padrão 2.3/2.5.1; port dedicada sólida, mas revisão @architect não ocorreu como sessão separada (ARCH-001)
+  tests: CONCERNS         # 160/160 core-data + 9/9 lojista reexecutados fora do cache; adapter Supabase testado por client injetado (não prova wiring real — TEST-003)
+  acceptance_criteria: PASS  # AC1-6 PASS; AC7 validado por código, confirmação live-DB pendente
+  no_regressions: PASS       # Admin `why react-native` VAZIO (sem RN-leak); mock navegável; wizard (Passo2/3, EmAnalise) intocado (só JSDoc menciona estabelecimentos)
+  performance: PASS          # n/a — um formulário, sem hot path
+  security: PASS             # role:'lojista' confirmado; anti-enumeração consistente (transporte); senha≥8; sem service_role no bundle Lojista; migration forward-only
+  documentation: PASS        # Dev Notes, AUTO-DECISIONs, débitos e JSDoc extensos
+
+top_issues:
+  - id: 'ARCH-001'
+    severity: medium
+    finding: >-
+      A criação da port dedicada LojistaAuthPort (em vez de generalizar AuthPort)
+      foi decidida autonomamente pelo @dev; a revisão formal de @architect (Sol)
+      da fronteira app → core-data → supabase-client, exigida pela mission ANTES
+      da implementação, não ocorreu como sessão distinta.
+    suggested_action: >-
+      Ratificação retroativa por @architect. A decisão é defensável no mérito
+      (reusar AuthPort produziria Cliente fantasma, exatamente o que AC7 evita;
+      port mínima só com signUp não antecipa contrato de login 3.10) — QA a
+      considera sólida, mas o gate arquitetural continua formalmente aberto.
+  - id: 'REL-007'
+    severity: medium
+    finding: >-
+      Divergência de timestamp da migration: arquivo versionado
+      20260812032149_desambiguar_signup_lojista.sql vs. aplicação remota no
+      keepit-dev sob 20260812032524. Histórico local ≠ remoto quebra
+      `supabase db push`/`db pull` (débito transversal já conhecido no projeto).
+    suggested_action: >-
+      @data-engineer/@devops reconciliarem o histórico de migrations (repair)
+      antes da próxima migration (estabelecimentos das Stories 3.4/3.5).
+  - id: 'TEST-003'
+    severity: low
+    finding: >-
+      Confirmação end-to-end do no-orphan (AC7) e da chegada do signup ao Auth
+      não executada contra keepit-dev; os testes do adapter Supabase usam client
+      injetado (caso trivial), não provam o wiring de @keepit/supabase-client.
+    suggested_action: >-
+      Verificação manual/SQL contra keepit-dev antes do piloto: signup de
+      lojista → 0 linhas em clientes; conta presente em auth.users com
+      raw_user_meta_data.role='lojista'. Espelha lacuna já aceita em 2.5.1/2.6.
+  - id: 'ENV-001'
+    severity: low
+    finding: >-
+      Verificação em device/simulador (fluxo real Passo 1 → conta → avança;
+      duplicado → erro sem avançar) e CFG-001 (Confirm email ON no keepit-dev,
+      que faz o signUp completar sem sessão) permanecem pendentes — sandbox sem
+      simulador e `pnpm qa` só roda tsc nos apps RN.
+    suggested_action: >-
+      Caio/@dev validam manualmente ao rodar o app Lojista; decidir aplicação
+      de CFG-001 (mesmo débito herdado do Cliente).
+  - id: 'MNT-001'
+    severity: low
+    finding: >-
+      Migration `estabelecimentos` (schema enxuto do piloto + RLS por ownership)
+      não entregue nesta Story — pré-condição das Stories 3.4/3.5, não AC da 3.2.
+    suggested_action: >-
+      @data-engineer entrega antes/junto da 3.4. Nenhuma AC da 3.2 lê/escreve a
+      tabela; não bloqueia esta Story.
+  - id: 'OPS-001'
+    severity: low
+    finding: >-
+      O grafo do turbo resolve @keepit/config via `.worktrees/story-2.5.1/`
+      (worktree antiga ainda presente no repositório de trabalho).
+    suggested_action: >-
+      @devops limpar worktrees obsoletas para evitar builds resolvendo caminhos
+      de branches encerradas.
+  - id: 'DOC-002'
+    severity: low
+    finding: >-
+      O texto do AC4 ("a mensagem não distingue e-mail já existe de outros
+      erros") diverge da implementação, que exibe mensagem específica para
+      EmailJaExisteError — porém idêntica ao precedente da Story 2.6 do Cliente,
+      já aprovado em QA. Anti-enumeração real opera na camada de transporte
+      (error.code e obfuscação identities:[] colapsam no mesmo erro).
+    suggested_action: >-
+      Ajuste editorial do wording do AC4 pelo @po para refletir a decisão de UX
+      já vigente; não é defeito de código.
+
+waiver: { active: false }

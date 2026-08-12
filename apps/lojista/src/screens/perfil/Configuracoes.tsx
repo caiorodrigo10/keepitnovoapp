@@ -1,16 +1,64 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 
 import { darkColors, radii, spacing, typography } from '@keepit/ui-tokens';
+import { getDataClient, type MeuPerfilLojista } from '@keepit/core-data';
+import { useAsyncResource } from '@keepit/core-data/hooks';
+import { SUPORTE_WHATSAPP_DISPONIVEL, SUPORTE_WHATSAPP_NUMERO } from '@keepit/config';
 
 import { SettingsListItem } from '../../components/SettingsListItem';
 import type { MainTabParamList, PerfilStackParamList } from '../../navigation/types';
+import { isSupabaseDataSource } from '../../lib/dataSource';
+import { signOutLojista } from '../../navigation/lojistaSession';
 import { useLojaPerfil } from './LojaPerfilContext';
 import { EQUIPE_FIXTURE } from './lojaPerfilDraft';
 
 type Props = NativeStackScreenProps<PerfilStackParamList, 'Configuracoes'>;
+
+/**
+ * Story 3.12 (AC2): mesmo texto/padrão já estabelecido na Story 2.8 do App
+ * Cliente (`Perfil.tsx#MSG_EM_BREVE`) — REUSE, sem inventar um texto novo.
+ */
+const MSG_EM_BREVE = 'Ainda não disponível nesta versão. Em breve.';
+
+/**
+ * Story 3.12 (AC3): honestidade sobre o canal de WhatsApp enquanto WA-001
+ * está pendente (`SUPORTE_WHATSAPP_DISPONIVEL = false`) — mesmo texto de
+ * intenção já usado em `EmAnalise.tsx`/`ContaIndisponivel.tsx`, adaptado ao
+ * formato de `Alert` (item de lista, não botão com estado `disabled`).
+ */
+const MSG_AJUDA_INDISPONIVEL = 'Canal de atendimento via WhatsApp em breve.';
+
+function handleAjudaSuporte(): void {
+  if (SUPORTE_WHATSAPP_DISPONIVEL && SUPORTE_WHATSAPP_NUMERO) {
+    void Linking.openURL(`https://wa.me/${SUPORTE_WHATSAPP_NUMERO}`);
+    return;
+  }
+  Alert.alert('Ajuda & suporte', MSG_AJUDA_INDISPONIVEL);
+}
+
+/**
+ * Story 3.10 (Dependencies, item (c) — "signOut real"). Encerra a sessão
+ * REAL (`lojistaAuth.signOut()`, Supabase Auth em `DATA_SOURCE=supabase`)
+ * antes de limpar o flag local (`signOutLojista()`, que é o que
+ * `RootNavigator` observa para trocar para `Auth` — ver JSDoc de
+ * `lojistaSession.ts`). `signOutLojista()` roda mesmo se o `signOut` real
+ * falhar (best-effort, `catch` silencioso) — o lojista nunca deve ficar
+ * preso em `Main` só porque a chamada de rede de logout falhou; é o mesmo
+ * raciocínio de resiliência de "Sair" já aplicado noutros apps deste
+ * monorepo.
+ */
+async function handleSair(): Promise<void> {
+  try {
+    await getDataClient().lojistaAuth.signOut();
+  } catch {
+    // Best-effort — ver JSDoc acima.
+  } finally {
+    signOutLojista();
+  }
+}
 
 /**
  * Configurações + Excluir conta — Story 0.8 (Task 10).
@@ -25,14 +73,74 @@ type Props = NativeStackScreenProps<PerfilStackParamList, 'Configuracoes'>;
  * `navigation.getParent<BottomTabNavigationProp<MainTabParamList>>()`, sem
  * adicionar rotas novas a `PerfilStackParamList` (fora de escopo tocar
  * `navigation/types.ts` além do necessário).
+ *
+ * **Story 9.0.4 (Task 5, AC3):** seção "CONTA" com o item "Sair" — a
+ * transição para `AuthStack` é consequência exclusiva da mudança de sessão
+ * observada por `RootNavigator`, sem navegação imperativa aqui.
+ *
+ * **Story 3.10:** "Sair" (`handleSair`, topo do arquivo) passou a encerrar
+ * também a sessão REAL (`lojistaAuth.signOut()`), não só o flag local — ver
+ * JSDoc de `handleSair`.
+ *
+ * **Story 3.12 (AC5).** Card-resumo religado a dado real (nome fantasia +
+ * categoria) quando `DATA_SOURCE=supabase`, via
+ * `estabelecimentoCadastro.getMeuPerfil()` (REUSE do MESMO método
+ * introduzido pela Story 3.11, sem uma terceira leitura própria). Loading/
+ * erro/leitura indisponível têm um estado honesto — nunca o fixture
+ * `perfil` (`LojaPerfilContext`, Story 0.8) exibido como se fosse real.
+ * `DATA_SOURCE=mock` preserva o fixture tal como estava.
+ *
+ * [AUTO-DECISION] O subtítulo do card em modo Supabase mostra só a
+ * categoria (sem "· hub") → (reason: a associação estabelecimento↔hub NÃO
+ * está no schema real do piloto — `perfil.hubNome`, Story 0.8, é fixture
+ * puro sem contrapartida em `estabelecimentos`. Misturar "categoria real" +
+ * "hub fabricado" na mesma linha violaria a regra de honestidade do
+ * `docs/stories/README.md` — melhor omitir o hub do que fingir um dado que
+ * não existe).
+ *
+ * **Story 3.12 (AC1-AC3).** "Termos"/"Política" navegam honestamente
+ * (`Alert.alert`, REUSE do padrão da Story 2.8 do App Cliente,
+ * `Perfil.tsx#MSG_EM_BREVE`) — sem tela/conteúdo novo. "Ajuda & suporte"
+ * consome o MESMO seam de WhatsApp (`SUPORTE_WHATSAPP_NUMERO`/
+ * `SUPORTE_WHATSAPP_DISPONIVEL`, Story 3.6) já usado por `handleAjudaSuporte`
+ * (topo do arquivo) e pelo AC1 de `ExcluirConta.tsx`.
  */
 export default function Configuracoes({ navigation }: Props) {
   const { perfil } = useLojaPerfil();
+  const supabaseMode = isSupabaseDataSource();
+  const client = getDataClient();
+  const {
+    data: meuPerfil,
+    loading: meuPerfilLoading,
+    error: meuPerfilError,
+  } = useAsyncResource<MeuPerfilLojista | null>(
+    () => (supabaseMode ? client.estabelecimentoCadastro.getMeuPerfil() : Promise.resolve(null)),
+    null,
+    [supabaseMode],
+  );
 
   function navigateToTab(tab: keyof MainTabParamList, screen: string) {
     const parent = navigation.getParent<BottomTabNavigationProp<MainTabParamList>>();
     parent?.navigate(tab, { screen } as never);
   }
+
+  function showEmBreve(label: string) {
+    Alert.alert(label, MSG_EM_BREVE);
+  }
+
+  // AC5 — card-resumo: fixture em modo mock; dado real (ou estado honesto de
+  // loading/erro) em modo Supabase, nunca o fixture disfarçado de real.
+  const resumoNome = !supabaseMode
+    ? perfil.nome_fantasia
+    : meuPerfilLoading
+      ? 'Carregando…'
+      : (meuPerfil?.nome_fantasia ?? 'Não foi possível carregar');
+  const resumoSubtitulo = !supabaseMode
+    ? `${perfil.categoria} · ${perfil.hubNome}`
+    : meuPerfilLoading
+      ? '—'
+      : (meuPerfil?.categoria ?? (meuPerfilError ? 'Tente novamente em instantes.' : '—'));
+  const resumoInicial = resumoNome.trim().charAt(0).toUpperCase() || '?';
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: darkColors.bg.primary }]}>
@@ -41,13 +149,11 @@ export default function Configuracoes({ navigation }: Props) {
 
         <View style={[styles.summaryCard, { backgroundColor: darkColors.bg.surface }]}>
           <View style={[styles.avatar, { backgroundColor: darkColors.accent.brand }]}>
-            <Text style={styles.avatarLetter}>{perfil.nome_fantasia.charAt(0).toUpperCase()}</Text>
+            <Text style={styles.avatarLetter}>{resumoInicial}</Text>
           </View>
           <View style={styles.summaryText}>
-            <Text style={[styles.summaryName, { color: darkColors.text.primary }]}>{perfil.nome_fantasia}</Text>
-            <Text style={[styles.summarySubtitle, { color: darkColors.text.tertiary }]}>
-              {perfil.categoria} · {perfil.hubNome}
-            </Text>
+            <Text style={[styles.summaryName, { color: darkColors.text.primary }]}>{resumoNome}</Text>
+            <Text style={[styles.summarySubtitle, { color: darkColors.text.tertiary }]}>{resumoSubtitulo}</Text>
           </View>
           <Text
             style={[styles.editLink, { color: darkColors.accent.brand }]}
@@ -122,6 +228,22 @@ export default function Configuracoes({ navigation }: Props) {
             ao painel P11 (texto + ícone "+"), sem navegação.
           */}
           <Text style={[styles.inviteLink, { color: darkColors.accent.brand }]}>+ Convidar membro</Text>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={[styles.sectionLabel, { color: darkColors.text.tertiary }]}>SUPORTE</Text>
+          <SettingsListItem icon="help-circle-outline" label="Ajuda & suporte" onPress={handleAjudaSuporte} />
+          <SettingsListItem icon="document-text-outline" label="Termos" onPress={() => showEmBreve('Termos de uso')} />
+          <SettingsListItem
+            icon="shield-checkmark-outline"
+            label="Política"
+            onPress={() => showEmBreve('Política de privacidade')}
+          />
+        </View>
+
+        <View style={styles.section}>
+          <Text style={[styles.sectionLabel, { color: darkColors.text.tertiary }]}>CONTA</Text>
+          <SettingsListItem icon="log-out-outline" label="Sair" onPress={() => void handleSair()} />
         </View>
 
         <View style={styles.section}>

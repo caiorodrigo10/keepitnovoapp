@@ -1,5 +1,6 @@
 /**
- * Shape do "rascunho de cadastro" do lojista — Story 0.8 (Task 2).
+ * Shape do "rascunho de cadastro" do lojista — Story 0.8 (Task 2), atualizado
+ * pela Story 3.4 (Passo 2 — dados operacionais).
  *
  * RECORTE PROVISÓRIO: `packages/core-data` (Story 0.2) já existe, mas o seu
  * `AuthPort`/`StorePort` não cobrem criação de estabelecimento (só leitura —
@@ -15,9 +16,11 @@
  * `docs/architecture/03-data-models.md#1.4`/`#1.5`, EXCETO:
  * - `hubPreferencialId`: campo exclusivo do mock/UI (ver Dev Notes da story,
  *   "Conflito schema vs. protótipo") — `estabelecimentos` não tem `hub_id`.
- * - `lat`/`lng`: sem geocoding real nesta story (fora de escopo do Épico 0);
- *   ficam com um valor fixo de exemplo, preenchido a partir do campo texto
- *   "Endereço" só visualmente.
+ * - `lat`/`lng`: **`number | null`** (Story 3.4 — "Geo adiado",
+ *   `docs/architecture/03-data-models.md#1.4`) — input manual opcional do
+ *   lojista, sem geocoding/mapa. `null` é o estado honesto de "não
+ *   informado"; a Story 0.8 usava um placeholder fixo de coordenadas
+ *   (Centro/SP) que era dado fabricado — removido por esta Story.
  */
 
 export type ChavePixTipo = 'cpf' | 'cnpj' | 'email' | 'telefone' | 'aleatoria';
@@ -32,20 +35,33 @@ export interface HorarioDraft {
 export interface CadastroDraft {
   // Passo 1 — dados básicos
   nome_fantasia: string;
-  categoria: string | null;
   cnpj: string;
   /** Campo exclusivo do mock/UI — não corresponde a coluna confirmada em `estabelecimentos`. */
   hubPreferencialId: string | null;
   logoLocalUri: string | null;
-
-  // Passo 2 — operacionais
+  /**
+   * Coletados de verdade no Passo 1 desde a Story 3.2 (conta real do
+   * lojista). Continuam no shape porque `CadastroDraftContext` é a fonte
+   * única desses campos para o resto do wizard — a Story 3.4 só removeu a
+   * REEXIBIÇÃO duplicada desses dois campos no Passo 2 (AC5), não os campos
+   * do shape.
+   */
   responsavel_nome: string;
   telefone: string;
+
+  // Passo 2 — operacionais (Story 3.4, AC1) — `categoria` mudou de "Passo 1"
+  // para cá nesta Story (gap conhecido herdado da Story 3.2, ver Dependencies).
+  categoria: string | null;
   endereco: string;
-  lat: number;
-  lng: number;
+  /** `null` = não informado pelo lojista (geo adiado — ver Dev Notes acima). */
+  lat: number | null;
+  /** `null` = não informado pelo lojista (geo adiado — ver Dev Notes acima). */
+  lng: number | null;
   raio_atendimento_km: number;
   tempo_medio_entrega_min: number;
+  taxa_deslocamento_reais: number;
+  /** `null` = em branco, usa o global (`businessConfig.ticketMinimoReais`). */
+  ticket_minimo_reais: number | null;
 
   // Passo 3 — recebimento + fachada + horários
   chave_pix: string;
@@ -53,9 +69,6 @@ export interface CadastroDraft {
   foto_fachada_url: string | null;
   horarios: HorarioDraft[];
 }
-
-/** Coordenadas fixas de exemplo (Centro/SP) — ver nota sobre `lat`/`lng` acima. */
-const LAT_LNG_PLACEHOLDER = { lat: -23.5505, lng: -46.6333 };
 
 const DIAS_SEMANA = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'] as const;
 
@@ -75,18 +88,21 @@ export function createEmptyHorarios(): HorarioDraft[] {
 export function createEmptyCadastroDraft(): CadastroDraft {
   return {
     nome_fantasia: '',
-    categoria: null,
     cnpj: '',
     hubPreferencialId: null,
     logoLocalUri: null,
 
     responsavel_nome: '',
     telefone: '',
+
+    categoria: null,
     endereco: '',
-    lat: LAT_LNG_PLACEHOLDER.lat,
-    lng: LAT_LNG_PLACEHOLDER.lng,
+    lat: null,
+    lng: null,
     raio_atendimento_km: 3,
     tempo_medio_entrega_min: 30,
+    taxa_deslocamento_reais: 0,
+    ticket_minimo_reais: null,
 
     chave_pix: '',
     chave_pix_tipo: null,
@@ -96,17 +112,15 @@ export function createEmptyCadastroDraft(): CadastroDraft {
 }
 
 /**
- * Categorias reaproveitadas de `packages/core-data/src/mock/fixtures/estabelecimentos.ts`
- * — não inventadas por esta story (ver Dev Notes: "CHECK completo não
- * documentado — não inventar a lista completa"). Lista restrita aos valores
- * já existentes no fixture mock do Épico 0.
+ * Re-exportada de `@keepit/config` (Story 3.4, AC1 — "dropdown com lista
+ * aberta gerenciada em `packages/config/business-rules.ts`") para não
+ * quebrar consumidores existentes fora do escopo desta Story
+ * (`apps/lojista/src/screens/perfil/PerfilPublico.tsx`, Story 0.8) que já
+ * importavam `CATEGORIA_OPTIONS` daqui. A definição canônica passou a viver
+ * em `packages/config/src/business-rules.ts` — ver JSDoc lá para a
+ * proveniência dos valores.
  */
-export const CATEGORIA_OPTIONS = [
-  { value: 'farmacia', label: 'Farmácia' },
-  { value: 'vestuario', label: 'Vestuário' },
-  { value: 'conveniencia', label: 'Conveniência' },
-  { value: 'alimentacao', label: 'Alimentação' },
-] as const;
+export { CATEGORIA_OPTIONS } from '@keepit/config';
 
 /**
  * Hubs de exemplo — campo exclusivo do mock/UI (ver `hubPreferencialId`).

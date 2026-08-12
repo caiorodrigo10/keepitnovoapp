@@ -1,19 +1,15 @@
 import { redirect } from 'next/navigation';
 
-import { isAuthenticated } from '../src/config/authGuard';
-
 /**
- * Raiz do Admin — Épico 0, Story 0.3 (AC5).
+ * Raiz do Admin — Épico 0, Story 0.3 (AC5) + Story 10.1 (Task 4).
  *
- * Redireciona para `/aprovacoes` (guard autenticado) ou `/login` (guard
- * desautenticado), conforme o guard stub `isAuthenticated()`. Substitui a
- * Home mínima estática da Story 0.1 (visual preservado nas telas de
- * destino, não aqui).
+ * A sessão agora é client-side (`sessionStorage`, mock local do Admin —
+ * `adminAuth.ts`), então esta rota (Server Component) não pode mais checar
+ * autenticação diretamente. Redireciona sempre para `/login`, que por sua
+ * vez encaminha quem já tem sessão para `/aprovacoes` (ver
+ * `(auth)/login/page.tsx`). Substitui o guard stub sempre-true
+ * (`src/config/authGuard.ts`, removido nesta story).
  */
 export default function RootPage() {
-  if (isAuthenticated()) {
-    redirect('/aprovacoes');
-  }
-
   redirect('/login');
 }

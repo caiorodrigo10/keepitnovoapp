@@ -1,0 +1,41 @@
+schema: 1
+story: '3.3'
+gate: CONCERNS
+status_reason: 'Algoritmo de DV do CNPJ correto e sem rede externa; seam de duplicidade honesto e bem documentado. Fica como débito a decisão do mecanismo real de checagem sob RLS (@architect) e o teste do caminho "duplicado", ambos legitimamente adiados para as Stories 3.4/3.5.'
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-08-12T03:55:15Z'
+pilot_classification: SIMPLE
+top_issues:
+  - id: 'ARCH-001'
+    severity: medium
+    finding: 'O mecanismo real de checagem de duplicidade de CNPJ sob RLS (função SECURITY DEFINER booleana, Edge Function ou captura de constraint UNIQUE no submit) não foi decidido — a task [@architect] da Story ficou não executada (sessão solo @dev). Hoje sem impacto (seam sempre "disponível"), mas precisa ser resolvida antes/junto da Story 3.5 quando a consulta real existir.'
+    suggested_action: 'Abrir/rotear decisão de @architect para o mecanismo de checkCnpjDisponivel sob RLS quando estabelecimentos existir (Story 3.4/3.5). Débito já documentado no JSDoc de StorePort.checkCnpjDisponivel.'
+  - id: 'TEST-003'
+    severity: low
+    finding: 'Nenhum teste exercita o caminho "CNPJ duplicado encontrado" (retorno false → MSG_CNPJ_DUPLICADO), pois o seam Supabase não faz consulta real ainda (estabelecimentos inexistente). Cobertura atual valida apenas "sempre disponível" e "não toca o SupabaseClient".'
+    suggested_action: 'Adicionar teste de "sucesso duplicado"/"propagação de erro de rede" junto com a implementação real da consulta na Story 3.5.'
+  - id: 'TEST-004'
+    severity: low
+    finding: 'Verificação em dispositivo/E2E de CadastroPasso1 (erro inline de formato vs. duplicidade na tela real) não foi executada neste gate — cobertura limitada a unitários + typecheck + leitura de código, conforme recorte da missão.'
+    suggested_action: 'Validar manualmente em device o feedback inline de CNPJ inválido no fluxo real do cadastro do lojista quando o build do piloto for exercitado.'
+waiver: { active: false }
+
+evidence:
+  ac_coverage:
+    AC1: 'PASS — isCnpjValido (apps/lojista/src/lib/cnpj.ts) usa algoritmo padrão da Receita (módulo 11, 2 checksums), rejeita comprimento != 14 e 14 dígitos repetidos; ligado em CadastroPasso1.validate() com MSG_CNPJ_INVALIDO bloqueando "Continuar". DV verificado independentemente contra CNPJs válidos/inválidos conhecidos.'
+    AC2: 'PASS — checkCnpjDisponivel chamado antes de signUp em handleContinuar(); erro específico MSG_CNPJ_DUPLICADO distinto do erro de formato; mock sempre "disponível".'
+    AC3: 'PASS (CRÍTICO) — grep por brasilapi/validar-cnpj/dados_receita/fetch/axios no caminho ativo não encontra nenhuma chamada de rede (só menções em comentário e URLs de fixtures Unsplash pré-existentes, não relacionadas ao CNPJ). Nenhuma dependência de rede nova.'
+    AC4: 'PASS — seam Supabase resolve sempre true sem tocar o SupabaseClient (teste confirma from() nunca chamado); nenhum falso negativo até a Story 3.5, comportamento correto e documentado.'
+    AC5: 'PASS — nenhuma mensagem afirma/sugere validação junto à Receita; MSG_CNPJ_INVALIDO/MSG_CNPJ_DUPLICADO falam só de formato e duplicidade.'
+  tests:
+    core_data: '165/165 passed (inclui store.mock.test.ts checkCnpjDisponivel +2 e store.supabase.test.ts +3)'
+    lojista: '18/18 passed (cnpj.test.ts 9 casos: válidos com/sem máscara, DV errado no último/penúltimo dígito, dígitos repetidos, comprimento curto/longo, limpeza de máscara)'
+    typecheck: 'lojista tsc --noEmit — 0 erros'
+  security: 'Seam honesto — não finge sucesso nem erro; contrato booleano não vaza dados de terceiros (nome fantasia, dono). Recorte correto do piloto SIMPLE.'
+  regression: 'Nenhuma — CadastroPasso1 (Story 3.2) preserva fluxo signUp, navegação do wizard e mensagens existentes; validação de formato estende validate() sem quebrar campos anteriores.'
+
+nfr_validation:
+  security: { status: PASS, notes: 'Sem rede externa; seam sem vazamento de dado; booleano único.' }
+  reliability: { status: PASS, notes: 'Validação client-side determinística; erro de rede real propaga sem simular sucesso.' }
+  maintainability: { status: PASS, notes: 'Função pura documentada; débito de mecanismo RLS registrado explicitamente para @architect.' }
+  performance: { status: PASS, notes: 'Validação síncrona O(n); nenhuma chamada de I/O no caminho de formato.' }

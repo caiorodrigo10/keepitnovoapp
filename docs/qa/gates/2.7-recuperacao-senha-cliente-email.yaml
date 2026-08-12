@@ -1,0 +1,78 @@
+schema: 1
+story: '2.7'
+slug: recuperacao-senha-cliente-email
+title: Recuperação de senha do Cliente por e-mail
+gate: CONCERNS
+status_reason: >-
+  ACs funcionais 1, 4, 5, 6 e 7 implementadas e verificadas de forma
+  independente (testes reexecutados sem cache, greps de segurança, revisão de
+  código). O foco de segurança da story — anti-enumeração (AC7), isolamento do
+  token de recuperação e não-promoção da sessão de recuperação a Main —
+  está corretamente implementado e coberto por teste. AC2 (template pt-BR no
+  dashboard Supabase) e a metade device de AC3 (recepção do link em aparelho)
+  não são verificáveis neste ambiente autônomo — permanecem como verificação
+  manual pendente. Nenhum achado critical/high.
+reviewer: 'Quinn'
+updated: '2026-08-12T02:30:00Z'
+
+# Evidência empírica reexecutada pelo @qa (não confiada no FULL TURBO cacheado)
+evidence:
+  independent_verification: true
+  tests:
+    - '@keepit/core-data:test (run direto, sem cache) → 128/128 PASS — auth.supabase.test.ts 22/22 (reset sucesso/erro neutro anti-enumeração, PKCE + implícito, updatePassword exige sessão de recuperação, marca persiste se signOut falhar, INITIAL_SESSION de recovery não promove a Main), auth.mock.test.ts 16/16'
+    - '@keepit/cliente:test (run direto, sem cache) → 38/38 PASS — passwordRecoveryLinking.test.ts 7/7 (token bruto só chega ao AuthPort; retorno sanitizado ?recovery=ready|invalid; ignora rota estranha/URL nula), dataClientBootstrap.test.ts 5/5 (AC5: passwordRecoveryState apoiado em AsyncStorage, sem tocar token/senha)'
+    - 'pnpm qa → 27/27 tasks Turbo PASS (lint/typecheck/test em todos os workspaces; admin e lojista typecheck verdes — sem regressão)'
+  security_boundary:
+    - 'console.* no fluxo de recuperação (RecuperarSenha/EsqueciSenha/passwordRecoveryLinking/auth.supabase/auth.mock) → ZERO ocorrências'
+    - 'access_token/refresh_token/accessToken/refreshToken em apps/cliente/src → só em fixtures de teste e JSDoc; NUNCA em params de navegação, estado ou toast. Token bruto vive exclusivamente dentro de core-data (auth.supabase.ts) e do SDK'
+    - 'passwordRecoveryLinking retorna apenas com.keepithub.cliente://auth/reset?recovery=ready|invalid — a URL bruta com token é repassada uma única vez a establishPasswordRecoverySession e nunca ao react-navigation state'
+    - 'service_role/asaas em cliente+core-data (fonte .ts/.tsx) → apenas docstrings explicando por que NÃO são usados; nenhum segredo no bundle'
+    - 'Story sem migration/SQL (git status confirma ausência de novos .sql; apenas as 2 migrations pré-existentes) — schema/RLS de clientes inalterados'
+    - 'updatePassword rejeita sem sessão de recuperação ativa (não troca senha de login comum); após updateUser faz signOut e só então limpa a marca; se signOut falhar, marca permanece ativa (nunca libera Main com sessão inconsistente) — coberto por teste'
+
+acceptance_criteria:
+  - id: AC1
+    status: MET
+    note: 'EsqueciSenha chama auth.requestPasswordReset; no adapter Supabase isso é resetPasswordForEmail(email, { redirectTo: callback canônico }) — chamada de rede real, erro do SDK relançado sem mascarar. Não é sucesso apenas visual. Coberto por teste.'
+  - id: AC2
+    status: PENDING_MANUAL
+    note: 'Template pt-BR do e-mail é config do dashboard Authentication > Email Templates do keepit-dev; nenhum artefato de código controla o idioma. Fora de escopo de código (sem Edge Function/template custom). Verificação manual pendente no projeto hospedado.'
+  - id: AC3
+    status: PARTIAL
+    note: 'Metade de código MET e testada: passwordRecoveryLinking sanitiza o callback (token nunca chega à navegação); establishPasswordRecoverySession cobre PKCE (code) e implícito (access/refresh no fragmento), rejeitando ausente/outra-rota/expirado/sem-sessão com erro genérico e retorno seguro (RecuperarSenha em recovery=invalid, sem tela branca). Metade device (abrir o link real em aparelho com build nativo recompilado) PENDING_MANUAL — depende da allow-list aplicada no keepit-dev.'
+  - id: AC4
+    status: MET
+    note: "RecuperarSenha faz navigation.reset para Login com params.toast='Senha redefinida' (literal exato) após updatePassword resolver; reset (não navigate) para não deixar a tela na pilha. Login.tsx renderiza route.params.toast. Coberto por teste do adapter (updatePassword + signOut)."
+  - id: AC5
+    status: MET
+    note: 'Nenhum token/URL/senha logado, exibido ou persistido manualmente (grep ZERO console.*). passwordRecoveryState (AsyncStorage, chave dedicada, só booleano) impede onAuthStateChange de promover a Main enquanto a sessão for de recuperação, inclusive após restart (INITIAL_SESSION reidratado). Estados de loading/erro com nova tentativa. Tudo coberto por teste.'
+  - id: AC6
+    status: MET
+    note: 'auth.mock adiciona os 3 métodos como simulação local sem tocar db.clientes/db.clienteCredenciais nem chamar rede (teste dedicado). dataClientBootstrap continua sem chamar getDataClient no ramo mock; default seguro (flag ausente/inválida → mock) preservado. Fixtures de clientes/lojas/produtos não tocadas por esta story (ver MNT-002).'
+  - id: AC7
+    status: MET
+    note: 'requestPasswordReset resolve identicamente para e-mail cadastrado ou não (teste explícito + adapter sem branch de "não encontrado"). EsqueciSenha exibe sempre a mesma mensagem neutra sem citar o e-mail. A chamada real ao Supabase Auth ocorre (não é o sucesso-apenas-visual da AC1) — só a existência da conta é ocultada. Mesmo padrão validado no gate da 2.6.'
+
+top_issues:
+  - id: 'CFG-002'
+    severity: medium
+    category: reliability
+    finding: 'AC2 (template pt-BR) e AC3-device dependem de configuração do projeto hospedado keepit-dev: template de e-mail em pt-BR e allow-list exata com.keepithub.cliente://auth/reset em Authentication > URL Configuration. config.toml local já lista o callback; o hospedado exige credencial administrativa e não é verificável neste ambiente.'
+    suggested_action: 'Antes de habilitar DATA_SOURCE=supabase no piloto: aplicar/confirmar a allow-list exata (não usar wildcard ://**) e o template pt-BR no dashboard keepit-dev; então validar E2E em device com build nativo recompilado (Expo Go não conta).'
+  - id: 'REL-010'
+    severity: medium
+    category: reliability
+    finding: 'Fluxo end-to-end em device (solicitar reset -> receber e-mail -> abrir deep link -> definir senha -> toast/retorno ao Login -> autenticar com a senha nova) não executado — ambiente autônomo sem simulador nem credenciais reais. A lógica de sanitização, sessão de recuperação e retorno está coberta por teste unitário, mas a recepção real do link no SO depende de build nativo.'
+    suggested_action: 'Executar o E2E manual em device/simulador após CFG-002 resolvido; confirmar que o link inválido/expirado cai na tela recuperável sem tela branca.'
+  - id: 'TEST-003'
+    severity: medium
+    category: tests
+    finding: 'Componentes RN (RecuperarSenha.tsx, EsqueciSenha.tsx, Login.tsx) sem teste de render/interação: apps/cliente/vitest.config.ts roda em environment node e só inclui *.test.ts, sem @testing-library/react-native. Pré-existente (herdado do gate 2.6), fora do escopo desta story. Lógica pura (linking, bootstrap, adapter) está coberta.'
+    suggested_action: 'Story arquitetural própria para infraestrutura de teste de componente RN; até lá, telas validadas por leitura + device.'
+  - id: 'MNT-002'
+    severity: low
+    category: maintainability
+    finding: 'Worktrees divergentes de integração (.worktrees/story-2.5.1, .worktrees/story-2.7) permanecem não integrados a main; o pnpm qa cacheado referencia paths de worktree. A decisão de arquitetura 0.1.3 (scheme/callback em app.json e config.toml) vive num commit não mesclado (1891e77). Débito de integração herdado.'
+    suggested_action: 'Débito para @devops: reconciliar/descartar os worktrees antigos e garantir que app.json/config.toml canônicos estejam no working tree principal antes de push/PR. Não bloqueia o código atual (tests reexecutados no working tree principal passam).'
+
+waiver: { active: false }

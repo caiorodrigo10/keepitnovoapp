@@ -6,7 +6,6 @@ import { createAuthSupabase } from './auth.supabase';
 import { createHubSupabase } from './hub.supabase';
 import { NotImplementedError } from './not-implemented-error';
 import { createOrderSupabase } from './order.supabase';
-import { createProductSupabase } from './product.supabase';
 import { createStoreSupabase } from './store.supabase';
 import { createWalletSupabase } from './wallet.supabase';
 
@@ -24,11 +23,8 @@ async function expectNotImplemented(fn: (...args: any[]) => Promise<unknown>, ar
 }
 
 describe('supabase adapters (esqueleto — Story 1.9)', () => {
-  it('auth.supabase.ts — todo método (exceto signUp, implementado na Story 2.3) rejeita com NotImplementedError', async () => {
+  it('auth.supabase.ts — todo método (exceto signUp, signIn, currentUser e signOut, implementados nas Stories 2.3/2.6/2.8) rejeita com NotImplementedError', async () => {
     const port = createAuthSupabase();
-    await expectNotImplemented(port.signIn.bind(port), 2);
-    await expectNotImplemented(port.currentUser.bind(port), 0);
-    await expectNotImplemented(port.signOut.bind(port), 0);
     await expectNotImplemented(port.confirmPhone.bind(port), 2);
     await expectNotImplemented(port.getById.bind(port), 1);
     await expectNotImplemented(port.updateCpf.bind(port), 2);
@@ -40,24 +36,19 @@ describe('supabase adapters (esqueleto — Story 1.9)', () => {
     await expectNotImplemented(port.getById.bind(port), 1);
   });
 
-  it('store.supabase.ts — todo método rejeita com NotImplementedError', async () => {
+  // store.supabase.ts — `getById` (Stories 4.7/4.8), `setPausadoManualmente`
+  // (Story 4.8) e `updateHorarios` (Story 4.7) já são implementações reais,
+  // cobertas em `store.supabase.test.ts`.
+  it('store.supabase.ts — listByHub/getCatalog/getState (Descoberta, Épico 5) rejeitam com NotImplementedError', async () => {
     const port = createStoreSupabase();
     await expectNotImplemented(port.listByHub.bind(port), 1);
     await expectNotImplemented(port.getCatalog.bind(port), 1);
-    await expectNotImplemented(port.getById.bind(port), 1);
     await expectNotImplemented(port.getState.bind(port), 1);
-    await expectNotImplemented(port.setPausadoManualmente.bind(port), 2);
   });
 
-  it('product.supabase.ts — todo método rejeita com NotImplementedError', async () => {
-    const port = createProductSupabase();
-    await expectNotImplemented(port.list.bind(port), 1);
-    await expectNotImplemented(port.getById.bind(port), 1);
-    await expectNotImplemented(port.create.bind(port), 1);
-    await expectNotImplemented(port.update.bind(port), 2);
-    await expectNotImplemented(port.pause.bind(port), 1);
-    await expectNotImplemented(port.delete.bind(port), 1);
-  });
+  // product.supabase.ts — esqueleto encerrado: `list`/`create`/`uploadFoto`
+  // (Stories 4.3/4.4) e `getById`/`update`/`pause`/`delete` (Stories 4.5/4.6)
+  // já são implementações reais, cobertas em `product.supabase.test.ts`.
 
   it('order.supabase.ts — todo método rejeita com NotImplementedError', async () => {
     const port = createOrderSupabase();
@@ -90,14 +81,8 @@ describe('supabase adapters (esqueleto — Story 1.9)', () => {
     await expectNotImplemented(port.monthlyStatement.bind(port), 1);
   });
 
-  it('admin.supabase.ts — todo método (incluindo hubsCrud/refundQueue) rejeita com NotImplementedError', async () => {
+  it('admin.supabase.ts — todo método (exceto pendingStores/pendingStoreDetail, Story 3.7; approve/reject, Stories 3.8/3.9; e hubsCrud.*, Story 4.1) rejeita com NotImplementedError', async () => {
     const port = createAdminSupabase();
-    await expectNotImplemented(port.pendingStores.bind(port), 0);
-    await expectNotImplemented(port.approve.bind(port), 1);
-    await expectNotImplemented(port.reject.bind(port), 2);
-    await expectNotImplemented(port.hubsCrud.create.bind(port.hubsCrud), 1);
-    await expectNotImplemented(port.hubsCrud.update.bind(port.hubsCrud), 2);
-    await expectNotImplemented(port.hubsCrud.delete.bind(port.hubsCrud), 1);
     await expectNotImplemented(port.refundQueue.list.bind(port.refundQueue), 0);
     await expectNotImplemented(port.refundQueue.process.bind(port.refundQueue), 1);
     await expectNotImplemented(port.listClientes.bind(port), 0);
@@ -118,11 +103,8 @@ describe('supabase adapters (esqueleto — Story 1.9)', () => {
     await expect(createOrderSupabase().create(undefined as never)).rejects.toThrow(
       '[core-data/supabase] order.create — implementar no Épico 6',
     );
-    await expect(createAdminSupabase().pendingStores()).rejects.toThrow(
-      '[core-data/supabase] admin.pendingStores — implementar no Épico 3',
-    );
-    await expect(createAdminSupabase().hubsCrud.create(undefined as never)).rejects.toThrow(
-      '[core-data/supabase] admin.hubsCrud.create — implementar no Épico 4',
+    await expect(createAdminSupabase().refundQueue.list()).rejects.toThrow(
+      '[core-data/supabase] admin.refundQueue.list — implementar no Épico 8',
     );
     await expect(createAdminSupabase().listAllOrders()).rejects.toThrow(
       '[core-data/supabase] admin.listAllOrders — implementar no Épico 8',

@@ -1,0 +1,67 @@
+schema: 1
+story: '4.6'
+gate: CONCERNS
+status_reason: 'Adapter Supabase real de `ProductPort.pause` (`UPDATE ativo=false`, reversível, relê pós-escrita) e `delete` (soft delete `UPDATE excluido_em=NOW()`, NUNCA `DELETE` físico — verificado por teste e por grep de ausência de `.delete()`). Confirmação real antes de excluir (`ConfirmModal`, `handleExcluir` await + navega só em sucesso). Toggle inline com `catch`/`Alert` honesto. Checagem "pedidos em aberto" DELIBERADAMENTE ausente (tabela `pedidos` é Épico 6) — não simulada, coberta por teste `from.not.toHaveBeenCalledWith("pedidos")` (Artigo IV — No Invention respeitado). Nenhuma condição de FAIL. CONCERNS por débitos honestos: checagem de pedidos adiada p/ Épico 6, `delete` cross-tenant é no-op silencioso (dado protegido pela RLS, mas assimétrico vs update/pause), visibilidade no catálogo público depende do Épico 5, e RLS e2e manual.'
+reviewer: 'Quinn'
+updated: '2026-08-12T00:00:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static+test
+    evidence: '`pause` chama `applyProdutoPatch(id, { ativo: false })` — mesmo helper de `update`, relê o produto real pós-escrita. Reativação via `update(id, { ativo: true })` (`ProductCatalogContext#toggleAtivo`). Teste: "faz UPDATE ativo=false e devolve o produto real pausado". Ressalva: "some do catálogo público do cliente" depende de `publico_ve_produtos` (filtro `ativo=true`) exercitada no Épico 5 (descoberta) — não testável nesta fatia (ver DEP-001).'
+  AC2:
+    status: MET
+    method: static+test
+    evidence: '`delete` faz `UPDATE excluido_em=NOW()` e NUNCA `DELETE` físico (grep confirma ausência de `.delete()` no adapter; mesmo padrão de `estabelecimentos`/`clientes`). Teste: "soft delete real — UPDATE excluido_em=NOW(), nunca remoção física". Checagem "não permitido se há pedidos em aberto" (texto literal do Épico) ausente de forma HONESTA — `pedidos` não existe nesta fase (Épico 6 vem depois de 4.x/5.x); teste explícito "nunca consulta uma tabela pedidos inexistente" (`from.not.toHaveBeenCalledWith("pedidos")`). Débito de retomada registrado (ver DEP-002).'
+  AC3:
+    status: MET
+    method: static
+    evidence: '`ConfirmModal` já existente preservado sem alteração visual; `delete` real só é chamado após `onConfirm`→`handleExcluir`, que agora `await`s `deleteProduto` — modal só fecha e tela só navega em sucesso real; falha exibe `deleteError` e mantém o produto no catálogo (nenhuma exclusão fictícia).'
+  AC4:
+    status: MET
+    method: static+test
+    evidence: 'RLS `lojista_gerencia_produtos` FOR ALL (`USING`+`WITH CHECK` por `dono_user_id = auth.uid()`, `FORCE ROW LEVEL SECURITY`, migration `20260812190000`). `pause` relê pós-escrita e lança se 0 linhas (produto de outro dono). Teste: "RLS bloqueando pause de produto de outro dono — releitura rejeita". Para `delete`, a RLS protege o dado (0 linhas afetadas, nenhuma linha de outro dono modificada) — ver SEC-001 sobre o no-op silencioso. Verificação e2e contra Postgres real é débito (ver TEST-001).'
+
+top_issues:
+  - id: 'SEC-001'
+    severity: low
+    finding: 'Ao contrário de `update`/`pause` (que relêem e lançam em 0 linhas), `delete` não distingue 0-rows-afetadas (produto de outro dono) de uma exclusão real — resolve `void` sem erro. Consequência: um `delete` cross-tenant seria um no-op silencioso "bem-sucedido" na UI. NÃO é falha de dado: a RLS `lojista_gerencia_produtos` (USING) impede qualquer modificação da linha de outro dono, e o caminho não é alcançável pela UI normal (o lojista só vê/aciona os próprios produtos, lista filtrada por estabelecimento + RLS). Assimetria de honestidade, não vazamento.'
+    suggested_action: 'Opcional: `delete` usar `.select("id")` e verificar linhas afetadas (ou reler) para lançar em 0-rows, alinhando à honestidade de `update`/`pause`. Baixa prioridade — dado já protegido pela RLS.'
+  - id: 'DEP-002'
+    severity: medium
+    finding: 'Checagem "não permitido excluir se há pedidos em aberto" (AC2 literal do Épico) NÃO implementada — tabela `pedidos` só existe no Épico 6. Tratada como débito explícito e testada como ausente (não simulada).'
+    suggested_action: 'Adicionar a checagem real de pedidos em aberto antes do soft delete quando o Épico 6 (`pedidos`) existir — registrar como Story/task de retomada.'
+  - id: 'DEP-001'
+    severity: low
+    finding: 'AC1 "produto some do catálogo público do cliente" depende da policy `publico_ve_produtos` exercitada pela descoberta (Épico 5) — não verificável nesta fatia.'
+    suggested_action: 'Validar visibilidade pública quando o Épico 5 (descoberta do cliente) for implementado.'
+  - id: 'TEST-001'
+    severity: low
+    finding: 'RLS cross-tenant de `pause`/`delete` validada por mock do SDK; E2E/device contra Postgres real pendente (lacuna recorrente 4.3/4.4/4.5).'
+    suggested_action: 'Verificação manual/integração com dois lojistas distintos.'
+
+evidence:
+  tests_reviewed: 'product.supabase.test.ts (22 testes) — pause (sucesso/RLS 0-rows→throw), delete (soft delete excluido_em, propaga erro do SDK, não consulta `pedidos`). core-data 312/312, lojista 70/70, typecheck limpo. grep: nenhum `.delete()` físico no adapter; nenhum `service_role` no bundle.'
+  risks_identified: 'Nenhum risco de perda de dado (soft delete, RLS protege cross-tenant). SEC-001 (no-op silencioso no delete cross-tenant) sem impacto de dado.'
+
+nfr_validation:
+  security:
+    status: PASS
+    notes: 'Soft delete real (sem hard delete → sem perda de dado); RLS por dono (USING+WITH CHECK, FORCE RLS); sem checagem simulada de `pedidos`; sem `service_role` no bundle. SEC-001 é assimetria de honestidade, não vazamento — dado protegido pela RLS.'
+  reliability:
+    status: PASS
+    notes: 'Confirmação real antes de excluir; falha honesta (produto permanece, erro visível); toggle com catch/Alert em vez de rejeição não tratada.'
+  maintainability:
+    status: PASS
+    notes: '`applyProdutoPatch`/`fetchProdutoById` reusados de 4.5 (sem duplicação). Débito de pedidos e SEC-001 documentados.'
+
+recommendations:
+  immediate: []
+  future:
+    - action: 'Implementar checagem de pedidos em aberto antes do soft delete quando `pedidos` existir (Épico 6).'
+      refs: ['packages/core-data/src/supabase/product.supabase.ts']
+    - action: 'Alinhar honestidade de `delete` cross-tenant a `update`/`pause` (verificar linhas afetadas).'
+      refs: ['packages/core-data/src/supabase/product.supabase.ts']
+
+waiver: { active: false }

@@ -1,0 +1,59 @@
+schema: 1
+story: '9.0.4'
+gate: PASS
+status_reason: 'As 5 ACs estão MET. A cadeia reativa (subscribe → entrega inicial assíncrona `null` → `signInLojista` entrega `{ estabelecimentoId }` → `signOutLojista` entrega `null` → `unsubscribe` congela a contagem) foi PROVADA empiricamente, não por leitura: teste temporário via `tsx` contra o módulo real `lojistaSession.ts` (TS puro, sem RN) — 8/8 asserts verdes, repo limpo depois. Desacoplamento confirmado: `lojistaSession.ts` NÃO importa `packages/core-data` (só a constante `CURRENT_ESTABELECIMENTO_ID` de `currentStore.ts`), e `db.sessionClienteId` não aparece em nenhum arquivo de `apps/lojista/`. Sessão do Lojista 100% separada da do Cliente. `typecheck` do Lojista verde. Sem navegação imperativa em `Login.tsx`/`Configuracoes.tsx` (transição de stack é consequência exclusiva da sessão, mesmo padrão da 2.3.1). PASS (não CONCERNS): nenhuma issue medium/high introduzida — os únicos pontos abertos são (a) ausência de test runner em `apps/lojista` (gap de fase conhecido e aceito, não rebaixa o gate por instrução do orquestrador) e (b) o `try/catch` do `RootNavigator` ser efetivamente inalcançável (pub/sub local não lança de forma síncrona — provado), exigido por AC4 para paridade de padrão e inofensivo.'
+reviewer: 'Quinn'
+updated: '2026-07-31T00:00:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static+empirical
+    evidence: '`RootNavigator.tsx` decide `Auth`/`Main` via `useState<LojistaSessao | null | undefined>(undefined)` + `useEffect` que assina `onLojistaSessionChange(setSessao)` no mount e devolve `unsubscribe?.()` no cleanup; view em branco (`darkColors.bg.primary`) enquanto `undefined`. Importa `LojistaSessao`/`onLojistaSessionChange` de `./lojistaSession` — NÃO `AuthPort`/`onAuthStateChange` do Cliente, NÃO `db.sessionClienteId` (grep em `apps/lojista/` vazio). A rota `Main` EXISTE em `RootStackParamList` (`types.ts` L83) e é montada quando `sessao` é truthy. Padrão idêntico ao `RootNavigator.tsx` do Cliente (2.3.1), adaptado ao tipo `LojistaSessao`.'
+  AC2:
+    status: MET
+    method: static
+    evidence: '`RootNavigator.tsx` não importa mais `authGuard.ts` (grep confirma: `isAuthenticated`/`AUTH_GUARD_ENABLED` aparecem só dentro do próprio `authGuard.ts` não-importado + uma linha de JSDoc do `RootNavigator` citando o arquivo por nome, padrão aceito pela Task 6, e menções JSDoc em `ExcluirConta.tsx`/`currentStore.ts` — todas DOC, nenhum import). `authGuard.ts` mantido (não excluído), JSDoc do topo reescrito registrando a desativação desde a 9.0.4; corpo (`AUTH_GUARD_ENABLED = false`, `isAuthenticated()`) intocado. App abre deslogado na `AuthStack` (estado inicial entrega `null`).'
+  AC3:
+    status: MET
+    method: empirical
+    evidence: 'Login: `PrimaryButton label="Entrar" onPress={signInLojista}` — `popToTop()` removido (grep `popToTop` em `Login.tsx` vazio), nenhuma navegação imperativa. Logout: `Configuracoes.tsx` ganhou seção "CONTA" com `SettingsListItem icon="log-out-outline" label="Sair" onPress={() => signOutLojista()}` (componente REUSE, `SettingsListItem.tsx` intocado). Prova empírica: `signInLojista()` entrega `{ estabelecimentoId: "estab-farmacia-vida" }` (= `CURRENT_ESTABELECIMENTO_ID`) ao listener → `RootNavigator` monta `Main`; `signOutLojista()` entrega `null` → monta `Auth`. Sem Supabase, sem `packages/core-data`.'
+  AC4:
+    status: MET
+    method: empirical
+    evidence: '`RootNavigator` envolve `onLojistaSessionChange(setSessao)` em `try/catch`; no catch, `console.warn` + `setSessao(null)` (degrada para `Auth`), sem retry/backoff — cópia fiel do padrão do Cliente (2.3.1, AC7). Estado inicial `undefined` (não `null`) → "desconhecido" distinguido de "sem sessão", sem piscar login. Observação empírica: o pub/sub local NÃO lança de forma síncrona (assert #6 verde), logo o `catch` é efetivamente dead-code defensivo — mantido por AC4 para paridade de padrão, inofensivo.'
+  AC5:
+    status: MET
+    method: static
+    evidence: 'Nenhum arquivo de `packages/core-data/**` na File List desta story; `lojistaSession.ts` sem import de `core-data` (grep vazio). `DATA_SOURCE`/`resolveDataSource` não são observados por este módulo — a sessão do Lojista é local ao app e não passa por `packages/core-data`. Fixtures do mock (estabelecimentos/hubs/produtos) aparecem no working tree sujo, mas por stories paralelas — não são tocadas por esta story (nenhuma na File List, nenhum import novo).'
+
+issues:
+  - id: TEST-LOJISTA-001
+    severity: low
+    category: tests
+    description: '`apps/lojista/package.json` tem `"test": "echo skipped"` — não há test runner (Vitest) neste app, diferente de `apps/cliente`. A camada de dados (pub/sub de `lojistaSession.ts`) foi provada empiricamente pelo @qa via `tsx` (8/8 asserts), mas o elo React (`setSessao` → re-render → montagem de `Main`/`Auth`) segue por leitura estática — não há `@testing-library/react-native` em nenhum app do monorepo. Gap de fase conhecido e aceito (mesma classe de TEST-003 da 2.3.1); por instrução do orquestrador, NÃO rebaixa o gate.'
+    recommendation: 'Quando a auth real do Lojista for desenhada (story futura), avaliar instalar Vitest em `apps/lojista` + `@testing-library/react-native` para cobrir o elo React da troca de stack.'
+  - id: REL-LOJISTA-001
+    severity: low
+    category: reliability
+    description: 'O `try/catch` do `RootNavigator` cobre apenas "a assinatura lança". Não há timeout para "a assinatura tem sucesso mas o primeiro evento nunca chega" (herança do padrão da 2.3.1/REL-007). Aqui o risco é ainda menor: `onLojistaSessionChange` agenda a entrega via `Promise.resolve().then(...)` incondicionalmente — sempre dispara no próximo microtask. Praticamente inatingível.'
+    recommendation: 'Nenhuma ação nesta story. Se REL-007 for resolvido no Cliente (timeout de estado transitório), replicar o mesmo fallback aqui por simetria.'
+  - id: DOC-LOJISTA-001
+    severity: low
+    category: docs
+    description: '`Login.tsx` carrega uma mudança pré-existente e não relacionada a esta story (logo `KEEPIT` → `KEEPITHUB`), já presente como modificação não-commitada antes desta sessão (declarado pelo @dev nas Completion Notes). Cosmética, fora do escopo da 9.0.4, mas viaja num arquivo da File List.'
+    recommendation: 'Atribuir a mudança do logo à story de identidade/branding do piloto (9.0.1 ou correlata) no commit, para o diff da 9.0.4 não carregar ruído.'
+
+evidence:
+  quality_gate_run: '`pnpm --filter @keepit/lojista typecheck` → exit 0 (`tsc --noEmit`, sem saída). `lint`/`test` do app são `echo skipped` (limite pré-existente, não introduzido por esta story).'
+  temporary_tests: 'Um teste temporário do @qa (`tsx`) contra o módulo real `lojistaSession.ts`: (1) entrega inicial NÃO síncrona; (2) entrega inicial assíncrona = `null`; (3) `signIn` notifica; (4) `signIn` entrega `estabelecimentoId === CURRENT_ESTABELECIMENTO_ID`; (5) `signOut` entrega `null`; (6) `unsubscribe` congela a contagem (sem leak); (7) novo subscriber vê o estado global atual (sem persistência); (8) `onLojistaSessionChange` não lança síncrono. 8/8 verdes. Teste escrito no scratchpad (fora do repo) — `git status` sem nenhum artefato de teste.'
+  scope: 'Lógica de sessão contida EXATAMENTE nos 5 arquivos da File List: `lojistaSession.ts` é importado só por `RootNavigator.tsx`, `Login.tsx` e `Configuracoes.tsx` (grep). `apps/cliente/**`, `apps/admin/**` e `packages/core-data/**` não recebem lógica desta story. Limite de verificação: o working tree está sujo com várias stories paralelas do piloto (9.0.x/10.x/11.x/2.5.1/2.6-2.8) e nada está commitado — a isolação foi verificada por grep de contenção (imports do módulo de sessão), não por diff de commit. Outros arquivos de `apps/lojista/` modificados no working tree (`app.json`, `package.json`, `CadastroHeader.tsx`, `OnboardingLojista.tsx`) pertencem a stories paralelas do piloto e não contêm lógica de sessão.'
+  desacoplamento: '`lojistaSession.ts` importa apenas `CURRENT_ESTABELECIMENTO_ID` de `screens/catalogo/currentStore.ts` (constante pura). Zero import de `packages/core-data`; `db.sessionClienteId` ausente de todo `apps/lojista/`. A sessão do Lojista não compartilha chave global com a do Cliente.'
+  article_iv: 'Fontes citadas no código conferidas: `CURRENT_ESTABELECIMENTO_ID = "estab-farmacia-vida"` (verdadeiro, `currentStore.ts` L9); `RootStackParamList` tem `Main`/`Auth`/`ModalPermissaoPush` (verdadeiro, `types.ts` L82-84); `SettingsListItem` aceita `icon`/`label`/`onPress`/`destructive` (verdadeiro); padrão reativo copiado do `RootNavigator.tsx` do Cliente (verdadeiro, conferido lado a lado). Nenhuma fonte falsa.'
+
+recommendations:
+  immediate: []
+  future:
+    - 'Story futura de auth real do Lojista: decidir o port (novo em `packages/core-data` vs. `AuthPort`/Supabase com `role`) — a nota arquitetural da 9.0.4 fica registrada, este módulo local não instala precedente de schema.'
+    - 'Persistência entre reinícios (AsyncStorage) fica para depois da Fase 0, se o piloto exigir — hoje a sessão é em memória (documentado, mesma classe do Cliente pré-2.5.1).'
+    - 'No commit desta story, separar a mudança de logo `KEEPIT→KEEPITHUB` de `Login.tsx` (DOC-LOJISTA-001).'

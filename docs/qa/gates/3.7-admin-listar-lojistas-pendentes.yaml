@@ -1,0 +1,157 @@
+schema: 1
+story: '3.7'
+slug: admin-listar-lojistas-pendentes
+gate: CONCERNS
+status_reason: >-
+  Re-gate após loop de correção. SEC-001 (high) e REL-001 (medium), os dois
+  drivers do FAIL anterior, estão RESOLVIDOS: migration
+  20260812140000_fachadas_admin_le.sql adiciona policy de SELECT de admin em
+  storage.objects do bucket `fachadas` (`bucket_id='fachadas' AND
+  public.is_admin()`), e `pendingStoreDetail` agora degrada graciosamente a foto
+  (try/catch → foto null) sem derrubar o detalhe. AC3 é entregável no modo real.
+  CONCERNS (não PASS) por débitos remanescentes NÃO bloqueantes de lógica:
+  BUILD-001 (next build em DATA_SOURCE=supabase — infra, @architect/@devops),
+  REQ-001 (0 admins provisionados → login/RLS E2E manual ainda não executado) e
+  débitos low (ARCH-001/MNT-001/DOC-001).
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-08-12T14:20:00Z'
+
+# RE-GATE (correção do FAIL anterior) — evidência empírica:
+# - SEC-001 (era high) RESOLVIDO: migration 20260812140000_fachadas_admin_le.sql
+#   presente e correta (FOR SELECT TO authenticated, is_admin()). Satisfaz o
+#   `TODO STORY 3.7` da migration 20260812123049. Como policies permissivas de
+#   SELECT são OR-ed no Postgres, o admin passa a ler qualquer objeto do bucket
+#   `fachadas` sem afrouxar a policy do dono (fachadas_lojista_le_propria intacta).
+#   Limitação de ambiente: sem endpoint de pg_policies / sem SUPABASE_ACCESS_TOKEN
+#   aqui — aplicação ao keepit-dev confirmada por arquivo de migration + registro
+#   do orquestrador (mesma classe de débito de verificação manual de stories
+#   anteriores). Rede de segurança: com REL-001, mesmo policy mal-aplicada degrada
+#   AC3 para null honestamente, sem crash.
+# - REL-001 (era medium) RESOLVIDO: pendingStoreDetail encapsula createSignedUrl
+#   em try/catch; erro do SDK ({error}) OU exceção lançada → foto_fachada_url_assinada
+#   = null com o restante do detalhe intacto; erro da query principal continua
+#   propagando. Coberto por 2 testes novos + 1 de propagação.
+# - Sem regressão: core-data 198/198 (admin.supabase.test.ts 11/11, era 9),
+#   pnpm qa 27/27, admin typecheck limpo. auth-gate (AC6/AC7), pendingStores
+#   (AC2/AC4), RLS admin_gerencia_estab e paridade mock intocados nesta correção.
+
+top_issues:
+  - id: 'BUILD-001'
+    severity: medium # rebaixado de high pela correção parcial abaixo (@architect, 2026-08-12)
+    category: reliability
+    finding: >-
+      `next build` com DATA_SOURCE=supabase no ambiente falha (TypeError null
+      useState em /hubs/novo e /_global-error), reproduzido em Turbopack E webpack,
+      isolado como dead-code-elimination do bundler no padrão
+      `process.env.DATA_SOURCE === 'supabase'` de resolveDataSource. Build default
+      (mock) é limpo. Bloqueia o build de PRODUÇÃO em modo real. NÃO é bug de
+      lógica desta Story nem driver de FAIL — a lógica do adapter está correta e
+      o build no modo padrão passa.
+    architect_resolution: >-
+      @architect (Aria), 2026-08-12 — DIAGNÓSTICO CONFIRMADO e CORREÇÃO PARCIAL
+      APLICADA. Causa-raiz real: os hooks do Admin (useAdminHubs/useAdminPendingStores)
+      chamam getDataClient() no corpo do render; em DATA_SOURCE=supabase isso
+      instancia o grafo @supabase/supabase-js (gotrue/postgrest/realtime) durante
+      o static prerender, e o Next.js 16.x (16.2.12 E 16.3.0, Turbopack E webpack)
+      corrompe o singleton react-ssr do worker de static-generation (null
+      dispatcher). FIX aplicado: `export const dynamic = 'force-dynamic'` no root
+      layout (apps/admin/app/layout.tsx) — propaga a todas as rotas, remove as 12
+      rotas reais do static prerender (contagem de páginas estáticas caiu de 13
+      para 1). Trade-off aceito: Admin perde static export e passa a SSR-on-demand
+      — correto para ferramenta interna auth-gated (intrinsecamente dinâmica), sem
+      perda funcional. RESTA APENAS /_global-error — arquivo especial do Next 16 que
+      NÃO herda segment config e é sempre prerenderizado; o grafo supabase avaliado
+      no worker o corrompe (useContext null). É bug de framework UPSTREAM sem
+      workaround de app/config (vercel/next.js #84994, #85668, #86178; testados e
+      reprovados: force-dynamic, serverExternalPackages, output:standalone,
+      experimental.dynamicIO, global-error custom, mover provider p/ fora do root
+      layout, bump 16.3.0). Única correção de código restante = Opção 1 (dynamic
+      import dos adapters em packages/core-data, tornando getDataClient() async) —
+      BREAKING nas 3 apps, requer checkpoint; NÃO aplicada nesta rodada por decisão
+      de escopo.
+    suggested_action: >-
+      Deploy do Admin em modo supabase: usar `next dev` (dev server, sem prerender
+      — funciona) para o piloto interno, OU aplicar a Opção 1 (getDataClient async
+      + dynamic import dos adapters supabase em core-data, coordenado com @dev nas 3
+      apps) em rodada dedicada com checkpoint, OU aguardar fix upstream do Next 16
+      para o prerender de /_global-error. force-dynamic já está commitável e é
+      pré-requisito de qualquer um dos caminhos.
+  - id: 'REQ-001'
+    severity: medium
+    category: requirements
+    finding: >-
+      admin_users com 0 linhas — nenhum admin de teste provisionado via SQL
+      (runbook operacional do owner). Login E2E real e a verificação manual de
+      AC1/AC3/AC4/AC6 em modo supabase (login real → lista → detalhe com foto
+      assinada real → RLS bloqueando não-admin) não foram executados. Agora
+      DESBLOQUEADO pela correção do SEC-001 — só depende do provisionamento manual.
+    suggested_action: >-
+      Provisionar 1 admin de teste via SQL/service_role e executar o roteiro
+      manual. Não bloqueia o gate (lógica validada por testes de adapter +
+      sondagem de schema); é verificação operacional de confirmação.
+  - id: 'ARCH-001'
+    severity: low
+    category: architecture
+    finding: >-
+      Mecanismo de auth real do Admin (local a adminAuth.ts vs AdminAuthPort em
+      core-data) foi [AUTO-DECISION] do @dev — revisão formal de @architect (Sol)
+      pendente (era task de quality gate da Story).
+    suggested_action: 'Revisão de @architect da decisão local vs port dedicada.'
+  - id: 'MNT-001'
+    severity: low
+    category: maintainability
+    finding: >-
+      Bump de react/@types/react 18→19 (devDependency) em packages/core-data
+      (pacote compartilhado) feito durante o gate para eliminar 3 cópias de React.
+      Nenhum teste do pacote renderiza os hooks, mas é mudança em pacote compartilhado.
+    suggested_action: >-
+      Revisão de @architect do bump no workspace; confirmar que nenhum consumidor
+      depende de comportamento React 18 específico.
+  - id: 'DOC-001'
+    severity: low
+    category: docs
+    finding: >-
+      shared-types/src/supabase.ts reconciliado à mão (sem supabase gen types por
+      falta de access token). Confere com o schema real (sondado), mas sem guarda de CI.
+    suggested_action: >-
+      Regenerar oficialmente via `supabase gen types` quando houver
+      SUPABASE_ACCESS_TOKEN, e considerar um check de CI.
+
+resolved_issues:
+  - id: 'SEC-001'
+    was_severity: high
+    category: security
+    resolution: >-
+      Migration 20260812140000_fachadas_admin_le.sql adiciona policy de SELECT
+      `fachadas_admin_le` (FOR SELECT TO authenticated USING bucket_id='fachadas'
+      AND public.is_admin()) em storage.objects. Admin passa a gerar URL assinada
+      de fachada de qualquer lojista. Reforçado por REL-001 (mesmo em falha de
+      assinatura, degrada para null sem crash). AC3 agora entregável no modo real.
+  - id: 'REL-001'
+    was_severity: medium
+    category: reliability
+    resolution: >-
+      pendingStoreDetail encapsula createSignedUrl em try/catch — erro do SDK OU
+      exceção → foto_fachada_url_assinada = null, restante do detalhe (CNPJ,
+      responsável, PIX, horários, dados_receita) intacto. Erros da query principal
+      continuam propagando. 3 testes (2 de degradação + 1 de propagação),
+      admin.supabase.test.ts 11/11.
+
+acceptance_criteria:
+  AC1: 'MET (código) — /aprovacoes lista via pendingStores real; E2E real pendente (REQ-001).'
+  AC2: 'MET — colunas nome/CNPJ/categoria/telefone/data de cadastro + ações na lista.'
+  AC3: 'MET (código) — foto via URL assinada de admin (SEC-001 corrigido, policy admin em storage) com degradação graciosa para null em falha (REL-001); dados_receita honesto ("não coletado"); demais campos dos 3 passos OK. E2E real da foto pendente (REQ-001).'
+  AC4: 'MET (código) — policy admin_gerencia_estab (is_admin) é a barreira; adapter delega à RLS; teste simula não-admin → [].'
+  AC5: 'MET — migration admin_users + is_admin() aplicada e confirmada no schema real (sonda PostgREST + RPC).'
+  AC6: 'MET (código) — login real e-mail+senha; falha não persiste sessão; valid-sem-admin → signOut + reject. E2E real pendente (REQ-001).'
+  AC7: 'MET — lista plana sem coluna de papel (papel/role → 400); INSERT via API negado (sem_insert_direto_admins); provisionamento manual via SQL.'
+
+waiver: { active: false }
+
+recommendation: >-
+  APROVAR com CONCERNS. Os dois drivers do FAIL (SEC-001 high, REL-001 medium)
+  estão resolvidos e verificados (código + testes). AC3 é entregável no modo real.
+  Débitos remanescentes não são de lógica desta Story: BUILD-001 (infra de build,
+  @architect/@devops), REQ-001 (provisionamento manual de admin → E2E de
+  confirmação), e 3 débitos low (ARCH/MNT/DOC). Story → Done; débitos
+  encaminhados aos donos respectivos.

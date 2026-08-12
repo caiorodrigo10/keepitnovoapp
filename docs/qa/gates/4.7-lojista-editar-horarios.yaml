@@ -1,0 +1,48 @@
+schema: 1
+story: '4.7'
+gate: CONCERNS
+status_reason: 'UI de edição real por dia (Seg→Dom, ToggleSwitch editável + inputs hh:mm) substitui de fato o estado somente-leitura anterior; `StorePort.updateHorarios` real faz UPSERT das 7 linhas por `(estabelecimento_id, dia_semana)` sob a RLS `lojista_gerencia_horarios` (FOR ALL, dono via USING+WITH CHECK — cross-tenant barrado no servidor, não só na UI), relê pós-escrita (nunca ecoa input), com validação `hora_abre < hora_fecha` em 3 camadas (UI amigável + `validarHorariosSemanais` nos dois adapters + `CHECK` do banco). Mock agora persiste de verdade (gap fechado). Nenhuma condição de FAIL. CONCERNS por débitos honestos: revisão formal de @architect da promoção de `getById` (Épico 5→4) pendente, RLS cross-tenant validada por unit test (Supabase mockado) e não contra o `keepit-dev` real, e revisão manual em device/E2E não executada.'
+reviewer: 'Quinn'
+updated: '2026-08-12T00:00:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static+test
+    evidence: '`HorariosDisponibilidade.tsx` reescrita: seção FUNCIONAMENTO deixou de ser `ToggleSwitch disabled` sem inputs e passou a ter, por dia (Seg→Dom via `ORDEM_DIAS_SEMANA`), `ToggleSwitch` editável + 2 `TextInput` hh:mm. `validarHorariosEdicao` (mensagem amigável com nome do dia) espelha o `CHECK` do banco (`aberto=false OR hora_abre<hora_fecha`). Testes: `apps/lojista/src/lib/horariosEdicao.test.ts` (11 casos — conversões e validação). Verificado que o estado anterior era somente-leitura (código + narrativa da Story).'
+  AC2:
+    status: MET
+    method: static
+    evidence: 'Nenhuma migration nova — `estabelecimentos_horarios`, a policy `lojista_gerencia_horarios` (FOR ALL) e o `CHECK (aberto=false OR (hora_abre IS NOT NULL AND hora_fecha IS NOT NULL AND hora_abre < hora_fecha))` confirmados na migration `20260812123047_criar_estabelecimentos_horarios.sql` (Story 3.5). Satisfeita pela infraestrutura já entregue.'
+  AC3:
+    status: MET
+    method: static+test
+    evidence: '"Salvar horários" chama `getDataClient().store.updateHorarios(...)` real; sucesso rehidrata do retorno persistido e confirma via `Alert`; falha exibe erro inline (`setErro`), sem simular sucesso. Adapter Supabase faz `.upsert(rows, { onConflict: "estabelecimento_id,dia_semana" })`, valida ANTES da rede (upsert não é chamado quando inválido) e relê via `fetchHorarios`. Testes `store.supabase.test.ts`: upsert+releitura, validação abre<fecha rejeita sem upsert, erro de `CHECK` propagado. Testes `store.mock.test.ts`: persistência sobrevive a novo `getById`, rejeita inválido sem gravar.'
+  AC4:
+    status: N/A
+    method: scope
+    evidence: 'Exibição do estado no card do app do Cliente ("Aberto até 22h"/"Fechado") delegada ao Épico 5 (Stories 5.2/5.3, `LojaEstado`/`getState`) — fora de escopo desta Story, não reimplementada.'
+
+evidence:
+  tests_reviewed: 'core-data 333/333 PASS (reexecutado), lojista 81/81 PASS (reexecutado); novos: horariosEdicao (11), store.port `validarHorariosSemanais` (8), store.mock updateHorarios (3), store.supabase getById/setPausado/updateHorarios (11).'
+  risk_summary: 'Baixo. Escrita real sob RLS já existente, validação em profundidade, releitura pós-escrita. Débitos são de verificação (device/E2E, RLS live) e governança (@architect getById), não de correção do código.'
+
+top_issues:
+  - id: 'ARCH-001'
+    severity: medium
+    finding: '`StorePort.getById` foi promovido de stub `Épico 5` para implementação real (escopo estreito) via [AUTO-DECISION] de @dev, sem a sessão dedicada de @architect que a Story previa como Quality Gate Task compartilhada com a 4.8. A decisão é bem fundamentada (JSDoc detalhado, reaproveita RLS `publico_ve_ativos`, mantém `LojaDisponibilidadeContext` intocado) e não vaza dado privado (RLS libera só dono OR ativo-público), mas a revisão formal permanece pendente.'
+    suggested_action: 'Registrar revisão de @architect (Sol) da promoção de `getById` para o Épico 4 e da fronteira com o contrato de leitura pública do Épico 5, antes de o Épico 5 consumir o mesmo método.'
+  - id: 'TEST-001'
+    severity: low
+    finding: 'RLS cross-tenant de `estabelecimentos_horarios` e a persistência real são validadas por unit test com Supabase client mockado (upsert/releitura), não por execução contra o `keepit-dev` real. Revisão manual em device/Expo (editar → salvar → recarregar → persistido) não executada nesta sessão.'
+    suggested_action: 'Exercitar um UPDATE de horário cross-tenant contra o `keepit-dev` real (dois donos) e uma passagem manual em device antes do piloto.'
+  - id: 'MNT-001'
+    severity: low
+    finding: '`fetchEstabelecimentoPorId` coalesce `lat`/`lng`/`raio_atendimento_km` NULL→0 para satisfazer o tipo de domínio `Estabelecimento` (que modela o contrato de Descoberta). Nenhuma tela desta Story lê esses campos, mas o sentinela 0 poderia enganar um consumidor futuro (Épico 5) que assuma coordenadas reais.'
+    suggested_action: 'Ao implementar Descoberta (Épico 5), revisar se `getById` deve distinguir "geo não informado" de coordenada 0 real.'
+  - id: 'DOC-001'
+    severity: low
+    finding: 'A remoção do agrupamento "Seg-Sex" da UI (edição sempre por dia, `agruparHorarios` removida) é uma [AUTO-DECISION] de UX razoável, mas não foi confirmada contra o design ref `docs/design-refs/lojista-09-horarios.png` com @ux-design-expert (Supporting Agent sugerido pela Story).'
+    suggested_action: 'Confirmar com @ux-design-expert se a edição por-dia (sem agrupamento) atende ao design ref.'
+
+waiver: { active: false }

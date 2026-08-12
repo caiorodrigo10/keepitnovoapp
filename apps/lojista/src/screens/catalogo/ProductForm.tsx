@@ -3,11 +3,13 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { darkColors, radii, spacing, typography } from '@keepit/ui-tokens';
+import { CATEGORIA_PRODUTO_OPTIONS } from '@keepit/config';
 
 import { FormField } from '../../components/FormField';
 import { NumericStepper } from '../../components/NumericStepper';
 import { PrimaryButton } from '../../components/PrimaryButton';
 import { ScreenHeader } from '../../components/ScreenHeader';
+import { SelectField } from '../../components/SelectField';
 import { FARMACIA_TARJADO_AVISO } from './currentStore';
 
 export interface ProductFormValues {
@@ -27,6 +29,25 @@ export interface ProductFormProps {
   onSubmit: (values: ProductFormValues) => void;
   onBack: () => void;
   footerSlot?: ReactNode;
+  /**
+   * Story 4.4 (AC6) — estado de submissão/erro controlado pelo chamador
+   * (`CadastrarProduto.tsx`), que é quem sabe se a chamada real terminou com
+   * sucesso ou falha. Default `false`/`null` preserva o comportamento
+   * anterior (sem chamador ciente de estado assíncrono, ex.: `EditarProduto.tsx`
+   * nesta Story, que segue 100% mock/local, fora de escopo — Story 4.5).
+   */
+  submitting?: boolean;
+  submitError?: string | null;
+  /**
+   * Story 4.4 (AC1, AC4, AC5) — `false` desliga a interação de "Adicionar
+   * imagem" (nenhum `expo-image-picker` disponível neste workspace — ver Dev
+   * Notes da Story) e mostra um estado honesto em vez do placeholder
+   * `'local-placeholder'`, que NUNCA deve ser enviado a um `create` real
+   * (corromperia `produtos.foto_url` com uma string que não é um path de
+   * Storage válido — mesmo precedente de `AtualizarMeuPerfilInput`, Story
+   * 3.11). Default `true` preserva o comportamento mock (Story 0.9).
+   */
+  fotoUploadEnabled?: boolean;
 }
 
 /**
@@ -44,12 +65,18 @@ export interface ProductFormProps {
  * `null`/`'local-placeholder'`) em vez de introduzir `expo-image-picker`:
  * essa dependência não está instalada em nenhum app do monorepo hoje, e
  * adicioná-la exigiria `pnpm install` — fora do permitido nesta execução
- * (ambiente restrito a `apps/lojista/**`, sem rodar install).
+ * (ambiente restrito a `apps/lojista/**`, sem rodar install). Story 4.4
+ * (`fotoUploadEnabled`): quando `false`, essa interação fica desligada e um
+ * estado honesto é exibido no lugar (nenhum picker real disponível ainda).
  *
- * [AUTO-DECISION] Campo "Categoria" é texto livre (`FormField`), não
- * `SelectField`, para respeitar a nota de Dev Notes "categorias abertas
- * (sem enum fixo/whitelist restritiva de UI)" — `SelectField` só permite
- * escolher de uma lista fechada via modal, o que contradiria essa regra.
+ * [AUTO-DECISION] Story 4.4 (AC1) — "Categoria" passou de texto livre
+ * (`FormField`) para `SelectField` alimentado por `CATEGORIA_PRODUTO_OPTIONS`
+ * (`@keepit/config`, Dependencies item 3) — requisito explícito do AC1 desta
+ * Story ("dropdown alimentado por CATEGORIA_PRODUTO_OPTIONS"), substituindo
+ * a decisão de texto livre da Story 0.9. A lista permanece "aberta" no
+ * sentido de banco (`categoria_produto` é `text` sem `CHECK`), mas a UI
+ * agora oferece as opções conhecidas em vez de digitação livre — mesmo
+ * padrão já usado por "Categoria" da loja em `PerfilPublico.tsx`.
  */
 export function ProductForm({
   title,
@@ -59,24 +86,27 @@ export function ProductForm({
   onSubmit,
   onBack,
   footerSlot,
+  submitting = false,
+  submitError = null,
+  fotoUploadEnabled = true,
 }: ProductFormProps) {
   const [nome, setNome] = useState(initialValues.nome);
   const [descricao, setDescricao] = useState(initialValues.descricao);
   const [precoTexto, setPrecoTexto] = useState(initialValues.precoTexto);
-  const [categoria, setCategoria] = useState(initialValues.categoria);
+  const [categoria, setCategoria] = useState<string | null>(initialValues.categoria || null);
   const [fotoLocalUri, setFotoLocalUri] = useState(initialValues.fotoLocalUri);
   const [estoqueDisplay, setEstoqueDisplay] = useState(initialValues.estoqueDisplay);
 
   const precoNumero = Number(precoTexto.replace(',', '.'));
-  const isValid = nome.trim().length > 0 && categoria.trim().length > 0 && precoNumero > 0;
+  const isValid = nome.trim().length > 0 && !!categoria && precoNumero > 0;
 
   function handleSubmit() {
-    if (!isValid) return;
+    if (!isValid || submitting) return;
     onSubmit({
       nome: nome.trim(),
       descricao,
       precoTexto,
-      categoria: categoria.trim(),
+      categoria: categoria ?? '',
       fotoLocalUri,
       estoqueDisplay,
     });
@@ -86,18 +116,33 @@ export function ProductForm({
     <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <ScreenHeader title={title} onBack={onBack} />
 
-      <Pressable
-        style={styles.fotoUpload}
-        onPress={() => setFotoLocalUri((current) => (current ? null : 'local-placeholder'))}
-      >
-        <View style={[styles.fotoBox, { backgroundColor: darkColors.bg.surface, borderColor: darkColors.border.muted }]}>
-          <Ionicons name="camera-outline" size={28} color={darkColors.text.secondary} />
-          <Text style={[styles.fotoLabel, { color: darkColors.text.primary }]}>Foto do produto</Text>
-          <Text style={[styles.fotoAction, { color: darkColors.accent.brand }]}>
-            {fotoLocalUri ? 'Imagem adicionada' : 'Adicionar imagem'}
-          </Text>
+      {fotoUploadEnabled ? (
+        <Pressable
+          style={styles.fotoUpload}
+          onPress={() => setFotoLocalUri((current) => (current ? null : 'local-placeholder'))}
+        >
+          <View style={[styles.fotoBox, { backgroundColor: darkColors.bg.surface, borderColor: darkColors.border.muted }]}>
+            <Ionicons name="camera-outline" size={28} color={darkColors.text.secondary} />
+            <Text style={[styles.fotoLabel, { color: darkColors.text.primary }]}>Foto do produto</Text>
+            <Text style={[styles.fotoAction, { color: darkColors.accent.brand }]}>
+              {fotoLocalUri ? 'Imagem adicionada' : 'Adicionar imagem'}
+            </Text>
+          </View>
+        </Pressable>
+      ) : (
+        // Story 4.4 (AC1, AC5) — sem expo-image-picker disponível neste modo,
+        // estado honesto (nunca um placeholder de "Adicionar imagem"
+        // enganoso, mesmo precedente de `PerfilPublico.tsx` para a fachada).
+        <View style={styles.fotoUpload}>
+          <View style={[styles.fotoBox, { backgroundColor: darkColors.bg.surface, borderColor: darkColors.border.muted }]}>
+            <Ionicons name="image-outline" size={28} color={darkColors.text.tertiary} />
+            <Text style={[styles.fotoLabel, { color: darkColors.text.primary }]}>Foto do produto</Text>
+            <Text style={[styles.fotoAction, { color: darkColors.text.tertiary }]}>
+              Upload de foto disponível em breve
+            </Text>
+          </View>
         </View>
-      </Pressable>
+      )}
 
       <FormField label="Nome do produto" value={nome} onChangeText={setNome} placeholder="Ex.: Protetor solar FPS 50" />
 
@@ -118,11 +163,11 @@ export function ProductForm({
       />
 
       <View>
-        <FormField
+        <SelectField
           label="Categoria"
           value={categoria}
-          onChangeText={setCategoria}
-          placeholder="Ex.: cuidados, higiene, alimentos"
+          options={[...CATEGORIA_PRODUTO_OPTIONS]}
+          onChange={setCategoria}
         />
         {isFarmacia ? (
           <Text style={[styles.avisoTarjado, { color: darkColors.accent.warning }]}>{FARMACIA_TARJADO_AVISO}</Text>
@@ -139,7 +184,9 @@ export function ProductForm({
         unit="un."
       />
 
-      <PrimaryButton label={submitLabel} onPress={handleSubmit} disabled={!isValid} />
+      {submitError ? <Text style={[styles.submitError, { color: darkColors.accent.warning }]}>{submitError}</Text> : null}
+
+      <PrimaryButton label={submitLabel} onPress={handleSubmit} disabled={!isValid} loading={submitting} />
 
       {footerSlot}
     </ScrollView>
@@ -178,5 +225,9 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.sm.fontSize,
     lineHeight: typography.sizes.sm.lineHeight,
     marginTop: spacing[2],
+  },
+  submitError: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.sm.fontSize,
   },
 });

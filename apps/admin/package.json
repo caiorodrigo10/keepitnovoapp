@@ -11,7 +11,10 @@
   },
   "dependencies": {
     "@keepit/core-data": "workspace:*",
+    "@keepit/shared-types": "workspace:*",
+    "@keepit/supabase-client": "workspace:*",
     "@keepit/ui-tokens": "workspace:*",
+    "@supabase/supabase-js": "^2.58.0",
     "next": "16.2.12",
     "react": "19.2.8",
     "react-dom": "19.2.8"

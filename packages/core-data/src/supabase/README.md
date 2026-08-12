@@ -14,7 +14,7 @@ respeita RLS — nunca `createServiceRoleClient()` aqui).
 | `product.supabase.ts` | `ProductPort` | Épico 4 |
 | `order.supabase.ts` | `OrderPort` | Épico 6 |
 | `wallet.supabase.ts` | `WalletPort` | Épico 7 |
-| `admin.supabase.ts` | `AdminPort` | Épico 3 (`pendingStores`/`approve`/`reject`), Épico 4 (`hubsCrud`), Épico 8 (demais) |
+| `admin.supabase.ts` | `AdminPort` | Épico 3 (`pendingStores`/`approve`/`reject`, Done), Épico 4 (`hubsCrud`, Done — Story 4.1), Épico 8 (demais) |
 | `analytics.supabase.ts` | `AnalyticsPort` | Épico 7 |
 
 ## Estado atual — esqueleto, não implementação real

@@ -1,0 +1,47 @@
+schema: 1
+story: '9.0.9'
+gate: PASS
+status_reason: 'Story config-only (dois `app.json`) — as 6 ACs verificadas empiricamente contra os arquivos reais: `android.package` exatos e confirmados por Caio (2026-08-09), `versionCode: 1`, `permissions: []` justificado por grep vazio de deps de permissão, `scheme` do Lojista adicionado, nenhum campo Android obrigatório ausente no expo-doctor, e nenhuma fixture mock atribuível a esta story. As 2 falhas de expo-doctor (react duplicado no monorepo / drift de versão vs. Expo SDK 57) são pré-existentes de ambiente e não mencionam campo Android obrigatório — não rebaixam o gate.'
+reviewer: 'Quinn'
+updated: '2026-08-09T00:00:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static
+    evidence: '`apps/cliente/app.json:20` → `expo.android.package = "com.keepithub.cliente"`; `apps/lojista/app.json:20` → `expo.android.package = "com.keepithub.lojista"`. Valores confirmados explicitamente por Caio nesta sessão (2026-08-09, mission brief), paridade com os bundle IDs iOS decididos em 2026-07-31 — não presumidos. Task 0 (bloqueio de commit) satisfeita.'
+  AC2:
+    status: MET
+    method: static
+    evidence: '`android.versionCode: 1` (inteiro) presente nos dois `app.json` (linha 21 de cada). Obrigatório porque `cli.appVersionSource: "local"` está fixado nos dois `eas.json` (linhas 2-4) — o Play não auto-incrementa; sem `versionCode` o build seria rejeitado.'
+  AC3:
+    status: MET
+    method: static+grep
+    evidence: '`android.permissions: []` presente nos dois `app.json` (linha 22 de cada). `grep -rn "expo-camera|expo-location|expo-notifications" apps/cliente/package.json apps/lojista/package.json` → sem matches (exit 1). Justifica lista vazia: nenhuma dependência de permissão real; `ModalPermissaoPush` é puramente visual (mesma investigação da 9.0.1 AC3 para iOS). Nenhuma permissão real removida indevidamente.'
+  AC4:
+    status: MET
+    method: static
+    evidence: '`apps/lojista/app.json:5` → `"scheme": "com.keepithub.lojista"` no nível raiz de `expo`, mesmo padrão do Cliente (`apps/cliente/app.json:5`). Corrige a inconsistência de deep link sinalizada em `08-mvp-pilot-android.md` §3.1.4.'
+  AC5:
+    status: MET
+    method: dynamic+static
+    evidence: '`npx expo-doctor` re-executado no sandbox nos dois apps: ambos retornam exatamente 2 checks failed — (1) react duplicado (`react@19.2.3` vs `react@18.3.1` em `packages/core-data/node_modules`) e (2) drift de versão de pacote vs. Expo SDK 57 (typescript/metro-runtime/expo/react-native). Ambas pré-existentes, de ambiente do monorepo, e NENHUMA acusa campo Android obrigatório ausente. Os dois `app.json` são JSON válido (`JSON.parse` OK). Constraint da mission #5 satisfeita.'
+  AC6:
+    status: MET
+    method: static
+    evidence: '`git status --short` desta story lista apenas `apps/cliente/app.json` e `apps/lojista/app.json` (File List confere). As 3 fixtures de `packages/core-data/src/mock/fixtures/` (`estabelecimentos.ts`, `hubs.ts`, `produtos.ts`) aparecem dirty, mas já estavam modificadas ANTES desta sessão (trabalho paralelo de reconciliação de ports, último commit tocando-as é o init do monorepo `f24a7e2`) — não atribuíveis a esta story. `pnpm qa --filter=@keepit/cliente --filter=@keepit/lojista` → 6/6 tasks (lint/typecheck/test) verde. `DATA_SOURCE=mock` inalterado.'
+
+top_issues: []
+
+waiver: { active: false }
+
+# Notas não-bloqueantes
+notes:
+  - id: 'DOC-001'
+    severity: low
+    finding: 'CodeRabbit CLI indisponível no sandbox (auth não-interativa) — self-healing pulado com degradação graciosa.'
+    suggested_action: 'Aceitável: a mudança é metadado JSON puro, sem lógica de aplicação. Nenhuma ação requerida.'
+  - id: 'DOC-002'
+    severity: low
+    finding: 'Comentário no `.gitignore` linha 54 atribui os padrões de segredo Android à "Story 9.0.10 Google Play" — correto (esse hunk pertence à 9.0.10, não à 9.0.9). Sem impacto nesta story.'
+    suggested_action: 'Nenhuma ação. Registrado só para rastreabilidade.'

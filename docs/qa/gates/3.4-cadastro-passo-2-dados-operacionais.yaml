@@ -1,0 +1,22 @@
+schema: 1
+story: '3.4'
+gate: CONCERNS
+status_reason: 'Todas as ACs atendidas — validações client-side corretas (limites inclusivos, coerência geo "ambas ou nenhuma"), sem persistência (AC4) e sem regressão no Passo 1. Débito não-bloqueante: `endereco` sem validação de obrigatoriedade e verificação device/visual manual pendente.'
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-08-12T12:25:00Z'
+
+top_issues:
+  - id: 'REQ-001'
+    severity: low
+    finding: '`endereco` não tem validação de obrigatoriedade — o lojista pode avançar para o Passo 3 com endereço em branco. AC2 não lista `endereco` entre os campos a validar (decisão correta de No-Invention pelo @dev), mas endereço de loja é operacionalmente relevante num marketplace click-and-collect.'
+    suggested_action: '@po decide se `endereco` vira campo obrigatório. Se sim, endereçar no ponto de persistência real (Story 3.5, quando a linha `estabelecimentos` é criada) ou como AC futura — não é invenção de regra a ser feita silenciosamente aqui.'
+  - id: 'TEST-001'
+    severity: low
+    finding: 'Verificação device/visual manual não executada neste ambiente (sem device): Passo 2 preenchido → avança para Passo 3; erros inline renderizados; sem tela branca. Cobertura de lógica pura é sólida (23 casos de teste unitário, limites exatos + meia-coordenada + NaN).'
+    suggested_action: 'Rodar smoke manual em device/emulador antes do piloto — preencher Passo 2 válido e avançar; forçar meia-coordenada e ticket < 5 para confirmar bloqueio de "Continuar" com erro inline.'
+  - id: 'MNT-001'
+    severity: low
+    finding: '`parseCoordenadaOpcional` é reutilizada também para converter `ticket_minimo_reais` (campo monetário, não coordenada) em `CadastroPasso2.tsx`. Funciona corretamente (trim → null em branco → Number com vírgula decimal → NaN se inválido), mas o nome sugere uso exclusivo de geo.'
+    suggested_action: 'Opcional: renomear para algo neutro (ex.: `parseNumeroOpcional`) ou extrair um parser dedicado de moeda se o comportamento divergir no futuro. Não bloqueia.'
+
+waiver: { active: false }

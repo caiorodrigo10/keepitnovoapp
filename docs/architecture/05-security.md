@@ -377,7 +377,19 @@ CREATE POLICY sem_delete_pedidos_itens ON pedidos_itens
   FOR DELETE USING (false);
 ```
 
-**Convenção crítica**: escrita em `pedidos.status`, `pin_hash`, valores, timestamps é **exclusiva de Edge Functions** rodando com `service_role`. Cliente e lojista **não fazem UPDATE direto** — chamam Edge Functions específicas (`aceitar-pedido`, `confirmar-pin`, `cancelar-pedido`, etc.) que validam pré-condições e escrevem via service role.
+**Convenção crítica**: escrita em `pedidos.status`, `pin_hash`, valores, timestamps é **exclusiva de funções server-side** que validam pré-condições. Cliente e lojista **não fazem UPDATE direto** — chamam funções específicas (`aceitar-pedido`, confirmação de PIN, `cancelar-pedido`, etc.) que validam autorização e escrevem sob privilégio controlado.
+
+> **PIN e ação financeira são RPC `SECURITY DEFINER` no piloto (2026-08-12):** a
+> confirmação de PIN (`confirmar_pin_pedido`) e a ação financeira administrativa
+> (`admin_acao_financeira`, guardada por `is_admin()`) **não** são Edge Functions —
+> são RPCs PostgreSQL `SECURITY DEFINER` chamadas via `supabase-js`. O critério do
+> piloto é: **Edge Function só quando há segredo server-side ou validação de origem
+> externa (Asaas); autorização + escrita no banco resolvem-se com RLS + RPC
+> `SECURITY DEFINER`**. Restam apenas `create-pix-payment` e `asaas-payment-webhook`
+> como Edge Functions. As garantias de segurança são idênticas (validação
+> server-side, PIN não exposto, autorização por papel/ownership); muda só o veículo.
+> Ver [`07-mvp-pilot-backend.md`](./07-mvp-pilot-backend.md) §"Edge Functions
+> mínimas".
 
 ### 3.12 `reembolsos_pendentes`, `saques`, `chargebacks`, `debitos_lojista`
 
@@ -462,6 +474,18 @@ Isso faz a view respeitar RLS das tabelas `pedidos`, `saques`, `debitos_lojista`
 
 ### 4.3 Criptografia at-rest da chave PIX e chave Asaas do lojista
 
+> **Modelo-alvo pós-piloto — não aplicado no piloto (2026-08-12):** o bloco abaixo
+> (`asaas_api_key_encrypted` + fluxo `pgsodium.crypto_aead_det_encrypt`/`_decrypt`
+> de subconta por lojista) descreve o **modelo-alvo pós-piloto**, não o que roda no
+> piloto. No piloto há **uma única conta Asaas da Keepit**, cuja chave vive apenas
+> no **env server-side da Edge Function** (`ASAAS_API_KEY`), **nunca no banco** —
+> logo **não há** `asaas_api_key_encrypted` persistido, nem subconta/chave por
+> lojista, e a extensão `pgsodium` fica fora do piloto (ver
+> [`07-mvp-pilot-backend.md`](./07-mvp-pilot-backend.md) §"Chave Asaas única no
+> piloto" e `03-data-models.md` §1.4/§"Extensões"). O texto é **preservado por
+> rastreabilidade**: a cripto por-loja volta apenas com o gatilho "repasses manuais
+> consomem tempo ou geram erro" (subconta/saque automático).
+
 `estabelecimentos.asaas_api_key_encrypted` guarda a API key da subconta do lojista — usada para operações específicas do lojista via Asaas (raro no MVP porque a Keepit master já basta). Sempre criptografada via `pgsodium`.
 
 ```sql
@@ -496,7 +520,18 @@ SELECT convert_from(
 
 - `pedidos.pin_hash` = `crypt(pin_texto, gen_salt('bf', 10))` (bcrypt round 10).
 - `pedidos.pin_texto` = texto plano — **apenas** para exibir na tela do cliente. Nunca é logado. Nunca sai do banco para o app do lojista. Pode ser lido pelo cliente-dono do pedido via RLS.
-- Verificação no lojista digitando: Edge Function `confirmar-pin` recebe `pin_digitado`, faz `SELECT pin_hash FROM pedidos WHERE id = $1` e compara com `crypt(pin_digitado, pin_hash) = pin_hash`.
+- Verificação no lojista digitando: a confirmação recebe `pin_digitado`, faz `SELECT pin_hash FROM pedidos WHERE id = $1` e compara com `crypt(pin_digitado, pin_hash) = pin_hash`.
+
+> **Confirmação de PIN é RPC `SECURITY DEFINER` no piloto (2026-08-12):** a
+> verificação **não** é mais uma Edge Function. Passou a ser a RPC PostgreSQL
+> `confirmar_pin_pedido(pedido_id, pin)` (`SECURITY DEFINER`), chamada via
+> `supabase-js` — ver [`07-mvp-pilot-backend.md`](./07-mvp-pilot-backend.md)
+> §"Operações server-side via RPC". Todos os requisitos de segurança permanecem:
+> validação server-side (`pgcrypto crypt()`), PIN nunca exposto em texto puro do
+> lado da verificação, autorização por papel/ownership (lojista dono do pedido) e
+> estado válido, incremento de `tentativas_pin`/`pin_bloqueado_ate`, e **somente
+> esta função pode transicionar o pedido para entregue**. Mudou o veículo (Edge
+> Function → RPC), não a regra.
 
 **Alternativa considerada e descartada**: guardar só o hash (sem `pin_texto`). Descartada porque o cliente precisa ver o código na tela — não há como derivar do hash. Compromisso aceito: `pin_texto` protegido por RLS (cliente vê o próprio; ninguém mais).
 

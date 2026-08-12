@@ -29,13 +29,24 @@ Este documento é normativo. Toda mudança de schema em produção passa por nov
 ```sql
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";     -- gen_random_uuid, digest, crypt
 CREATE EXTENSION IF NOT EXISTS "pg_cron";      -- pós-piloto: jobs de timeout/atraso
-CREATE EXTENSION IF NOT EXISTS "pgsodium";     -- criptografia at-rest da chave PIX
+CREATE EXTENSION IF NOT EXISTS "pgsodium";     -- pós-piloto: cripto at-rest da chave Asaas por lojista
 CREATE EXTENSION IF NOT EXISTS "postgis";      -- OPCIONAL para geo — MVP usa Haversine em Edge Function
 ```
 
 **Nota:** no piloto não usamos PostGIS nem Haversine. A escolha do hub é por
 lista e a relação loja↔hub é explícita. Geolocalização volta quando o número de
 hubs justificar.
+
+**Nota (2026-08-12):** no piloto **não usamos `pgsodium`**. A criptografia
+at-rest existia para guardar uma chave/subconta Asaas **por estabelecimento**;
+o piloto opera com **uma conta Asaas única da Keepit**, cuja chave vive apenas
+no ambiente server-side (env da Edge Function `create-pix-payment`), nunca no
+banco. Ver Story 3.8 (`SIMPLE`: aprovar lojista sem criação automática de
+subconta Asaas) e o overlay [`07-mvp-pilot-backend.md`](./07-mvp-pilot-backend.md).
+`pgsodium` volta quando cada lojista tiver subconta própria (gatilho: repasse
+automático/subconta em 07 §"Gatilhos para aumentar complexidade"). A extensão
+permanece listada por rastreabilidade do modelo-alvo; **não é criada nas
+migrations do piloto**.
 
 ## Trigger utilitário compartilhado
 
@@ -62,20 +73,25 @@ auth.users (Supabase Auth)
 ├── estabelecimentos (1:1 dono)
 │   ├── estabelecimentos_horarios (1:N — 7 dias)
 │   ├── estabelecimentos_falhas (1:N)
+│   ├── estabelecimentos_hubs (1:N — hubs que esta loja atende)
 │   ├── produtos (1:N)
-│   └── saques (1:N)
+│   └── lancamentos_financeiros (1:N — ledger financeiro do piloto)
 └── admin_users (1:1)
 
 hubs (independente)
-└── hubs_horarios (1:N — 7 dias)
+├── hubs_horarios (1:N — 7 dias)
+└── estabelecimentos_hubs (1:N — lojas que aparecem ao escolher este hub)
+
+estabelecimentos_hubs (N:N loja↔hub — junção; base da descoberta por lista, sem geo)
 
 pedidos (referencia cliente + estabelecimento + hub)
 ├── pedidos_itens (1:N — snapshot dos itens no momento da compra)
-├── reembolsos_pendentes (1:1 opcional)
-├── chargebacks (1:N — raros mas mais de um por pedido é possível)
-└── debitos_lojista (1:N — chargebacks + outros)
+└── lancamentos_financeiros (1:N — charge/platform_fee/merchant_credit/refund/payout)
 
-VIEW carteira_lojista (calculada de pedidos + saques + debitos)
+VIEW carteira_lojista (agregação SUM/CASE sobre lancamentos_financeiros)
+
+Modelo-alvo pós-piloto (NÃO aplicado nas migrations do piloto — ver §6):
+  reembolsos_pendentes, saques, debitos_lojista, chargebacks
 ```
 
 ---
@@ -196,6 +212,34 @@ CREATE UNIQUE INDEX idx_cartoes_padrao_unico
 
 Um estabelecimento por dono (`1 conta = 1 estabelecimento` no MVP).
 
+> **Conta Asaas única no piloto (2026-08-12):** o piloto opera com **uma única
+> conta Asaas da Keepit**, não uma subconta/chave por lojista. Consequências
+> neste bloco: (a) `asaas_api_key_encrypted bytea` **saiu do DDL do piloto** —
+> pertence ao modelo-alvo pós-piloto (chave por lojista, cripto `pgsodium`) e
+> **não entra nas migrations do piloto**; (b) `asaas_wallet_id` permanece na
+> tabela, **NULLABLE e sempre NULL no piloto** (reservado para o modelo-alvo).
+> A chave Asaas vive apenas no env server-side da Edge Function
+> `create-pix-payment`. Fonte: Story 3.8 (`SIMPLE` — aprovar lojista sem exigir
+> criação automática de subconta Asaas) e o overlay
+> [`07-mvp-pilot-backend.md`](./07-mvp-pilot-backend.md). O repasse ao lojista é
+> **PIX manual** (ver overlay 07 §"Financeiro mínimo"). Reversão para o
+> modelo-alvo: reintroduzir `asaas_api_key_encrypted` + `pgsodium` + a chamada
+> `POST /v3/accounts` na aprovação.
+
+> **Geo adiado — descoberta por lista no piloto (2026-08-12):** a descoberta do
+> piloto é **por lista de hub + relação explícita loja↔hub** (tabela
+> `estabelecimentos_hubs`, §2.3), **sem GPS, Haversine, mapa, geocoding ou
+> ranking** — ver overlay [`07-mvp-pilot-backend.md`](./07-mvp-pilot-backend.md)
+> §"Descoberta". Consequências neste bloco: (a) `lat` e `lng` viram **NULLABLE no
+> piloto** (coordenadas precisas **não são exigidas no onboarding do lojista**),
+> aliviando o cadastro; (b) `raio_atendimento_km` vira **NULLABLE no piloto** —
+> sem matching geográfico, o raio de atendimento não é consultado; (c) o índice
+> geo `idx_estab_geo` (matching por Haversine) **não é criado no piloto** — não há
+> consulta geográfica. As três colunas e o índice **permanecem no modelo-alvo** e
+> **não são apagados**: voltam a `NOT NULL`/criados quando geo/Haversine for
+> reativado pelo gatilho "Número de hubs torna escolha manual ruim →
+> GPS/Haversine/mapa" (overlay 07 §"Gatilhos para aumentar complexidade").
+
 ```sql
 CREATE TABLE estabelecimentos (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -213,9 +257,9 @@ CREATE TABLE estabelecimentos (
 
   -- Operacional
   endereco text NOT NULL,
-  lat numeric(9,6) NOT NULL,
-  lng numeric(9,6) NOT NULL,
-  raio_atendimento_km numeric(4,1) NOT NULL CHECK (raio_atendimento_km > 0 AND raio_atendimento_km <= 30),
+  lat numeric(9,6),                                  -- NULLABLE no piloto (descoberta por lista; ver nota "Geo adiado" §1.4). Modelo-alvo: NOT NULL quando geo/Haversine voltar
+  lng numeric(9,6),                                  -- idem lat
+  raio_atendimento_km numeric(4,1) CHECK (raio_atendimento_km IS NULL OR (raio_atendimento_km > 0 AND raio_atendimento_km <= 30)),  -- NULLABLE no piloto (sem matching geográfico); CHECK só se preenchido. Modelo-alvo: NOT NULL
   tempo_medio_entrega_min int NOT NULL CHECK (tempo_medio_entrega_min BETWEEN 5 AND 240),
   taxa_deslocamento_reais numeric(6,2) NOT NULL DEFAULT 0 CHECK (taxa_deslocamento_reais >= 0),
   ticket_minimo_reais numeric(10,2),                 -- NULL = usa global R$ 20
@@ -223,8 +267,8 @@ CREATE TABLE estabelecimentos (
   -- Financeiro
   chave_pix text NOT NULL,
   chave_pix_tipo text NOT NULL CHECK (chave_pix_tipo IN ('cpf', 'cnpj', 'email', 'telefone', 'aleatoria')),
-  asaas_wallet_id text,                              -- preenchido na aprovação
-  asaas_api_key_encrypted bytea,                     -- pgsodium encrypted
+  asaas_wallet_id text,                              -- reservado; permanece NULL no piloto (conta única Keepit). Preenchido só no modelo-alvo (subconta por lojista)
+  -- asaas_api_key_encrypted bytea,                  -- MODELO-ALVO PÓS-PILOTO (chave Asaas por lojista, cripto pgsodium). NÃO aplicado nas migrations do piloto — conta Asaas única, chave no env server-side. Ver nota §1.4 e Story 3.8 (SIMPLE)
 
   -- Estado
   status text NOT NULL DEFAULT 'em_analise'
@@ -244,8 +288,14 @@ CREATE TABLE estabelecimentos (
 
 CREATE INDEX idx_estab_status ON estabelecimentos(status);
 CREATE INDEX idx_estab_categoria ON estabelecimentos(categoria) WHERE status = 'ativo';
-CREATE INDEX idx_estab_geo ON estabelecimentos(lat, lng) WHERE status = 'ativo' AND pausado_manualmente = false;
 CREATE INDEX idx_estab_cnpj ON estabelecimentos(cnpj);
+
+-- idx_estab_geo: índice geo (lat, lng) para matching por Haversine — MODELO-ALVO PÓS-PILOTO.
+-- NÃO criado no piloto (2026-08-12): a descoberta é por lista/relação explícita
+-- (estabelecimentos_hubs, §2.3), sem consulta geográfica; lat/lng são NULLABLE no piloto.
+-- Mantido por rastreabilidade — volta com o gatilho "Número de hubs torna escolha manual ruim
+-- → GPS/Haversine/mapa" (overlay 07 §"Gatilhos"). Reversão: recriar o índice + tornar lat/lng NOT NULL.
+-- CREATE INDEX idx_estab_geo ON estabelecimentos(lat, lng) WHERE status = 'ativo' AND pausado_manualmente = false;
 ```
 
 ### 1.5 `estabelecimentos_horarios`
@@ -343,6 +393,57 @@ CREATE TABLE hubs_horarios (
   CHECK (aberto = false OR (hora_abre IS NOT NULL AND hora_fecha IS NOT NULL AND hora_abre < hora_fecha))
 );
 ```
+
+### 2.3 `estabelecimentos_hubs` — relação loja↔hub (base da descoberta por lista)
+
+Tabela de junção pura (chave composta, sem `id` próprio) que expressa **quais hubs
+esta loja atende** / **quais lojas aparecem ao escolher um hub**. É a **base da
+descoberta por lista** do piloto: o cliente escolhe um hub numa lista e vê as lojas
+relacionadas — **sem GPS, Haversine, mapa, geocoding ou ranking especializado** (ver
+overlay [`07-mvp-pilot-backend.md`](./07-mvp-pilot-backend.md) §"Descoberta").
+Substitui, no piloto, o matching geográfico por coordenadas/raio (ver §1.4, nota
+"Geo adiado"). Diferente das tabelas geo, **esta tabela É criada no piloto** — a
+descoberta por hub é parte do recorte real (`CORE`/`SIMPLE`).
+
+> **Associação por operação explícita (2026-08-12):** a relação é populada por uma
+> **operação explícita** — na **aprovação do lojista** ou por gestão no painel Admin
+> —, conforme o overlay 07 §"Descoberta" ("Relação loja↔hub explícita no banco ou
+> definida na aprovação"). Este schema **modela a relação e garante integridade**; a
+> **regra de negócio de COMO/QUANDO** a loja é vinculada ao hub (automática na
+> aprovação? seleção manual do Admin? o lojista escolhe seus hubs?) **não está
+> decidida** e **não é presumida aqui** — ver observação levantada para o Caio ao
+> fim desta mudança.
+
+```sql
+CREATE TABLE estabelecimentos_hubs (
+  estabelecimento_id uuid NOT NULL REFERENCES estabelecimentos(id) ON DELETE CASCADE,
+  hub_id uuid NOT NULL REFERENCES hubs(id) ON DELETE CASCADE,
+  criado_em timestamptz NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (estabelecimento_id, hub_id)
+);
+
+-- Duas direções de consulta:
+--   • "quais hubs esta loja atende"      → coberta pela PK (estabelecimento_id, hub_id).
+--   • "quais lojas atendem este hub"      → índice dedicado (leitura central da descoberta por lista).
+CREATE INDEX idx_estab_hubs_hub ON estabelecimentos_hubs(hub_id);
+```
+
+**Regra de integridade do pedido (validação server-side esperada):** um `pedido` só
+pode referenciar um `hub_id` que a loja atende — deve existir a linha
+`(pedidos.estabelecimento_id, pedidos.hub_id)` em `estabelecimentos_hubs` no momento
+da criação do pedido. A invariante é **declarada aqui** e aplicada **server-side** na
+criação do pedido — como CHECK via trigger `BEFORE INSERT` em `pedidos` **ou**
+validação de existência dentro da RPC/Edge Function de criação de pedido. Não exige
+DDL complexo: basta a verificação de existência antes de inserir; um par inexistente
+rejeita o pedido.
+
+> **Trade-off (FK composta vs. validação):** uma FK composta
+> `pedidos(estabelecimento_id, hub_id) → estabelecimentos_hubs` seria possível (a PK
+> cobre o par), mas acopla `pedidos` à junção e, com `ON DELETE RESTRICT`, **impediria
+> desvincular uma loja de um hub enquanto houver pedidos históricos** naquele par —
+> operacionalmente indesejável. Por isso preferimos a **validação server-side na
+> criação** (não bloqueia manutenção da relação nem a evolução pós-piloto do modelo
+> geo). Registrada como invariante, não como FK.
 
 ---
 
@@ -448,6 +549,26 @@ CREATE TABLE pedidos (
       'nao_entregue_lojista',
       'estornado_chargeback'
     )),
+  -- Profundidade de implementação no piloto (2026-08-12): o CHECK mantém os 15
+  -- valores de PROPÓSITO, como MODELO-ALVO. A permissividade é intencional — evita
+  -- migration quando os estados adiados voltarem. No piloto, porém, IMPLEMENTA-SE
+  -- apenas o subconjunto de transições do overlay `07-mvp-pilot-backend.md`
+  -- §"Fluxo do pedido no piloto":
+  --   aguardando_pagamento → aguardando_aceite → (aceito | em_preparo) → no_hub → entregue,
+  --   + 'cancelado' (exceções pré-aceite) e o rótulo operacional de suporte do overlay.
+  -- Os estados ligados a automações adiadas (LATER) permanecem no enum SEM lógica de
+  -- transição no piloto: 'cancelado_timeout' (job pg_cron de timeout, §7 / Story 6.10),
+  -- 'cancelado_atraso' (push de atraso ao lojista), 'estornado_chargeback' (webhook de
+  -- chargeback) e os demais que dependam de job/push/chargeback ('cancelado_admin',
+  -- 'saindo_hub', 'recusado', 'nao_retirado', 'nao_entregue_lojista'). Voltam junto com
+  -- a automação correspondente, sem alterar este DDL.
+  -- Cancelamentos no piloto usam 'cancelado' + a coluna de motivo JÁ EXISTENTE desta
+  -- tabela; exceções pós-aceite seguem para operação humana (rótulo 'support_required'
+  -- do overlay 07, sem valor de enum dedicado no piloto). Mapeamento das colunas de motivo:
+  --   • recusa do lojista (pré-aceite)   → status='cancelado' + motivo_recusa
+  --   • cancelamento comum               → status='cancelado' + motivo_cancelamento
+  --   • cliente não retirou (pós-aceite) → exceção operacional + motivo_nao_retirado
+  -- A transição para 'entregue' continua EXCLUSIVA da RPC de PIN (server-side; mudança 3).
 
   -- PIN
   pin_hash text NOT NULL,                            -- pgcrypto crypt() do PIN
@@ -498,7 +619,10 @@ CREATE INDEX idx_pedidos_entregue_estab
   ON pedidos(estabelecimento_id, entregue_em)
   WHERE status = 'entregue' AND entregue_em IS NOT NULL;
 
--- Job de timeout precisa desse índice
+-- No piloto (2026-08-12): serve à consulta manual do Admin de pedidos vencidos
+-- (status='aguardando_aceite' AND criado_em < now() - interval '10 min'), já que o
+-- job de timeout automático (§7.1 / Story 6.10) está fora do piloto. Índice barato,
+-- mantido — passa a servir também o job de timeout quando ele for reativado.
 CREATE INDEX idx_pedidos_aguardando_aceite
   ON pedidos(criado_em)
   WHERE status = 'aguardando_aceite';
@@ -526,9 +650,203 @@ CREATE INDEX idx_pedidos_itens_pedido ON pedidos_itens(pedido_id);
 
 ## 6. Financeiro
 
-### 6.1 `reembolsos_pendentes`
+> **Reconciliação schema↔overlay (2026-08-12):** o overlay
+> [`07-mvp-pilot-backend.md`](./07-mvp-pilot-backend.md) §"Financeiro mínimo" já
+> especifica **um ledger simples e auditável** (uma linha por lançamento: referência
+> ao pedido, tipo `charge`/`platform_fee`/`merchant_credit`/`refund`/`payout`, valor
+> imutável em centavos, status, id externo Asaas, timestamps e ator admin). Este
+> schema, porém, modelava o financeiro de forma **fragmentada** — quatro tabelas
+> (`reembolsos_pendentes`, `saques`, `debitos_lojista`, `chargebacks`) mais uma view
+> de 5 CTEs que **recalculava** o saldo. Para o **piloto**, unificamos o financeiro
+> em **um único ledger append-only** (`lancamentos_financeiros`, §6.1), tornando o
+> saldo uma agregação `SUM`/`CASE` trivial (§6.2). As quatro tabelas antigas
+> permanecem como **modelo-alvo pós-piloto** (§6.3), preservadas por rastreabilidade
+> e **não aplicadas nas migrations do piloto**. Motivação: menos código para
+> construir e manter (uma tabela + `SUM` vs. 3–4 tabelas + view de 5 CTEs), mantendo
+> a regra inegociável do overlay — **valores são a fonte da verdade no banco, nunca
+> soma recalculada só na UI**.
 
-Fila de reembolsos manuais (Rodada 6 - regra explícita do MVP).
+### 6.1 `lancamentos_financeiros` — ledger único do piloto
+
+Ledger **append-only / imutável**: uma linha por movimento financeiro. É a **fonte
+da verdade** do dinheiro no piloto. Correções **nunca** alteram o valor de uma
+linha existente — entram como **novos lançamentos** (estorno + relançamento). Só
+campos operacionais do passo manual do Admin (`status`, `asaas_id_externo`,
+`concluido_em`, `ator_admin_id`, `detalhe`) podem sofrer `UPDATE`; `valor_centavos`,
+`tipo` e os vínculos (`estabelecimento_id`, `pedido_id`) são imutáveis (trigger
+abaixo).
+
+**Convenção de sinal (perspectiva da carteira do lojista):** `valor_centavos` é
+**assinado**. **Positivo = aumenta o que a Keepit deve ao lojista**; **negativo =
+reduz**. Por tipo:
+
+| Tipo | Sinal | Significado | Entra na carteira? |
+|---|---|---|---|
+| `charge` | + | pagamento do cliente pelo pedido (recibo da plataforma) | **Não** — auditoria/rastreio do dinheiro que entrou |
+| `platform_fee` | − | comissão Keepit de **12%** sobre o subtotal do pedido | **Sim** (débito da comissão) |
+| `merchant_credit` | + | crédito bruto do pedido entregue = `subtotal + taxa_deslocamento` | **Sim** (sujeito a D+7) |
+| `merchant_credit` | − | ajuste manual do Admin que **debita** o lojista (`admin_acao_financeira`) | **Sim** (imediato → `total_debitado`) |
+| `refund` | − | dinheiro devolvido ao **cliente** (reembolso) | **Não** — auditoria; espelha o legado, onde `reembolsos_pendentes` **não** entrava na carteira |
+| `payout` | − | saque/repasse PIX manual ao lojista | **Sim** (imediato → `total_sacado`) |
+
+> **Líquido por pedido entregue:** `merchant_credit` (+`subtotal+deslocamento`) somado
+> a `platform_fee` (−`taxa_keepit`) reproduz exatamente o crédito líquido do modelo
+> antigo (`subtotal − taxa_keepit + deslocamento`). A taxa de 12% e a janela D+7 **já
+> existiam** no schema; aqui apenas passam a ser **representadas como lançamentos** —
+> nenhum percentual novo foi inventado.
+
+```sql
+CREATE TABLE lancamentos_financeiros (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- Vínculos (imutáveis)
+  estabelecimento_id uuid NOT NULL REFERENCES estabelecimentos(id) ON DELETE RESTRICT,
+  pedido_id uuid REFERENCES pedidos(id) ON DELETE RESTRICT,   -- NULL para ajuste manual sem pedido
+
+  -- Fato financeiro (imutável)
+  tipo text NOT NULL CHECK (tipo IN ('charge', 'platform_fee', 'merchant_credit', 'refund', 'payout')),
+  valor_centavos bigint NOT NULL,                    -- assinado; imutável (ver convenção de sinal)
+
+  -- Passo manual do Admin / execução Asaas (mutável)
+  status text NOT NULL DEFAULT 'concluido'
+    CHECK (status IN ('pendente', 'concluido', 'erro')),
+  asaas_id_externo text,                             -- id de cobrança/transferência Asaas, quando existir
+  ator_admin_id uuid REFERENCES auth.users(id),      -- admin que executou a ação manual (payout/refund/ajuste)
+  detalhe text,
+
+  -- Liberação D+7: preenchido só para o crédito de pedido entregue (= entregue_em + 7 dias).
+  -- NULL = disponível imediatamente (charge, platform_fee acompanha o crédito, payout, refund, ajuste).
+  disponivel_em timestamptz,
+
+  criado_em timestamptz NOT NULL DEFAULT NOW(),
+  concluido_em timestamptz                           -- quando o passo manual (payout/refund) é concluído
+);
+
+CREATE INDEX idx_lancamentos_estab ON lancamentos_financeiros(estabelecimento_id, disponivel_em);
+CREATE INDEX idx_lancamentos_pendentes ON lancamentos_financeiros(status, criado_em)
+  WHERE status = 'pendente';                         -- filas do Admin (payout/refund a executar)
+CREATE INDEX idx_lancamentos_pedido ON lancamentos_financeiros(pedido_id)
+  WHERE pedido_id IS NOT NULL;
+```
+
+**Imutabilidade do valor (append-only enforcado):**
+
+```sql
+CREATE OR REPLACE FUNCTION lancamento_financeiro_imutavel()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.valor_centavos      IS DISTINCT FROM OLD.valor_centavos
+     OR NEW.tipo             IS DISTINCT FROM OLD.tipo
+     OR NEW.estabelecimento_id IS DISTINCT FROM OLD.estabelecimento_id
+     OR NEW.pedido_id        IS DISTINCT FROM OLD.pedido_id
+     OR NEW.criado_em        IS DISTINCT FROM OLD.criado_em THEN
+    RAISE EXCEPTION 'lancamentos_financeiros: valor/tipo/vínculo são imutáveis — registre um NOVO lançamento para corrigir';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_lancamento_imutavel
+  BEFORE UPDATE ON lancamentos_financeiros
+  FOR EACH ROW EXECUTE FUNCTION lancamento_financeiro_imutavel();
+```
+
+**Regra do saldo com janela D+7.** O crédito de um pedido entregue só entra no saldo
+**DISPONÍVEL** após `entregue_em <= now() - interval '7 days'`; antes disso é saldo
+**BLOQUEADO**. Essa é a mesma semântica que vivia na view `carteira_lojista` antiga.
+No ledger, ela é materializada no campo `disponivel_em`:
+
+- Para o `merchant_credit` **positivo** (crédito do pedido) e seu `platform_fee`
+  pareado, `disponivel_em = entregue_em + interval '7 days'` (gravado no momento em
+  que `confirmar_pin_pedido` marca `entregue_em` — ver overlay 07 §RPC). Assim
+  `disponivel_em <= now()` ⟺ `entregue_em <= now() - interval '7 days'`.
+- Para `payout`, `refund` e ajustes (`merchant_credit` negativo), `disponivel_em`
+  fica **NULL** (efeito imediato — débito/saque não é "bloqueado").
+
+Escrita financeira administrativa (reembolso/repasse/ajuste) passa **somente** pela
+RPC `admin_acao_financeira(...)` `SECURITY DEFINER` sob `is_admin()` (overlay 07),
+sempre com `ator_admin_id`. O webhook Asaas (`asaas-payment-webhook`) registra o
+`charge` do pagamento confirmado.
+
+### 6.2 View `carteira_lojista` — agregação do ledger
+
+Substitui as 5 CTEs sobre múltiplas tabelas por uma agregação `SUM`/`FILTER` direta
+sobre `lancamentos_financeiros`. **Preserva exatamente os mesmos campos de saída**
+consumidos pela UI da carteira (`packages/core-data` `WalletPort` →
+`saldo_disponivel_reais`, `saldo_bloqueado_reais`, `total_sacado_reais`,
+`total_debitado_reais`). O ledger é em **centavos**; a view divide por 100 para
+manter a interface em reais.
+
+```sql
+CREATE OR REPLACE VIEW carteira_lojista AS
+SELECT
+  e.id AS estabelecimento_id,
+
+  -- Disponível: créditos líquidos liberados (D+7) + ajustes/débitos imediatos − saques.
+  --   merchant_credit/platform_fee: entram quando disponivel_em já passou (NULL = imediato, ex.: ajuste negativo).
+  --   payout (negativo): reduz o disponível; inclui 'pendente' para evitar overdraw, exclui 'erro'.
+  COALESCE(SUM(l.valor_centavos) FILTER (
+    WHERE (l.tipo IN ('merchant_credit', 'platform_fee')
+            AND (l.disponivel_em IS NULL OR l.disponivel_em <= NOW()))
+       OR (l.tipo = 'payout' AND l.status <> 'erro')
+  ), 0) / 100.0 AS saldo_disponivel_reais,
+
+  -- Bloqueado: crédito líquido (merchant_credit + platform_fee) ainda dentro da janela D+7.
+  COALESCE(SUM(l.valor_centavos) FILTER (
+    WHERE l.tipo IN ('merchant_credit', 'platform_fee')
+      AND l.disponivel_em IS NOT NULL AND l.disponivel_em > NOW()
+  ), 0) / 100.0 AS saldo_bloqueado_reais,
+
+  -- Total sacado (payout é negativo no ledger; excluir 'erro').
+  COALESCE(-SUM(l.valor_centavos) FILTER (
+    WHERE l.tipo = 'payout' AND l.status <> 'erro'
+  ), 0) / 100.0 AS total_sacado_reais,
+
+  -- Total debitado: ajustes manuais que reduzem a carteira (merchant_credit negativo).
+  -- Pós-piloto: também a taxa de chargeback, quando reintroduzida (ver §6.3).
+  COALESCE(-SUM(l.valor_centavos) FILTER (
+    WHERE l.tipo = 'merchant_credit' AND l.valor_centavos < 0
+  ), 0) / 100.0 AS total_debitado_reais
+FROM estabelecimentos e
+LEFT JOIN lancamentos_financeiros l ON l.estabelecimento_id = e.id
+WHERE e.status = 'ativo'
+GROUP BY e.id;
+```
+
+**Nota:** o saldo pode ficar negativo (ex.: ajuste/estorno maior que o crédito) — é
+esperado (lojista fica devedor). A validação de saque sob saldo insuficiente é feita
+na criação do `payout` (RPC/Edge Function que lê esta view); o mínimo de saque é
+`businessConfig.saqueMinimoReais` (nunca hard-coded na view — o antigo
+`CHECK (valor_reais >= 200)` era decisão de negócio e não vive mais no schema).
+
+### 6.3 Modelo-alvo pós-piloto — tabelas financeiras fragmentadas
+
+> **Fora do piloto (2026-08-12):** as tabelas `reembolsos_pendentes`, `saques`,
+> `debitos_lojista` e `chargebacks` **NÃO são criadas nas migrations do piloto**.
+> No piloto, todo o fluxo de reembolso/saque/ajuste/estorno é representado como
+> **lançamentos no ledger único** (`lancamentos_financeiros`, §6.1), com `status`
+> para o passo manual do Admin. Estas tabelas permanecem como modelo-alvo — voltam
+> quando o volume/automação justificar (gatilho "Repasses manuais consomem tempo ou
+> geram erro | Saque automático/subconta" no overlay
+> [`07-mvp-pilot-backend.md`](./07-mvp-pilot-backend.md) §"Gatilhos"). Não deletar —
+> mantidas por rastreabilidade.
+
+**Mapeamento piloto (ledger) ↔ modelo-alvo (tabelas):**
+
+| Fluxo | Piloto — lançamento no ledger | Modelo-alvo (tabela antiga) |
+|---|---|---|
+| Solicitação de saque | `payout` `status='pendente'`, `valor_centavos` negativo | `saques` (`status='solicitado'`) |
+| Admin executa o PIX manual | mesmo lançamento → `status='concluido'`, grava `asaas_id_externo` + `concluido_em` + `ator_admin_id` | `saques` (`status='concluido'`, `asaas_transfer_id`) |
+| Reembolso ao cliente | `refund` `status='pendente'`→`'concluido'` (auditoria; não entra na carteira) | `reembolsos_pendentes` |
+| Ajuste/estorno que debita o lojista | `merchant_credit` negativo (via `admin_acao_financeira`, com `ator_admin_id`) | `debitos_lojista` (`motivo='ajuste_admin'`) |
+| Chargeback | `merchant_credit` negativo (clawback) + `refund` — **pós-piloto** (cartão/chargeback fora do piloto, ver nota do topo) | `chargebacks` + `debitos_lojista` (`motivo='taxa_chargeback'`) |
+| Comissão Keepit (12%) | `platform_fee` negativo por pedido | (calculado na view antiga) |
+| Pagamento do cliente | `charge` positivo (via webhook Asaas) | (implícito em `pedidos`) |
+
+<details>
+<summary>DDLs do modelo-alvo (pós-piloto — NÃO aplicar nas migrations do piloto)</summary>
+
+**`reembolsos_pendentes`** — fila de reembolsos manuais (Rodada 6).
 
 ```sql
 CREATE TABLE reembolsos_pendentes (
@@ -562,9 +880,7 @@ CREATE INDEX idx_reembolsos_pendentes ON reembolsos_pendentes(status, criado_em)
 CREATE INDEX idx_reembolsos_pedido ON reembolsos_pendentes(pedido_id);
 ```
 
-### 6.2 `saques`
-
-Solicitações de saque do lojista.
+**`saques`** — solicitações de saque do lojista.
 
 ```sql
 CREATE TABLE saques (
@@ -584,9 +900,7 @@ CREATE INDEX idx_saques_estab ON saques(estabelecimento_id, solicitado_em DESC);
 CREATE INDEX idx_saques_status ON saques(status);
 ```
 
-### 6.3 `chargebacks`
-
-Registro de chargebacks recebidos via webhook Asaas.
+**`chargebacks`** — registro de chargebacks recebidos via webhook Asaas.
 
 ```sql
 CREATE TABLE chargebacks (
@@ -598,9 +912,7 @@ CREATE TABLE chargebacks (
 );
 ```
 
-### 6.4 `debitos_lojista`
-
-Débitos que afetam a carteira virtual (taxa de chargeback, ajustes manuais admin).
+**`debitos_lojista`** — débitos que afetam a carteira (taxa de chargeback, ajustes manuais).
 
 ```sql
 CREATE TABLE debitos_lojista (
@@ -617,71 +929,33 @@ CREATE TABLE debitos_lojista (
 CREATE INDEX idx_debitos_estab ON debitos_lojista(estabelecimento_id, criado_em DESC);
 ```
 
-### 6.5 View `carteira_lojista`
+**View `carteira_lojista` (modelo-alvo — 5 CTEs sobre múltiplas tabelas):** a versão
+com `creditos` (pedidos entregues), `saldo_disponivel`/`saldo_bloqueado` (janela D+7),
+`saques_feitos` e `debitos`. Substituída no piloto pela agregação de §6.2 sobre o
+ledger. Reintroduzida junto com as tabelas acima quando o gatilho de automação
+disparar.
 
-Coração do modelo de carteira virtual.
-
-```sql
-CREATE OR REPLACE VIEW carteira_lojista AS
-WITH creditos AS (
-  -- Pedidos entregues, líquido de taxa Keepit
-  SELECT
-    estabelecimento_id,
-    entregue_em,
-    (subtotal_produtos_reais - taxa_keepit_reais + taxa_deslocamento_reais) AS valor_liquido_reais
-  FROM pedidos
-  WHERE status = 'entregue' AND entregue_em IS NOT NULL
-),
-saldo_disponivel AS (
-  SELECT
-    estabelecimento_id,
-    COALESCE(SUM(valor_liquido_reais), 0) AS total
-  FROM creditos
-  WHERE entregue_em <= NOW() - INTERVAL '7 days'
-  GROUP BY estabelecimento_id
-),
-saldo_bloqueado AS (
-  SELECT
-    estabelecimento_id,
-    COALESCE(SUM(valor_liquido_reais), 0) AS total
-  FROM creditos
-  WHERE entregue_em > NOW() - INTERVAL '7 days'
-  GROUP BY estabelecimento_id
-),
-saques_feitos AS (
-  SELECT
-    estabelecimento_id,
-    COALESCE(SUM(valor_reais), 0) AS total
-  FROM saques
-  WHERE status IN ('solicitado', 'processando', 'concluido')  -- inclui solicitados para evitar overdraw
-  GROUP BY estabelecimento_id
-),
-debitos AS (
-  SELECT
-    estabelecimento_id,
-    COALESCE(SUM(valor_reais), 0) AS total
-  FROM debitos_lojista
-  GROUP BY estabelecimento_id
-)
-SELECT
-  e.id AS estabelecimento_id,
-  COALESCE(sd.total, 0) - COALESCE(sf.total, 0) - COALESCE(db.total, 0) AS saldo_disponivel_reais,
-  COALESCE(sb.total, 0) AS saldo_bloqueado_reais,
-  COALESCE(sf.total, 0) AS total_sacado_reais,
-  COALESCE(db.total, 0) AS total_debitado_reais
-FROM estabelecimentos e
-LEFT JOIN saldo_disponivel sd ON sd.estabelecimento_id = e.id
-LEFT JOIN saldo_bloqueado sb ON sb.estabelecimento_id = e.id
-LEFT JOIN saques_feitos sf ON sf.estabelecimento_id = e.id
-LEFT JOIN debitos db ON db.estabelecimento_id = e.id
-WHERE e.status = 'ativo';
-```
-
-**Nota importante:** saldo pode ficar negativo se chargeback for maior que crédito. Isso é esperado (regra: lojista fica devedor). O check `saques.valor_reais >= 200` protege contra saque sob saldo insuficiente; validação real é feita em Edge Function que lê a view.
+</details>
 
 ---
 
 ## 7. Jobs `pg_cron`
+
+> **Fora do piloto (2026-08-12):** **toda a §7 é modelo-alvo pós-piloto e NÃO é
+> aplicada nas migrations do piloto.** Os dois jobs abaixo dependem de capacidades
+> adiadas: (a) o timeout automático de aceite (§7.1) corresponde à Story 6.10,
+> classificada como `LATER` no plano do piloto — ver
+> [`../prd/07-plano-mvp-piloto.md`](../prd/07-plano-mvp-piloto.md) — onde **o Admin
+> apenas sinaliza pedidos vencidos por consulta manual**, sem cancelamento
+> automático; (b) o aviso de atraso ao lojista (§7.2) depende de **push nativo**,
+> também adiado (Stories 6.13/2.11 sem push). Consequências no piloto: nenhuma
+> chamada `cron.schedule` é criada, a extensão `pg_cron` não é habilitada
+> (ver §"Extensões") e a etapa 14 da ordem de migration (§8) fica fora da rodada.
+> O DDL permanece por rastreabilidade do modelo-alvo — **não deletar**. Reversão:
+> reabilitar `pg_cron` e agendar os jobs quando os gatilhos do overlay
+> [`07-mvp-pilot-backend.md`](./07-mvp-pilot-backend.md) §"Gatilhos para aumentar
+> complexidade" dispararem ("Admin não consegue acompanhar vencimentos | Job de
+> timeout" e "Operação perde pedidos por falta de aviso | Push nativo").
 
 ### 7.1 Timeout de aceite (10 min)
 
@@ -727,7 +1001,14 @@ SELECT cron.schedule(
 );
 ```
 
-**Adicionar coluna:** `pedidos.atrasado_notificado boolean NOT NULL DEFAULT false`.
+**Adicionar coluna (modelo-alvo pós-piloto):** `pedidos.atrasado_notificado boolean NOT NULL DEFAULT false`.
+
+> **Fora do piloto (2026-08-12):** esta coluna existe **apenas** para servir a
+> flag consumida pelo job §7.2 + push nativo. Como ambos estão adiados, a coluna
+> **não entra nas migrations do piloto** — pertence ao modelo-alvo. Entra junto
+> com o job (mesma migration incremental, ex. `add_atrasado_notificado.sql` na
+> §8) quando o gatilho de push do overlay
+> [`07-mvp-pilot-backend.md`](./07-mvp-pilot-backend.md) disparar.
 
 ---
 
@@ -751,14 +1032,28 @@ Ordem sugerida do schema inicial:
 4. `clientes` + trigger de signup
 5. `estabelecimentos` + horários + falhas
 6. `hubs` + horários
-7. `produtos`
-8. `carrinho` + itens
-9. `pedidos` + itens
-10. `reembolsos_pendentes`, `saques`, `chargebacks`, `debitos_lojista`
-11. View `carteira_lojista`
-12. `clientes_cartoes`
-13. Jobs pg_cron
+7. `estabelecimentos_hubs` (junção loja↔hub — base da descoberta por lista; após `estabelecimentos` e `hubs`, pois referencia ambos — §2.3)
+8. `produtos`
+9. `carrinho` + itens
+10. `pedidos` + itens
+11. `lancamentos_financeiros` + trigger de imutabilidade (ledger único do piloto — §6.1)
+12. View `carteira_lojista` (agregação SUM/CASE sobre o ledger — §6.2)
+13. `clientes_cartoes`
+14. Jobs pg_cron
 
-*(A antiga etapa 5, `clientes_confirmacao_telefone`, saiu com a decisão 10.4 — ver §1.2. As demais foram renumeradas.)*
+*(A antiga etapa 5, `clientes_confirmacao_telefone`, saiu com a decisão 10.4 — ver §1.2.)*
+
+> **Financeiro do piloto (2026-08-12):** a etapa 11 aplica **apenas** o ledger único
+> `lancamentos_financeiros`. As tabelas fragmentadas `reembolsos_pendentes`, `saques`,
+> `debitos_lojista` e `chargebacks` são **modelo-alvo pós-piloto** (§6.3) e **não
+> entram** nesta ordem — voltam, junto com a view de 5 CTEs, quando o gatilho de
+> automação do overlay [`07-mvp-pilot-backend.md`](./07-mvp-pilot-backend.md)
+> §"Gatilhos" disparar. A etapa 14 (jobs `pg_cron`) também fica fora do piloto (§7).*
+>
+> **Descoberta por lista (2026-08-12):** a etapa 7 (`estabelecimentos_hubs`) **entra
+> no piloto** — é a base da descoberta por hub. Já o índice geo `idx_estab_geo` (na
+> etapa 5) **não é criado** e `lat`/`lng`/`raio_atendimento_km` ficam **NULLABLE** no
+> piloto (§1.4, nota "Geo adiado"). Ambos voltam ao modelo geográfico pelo gatilho
+> "Número de hubs torna escolha manual ruim → GPS/Haversine/mapa".*
 
 Ver `docs/architecture/05-security.md` para as políticas RLS de cada tabela.

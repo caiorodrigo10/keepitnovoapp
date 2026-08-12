@@ -1,5 +1,12 @@
 import type { Hub, HubHorario } from '../../ports/hub.port';
 
+/**
+ * Foto real (Unsplash CDN) do ponto de retirada — encomendas prontas para
+ * retirar, coerente com o modelo click-and-collect do Hub Keepit. Só para o
+ * mock visual (Épico 0); mesma imagem nos 3 hubs por consistência de marca.
+ */
+const FOTO_HUB = 'https://images.unsplash.com/photo-1580674285054-bed31e145f59?w=400&h=400&fit=crop&q=80';
+
 /** Horário padrão 08:00–20:00 todos os dias — usado pelo Hub Centro no protótipo. */
 function horarioPadrao(): HubHorario[] {
   return Array.from({ length: 7 }, (_, dia_semana) => ({
@@ -25,7 +32,7 @@ export const hubsFixture: Hub[] = [
     lat: -23.55052,
     lng: -46.633308,
     ponto_referencia: 'Em frente à praça central',
-    foto_url: null,
+    foto_url: FOTO_HUB,
     ativo: true,
     horarios: horarioPadrao(),
   },
@@ -36,7 +43,7 @@ export const hubsFixture: Hub[] = [
     lat: -23.567,
     lng: -46.6558,
     ponto_referencia: null,
-    foto_url: null,
+    foto_url: FOTO_HUB,
     ativo: true,
     horarios: horarioPadrao(),
   },
@@ -47,7 +54,7 @@ export const hubsFixture: Hub[] = [
     lat: -23.548,
     lng: -46.62,
     ponto_referencia: null,
-    foto_url: null,
+    foto_url: FOTO_HUB,
     ativo: true,
     horarios: horarioPadrao(),
   },

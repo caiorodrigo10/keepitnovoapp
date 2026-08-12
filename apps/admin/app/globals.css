@@ -1,3 +1,31 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    background: #0c0e08;
+  }
+
+  body {
+    min-height: 100vh;
+    background: #0c0e08;
+    color: #ffffff;
+    font-family: var(--font-hanken), system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  :focus-visible {
+    outline: 2px solid #75dc8d;
+    outline-offset: 3px;
+  }
+}

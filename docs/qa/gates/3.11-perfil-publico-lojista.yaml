@@ -1,0 +1,20 @@
+schema: 1
+story: '3.11'
+gate: CONCERNS
+status_reason: 'Todos os 6 ACs atendidos com honestidade (leitura/escrita do próprio sob RLS, URL assinada degradando graciosamente, nome fantasia read-only). Upload de foto adiado (sem expo-image-picker) e verificação device/E2E pendente — débitos documentados, sem issue high/critical.'
+reviewer: 'Quinn'
+updated: '2026-08-12T16:30:00Z'
+top_issues:
+  - id: 'REQ-001'
+    severity: low
+    finding: 'AC3 — foto de fachada NÃO entra no payload de atualizarMeuPerfil (só categoria/descrição persistem). AUTO-DECISION honesta e correta: sem expo-image-picker no workspace, o toggle da UI só produz o marcador local-placeholder; persisti-lo corromperia a coluna foto_fachada_url. A leitura da foto real (URL assinada) funciona.'
+    suggested_action: 'Retomar o upload real quando um image picker for adicionado — o input ganha um campo dedicado que passa primeiro por uploadFachada (já existente na port).'
+  - id: 'TEST-001'
+    severity: low
+    finding: 'Verificação device/E2E contra keepit-dev real permanece manual pendente (perfil real → editar → Salvar → reabrir; RLS bloqueando UPDATE de campos imutáveis por caminho direto). Mesmo padrão de lacuna das Stories 3.5/3.7/3.9/3.10.'
+    suggested_action: 'Executar smoke de dispositivo contra keepit-dev antes do release do piloto.'
+  - id: 'ARCH-001'
+    severity: low
+    finding: 'Reaproveitamento vs. extensão do contrato de leitura da Story 3.10 foi resolvido por AUTO-DECISION do @dev (método/tipo NOVOS na mesma port — getMeuPerfil/MeuPerfilLojista), sem sessão dedicada de @architect. Decisão é sólida e bem justificada no JSDoc (evita carregar categoria/descrição/fachada em todo login).'
+    suggested_action: 'Confirmação leve de @architect quando conveniente; não bloqueia.'
+waiver: { active: false }

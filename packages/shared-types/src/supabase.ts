@@ -2,6 +2,92 @@
 // Origem: `supabase gen types` do projeto keepit-dev (ref jhhbewnmnorhmsdvfppo),
 // executado via MCP do Supabase em 2026-07-29.
 // NÃO editar à mão — regenerar quando o schema mudar.
+//
+// Story 2.8 (2026-08-12) — reconciliação manual da tabela `clientes`: este
+// arquivo não foi regenerado desde 2026-07-29, mas a migration
+// `apps/supabase/supabase/migrations/20260731143000_criar_clientes.sql`
+// (Story 2.3, aplicada em 2026-07-31 ao projeto keepit-dev) criou a tabela
+// no banco real sem que os tipos fossem atualizados — confirmado por sonda
+// real via REST (`GET /rest/v1/clientes?select=*&limit=0` → 200 `[]`, sem
+// `SUPABASE_ACCESS_TOKEN` disponível neste ambiente para rodar
+// `supabase gen types` via CLI/login). A entrada `clientes` abaixo espelha
+// exatamente o DDL aplicado (5 colunas do subconjunto mínimo: `id, nome,
+// telefone, cpf, criado_em` — ver o cabeçalho da migration, "ESCOPO (delta
+// desta story)"), não inventa nenhuma coluna do modelo-alvo de
+// `docs/architecture/03-data-models.md` §1.1 que ainda não foi migrada.
+//
+// Story 3.5 (2026-08-12) — reconciliação manual adicional, mesmo padrão da
+// Story 2.8: a RPC `public.criar_estabelecimento_completo` foi aplicada ao
+// `keepit-dev` pela migration
+// `apps/supabase/supabase/migrations/20260812123048_rpc_criar_estabelecimento_completo.sql`
+// (@data-engineer) sem regeneração de tipos (mesma limitação de ambiente —
+// sem `SUPABASE_ACCESS_TOKEN`/login para `supabase gen types`). A entrada
+// `criar_estabelecimento_completo` abaixo espelha EXATAMENTE a assinatura
+// SQL da função (seção `Functions`, 17 parâmetros `p_*` + `RETURNS uuid`) —
+// não inventa nenhum parâmetro. Até a Story 3.7, as tabelas
+// `estabelecimentos`/`estabelecimentos_horarios` NÃO tinham entrada em
+// `Tables` porque nenhum adapter as consultava diretamente (toda escrita
+// passava pela RPC, que roda `SECURITY DEFINER`).
+//
+// Story 3.7 (2026-08-12) — reconciliação manual adicional: `admin.supabase.ts`
+// (`pendingStores`/`pendingStoreDetail`) passou a consultar `estabelecimentos`/
+// `estabelecimentos_horarios` diretamente (SELECT, sob a policy
+// `admin_gerencia_estab`/`admin_le_horarios`) e a chamar a função `is_admin()`
+// (login real do Admin). As 3 entradas abaixo (`estabelecimentos`,
+// `estabelecimentos_horarios`, `admin_users`) e a função `is_admin` espelham
+// EXATAMENTE o schema confirmado por sonda real via REST
+// (`GET {SUPABASE_URL}/rest/v1/` com `service_role`, OpenAPI `definitions`/
+// `paths./rpc/is_admin`, 2026-08-12 — mesma limitação de ambiente sem
+// `SUPABASE_ACCESS_TOKEN`/login para `supabase gen types`), aplicado pelas
+// migrations `20260812123046` (estabelecimentos), `20260812123047`
+// (estabelecimentos_horarios) e `20260812132330` (admin_users/is_admin).
+// `Relationships: []` em ambas as tabelas — os adapters desta Story fazem 2
+// queries separadas (estabelecimentos + estabelecimentos_horarios por
+// `estabelecimento_id`) em vez de embed tipado do PostgREST, então nenhum
+// call-site depende de metadata de FK aqui.
+//
+// Stories 3.8/3.9 (2026-08-12) — reconciliação manual adicional: as RPCs
+// `public.aprovar_lojista(p_estab_id uuid)` e
+// `public.rejeitar_lojista(p_estab_id uuid, p_motivo text)` foram aplicadas ao
+// `keepit-dev` pelas migrations
+// `apps/supabase/supabase/migrations/20260812132332_rpc_aprovar_lojista.sql` e
+// `apps/supabase/supabase/migrations/20260812132333_rpc_rejeitar_lojista.sql`
+// (@data-engineer), mesma limitação de ambiente (sem `SUPABASE_ACCESS_TOKEN`
+// para `supabase gen types`). As 2 entradas abaixo espelham EXATAMENTE a
+// assinatura SQL de cada função (`Args`/`RETURNS uuid`, tipado como `string`
+// no client, mesmo padrão já usado por `criar_estabelecimento_completo`).
+//
+// Story 4.1 (2026-08-12) — reconciliação manual adicional: as tabelas
+// `hubs`/`hubs_horarios` + o bucket público `hubs` foram aplicados ao
+// `keepit-dev` pelas migrations
+// `apps/supabase/supabase/migrations/20260812164000_criar_hubs.sql`,
+// `20260812164100_criar_hubs_horarios.sql` e
+// `20260812164200_storage_bucket_hubs.sql` (@data-engineer), mesma
+// limitação de ambiente (sem `SUPABASE_ACCESS_TOKEN` para
+// `supabase gen types`). As 2 entradas abaixo espelham EXATAMENTE o DDL das
+// migrations (`hubs.lat`/`lng` `numeric(9,6) NOT NULL` — diferente de
+// `estabelecimentos.lat`/`lng`, NULLABLE — ver comentário da própria
+// migration). `Relationships: []` em ambas — `admin.supabase.ts#hubsCrud`
+// faz queries separadas (mesmo padrão de `estabelecimentos`/
+// `estabelecimentos_horarios`, Story 3.7), sem embed tipado do PostgREST.
+//
+// Stories 4.3/4.4 (2026-08-12) — reconciliação manual adicional: a tabela
+// `produtos` + o bucket público `produtos` foram aplicados ao `keepit-dev`
+// pelas migrations
+// `apps/supabase/supabase/migrations/20260812190000_criar_produtos.sql`,
+// `20260812190001_produtos_indice_trgm.sql` e
+// `20260812190002_storage_bucket_produtos.sql` (@data-engineer), mesma
+// limitação de ambiente (sem `SUPABASE_ACCESS_TOKEN` para
+// `supabase gen types`). A entrada `produtos` abaixo espelha EXATAMENTE o
+// DDL da migration `20260812190000` (`preco_reais numeric(10,2) NOT NULL`,
+// mesmo tratamento numérico já usado em `estabelecimentos.taxa_deslocamento_reais`
+// acima — tipado como `number`, não `string`). `Relationships: []` — os
+// adapters desta Story (`product.supabase.ts`) não fazem embed tipado do
+// PostgREST com `estabelecimentos`.
+//
+// Regenerar via `supabase gen types typescript --project-id
+// jhhbewnmnorhmsdvfppo` (com login) substitui todos os blocos manuais sem
+// alteração de forma esperada.
 export type Json =
   | string
   | number
@@ -33,12 +119,332 @@ export type Database = {
         }
         Relationships: []
       }
+      clientes: {
+        Row: {
+          id: string
+          nome: string
+          telefone: string | null
+          cpf: string | null
+          criado_em: string
+        }
+        Insert: {
+          id: string
+          nome: string
+          telefone?: string | null
+          cpf?: string | null
+          criado_em?: string
+        }
+        Update: {
+          id?: string
+          nome?: string
+          telefone?: string | null
+          cpf?: string | null
+          criado_em?: string
+        }
+        Relationships: []
+      }
+      // Story 3.7 — ver comentário de reconciliação manual no topo do arquivo.
+      estabelecimentos: {
+        Row: {
+          id: string
+          dono_user_id: string
+          nome_fantasia: string
+          cnpj: string
+          responsavel_nome: string
+          telefone: string
+          categoria: string
+          descricao: string | null
+          foto_fachada_url: string | null
+          dados_receita: Json | null
+          endereco: string
+          lat: number | null
+          lng: number | null
+          raio_atendimento_km: number | null
+          tempo_medio_entrega_min: number
+          taxa_deslocamento_reais: number
+          ticket_minimo_reais: number | null
+          chave_pix: string
+          chave_pix_tipo: string
+          asaas_wallet_id: string | null
+          status: string
+          motivo_rejeicao: string | null
+          motivo_suspensao: string | null
+          pausado_manualmente: boolean
+          aprovado_em: string | null
+          aprovado_por: string | null
+          suspenso_em: string | null
+          criado_em: string
+          atualizado_em: string
+          excluido_em: string | null
+        }
+        Insert: {
+          id?: string
+          dono_user_id: string
+          nome_fantasia: string
+          cnpj: string
+          responsavel_nome: string
+          telefone: string
+          categoria: string
+          descricao?: string | null
+          foto_fachada_url?: string | null
+          dados_receita?: Json | null
+          endereco: string
+          lat?: number | null
+          lng?: number | null
+          raio_atendimento_km?: number | null
+          tempo_medio_entrega_min: number
+          taxa_deslocamento_reais?: number
+          ticket_minimo_reais?: number | null
+          chave_pix: string
+          chave_pix_tipo: string
+          asaas_wallet_id?: string | null
+          status?: string
+          motivo_rejeicao?: string | null
+          motivo_suspensao?: string | null
+          pausado_manualmente?: boolean
+          aprovado_em?: string | null
+          aprovado_por?: string | null
+          suspenso_em?: string | null
+          criado_em?: string
+          atualizado_em?: string
+          excluido_em?: string | null
+        }
+        Update: {
+          id?: string
+          dono_user_id?: string
+          nome_fantasia?: string
+          cnpj?: string
+          responsavel_nome?: string
+          telefone?: string
+          categoria?: string
+          descricao?: string | null
+          foto_fachada_url?: string | null
+          dados_receita?: Json | null
+          endereco?: string
+          lat?: number | null
+          lng?: number | null
+          raio_atendimento_km?: number | null
+          tempo_medio_entrega_min?: number
+          taxa_deslocamento_reais?: number
+          ticket_minimo_reais?: number | null
+          chave_pix?: string
+          chave_pix_tipo?: string
+          asaas_wallet_id?: string | null
+          status?: string
+          motivo_rejeicao?: string | null
+          motivo_suspensao?: string | null
+          pausado_manualmente?: boolean
+          aprovado_em?: string | null
+          aprovado_por?: string | null
+          suspenso_em?: string | null
+          criado_em?: string
+          atualizado_em?: string
+          excluido_em?: string | null
+        }
+        Relationships: []
+      }
+      // Story 3.7 — ver comentário de reconciliação manual no topo do arquivo.
+      estabelecimentos_horarios: {
+        Row: {
+          estabelecimento_id: string
+          dia_semana: number
+          aberto: boolean
+          hora_abre: string | null
+          hora_fecha: string | null
+        }
+        Insert: {
+          estabelecimento_id: string
+          dia_semana: number
+          aberto?: boolean
+          hora_abre?: string | null
+          hora_fecha?: string | null
+        }
+        Update: {
+          estabelecimento_id?: string
+          dia_semana?: number
+          aberto?: boolean
+          hora_abre?: string | null
+          hora_fecha?: string | null
+        }
+        Relationships: []
+      }
+      // Story 4.1 — ver comentário de reconciliação manual no topo do arquivo.
+      hubs: {
+        Row: {
+          id: string
+          nome: string
+          endereco: string
+          lat: number
+          lng: number
+          ponto_referencia: string | null
+          foto_url: string | null
+          ativo: boolean
+          criado_em: string
+          atualizado_em: string
+        }
+        Insert: {
+          id?: string
+          nome: string
+          endereco: string
+          lat: number
+          lng: number
+          ponto_referencia?: string | null
+          foto_url?: string | null
+          ativo?: boolean
+          criado_em?: string
+          atualizado_em?: string
+        }
+        Update: {
+          id?: string
+          nome?: string
+          endereco?: string
+          lat?: number
+          lng?: number
+          ponto_referencia?: string | null
+          foto_url?: string | null
+          ativo?: boolean
+          criado_em?: string
+          atualizado_em?: string
+        }
+        Relationships: []
+      }
+      // Story 4.1 — ver comentário de reconciliação manual no topo do arquivo.
+      hubs_horarios: {
+        Row: {
+          hub_id: string
+          dia_semana: number
+          aberto: boolean
+          hora_abre: string | null
+          hora_fecha: string | null
+        }
+        Insert: {
+          hub_id: string
+          dia_semana: number
+          aberto?: boolean
+          hora_abre?: string | null
+          hora_fecha?: string | null
+        }
+        Update: {
+          hub_id?: string
+          dia_semana?: number
+          aberto?: boolean
+          hora_abre?: string | null
+          hora_fecha?: string | null
+        }
+        Relationships: []
+      }
+      // Stories 4.3/4.4 — ver comentário de reconciliação manual no topo do arquivo.
+      produtos: {
+        Row: {
+          id: string
+          estabelecimento_id: string
+          nome: string
+          descricao: string | null
+          preco_reais: number
+          categoria_produto: string
+          foto_url: string | null
+          ativo: boolean
+          criado_em: string
+          atualizado_em: string
+          excluido_em: string | null
+        }
+        Insert: {
+          id?: string
+          estabelecimento_id: string
+          nome: string
+          descricao?: string | null
+          preco_reais: number
+          categoria_produto: string
+          foto_url?: string | null
+          ativo?: boolean
+          criado_em?: string
+          atualizado_em?: string
+          excluido_em?: string | null
+        }
+        Update: {
+          id?: string
+          estabelecimento_id?: string
+          nome?: string
+          descricao?: string | null
+          preco_reais?: number
+          categoria_produto?: string
+          foto_url?: string | null
+          ativo?: boolean
+          criado_em?: string
+          atualizado_em?: string
+          excluido_em?: string | null
+        }
+        Relationships: []
+      }
+      // Story 3.7 — ver comentário de reconciliação manual no topo do arquivo.
+      admin_users: {
+        Row: {
+          id: string
+          nome: string
+          criado_em: string
+        }
+        Insert: {
+          id: string
+          nome: string
+          criado_em?: string
+        }
+        Update: {
+          id?: string
+          nome?: string
+          criado_em?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      // Story 3.5 — ver comentário de reconciliação manual no topo do arquivo.
+      criar_estabelecimento_completo: {
+        Args: {
+          p_nome_fantasia: string
+          p_cnpj: string
+          p_responsavel_nome: string
+          p_telefone: string
+          p_categoria: string
+          p_endereco: string
+          p_lat: number | null
+          p_lng: number | null
+          p_raio_atendimento_km: number | null
+          p_tempo_medio_entrega_min: number
+          p_taxa_deslocamento_reais: number | null
+          p_ticket_minimo_reais: number | null
+          p_chave_pix: string
+          p_chave_pix_tipo: string
+          p_foto_fachada_url: string | null
+          p_descricao: string | null
+          p_horarios: Json
+        }
+        Returns: string
+      }
+      // Story 3.7 — ver comentário de reconciliação manual no topo do arquivo.
+      is_admin: {
+        Args: {
+          user_id?: string
+        }
+        Returns: boolean
+      }
+      // Stories 3.8/3.9 — ver comentário de reconciliação manual no topo do arquivo.
+      aprovar_lojista: {
+        Args: {
+          p_estab_id: string
+        }
+        Returns: string
+      }
+      // Stories 3.8/3.9 — ver comentário de reconciliação manual no topo do arquivo.
+      rejeitar_lojista: {
+        Args: {
+          p_estab_id: string
+          p_motivo: string
+        }
+        Returns: string
+      }
     }
     Enums: {
       [_ in never]: never

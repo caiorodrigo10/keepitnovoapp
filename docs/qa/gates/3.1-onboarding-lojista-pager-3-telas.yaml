@@ -1,0 +1,74 @@
+schema: 1
+story: '3.1'
+gate: CONCERNS
+status_reason: >-
+  Todas as ACs verificáveis por código atendidas e sem regressão de navegação;
+  resta verificação visual manual em device (tema dark/dots) e persiste o gap
+  pré-existente de teste de componente RN (TEST-003) — ambos baixa severidade.
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-08-12T00:00:00Z'
+
+acceptance_criteria:
+  - id: AC1
+    status: PASS
+    note: >-
+      3 telas em pager (OnboardingLojista1/2/3), tema dark via darkColors,
+      Dots total=3 com activeIndex 0/1/2 (ativo em pill destacado). Estrutura
+      espelha o onboarding do Cliente (Dots + OnboardingScreen). Renderização
+      visual em device fica pendente (manual).
+  - id: AC2
+    status: PASS
+    note: >-
+      Tela 2 heading = "Em minutos sua loja já recebe pedidos no hub." —
+      citação literal do AC1 do Épico 3, sem paráfrase.
+  - id: AC3
+    status: PASS
+    note: >-
+      Telas 1/2 usam "Avançar" (navigate p/ próxima tela do pager); tela 3 CTA
+      "Cadastrar estabelecimento" → CadastroPasso1 (rota registrada).
+  - id: AC4
+    status: PASS
+    note: >-
+      Tela 3 preserva link "Já tenho conta · Entrar" → Login (Pressable).
+  - id: AC5
+    status: PASS
+    note: >-
+      AuthStackParamList e AuthStack.tsx registram OnboardingLojista1/2/3;
+      initialRouteName=OnboardingLojista1; CadastroPasso1/2/3, EmAnalise e
+      Login intactas; rota antiga OnboardingLojista removida.
+  - id: AC6
+    status: PASS
+    note: >-
+      Nenhum import de @keepit/core-data/DataClient nas telas ou componentes
+      novos (grep confirmado). Transições 100% navigation.navigate local.
+
+seven_checks:
+  code_review: PASS  # fidelidade estrutural ao Cliente, sem acoplar pacotes entre apps, sem core-data
+  tests: CONCERNS     # typecheck do Lojista reexecutado PASS (tsc limpo); sem teste de componente RN (TEST-003 pré-existente)
+  acceptance_criteria: PASS  # AC1..AC6 atendidas por código; verificação visual manual pendente
+  no_regressions: PASS       # rotas do inventário preservadas; referências residuais à rota antiga só em comentários (DOC)
+  performance: PASS          # n/a — UI pura sem backend
+  security: PASS             # n/a — sem backend, sem segredo, sem core-data
+  documentation: PASS        # File List, Dev Notes e JSDoc documentam decisões e divergências
+
+top_issues:
+  - id: 'TEST-003'
+    severity: low
+    finding: >-
+      App Lojista não tem infraestrutura de teste de componente React Native
+      (script test = echo skipped) — mesma lacuna já registrada nas Stories
+      2.5.1/2.6 do Cliente. Não introduzida por esta Story.
+    suggested_action: >-
+      Rastrear como dívida transversal do monorepo; não bloqueia esta Story de
+      UI pura. Endereçar quando o épico de tooling de testes for priorizado.
+  - id: 'DOC-001'
+    severity: low
+    finding: >-
+      Verificação visual em device (tema dark renderizado, dots por tela 1/3,
+      2/3, 3/3, layout) não executável neste sandbox (sem simulador; pnpm qa
+      só roda tsc nos apps RN).
+    suggested_action: >-
+      Confirmação visual manual pelo usuário/@dev ao rodar o app Lojista antes
+      do piloto. Risco baixo — espelha padrão do Cliente já revisado em QA.
+
+waiver: { active: false }

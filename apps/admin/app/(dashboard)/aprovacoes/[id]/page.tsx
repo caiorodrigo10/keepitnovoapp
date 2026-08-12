@@ -3,7 +3,7 @@
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-import type { Estabelecimento } from '@keepit/core-data';
+import type { EstabelecimentoAdmin } from '@keepit/core-data';
 
 import { Badge } from '../../../../src/components/Badge';
 import { Button } from '../../../../src/components/Button';
@@ -12,12 +12,31 @@ import { getAdminDataClient } from '../../../../src/lib/adminClient';
 
 const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
+/** Espelha a exibição de `EstabelecimentoCadastroPort` (Story 3.5, `ChavePixTipoCadastro`). */
+const CHAVE_PIX_TIPO_LABEL: Record<string, string> = {
+  cpf: 'CPF',
+  cnpj: 'CNPJ',
+  email: 'E-mail',
+  telefone: 'Telefone',
+  aleatoria: 'Chave aleatória',
+};
+
 /**
- * Aprovar / Rejeitar lojista — Épico 0, Story 0.12 (AC1, AC2).
+ * Aprovar / Rejeitar lojista — Épico 0, Story 0.12 (AC1, AC2) + Story 3.7
+ * (AC1, AC3: dados reais dos 3 passos do cadastro, foto de fachada via URL
+ * assinada, `dados_receita` honesto).
  *
- * Fora de escopo (Épico 0): criação real de subconta Asaas/wallet —
- * `approve()` só muda `status` para `ativo` no mock. `?erro=1` na URL força
- * falha simulada da action (loading/erro exercitáveis sem backend real).
+ * Usa `admin.pendingStoreDetail` (Story 3.7), NÃO `store.getById` —
+ * `EstabelecimentoAdmin` expõe campos administrativos (CNPJ, responsável,
+ * telefone, chave PIX, `dados_receita`) que `StorePort.Estabelecimento`
+ * (tipo de domínio da Descoberta do Cliente) nunca deveria vazar. Ver JSDoc
+ * de `EstabelecimentoAdmin` em `packages/core-data/src/ports/admin.port.ts`.
+ *
+ * Fora de escopo desta Story (3.8/3.9): wiring real de aprovar/rejeitar —
+ * `admin.approve`/`admin.reject` seguem o comportamento já existente desde o
+ * Épico 0 (mock muda `status`; adapter Supabase é stub `NotImplementedError`
+ * até a 3.8/3.9). `?erro=1` na URL força falha simulada da action
+ * (loading/erro exercitáveis sem backend real).
  */
 export default function AprovarRejeitarPage() {
   const params = useParams<{ id: string }>();
@@ -25,7 +44,7 @@ export default function AprovarRejeitarPage() {
   const searchParams = useSearchParams();
   const forceActionError = searchParams.get('erro') === '1';
 
-  const [estabelecimento, setEstabelecimento] = useState<Estabelecimento | null>(null);
+  const [estabelecimento, setEstabelecimento] = useState<EstabelecimentoAdmin | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<Error | null>(null);
 
@@ -41,7 +60,7 @@ export default function AprovarRejeitarPage() {
     setLoadError(null);
 
     getAdminDataClient()
-      .store.getById(params.id)
+      .admin.pendingStoreDetail(params.id)
       .then((resultado) => {
         if (!cancelled) {
           setEstabelecimento(resultado);
@@ -119,15 +138,48 @@ export default function AprovarRejeitarPage() {
         </div>
       </div>
 
+      {estabelecimento.foto_fachada_url_assinada && (
+        <Card className="flex flex-col gap-3">
+          <h2 className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Foto da fachada</h2>
+          {/* eslint-disable-next-line @next/next/no-img-element -- URL assinada de curta expiração (bucket privado), não vale a pena o loader de otimização do next/image para uma imagem descartável em minutos. */}
+          <img
+            src={estabelecimento.foto_fachada_url_assinada}
+            alt={`Fachada de ${estabelecimento.nome_fantasia}`}
+            className="max-h-64 w-full rounded-md object-cover"
+          />
+        </Card>
+      )}
+
       <Card className="flex flex-col gap-3">
-        <h2 className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Dados básicos</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Cadastro (Passo 1)</h2>
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          <dt className="text-text-tertiary">CNPJ</dt>
+          <dd className="text-text-primary">{estabelecimento.cnpj}</dd>
+          <dt className="text-text-tertiary">Responsável</dt>
+          <dd className="text-text-primary">{estabelecimento.responsavel_nome}</dd>
+          <dt className="text-text-tertiary">Telefone</dt>
+          <dd className="text-text-primary">{estabelecimento.telefone}</dd>
+          <dt className="text-text-tertiary">Data de cadastro</dt>
+          <dd className="text-text-primary">{new Date(estabelecimento.criado_em).toLocaleDateString('pt-BR')}</dd>
+          <dt className="text-text-tertiary">Dados da Receita Federal</dt>
+          {/* AC3: `dados_receita` é sempre `null` no piloto (Story 3.3 é SIMPLE) — exibir honestamente "não coletado", nunca um dado inventado. */}
+          <dd className="text-text-primary">
+            {estabelecimento.dados_receita ? JSON.stringify(estabelecimento.dados_receita) : 'não coletado'}
+          </dd>
+        </dl>
+      </Card>
+
+      <Card className="flex flex-col gap-3">
+        <h2 className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Dados básicos (Passo 2)</h2>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
           <dt className="text-text-tertiary">Endereço</dt>
           <dd className="text-text-primary">{estabelecimento.endereco}</dd>
           <dt className="text-text-tertiary">Descrição</dt>
           <dd className="text-text-primary">{estabelecimento.descricao ?? '—'}</dd>
           <dt className="text-text-tertiary">Raio de atendimento</dt>
-          <dd className="text-text-primary">{estabelecimento.raio_atendimento_km} km</dd>
+          <dd className="text-text-primary">
+            {estabelecimento.raio_atendimento_km != null ? `${estabelecimento.raio_atendimento_km} km` : 'Não informado'}
+          </dd>
           <dt className="text-text-tertiary">Tempo médio de entrega</dt>
           <dd className="text-text-primary">{estabelecimento.tempo_medio_entrega_min} min</dd>
           <dt className="text-text-tertiary">Taxa de deslocamento</dt>
@@ -138,6 +190,16 @@ export default function AprovarRejeitarPage() {
               ? `R$ ${estabelecimento.ticket_minimo_reais.toFixed(2)}`
               : 'Padrão da plataforma'}
           </dd>
+        </dl>
+      </Card>
+
+      <Card className="flex flex-col gap-3">
+        <h2 className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Chave PIX (Passo 3)</h2>
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          <dt className="text-text-tertiary">Chave</dt>
+          <dd className="text-text-primary">{estabelecimento.chave_pix}</dd>
+          <dt className="text-text-tertiary">Tipo</dt>
+          <dd className="text-text-primary">{CHAVE_PIX_TIPO_LABEL[estabelecimento.chave_pix_tipo] ?? estabelecimento.chave_pix_tipo}</dd>
         </dl>
       </Card>
 

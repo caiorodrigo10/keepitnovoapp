@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
@@ -29,6 +29,23 @@ export default function GerenciarCatalogo({ navigation }: Props) {
   const { produtos, loading, error, toggleAtivo, reload } = useProductCatalog();
   const [busca, setBusca] = useState('');
   const [tab, setTab] = useState<FiltroTab>('todos');
+
+  /**
+   * Story 4.6 (AC1, AC4) — `toggleAtivo` (pausar/reativar) já persiste de
+   * verdade via `ProductPort.update`/`pause` (Story 1.10/4.6); esta tela
+   * apenas garantia a chamada, sem tratar falha (rede/RLS). O `ToggleSwitch`
+   * é 100% controlado por `produto.ativo` — em caso de erro, o card
+   * simplesmente não reflete a mudança (nenhum sucesso fictício), mas o
+   * erro precisa ser honesto na UI em vez de virar uma rejeição não tratada.
+   */
+  function handleToggleAtivo(produtoId: string, nextAtivo: boolean) {
+    toggleAtivo(produtoId, nextAtivo).catch(() => {
+      Alert.alert(
+        'Não foi possível atualizar',
+        nextAtivo ? 'Não foi possível reativar o produto agora. Tente novamente.' : 'Não foi possível pausar o produto agora. Tente novamente.',
+      );
+    });
+  }
 
   const ativos = useMemo(() => produtos.filter((produto) => produto.ativo), [produtos]);
   const pausados = useMemo(() => produtos.filter((produto) => !produto.ativo), [produtos]);
@@ -126,7 +143,7 @@ export default function GerenciarCatalogo({ navigation }: Props) {
             <ProductCard
               produto={item}
               onPress={() => navigation.navigate('EditarProduto', { produtoId: item.id })}
-              onToggleAtivo={(nextAtivo) => toggleAtivo(item.id, nextAtivo)}
+              onToggleAtivo={(nextAtivo) => handleToggleAtivo(item.id, nextAtivo)}
             />
           )}
         />

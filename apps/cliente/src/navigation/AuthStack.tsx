@@ -13,6 +13,7 @@ import CriarConta from '../screens/auth/CriarConta';
 import ConfirmacaoSMS from '../screens/auth/ConfirmacaoSMS';
 import Login from '../screens/auth/Login';
 import EsqueciSenha from '../screens/auth/EsqueciSenha';
+import RecuperarSenha from '../screens/auth/RecuperarSenha';
 
 const Stack = createNativeStackNavigator<AuthStackParamList>();
 
@@ -56,6 +57,8 @@ export function AuthStack() {
       <Stack.Screen name="ConfirmacaoSMS" component={ConfirmacaoSMS} />
       <Stack.Screen name="Login" component={Login} />
       <Stack.Screen name="EsqueciSenha" component={EsqueciSenha} />
+      {/* Story 2.7 (AC3) — única rota receptora do callback de recuperação. */}
+      <Stack.Screen name="RecuperarSenha" component={RecuperarSenha} />
     </Stack.Navigator>
   );
 }

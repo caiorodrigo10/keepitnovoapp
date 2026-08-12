@@ -2,15 +2,24 @@
   "expo": {
     "name": "Keepit Cliente",
     "slug": "keepit-cliente",
-    "version": "0.0.0",
+    "scheme": "com.keepithub.cliente",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "backgroundColor": "#F6F7F3",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.keepithub.cliente",
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
+      "package": "com.keepithub.cliente",
+      "versionCode": 1,
+      "permissions": [],
       "adaptiveIcon": {
         "backgroundColor": "#F6F7F3",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -21,6 +30,23 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#F6F7F3"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "4335faeb-fcfb-46cd-bd96-41b4c7440bd1"
+      }
+    },
+    "owner": "keepithub"
   }
 }

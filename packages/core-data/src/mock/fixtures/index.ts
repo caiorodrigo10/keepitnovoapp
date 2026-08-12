@@ -8,6 +8,7 @@
  */
 export * from './hubs';
 export * from './estabelecimentos';
+export * from './estabelecimentos-admin';
 export * from './produtos';
 export * from './clientes';
 export * from './pedidos';

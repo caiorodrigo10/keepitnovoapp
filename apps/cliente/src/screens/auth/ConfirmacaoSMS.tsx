@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import type { NativeStackScreenProps, NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 
 import { Button, Screen, TextField } from '../../components/ui';
-import type { AuthStackParamList, RootStackParamList } from '../../navigation/types';
+import type { AuthStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'ConfirmacaoSMS'>;
 
@@ -20,23 +20,26 @@ type Props = NativeStackScreenProps<AuthStackParamList, 'ConfirmacaoSMS'>;
  * [Source: docs/prd/02-requirements.md#FR2] código de 4-6 dígitos via
  * Zenvia — aqui é **apenas o teclado/input visual**, sem envio real de SMS
  * (Zenvia é integração de backend, fora do Épico 0). Reenviar/contagem
- * regressiva é estado visual estático. "Confirmar" navega para a Home sem
- * validar o código — o mock `auth.port.confirmPhone` exige um `clienteId`
- * que esta tela não recebe como parâmetro (rota sem params, ver
- * `navigation/types.ts`), então não é chamado nesta story.
+ * regressiva é estado visual estático.
+ *
+ * **Story 2.6 (AC6, REL-008):** removida a navegação imperativa morta
+ * (`navigation.getParent()?.navigate('Main', ...)`). Esta tela continua
+ * fora do inventário de rotas alcançáveis desde a decisão 10.4 (auth por
+ * e-mail/senha via Supabase, não mais telefone + SMS) — stub inativo, não
+ * reativado por esta story. "Confirmar" não navega nem chama
+ * `auth.port.confirmPhone` (que exige um `clienteId` que esta rota não
+ * recebe como parâmetro).
  */
-export default function ConfirmacaoSMS({ navigation }: Props) {
+export default function ConfirmacaoSMS(_props: Props) {
   const [codigo, setCodigo] = useState('');
 
   function handleConfirmar() {
-    navigation
-      .getParent<NativeStackNavigationProp<RootStackParamList>>()
-      ?.navigate('Main', { screen: 'HomeTab', params: { screen: 'Home' } });
+    // Story 2.6 (AC6): sem navegação imperativa — ver docstring acima.
   }
 
   return (
     <Screen>
-      <Text style={styles.brand}>KEEPIT</Text>
+      <Text style={styles.brand}>KEEPITHUB</Text>
       <Text style={styles.title}>Confirme seu telefone</Text>
       <Text style={styles.subtitle}>
         Enviamos um código de 4 a 6 dígitos por SMS para o telefone informado no cadastro.

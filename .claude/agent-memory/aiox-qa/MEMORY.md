@@ -3,4 +3,7 @@
 - [Débito de validação em device](project_debito_validacao_device.md) — sandbox sem simulador e `pnpm qa` só roda tsc nos apps RN; como calibrar severidade por tipo de risco
 - [AC de navegação pós-auth é inverificável até a 2.6](project_ac_navegacao_pos_auth.md) — rota `Main` inalcançável da AuthStack; `navigate('Main')` é inerte e silencioso nos 3 screens
 - [Prova empírica de adapters Supabase](project_prova_empirica_adapters.md) — teste do @dev usa client injetado (caso trivial); QA mocka `@keepit/supabase-client` e conta chamadas
+- [Verificar tipo gerado vs schema real](project_verificar_tipo_gerado_vs_schema.md) — tipo Database editado à mão: sonde PostgREST coluna a coluna (200 vs 400) com anon key quando MCP Supabase off
 - [Greps de não-regressão miram o JSX, não o arquivo](feedback_greps_nao_regressao.md) — comentário/JSDoc que cita o removido é DOC, nunca FAIL de AC
+- [pnpm qa volta cache FULL TURBO](feedback_pnpm_qa_cache_mascara.md) — em gate independente, reexecutar vitest direto por pacote; contagem do @dev não é autoridade
+- [createSignedUrl client-side exige RLS de SELECT p/ o role](project_signed_url_rls_admin.md) — Admin (authenticated) precisa de OR is_admin() em storage.objects do bucket privado; ausência = HIGH funcional (Story 3.7 FAIL)

@@ -38,6 +38,25 @@ export interface UpdateProdutoInput {
   ativo?: boolean;
 }
 
+/** Extensões aceitas pelo bucket PÚBLICO `produtos` (`allowed_mime_types`, migration `20260812190002`). */
+export type ProdutoFotoExt = 'jpg' | 'jpeg' | 'png' | 'webp';
+
+/**
+ * Story 4.4 (AC4, AC5) — [IDS] ADAPT do padrão `HubFotoUploadInput`
+ * (`AdminPort.hubsCrud.uploadFoto`, Story 4.1): mesmo formato `{ uri, ext }`,
+ * mesma implementação de upload (`fetch(uri).blob()`). NÃO carrega o nome do
+ * arquivo — diferente de `FachadaUploadInput`/`HubFotoUploadInput` (1 foto
+ * fixa por dono), um lojista tem VÁRIOS produtos, então o adapter gera um
+ * nome de arquivo único por upload internamente (path final
+ * `${auth.uid()}/<arquivo>`, convenção fixada pela migration
+ * `20260812190002_storage_bucket_produtos.sql` — a policy só permite gravar
+ * sob a própria pasta do uid).
+ */
+export interface ProdutoFotoUploadInput {
+  uri: string;
+  ext: ProdutoFotoExt;
+}
+
 export interface ProductPort {
   /**
    * Por padrão retorna só `ativo === true && excluido_em === null`. Com
@@ -55,4 +74,11 @@ export interface ProductPort {
   pause(id: string, options?: AsyncCallOptions): Promise<Produto>;
   /** Soft delete via `excluido_em` — nunca remove a linha de `db.produtos` (Story 1.10, Task 5). */
   delete(id: string, options?: AsyncCallOptions): Promise<void>;
+  /**
+   * Upload da foto do produto (Story 4.4, AC4) — bucket PÚBLICO `produtos`.
+   * Retorna a URL PÚBLICA direta do objeto (nunca uma URL assinada, mesmo
+   * padrão de `AdminPort.hubsCrud.uploadFoto`) — `Produto.foto_url` persiste
+   * essa URL tal como recebida, sem re-derivação no momento da leitura.
+   */
+  uploadFoto(input: ProdutoFotoUploadInput, options?: AsyncCallOptions): Promise<string>;
 }

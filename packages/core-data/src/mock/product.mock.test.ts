@@ -90,4 +90,9 @@ describe('product.mock (contract)', () => {
     const produtos = await port.list('estab-farmacia-vida', { delayMs: 1 });
     expect(produtos.find((p) => p.id === 'produto-dipirona')).toBeUndefined();
   });
+
+  it('uploadFoto echoes back the same uri — mock has no real Storage (Story 4.4, AC4)', async () => {
+    const url = await port.uploadFoto({ uri: 'blob:http://localhost/foto-produto', ext: 'jpg' }, { delayMs: 1 });
+    expect(url).toBe('blob:http://localhost/foto-produto');
+  });
 });

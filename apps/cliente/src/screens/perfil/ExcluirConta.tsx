@@ -16,6 +16,10 @@ type Props = NativeStackScreenProps<PerfilStackParamList, 'ExcluirConta'>;
  * obrigatório), o botão é um **stub visual sem side-effect** — não abre
  * WhatsApp de fato. Documentado como decisão consciente no Dev Agent
  * Record.
+ *
+ * **Story 2.8 (decisão 10.8):** antes alcançada via `Configuracoes` (rota
+ * removida); agora `Perfil` navega direto para cá pelo item "Excluir minha
+ * conta" do menu do frame 08. Esta tela não mudou — só o ponto de entrada.
  */
 export default function ExcluirConta({ navigation }: Props) {
   return (

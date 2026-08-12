@@ -1,4 +1,10 @@
-import type { CreateProdutoInput, Produto, ProductPort, UpdateProdutoInput } from '../ports/product.port';
+import type {
+  CreateProdutoInput,
+  ProdutoFotoUploadInput,
+  Produto,
+  ProductPort,
+  UpdateProdutoInput,
+} from '../ports/product.port';
 import type { AsyncCallOptions } from '../types';
 import { generateMockId, simulateAsync } from './async-helpers';
 import type { MockDb } from './db';
@@ -89,6 +95,18 @@ export function createProductMock(db: MockDb): ProductPort {
         undefined,
         options,
       );
+    },
+
+    /**
+     * Story 4.4 (AC4, AC5) — mock não tem Storage real, ecoa a MESMA `uri`
+     * de volta (mesma simplificação honesta já usada em
+     * `admin.mock.ts#hubsCrud.uploadFoto`): a `uri` recebida (ex.: uma Blob
+     * URL válida na sessão atual do navegador) continua funcional para fins
+     * de preview/demo, sem simular um endpoint de upload que não existe
+     * neste modo.
+     */
+    uploadFoto(input: ProdutoFotoUploadInput, options?: AsyncCallOptions): Promise<string> {
+      return simulateAsync(() => input.uri, '', options);
     },
   };
 }

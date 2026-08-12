@@ -131,7 +131,7 @@ export default function CriarConta({ navigation }: Props) {
 
   return (
     <Screen>
-      <Text style={styles.brand}>KEEPIT</Text>
+      <Text style={styles.brand}>KEEPITHUB</Text>
       <Text style={styles.title}>Criar conta</Text>
       <Text style={styles.subtitle}>Compre em minutos no hub mais perto de você.</Text>
 

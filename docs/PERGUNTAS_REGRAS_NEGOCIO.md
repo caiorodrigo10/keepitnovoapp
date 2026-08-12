@@ -317,11 +317,17 @@ Sugestões do Claude para deixar de fora e evitar inchaço. Precisa validação:
 
 Ao construir as telas com fidelidade ao protótipo (`keepit-app/index.html`, inspecionado tela a tela — ver `docs/design-refs/`), surgiram **conflitos entre o que o protótipo mostra e decisões já fechadas**. Enquanto não decididos, as telas seguem a **decisão fechada** (não o protótipo), com o desvio documentado.
 
-### 10.1 🟡 Mapa na tela "Escolha o ponto de retirada"
-O protótipo mostra um **mapa com pins** (`docs/design-refs/cliente-05-escolha-ponto-retirada.png`). Mas a Rodada 4 decidiu **"sem provider de mapa"** — decisão baseada em inspeção anterior que afirmava (incorretamente) não haver mapa no protótipo. A tela foi implementada **sem mapa** (lista de hubs). Decidir: (a) honrar o protótipo → adicionar mapa (custo + provider tipo Google/Mapbox), ou (b) manter "sem mapa" e aceitar o desvio visual. → STAKEHOLDER.
+### 10.1 ✅ Mapa na tela "Escolha o ponto de retirada" — **RESOLVIDO (Rodada 8, 2026-08-02, Caio)**
 
-### 10.2 🟡 Login social (Google / Apple)
-As telas de Criar conta e Login do protótipo (`cliente-09-criar-conta.png`, `cliente-10-login.png`) mostram **botões Google e Apple**. A Rodada 2 decidiu **login social fora do MVP**. Implementado **sem** os botões. Decidir: esconder de vez, mostrar desabilitado, ou reverter a decisão (trazer para o MVP). → STAKEHOLDER.
+> ✅ **RESOLVIDO: honrar o protótipo → COM mapa.** A captura `docs/design-refs/cliente-05-escolha-ponto-retirada.png` foi reinspecionada (leitura direta da imagem, 2026-08-02) e **confirma um mapa com ruas + 2 pins no topo**, acima da lista de hubs. A decisão "sem mapa" da Rodada 4 (baseada em inspeção incorreta) fica **revertida**. A tela deve ganhar o mapa. Pendência técnica (não de negócio): escolher provider (Google/Mapbox) e chave — a resolver quando a Onda 4 (descoberta) implementar a tela. Ver `## Decisões → Rodada 8`.
+
+Texto original mantido por rastreabilidade: o protótipo mostra um **mapa com pins**. A Rodada 4 decidiu "sem provider de mapa" com base em inspeção anterior incorreta.
+
+### 10.2 ✅ Login social (Google / Apple) — **RESOLVIDO (Rodada 8, 2026-08-02, Caio)**
+
+> ✅ **RESOLVIDO: sem login social no início.** Confirma a Rodada 2. Os botões Google/Apple do protótipo **não entram no MVP** — telas seguem sem eles (não "desabilitados", ausentes). Reavaliar em v2. Ver `## Decisões → Rodada 8`.
+
+Texto original mantido por rastreabilidade: as telas do protótipo mostram botões Google e Apple; a Rodada 2 já os havia posto fora do MVP.
 
 ### 10.3 🟡 Tema do onboarding do Cliente
 O onboarding do protótipo (`cliente-01-onboarding.png`) é **dark** (fundo escuro, círculo verde com casa), enquanto o restante do app Cliente é claro. Ponto de fidelidade puro (não é regra de negócio) — será corrigido para dark. Registrado aqui só para ciência; não bloqueia. → CAIO (fidelidade).
@@ -329,7 +335,9 @@ O onboarding do protótipo (`cliente-01-onboarding.png`) é **dark** (fundo escu
 ### 10.4 ✅ Modelo de autenticação do Cliente — RESOLVIDO (Rodada 6, 2026-07-29)
 Login do Cliente é **e-mail + senha** (Supabase Auth nativo). **Sem confirmação de SMS no MVP** (economia de Zenvia + simplicidade). Telefone é campo **opcional, não verificado**. Ver `## Decisões → Rodada 6`.
 
-### 10.5 🟠 Confirmação de e-mail é obrigatória para usar o app? — **decisão técnica provisória (2026-07-30) — pendente validação do stakeholder**
+### 10.5 ✅ Confirmação de e-mail é obrigatória para usar o app? — **RESOLVIDO (Rodada 8, 2026-08-02, Caio)**
+
+> ✅ **RESOLVIDO: `Confirm email` OFF, risco aceito.** Caio confirmou manter a opção (a) — cadastro sem confirmação de e-mail, navega direto para a home. O **risco operacional** (cliente com e-mail errado que perde o app depende de suporte humano/WhatsApp para recuperar o PIN de uma compra paga) fica **explicitamente aceito** para o MVP, por ser caso raro e reversível. Gatilho de reversão mantido: se aparecer volume relevante de recuperação por e-mail errado, ligar `Confirm email` ON (config por projeto, sem retrabalho de código). **Ação pendente:** aplicar o toggle OFF no painel `keepit-dev` (CFG-001). Ver `## Decisões → Rodada 8`. Texto abaixo mantido por rastreabilidade.
 
 > **Status:** não é decisão fechada. É a formalização de um default que o Épico 2 **já operava implicitamente**, agora com racional escrito, gatilho de revisão e a parte de negócio explicitamente destacada como pendente. **Não foi decidida pelo stakeholder.**
 
@@ -364,7 +372,11 @@ Impacto direto: Story 2.3 (AC5, para onde navega o signup), Story 2.6 (login de 
 
 **Ampliação (2026-07-30, reconciliação do Épico 3):** a mesma pergunta vale para **lojista e admin**, que também autenticam por e-mail + senha. Se a confirmação for obrigatória, o lojista ganha uma tela "confirme seu e-mail" entre o cadastro (Story 3.2) e a tela "Em análise" (Story 3.6), e o admin idem antes do painel (Story 3.7). O Épico 3 assume o mesmo default (a) até a decisão sair. Como a configuração `Confirm email` do Supabase Auth é **por projeto**, a decisão é necessariamente **única para os três perfis** — não dá para ligar só para o lojista sem trabalho extra.
 
-### 10.6 🟠 Criação de contas de admin Keepit e papéis internos — **decisão técnica provisória (2026-07-30) — pendente validação do stakeholder**
+### 10.6 ✅ Criação de contas de admin Keepit e papéis internos — **RESOLVIDO (Rodada 8, 2026-08-02, Caio)**
+
+> ✅ **RESOLVIDO: uma pessoa opera o painel, sem segregação de função.** Confirma a decisão técnica provisória: `admin_users` como **lista plana** (sem coluna de papel) + provisionamento manual via SQL. Como há **um único operador**, não há exigência de segregar quem estorna de quem aprova. Se o time crescer (> 2-3 pessoas) ou surgir exigência de segregação, reabrir com `ALTER TABLE ADD COLUMN papel` + RLS por papel. Ver `## Decisões → Rodada 8`.
+
+Texto original mantido por rastreabilidade (decisão técnica provisória 2026-07-30):
 
 > **Status:** não é decisão fechada. Formaliza o default que a Story 3.7 **já assume**, com racional e condição de reversão. **Não foi decidida pelo stakeholder.**
 
@@ -431,7 +443,9 @@ O **princípio nº 1 do `CLAUDE.md`** ("fidelidade ao protótipo: a interface vi
 
 → ~~**Decisão de produto: CAIO ou STAKEHOLDER.** Não há default assumido.~~ **SUPERSEDED (2026-07-30):** ver o bloco 10.7 acima. A premissa de que as frases seriam "material do design system, não texto de tela" não se sustenta: elas estão literalmente em `keepit-app/index.html`, que o `CLAUDE.md` define como fonte autoritativa de conteúdo. Vale a fidelidade ao protótipo.
 
-### 10.8 🟡 Arquitetura de navegação da conta do Cliente — Perfil e Configurações são telas separadas? — **NOVA (2026-07-30), sem default assumido**
+### 10.8 ✅ Arquitetura de navegação da conta do Cliente — Perfil e Configurações são telas separadas? — **RESOLVIDA (2026-08-02, Caio)**
+
+> ✅ **RESOLVIDA na Rodada 8 (2026-08-02, Caio): "tudo vive dentro do Perfil"**, fiel ao protótipo. Não há tela de Configurações separada no Cliente. Ver `## Decisões → Rodada 8`. As Stories 2.8/2.9/2.10 devem ser ajustadas para uma única superfície (Perfil com menu). Texto abaixo mantido por rastreabilidade.
 
 **O fato, verificado no arquivo-fonte.** A tela **"Configurações do Cliente"** que a Story 2.9 descreve **não existe no protótipo**:
 
@@ -459,7 +473,9 @@ Sub-itens que a resposta precisa fechar:
 
 ---
 
-### 10.9 🟡 Por quanto tempo o cliente permanece logado sem reautenticar? — **NOVA (2026-07-31), sem default assumido**
+### 10.9 ✅ Por quanto tempo o cliente permanece logado sem reautenticar? — **RESOLVIDA (2026-08-02, Caio)**
+
+> ✅ **RESOLVIDA na Rodada 8 (2026-08-02, Caio): sessão persistente até logout** — refresh token persistido indefinidamente enquanto o app for aberto com regularidade (configuração de fábrica do Supabase). Sem prazo de expiração forçado. Sem "sair de todos os dispositivos" no MVP (suporte caso a caso). Ver `## Decisões → Rodada 8`. Texto abaixo mantido por rastreabilidade.
 
 **Origem.** Decisão de arquitetura de persistência de sessão (`docs/architecture/06-session-persistence.md`, §7). Ao decidir **como** a sessão sobrevive ao reinício do app, ficou explícito que ninguém decidiu **por quanto tempo** ela deve sobreviver.
 
@@ -479,7 +495,9 @@ Sub-item que a resposta precisa fechar:
 
 ---
 
-## Decisões técnicas provisórias (🟠 — **NÃO fechadas**, pendentes de validação do stakeholder)
+## Decisões técnicas provisórias
+
+> ✅ **AMBAS RATIFICADAS na Rodada 8 (2026-08-02, Caio).** 10.5 (`Confirm email` OFF, risco aceito) e 10.6 (`admin_users` lista plana, um operador sem segregação) deixaram de ser provisórias — ver `## Decisões → Rodada 8` e os blocos ✅ 10.5/10.6 acima. Tabela mantida por rastreabilidade do racional (reversibilidade e gatilhos).
 
 > Registro separado de propósito. Nada nesta seção foi decidido pelo dono da Keepit. São escolhas **técnicas** que o desenvolvimento **já operava como default implícito**; formalizá-las apenas troca um default silencioso por um default auditável — com racional, custo de reversão e gatilho de revisão. A parte de **regra/risco de negócio** de cada uma continua explicitamente aberta e está destacada no bloco correspondente.
 
@@ -493,6 +511,38 @@ Fonte de ambas: **@pm (Morgan), formalizando default já assumido pelos Épicos 
 ---
 
 ## Decisões (fechadas)
+
+### Rodada 8 — 2026-08-02 (Caio)
+
+#### Arquitetura da conta do Cliente (resolve 10.8)
+
+- **[Superfície de conta]** **Tudo vive dentro do Perfil** (frame 08), fiel ao protótipo. **Não há tela de "Configurações" separada** no app do Cliente. As Stories 2.8/2.9/2.10 foram escritas assumindo duas telas e devem ser **ajustadas** para uma única superfície com menu interno.
+- **[Itens do menu do Perfil]** *Meus pedidos*, *Hubs favoritos*, *Formas de pagamento*, *Notificações*, *Ajuda & suporte*, *Termos*, *Política* e **"Excluir minha conta"** viram itens do menu do frame 08.
+- **["Excluir minha conta"]** Item obrigatório por compliance Apple 5.1.1(v); como não tem fonte no protótipo, entra como **item de menu no Perfil** (não em tela separada).
+- **[Notificações]** Segue o protótipo (item de menu com chevron → tela dedicada). A AC3 da Story 2.9 (toggle inline persistido em `clientes.notificacoes_ativas`) deve ser reconciliada na tela de destino, não como toggle solto no Perfil.
+- **[Natureza da decisão]** Aplicação do **princípio nº 1 do `CLAUDE.md`** (fidelidade ao protótipo). Caio confirmou.
+- **[Fonte da decisão]** Caio, 2026-08-02.
+
+#### Persistência de sessão do Cliente (resolve 10.9)
+
+- **[Duração da sessão]** **Persistente até logout.** O cliente permanece logado indefinidamente enquanto abrir o app com regularidade — comportamento de fábrica do Supabase Auth com refresh token persistido em disco. **Nenhum código força expiração.**
+- **[Sair de todos os dispositivos]** **Fora do MVP.** Aparelho perdido é tratado caso a caso pelo suporte.
+- **[Impacto]** Apenas configuração do projeto `keepit-dev` (nenhuma alteração de código). Destrava AC5/AC6 da Story 2.6.
+- **[Fonte da decisão]** Caio, 2026-08-02.
+
+#### Modelo financeiro homologado (resolve estrutura de §1.1–1.4)
+
+- **[Estrutura homologada]** O modelo financeiro proposto nas Rodadas 1–3 fica **homologado**: gateway **Asaas** (carteira virtual), **escrow com repasse D+7** após a entrega, **saque** sob demanda mínimo **R$ 200**, **chargeback** taxa fixa **R$ 40** do saldo do lojista. Taxa da Keepit = **percentual sobre a transação, cobrado do lojista**.
+- **[Taxa Keepit — número fechado]** `businessConfig.taxaKeepitPercent` = **10%** (era placeholder 12%) sobre `subtotal_produtos_reais`, **cobrada do lojista** (deduzida no `taxa_keepit_reais`). **Mutável em config** — muda numa linha, sem migration. A troca 12→10 aplica-se na Onda 5 (checkout/pedido) junto com os testes de `@keepit/config`.
+- **[Taxa ao comprador — NOVA, provisória]** Hoje **não existe** taxa ao comprador no modelo (o 12% do código é a taxa do lojista, não do comprador). Caio pediu para **adicionar** uma e recomendar o valor. **Recomendação: R$ 2,90 fixa por pedido** (não percentual), exibida no checkout como "Taxa de serviço Keepit". Racional: previsível e transparente para o cliente, justa entre cestas grandes e pequenas, e não empilha um segundo percentual sobre o preço. **Provisória — sujeita a ratificação do stakeholder** (é preço ao consumidor). Implementação: novo campo `taxa_servico_comprador_reais` no pedido + `businessConfig.taxaServicoCompradorReais` + linha no checkout — escopo da **Onda 5**. Como não está no protótipo, o checkout ganha uma linha nova (adição de negócio, não redesenho).
+- **[Fonte da decisão]** Estrutura + taxa Keepit 10%: stakeholder via Caio, 2026-08-02 ("b1 ok", "10% podendo mudar"). Taxa ao comprador R$ 2,90: **recomendação do dev (Claude) a pedido do Caio**, pendente ratificação do stakeholder.
+
+#### Mapa, login social e operadores admin (resolve 10.1, 10.2, 10.6)
+
+- **[Mapa da retirada (10.1)]** **COM mapa.** O protótipo (`cliente-05-escolha-ponto-retirada.png`) confirma mapa com pins no topo da tela; honra-se a fidelidade. Reverte o "sem mapa" da Rodada 4. Provider (Google/Mapbox) a definir na implementação da tela (Onda 4).
+- **[Login social (10.2)]** **Fora do MVP.** Sem botões Google/Apple (ausentes, não desabilitados). Confirma a Rodada 2.
+- **[Operadores admin (10.6)]** **Uma pessoa**, sem segregação de função. `admin_users` lista plana + provisionamento manual via SQL. Reabrir só se o time crescer.
+- **[Fonte da decisão]** Caio, 2026-08-02.
 
 ### Rodada 7 — 2026-07-30 (fidelidade ao protótipo)
 

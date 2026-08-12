@@ -1,0 +1,33 @@
+{
+  "cli": {
+    "appVersionSource": "local"
+  },
+  "build": {
+    "pilot": {
+      "distribution": "store",
+      "ios": {
+        "credentialsSource": "local"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "DATA_SOURCE": "mock"
+      }
+    }
+  },
+  "submit": {
+    "pilot": {
+      "ios": {
+        "ascAppId": "6796881536",
+        "ascApiKeyPath": "credentials/AuthKey.p8",
+        "ascApiKeyId": "T5CQNTR77Y",
+        "ascApiKeyIssuerId": "207349a8-a4fb-4b33-a791-c3b66358f3d1"
+      },
+      "android": {
+        "serviceAccountKeyPath": "./credentials/play-service-account.json",
+        "track": "internal"
+      }
+    }
+  }
+}

@@ -3,7 +3,7 @@
 import { useCallback, useState } from 'react';
 
 import { getDataClient } from '@keepit/core-data';
-import type { AsyncCallOptions, Estabelecimento } from '@keepit/core-data';
+import type { AsyncCallOptions, EstabelecimentoAdmin } from '@keepit/core-data';
 import { useAsyncResource, type AsyncResourceState } from '@keepit/core-data/hooks';
 
 /**
@@ -17,7 +17,7 @@ import { useAsyncResource, type AsyncResourceState } from '@keepit/core-data/hoo
  * `useAsyncResource`) evita duplicar lógica de port/mock e mantém a port
  * como única fonte de verdade.
  */
-export interface UseAdminPendingStoresResult extends AsyncResourceState<Estabelecimento[]> {
+export interface UseAdminPendingStoresResult extends AsyncResourceState<EstabelecimentoAdmin[]> {
   /** Reexecuta `pendingStores()` — usado após aprovar/rejeitar um lojista. */
   refresh: () => void;
 }
@@ -26,7 +26,7 @@ export function useAdminPendingStores(options?: AsyncCallOptions): UseAdminPendi
   const [refreshToken, setRefreshToken] = useState(0);
   const client = getDataClient();
 
-  const state = useAsyncResource<Estabelecimento[]>(
+  const state = useAsyncResource<EstabelecimentoAdmin[]>(
     () => client.admin.pendingStores(options),
     [],
     [refreshToken, options?.forceEmpty, options?.forceError, options?.delayMs],

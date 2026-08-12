@@ -46,3 +46,13 @@ out/
 
 # Playwright MCP runtime artifacts
 .playwright-mcp/
+
+# iOS pilot build credentials — NEVER commit (Story 9.0.x TestFlight)
+apps/*/credentials.json
+apps/*/credentials/
+
+# Android pilot build credentials — NEVER commit (Story 9.0.10 Google Play)
+apps/*/credentials/*service-account*.json
+*serviceAccount*.json
+*.jks
+*.keystore

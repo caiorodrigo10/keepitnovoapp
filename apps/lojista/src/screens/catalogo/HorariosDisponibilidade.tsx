@@ -1,15 +1,23 @@
-import { useMemo } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { darkColors, radii, spacing, typography } from '@keepit/ui-tokens';
-import type { EstabelecimentoHorario } from '@keepit/core-data';
+import { getDataClient } from '@keepit/core-data';
 
 import { PrimaryButton } from '../../components/PrimaryButton';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import { ToggleSwitch } from '../../components/ToggleSwitch';
+import {
+  diaSemanaLabel,
+  edicaoParaHorarios,
+  horariosParaEdicao,
+  validarHorariosEdicao,
+  type HorarioEdicaoDia,
+} from '../../lib/horariosEdicao';
 import type { CatalogoStackParamList } from '../../navigation/types';
+import { CURRENT_ESTABELECIMENTO_ID } from './currentStore';
 import { useLojaDisponibilidade, type DuracaoPausa } from './LojaDisponibilidadeContext';
 
 type Props = NativeStackScreenProps<CatalogoStackParamList, 'HorariosDisponibilidade'>;
@@ -20,101 +28,72 @@ const DURACOES: Array<{ key: DuracaoPausa; label: string }> = [
   { key: 'hoje', label: 'Hoje' },
 ];
 
-const DIA_LABEL: Record<number, string> = {
-  0: 'Domingo',
-  1: 'Segunda',
-  2: 'Terça',
-  3: 'Quarta',
-  4: 'Quinta',
-  5: 'Sexta',
-  6: 'Sábado',
-};
-
-interface LinhaFuncionamento {
-  label: string;
-  aberto: boolean;
-  horaAbre: string | null;
-  horaFecha: string | null;
-}
-
 /**
- * Agrupa `estabelecimentos_horarios` (7 linhas, uma por dia) em linhas de
- * exibição — junta Seg-Sex numa única linha quando o horário é idêntico nos
- * 5 dias (caso das fixtures atuais), com fallback dia-a-dia se divergirem.
- * [Source: docs/architecture/03-data-models.md#1.5]
- */
-function agruparHorarios(horarios: EstabelecimentoHorario[]): LinhaFuncionamento[] {
-  const porDia = new Map(horarios.map((horario) => [horario.dia_semana, horario]));
-  const dias1a5 = [1, 2, 3, 4, 5]
-    .map((dia) => porDia.get(dia))
-    .filter((horario): horario is EstabelecimentoHorario => Boolean(horario));
-
-  const linhas: LinhaFuncionamento[] = [];
-
-  const primeiraDia = dias1a5[0];
-  const iguais =
-    dias1a5.length === 5 &&
-    Boolean(primeiraDia) &&
-    dias1a5.every(
-      (horario) =>
-        horario.aberto === primeiraDia.aberto &&
-        horario.hora_abre === primeiraDia.hora_abre &&
-        horario.hora_fecha === primeiraDia.hora_fecha,
-    );
-
-  if (iguais && primeiraDia) {
-    linhas.push({
-      label: 'Seg – Sex',
-      aberto: primeiraDia.aberto,
-      horaAbre: primeiraDia.hora_abre,
-      horaFecha: primeiraDia.hora_fecha,
-    });
-  } else {
-    dias1a5.forEach((horario) =>
-      linhas.push({
-        label: DIA_LABEL[horario.dia_semana],
-        aberto: horario.aberto,
-        horaAbre: horario.hora_abre,
-        horaFecha: horario.hora_fecha,
-      }),
-    );
-  }
-
-  const sabado = porDia.get(6);
-  if (sabado) {
-    linhas.push({ label: 'Sábado', aberto: sabado.aberto, horaAbre: sabado.hora_abre, horaFecha: sabado.hora_fecha });
-  }
-
-  const domingo = porDia.get(0);
-  if (domingo) {
-    linhas.push({
-      label: 'Domingo',
-      aberto: domingo.aberto,
-      horaAbre: domingo.hora_abre,
-      horaFecha: domingo.hora_fecha,
-    });
-  }
-
-  return linhas;
-}
-
-/**
- * Horários & disponibilidade — Story 0.9 (Task 5/6). Fiel a
- * `docs/design-refs/lojista-09-horarios.png` (painel P9).
+ * Horários & disponibilidade — Story 0.9 (Task 5/6), edição real de
+ * horários — Story 4.7 (AC1, AC3). Fiel a
+ * `docs/design-refs/lojista-09-horarios.png` (painel P9) na estrutura geral
+ * (cards "Loja aberta" e "Pausar novos pedidos", seção "FUNCIONAMENTO"); a
+ * seção FUNCIONAMENTO deixou de ser somente-leitura (`ToggleSwitch disabled`,
+ * sem inputs de horário) e ganhou edição real por dia da semana.
  *
- * Botões de duração (30 min/1 hora/Hoje) só selecionam visualmente — sem
- * timer real (`pg_cron` de expiração está fora do Épico 0, ver Dev Notes).
- * "Salvar horários" confirma a persistência mock via `Alert`, mesmo padrão
- * de "sem persistência real" já usado em telas da Story 0.8.
+ * Botões de duração (30 min/1 hora/Hoje) continuam só visuais — sem timer
+ * real (`pg_cron` de expiração está fora do Épico 0/piloto, ver Dev Notes da
+ * Story 4.8). Esta seção (e a de "Loja aberta") NÃO são tocadas por esta
+ * edição — já são reais desde a Story 1.10/4.8.
+ *
+ * [AUTO-DECISION] A edição é POR DIA individual (7 linhas Seg → Dom), sem
+ * preservar o agrupamento "Seg – Sex" que a exibição somente-leitura usava
+ * (`agruparHorarios`, removida) → (reason: a Story 4.7, Dev Notes, sinaliza
+ * explicitamente esta escolha como decisão de UX em aberto — "se o lojista
+ * editar só a Terça-feira, o agrupamento precisa desagrupar". Editar dia a
+ * dia é a leitura mais direta do AC1 ("checkbox aberto + hh:mm abertura +
+ * hh:mm fechamento por dia, Seg a Dom") e evita a complexidade de detectar
+ * dinamicamente quando desagrupar/reagrupar 5 dias — sem perda de
+ * funcionalidade, já que os 7 dias continuam sempre visíveis).
  */
 export default function HorariosDisponibilidade({ navigation }: Props) {
   const { estabelecimento, loading, recebendoPedidos, setRecebendoPedidos, pausaSelecionada, selecionarPausa } =
     useLojaDisponibilidade();
 
-  const funcionamento = useMemo(() => agruparHorarios(estabelecimento?.horarios ?? []), [estabelecimento]);
+  const [dias, setDias] = useState<HorarioEdicaoDia[]>([]);
+  const [erro, setErro] = useState<string | null>(null);
+  const [salvando, setSalvando] = useState(false);
 
-  function handleSalvar() {
-    Alert.alert('Horários salvos', 'Suas preferências foram salvas nesta sessão.');
+  // Hidrata o rascunho de edição só na primeira carga — mudanças
+  // subsequentes de `estabelecimento` (ex.: toggle "Loja aberta", Story 4.8)
+  // não devem sobrescrever uma edição de horário em andamento.
+  useEffect(() => {
+    if (estabelecimento && dias.length === 0) {
+      setDias(horariosParaEdicao(estabelecimento.horarios));
+    }
+  }, [estabelecimento, dias.length]);
+
+  function updateDia(dia_semana: number, patch: Partial<HorarioEdicaoDia>) {
+    setDias((atual) => atual.map((dia) => (dia.dia_semana === dia_semana ? { ...dia, ...patch } : dia)));
+    setErro(null);
+  }
+
+  async function handleSalvar() {
+    const mensagemValidacao = validarHorariosEdicao(dias);
+    if (mensagemValidacao) {
+      setErro(mensagemValidacao);
+      return;
+    }
+
+    setErro(null);
+    setSalvando(true);
+    try {
+      const horariosPersistidos = await getDataClient().store.updateHorarios(
+        CURRENT_ESTABELECIMENTO_ID,
+        edicaoParaHorarios(dias),
+      );
+      setDias(horariosParaEdicao(horariosPersistidos));
+      Alert.alert('Horários salvos', 'Seus horários de funcionamento foram atualizados.');
+    } catch {
+      setErro('Não foi possível salvar os horários agora. Tente novamente em instantes.');
+    } finally {
+      setSalvando(false);
+    }
   }
 
   if (loading || !estabelecimento) {
@@ -129,7 +108,7 @@ export default function HorariosDisponibilidade({ navigation }: Props) {
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: darkColors.bg.primary }]}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <ScreenHeader title="Horários" onBack={() => navigation.goBack()} />
 
         <View style={[styles.card, { backgroundColor: darkColors.bg.surface }]}>
@@ -179,27 +158,59 @@ export default function HorariosDisponibilidade({ navigation }: Props) {
 
         <View style={styles.funcionamentoSection}>
           <Text style={[styles.sectionLabel, { color: darkColors.text.tertiary }]}>FUNCIONAMENTO</Text>
-          {funcionamento.map((linha) => (
-            <View key={linha.label} style={styles.diaRow}>
-              <Text style={[styles.diaLabel, { color: darkColors.text.primary }]}>{linha.label}</Text>
-              <View style={styles.diaRight}>
-                <Text
-                  style={[
-                    styles.diaHorario,
-                    { color: linha.aberto ? darkColors.text.secondary : darkColors.text.tertiary },
-                  ]}
-                >
-                  {linha.aberto && linha.horaAbre && linha.horaFecha
-                    ? `${linha.horaAbre} – ${linha.horaFecha}`
-                    : 'Fechado'}
+          {dias.map((dia) => (
+            <View
+              key={dia.dia_semana}
+              style={[styles.diaCard, { backgroundColor: darkColors.bg.surface }]}
+            >
+              <View style={styles.diaHeader}>
+                <Text style={[styles.diaLabel, { color: darkColors.text.primary }]}>
+                  {diaSemanaLabel(dia.dia_semana)}
                 </Text>
-                <ToggleSwitch value={linha.aberto} disabled />
+                <ToggleSwitch value={dia.aberto} onValueChange={(aberto) => updateDia(dia.dia_semana, { aberto })} />
               </View>
+              {dia.aberto ? (
+                <View style={styles.diaTimes}>
+                  <TextInput
+                    value={dia.hora_abre}
+                    onChangeText={(hora_abre) => updateDia(dia.dia_semana, { hora_abre })}
+                    placeholder="08:00"
+                    placeholderTextColor={darkColors.text.placeholder}
+                    style={[
+                      styles.timeInput,
+                      {
+                        backgroundColor: darkColors.bg.overlay,
+                        color: darkColors.text.primary,
+                        borderColor: darkColors.border.default,
+                      },
+                    ]}
+                  />
+                  <Text style={[styles.timeSeparator, { color: darkColors.text.tertiary }]}>até</Text>
+                  <TextInput
+                    value={dia.hora_fecha}
+                    onChangeText={(hora_fecha) => updateDia(dia.dia_semana, { hora_fecha })}
+                    placeholder="18:00"
+                    placeholderTextColor={darkColors.text.placeholder}
+                    style={[
+                      styles.timeInput,
+                      {
+                        backgroundColor: darkColors.bg.overlay,
+                        color: darkColors.text.primary,
+                        borderColor: darkColors.border.default,
+                      },
+                    ]}
+                  />
+                </View>
+              ) : (
+                <Text style={[styles.fechadoLabel, { color: darkColors.text.tertiary }]}>Fechado</Text>
+              )}
             </View>
           ))}
         </View>
 
-        <PrimaryButton label="Salvar horários" onPress={handleSalvar} />
+        {!!erro && <Text style={[styles.erro, { color: darkColors.accent.warning }]}>{erro}</Text>}
+
+        <PrimaryButton label="Salvar horários" onPress={handleSalvar} loading={salvando} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -257,31 +268,53 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.base.fontSize,
   },
   funcionamentoSection: {
-    gap: spacing[1],
+    gap: spacing[2],
   },
   sectionLabel: {
     fontFamily: 'HankenGrotesk-SemiBold',
     fontSize: typography.sizes.sm.fontSize,
     letterSpacing: typography.letterSpacing.section,
-    marginBottom: spacing[2],
+    marginBottom: spacing[1],
   },
-  diaRow: {
+  diaCard: {
+    borderRadius: radii.card,
+    padding: spacing[3],
+    gap: spacing[2],
+  },
+  diaHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: spacing[3],
   },
   diaLabel: {
     fontFamily: 'HankenGrotesk-SemiBold',
     fontSize: typography.sizes.md.fontSize,
   },
-  diaRight: {
+  diaTimes: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing[3],
+    gap: spacing[2],
   },
-  diaHorario: {
+  timeInput: {
+    flex: 1,
+    height: 40,
+    borderRadius: radii.xs,
+    borderWidth: 1,
+    paddingHorizontal: spacing[3],
+    fontFamily: 'HankenGrotesk-Medium',
+    fontSize: typography.sizes.base.fontSize,
+    textAlign: 'center',
+  },
+  timeSeparator: {
     fontFamily: 'HankenGrotesk-Regular',
-    fontSize: typography.sizes.md.fontSize,
+    fontSize: typography.sizes.base.fontSize,
+  },
+  fechadoLabel: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.base.fontSize,
+  },
+  erro: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.sm.fontSize,
   },
 });

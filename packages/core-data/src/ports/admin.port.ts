@@ -3,6 +3,8 @@ import type { Cliente } from './auth.port';
 import type { Estabelecimento } from './store.port';
 import type { FormaPagamento, Pedido, PedidoStatus } from './order.port';
 import type { Hub, HubHorario } from './hub.port';
+/** [IDS] REUSE — mesmo tipo já fixado por `EstabelecimentoCadastroPort` (Story 3.5) para `chave_pix_tipo`. */
+import type { ChavePixTipoCadastro } from './estabelecimento-cadastro.port';
 
 /**
  * 9 valores exatos do CHECK constraint de `reembolsos_pendentes.motivo`.
@@ -71,6 +73,23 @@ export interface FinancialDashboardResult {
   ranking: FinancialRankingEntry[];
 }
 
+/** Extensões aceitas pelo bucket PÚBLICO `hubs` (`allowed_mime_types`, migration `20260812164200`). */
+export type HubFotoExt = 'jpg' | 'jpeg' | 'png' | 'webp';
+
+/**
+ * Story 4.1 (AC2, AC6) — [IDS] ADAPT do padrão `FachadaUploadInput`
+ * (`EstabelecimentoCadastroPort`, Story 3.5): mesmo formato `{ uri, ext }` e
+ * mesma implementação (`fetch(uri).blob()`), reaproveitado tal como está —
+ * `fetch()` resolve tanto URIs de arquivo local (RN) quanto Blob URLs de
+ * browser (`URL.createObjectURL(file)`, usado pelo Admin web nesta Story,
+ * que não tem `expo-image-picker` nem qualquer mecanismo de upload nativo
+ * — é Next.js). Nenhuma port nova criada só para essa diferença de origem.
+ */
+export interface HubFotoUploadInput {
+  uri: string;
+  ext: HubFotoExt;
+}
+
 export interface CreateHubInput {
   nome: string;
   endereco: string;
@@ -92,15 +111,99 @@ export interface UpdateHubInput {
   horarios?: HubHorario[];
 }
 
+/**
+ * `Estabelecimento` + colunas restritas ao papel Admin — Story 3.7 (AC2, AC3).
+ *
+ * [IDS] CREATE. [AUTO-DECISION] Tipo administrativo dedicado, NÃO extensão
+ * direta de `StorePort.Estabelecimento` → (reason: `Estabelecimento` é o
+ * tipo de domínio da Descoberta, consumido também por `apps/cliente`
+ * (`useStoreDetail`) — alargá-lo com `cnpj`/`telefone`/`responsavel_nome`/
+ * `dados_receita` vazaria dado sensível/administrativo para um tipo que hoje
+ * só circula em telas do Cliente. Mesmo raciocínio já registrado no JSDoc de
+ * `EstabelecimentoCadastroPort` (Story 3.5) para não produzir um
+ * "Estabelecimento de descoberta fantasma".
+ *
+ * [AUTO-DECISION] `Omit<Estabelecimento, 'lat' | 'lng' | 'raio_atendimento_km'> & {...}`
+ * em vez de `extends Estabelecimento` → (reason: o schema físico de
+ * `estabelecimentos` (`docs/architecture/03-data-models.md#1.4`, confirmado
+ * por sonda real via REST) tem `lat`/`lng`/`raio_atendimento_km` NULLABLE
+ * (geo/raio adiados — Story 3.4 é `SIMPLE`), mas `StorePort.Estabelecimento`
+ * os declara `number` não-nulo (presunção da Descoberta do Cliente, fora do
+ * piloto). `extends` não permite alargar um campo de `number` para
+ * `number | null` numa subinterface — `Omit<> & {...}` resolve isso sem
+ * tocar o tipo base nem inventar um fallback numérico para um dado ausente).
+ */
+export interface EstabelecimentoAdmin extends Omit<Estabelecimento, 'lat' | 'lng' | 'raio_atendimento_km'> {
+  lat: number | null;
+  lng: number | null;
+  raio_atendimento_km: number | null;
+  cnpj: string;
+  telefone: string;
+  responsavel_nome: string;
+  chave_pix: string;
+  chave_pix_tipo: ChavePixTipoCadastro;
+  /**
+   * Sempre `null` no piloto (Story 3.3 é `SIMPLE` — BrasilAPI não preenche
+   * este campo). AC3: a UI exibe "não coletado" quando `null`, nunca um dado
+   * inventado ou placeholder que pareça real.
+   */
+  dados_receita: Record<string, unknown> | null;
+  criado_em: string;
+  aprovado_em: string | null;
+  aprovado_por: string | null;
+  /**
+   * URL assinada de curta expiração do bucket privado `fachadas`
+   * (`docs/architecture/05-security.md §6.7`) — só populada por
+   * `pendingStoreDetail` (AC3). `pendingStores` (lista, AC2) não gera URL
+   * assinada por item (evitaria N chamadas de Storage só para uma lista que
+   * nem exibe foto) — `undefined` nesse caso. `null` quando o
+   * estabelecimento não tem `foto_fachada_url` cadastrado.
+   */
+  foto_fachada_url_assinada?: string | null;
+}
+
 export interface AdminPort {
-  /** Lojas com `status = 'em_analise'`, aguardando aprovação/rejeição. */
-  pendingStores(options?: AsyncCallOptions): Promise<Estabelecimento[]>;
+  /** Lojas com `status = 'em_analise'`, aguardando aprovação/rejeição — Story 3.7 (AC2). */
+  pendingStores(options?: AsyncCallOptions): Promise<EstabelecimentoAdmin[]>;
+  /**
+   * Detalhe administrativo completo de um estabelecimento (AC3) — os dados
+   * dos 3 passos do cadastro + foto de fachada via URL assinada +
+   * `dados_receita`. `null` quando o `id` não existe. Deliberadamente
+   * distinto de `StorePort.getById` (ver JSDoc de `EstabelecimentoAdmin`).
+   */
+  pendingStoreDetail(id: string, options?: AsyncCallOptions): Promise<EstabelecimentoAdmin | null>;
   approve(estabelecimentoId: string, options?: AsyncCallOptions): Promise<Estabelecimento>;
   reject(estabelecimentoId: string, motivo: string, options?: AsyncCallOptions): Promise<Estabelecimento>;
   hubsCrud: {
+    /**
+     * [AUTO-DECISION] Story 4.1 (Dependencies, decisão de escopo #1) —
+     * método administrativo dedicado (paralelo a `listAllEstabelecimentos`
+     * abaixo), NÃO reuso de `HubPort.listNearby` → (reason:
+     * `HubPort.listNearby` é a leitura pública de Descoberta — Épico 5 — e
+     * filtra `ativo = true` por design (o cliente nunca deve ver um hub
+     * desativado). O Admin precisa enxergar E REATIVAR hubs inativos (AC1);
+     * misturar essa necessidade em `HubPort` acoplaria a port de Descoberta
+     * a uma preocupação puramente administrativa. Mesmo raciocínio já
+     * registrado para `listAllEstabelecimentos` vs. `StorePort.listByHub`.
+     * Resolvida aqui, na ausência de uma sessão dedicada de @architect —
+     * documentado como a decisão que a própria Story delegou.
+     */
+    list(options?: AsyncCallOptions): Promise<Hub[]>;
+    /** Paralelo a `list` — usado por `/hubs/[id]` para religar a edição a um hub que pode estar inativo (mesmo motivo de `list`). */
+    getById(id: string, options?: AsyncCallOptions): Promise<Hub | null>;
     create(input: CreateHubInput, options?: AsyncCallOptions): Promise<Hub>;
     update(id: string, input: UpdateHubInput, options?: AsyncCallOptions): Promise<Hub>;
     delete(id: string, options?: AsyncCallOptions): Promise<void>;
+    /**
+     * Upload da foto institucional do hub (AC2, AC6) — bucket PÚBLICO `hubs`
+     * (`docs/architecture/05-security.md §6.7`), diferente do bucket
+     * privado `fachadas`. Retorna a URL PÚBLICA direta do objeto (nunca uma
+     * URL assinada) — `Hub.foto_url` persiste essa URL tal como recebida,
+     * sem re-derivação no momento da leitura (o bucket público não expira,
+     * ao contrário do padrão de `fachadas`/`uploadFachada`, que persiste um
+     * path e assina sob demanda).
+     */
+    uploadFoto(input: HubFotoUploadInput, options?: AsyncCallOptions): Promise<string>;
   };
   refundQueue: {
     list(options?: AsyncCallOptions): Promise<ReembolsoPendente[]>;

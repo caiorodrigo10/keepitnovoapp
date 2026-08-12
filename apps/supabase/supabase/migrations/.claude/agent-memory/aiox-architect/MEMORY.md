@@ -1,0 +1,1 @@
+- [BUILD-001 — Admin build supabase bloqueado por bug do Next 16](project_build001_admin_next16.md) — force-dynamic corrige 12/13 rotas; /_global-error é bug upstream; fix real (Opção 1) é breaking e foi adiado

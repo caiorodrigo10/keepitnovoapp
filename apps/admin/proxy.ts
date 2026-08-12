@@ -1,36 +1,21 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-import { isAuthenticated } from './src/config/authGuard';
-
 /**
- * Proxy (ex-"middleware", Next.js 16) — STUB TEMPORÁRIO (Épico 0, Story
- * 0.3, AC5).
+ * Proxy (ex-"middleware", Next.js 16) — Épico 0, Story 0.3 (AC5) + Story
+ * 10.1 (Task 6).
  *
- * Redireciona qualquer rota de `(dashboard)` para `/login` quando o guard
- * stub `isAuthenticated()` retorna `false` (só acontece quando
- * `AUTH_GUARD_ENABLED` é ligado manualmente em `src/config/authGuard.ts`).
- * Por padrão (`AUTH_GUARD_ENABLED = false`), este proxy nunca redireciona —
- * não bloqueia nenhuma rota por engano.
+ * O guard stub `src/config/authGuard.ts` foi removido nesta story: a sessão
+ * do Admin agora vive em `sessionStorage` (mock local, `adminAuth.ts`), que
+ * não é acessível no Edge Runtime deste proxy (nem em nenhum middleware/SSR
+ * — decisão registrada nos Dev Notes da Story 10.1: "backend simples", sem
+ * cookies/edge auth). O gating efetivo acontece no client, via
+ * `RequireAdminSession` em `(dashboard)/layout.tsx`. Este proxy segue
+ * registrado (não bloqueia nada) para não deixar `config.matcher` órfão e
+ * para eventual uso futuro (ex.: headers, analytics) sem reintroduzir auth
+ * server-side fora de escopo.
  */
-const DASHBOARD_SECTIONS = [
-  '/aprovacoes',
-  '/hubs',
-  '/reembolsos',
-  '/pedidos',
-  '/clientes',
-  '/lojistas',
-  '/financeiro',
-  '/qualidade-lojista',
-];
-
-export function proxy(request: NextRequest) {
-  const isDashboardRoute = DASHBOARD_SECTIONS.some((section) => request.nextUrl.pathname.startsWith(section));
-
-  if (isDashboardRoute && !isAuthenticated()) {
-    return NextResponse.redirect(new URL('/login', request.url));
-  }
-
+export function proxy(_request: NextRequest) {
   return NextResponse.next();
 }
 

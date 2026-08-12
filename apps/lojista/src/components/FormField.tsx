@@ -7,6 +7,17 @@ import { darkColors, radii, spacing, typography } from '@keepit/ui-tokens';
  *
  * [IDS] REUSE (dentro da story): usado por Cadastro passo 1/2/3, Login e
  * Perfil público — evita duplicar label + `TextInput` estilizado em cada tela.
+ *
+ * `error` — [IDS] ADAPT (Story 3.2, AC3): adiciona erro inline por campo,
+ * mesmo padrão de `apps/cliente/src/components/ui/TextField.tsx` (Story
+ * 2.3), sem o toggle "Mostrar"/"Ocultar" (não usado por nenhuma tela do
+ * Lojista hoje, fora de escopo desta Story acrescentá-lo).
+ *
+ * `editable` — [IDS] ADAPT (Story 3.11, AC2): permite reaproveitar o MESMO
+ * visual de campo rotulado para exibir um valor somente-leitura (ex.: "Nome
+ * da loja" em `PerfilPublico.tsx`, que deixa de ser editável pelo lojista),
+ * em vez de duplicar um componente novo só para essa variação. Default
+ * `true` — nenhum consumidor existente muda de comportamento.
  */
 export interface FormFieldProps {
   label: string;
@@ -16,6 +27,8 @@ export interface FormFieldProps {
   keyboardType?: KeyboardTypeOptions;
   secureTextEntry?: boolean;
   multiline?: boolean;
+  error?: string;
+  editable?: boolean;
 }
 
 export function FormField({
@@ -26,6 +39,8 @@ export function FormField({
   keyboardType,
   secureTextEntry,
   multiline,
+  error,
+  editable = true,
 }: FormFieldProps) {
   return (
     <View style={styles.container}>
@@ -38,12 +53,18 @@ export function FormField({
         keyboardType={keyboardType}
         secureTextEntry={secureTextEntry}
         multiline={multiline}
+        editable={editable}
         style={[
           styles.input,
           multiline && styles.inputMultiline,
-          { backgroundColor: darkColors.bg.surface, color: darkColors.text.primary, borderColor: darkColors.border.default },
+          {
+            backgroundColor: editable ? darkColors.bg.surface : darkColors.bg.muted,
+            color: editable ? darkColors.text.primary : darkColors.text.secondary,
+            borderColor: error ? darkColors.accent.warning : darkColors.border.default,
+          },
         ]}
       />
+      {!!error && <Text style={[styles.error, { color: darkColors.accent.warning }]}>{error}</Text>}
     </View>
   );
 }
@@ -69,5 +90,9 @@ const styles = StyleSheet.create({
     height: 96,
     paddingTop: spacing[3],
     textAlignVertical: 'top',
+  },
+  error: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.sm.fontSize,
   },
 });

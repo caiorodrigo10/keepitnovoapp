@@ -2,9 +2,11 @@ import type { Cliente } from '../ports/auth.port';
 import type {
   AdminPort,
   CreateHubInput,
+  EstabelecimentoAdmin,
   EstabelecimentoFalha,
   FinancialDashboardResult,
   FinancialRankingEntry,
+  HubFotoUploadInput,
   ReembolsoPendente,
   UpdateHubInput,
 } from '../ports/admin.port';
@@ -14,6 +16,7 @@ import type { Estabelecimento } from '../ports/store.port';
 import type { AsyncCallOptions } from '../types';
 import { generateMockId, simulateAsync } from './async-helpers';
 import type { MockDb } from './db';
+import { estabelecimentosAdminExtraFixture } from './fixtures/estabelecimentos-admin';
 import { registrarReembolso } from './refund-helpers';
 
 const TERMINAL_PEDIDO_STATUSES: ReadonlySet<PedidoStatus> = new Set([
@@ -69,15 +72,68 @@ export function createAdminMock(db: MockDb): AdminPort {
     return pedido;
   }
 
+  /**
+   * Story 3.7 (AC2, AC3) — combina `Estabelecimento` (fixtures base,
+   * `estabelecimentosFixture`) com o índice paralelo mock-only
+   * `estabelecimentosAdminExtraFixture`. Lança se a extensão administrativa
+   * não existir para o `id` — sinal honesto de fixture incompleta, nunca um
+   * `EstabelecimentoAdmin` com campos inventados/vazios silenciosamente.
+   */
+  function toEstabelecimentoAdmin(estabelecimento: Estabelecimento): EstabelecimentoAdmin {
+    const extra = estabelecimentosAdminExtraFixture[estabelecimento.id];
+    if (!extra) {
+      throw new Error(
+        `[mock] Dados administrativos ausentes para estabelecimento ${estabelecimento.id} — adicionar em estabelecimentos-admin.ts`,
+      );
+    }
+    return { ...estabelecimento, ...extra };
+  }
+
   return {
-    pendingStores(options?: AsyncCallOptions): Promise<Estabelecimento[]> {
+    pendingStores(options?: AsyncCallOptions): Promise<EstabelecimentoAdmin[]> {
       return simulateAsync(
-        () => db.estabelecimentos.filter((e) => e.status === 'em_analise'),
+        () => db.estabelecimentos.filter((e) => e.status === 'em_analise').map(toEstabelecimentoAdmin),
         [],
         options,
       );
     },
 
+    /**
+     * Story 3.7 (AC3). Mock não tem Storage real — `foto_fachada_url_assinada`
+     * simplesmente reaproveita `foto_fachada_url` (já uma URL pública
+     * completa do Unsplash nas fixtures, ver `fixtures/estabelecimentos.ts`),
+     * documentado como simplificação honesta do mock (não simula um endpoint
+     * de assinatura que não existe neste modo).
+     */
+    pendingStoreDetail(id: string, options?: AsyncCallOptions): Promise<EstabelecimentoAdmin | null> {
+      return simulateAsync(
+        () => {
+          const estabelecimento = db.estabelecimentos.find((e) => e.id === id);
+          if (!estabelecimento) {
+            return null;
+          }
+          const admin = toEstabelecimentoAdmin(estabelecimento);
+          return { ...admin, foto_fachada_url_assinada: admin.foto_fachada_url };
+        },
+        null,
+        options,
+      );
+    },
+
+    /**
+     * Story 3.8 — comportamento herdado do Épico 0 (Story 0.12), sem mudança
+     * nesta Story: `AdminPort.approve` devolve `Estabelecimento` (tipo
+     * base), que não inclui `aprovado_em`/`aprovado_por` — esses 2 campos só
+     * existem em `EstabelecimentoAdmin` (`pendingStores`/
+     * `pendingStoreDetail`). [AUTO-DECISION] Não gravar `aprovado_em`/
+     * `aprovado_por` em `estabelecimentosAdminExtraFixture` aqui → (reason:
+     * esse índice é um módulo compartilhado, NÃO clonado por
+     * `createMockDb()` — Story 0.2 clona `db.estabelecimentos` via
+     * `structuredClone` exatamente para isolar mutação entre testes;
+     * mutar o índice extra vazaria estado entre `it()` blocks/arquivos de
+     * teste que importam o mesmo módulo, sem nenhuma AC desta Story exigindo
+     * esse dado no retorno de `approve`).
+     */
     approve(estabelecimentoId: string, options?: AsyncCallOptions): Promise<Estabelecimento> {
       return simulateAsync(
         () => {
@@ -105,6 +161,21 @@ export function createAdminMock(db: MockDb): AdminPort {
     },
 
     hubsCrud: {
+      /**
+       * [AUTO-DECISION] Sem filtro de `ativo` — paridade mock com a decisão
+       * de escopo de leitura administrativa da Story 4.1 (ver JSDoc de
+       * `AdminPort.hubsCrud.list`): distinta de `hub.mock.ts#listNearby`,
+       * que continua filtrando `ativo = true` para a Descoberta pública. O
+       * Admin precisa ver e reativar hubs desativados (AC1).
+       */
+      list(options?: AsyncCallOptions): Promise<Hub[]> {
+        return simulateAsync(() => db.hubs, [], options);
+      },
+
+      getById(id: string, options?: AsyncCallOptions): Promise<Hub | null> {
+        return simulateAsync(() => db.hubs.find((h) => h.id === id) ?? null, null, options);
+      },
+
       create(input: CreateHubInput, options?: AsyncCallOptions): Promise<Hub> {
         return simulateAsync(
           () => {
@@ -151,6 +222,20 @@ export function createAdminMock(db: MockDb): AdminPort {
           undefined,
           options,
         );
+      },
+
+      /**
+       * [AUTO-DECISION] Mock não tem Storage real — devolve a própria `uri`
+       * recebida (mesma simplificação honesta já usada em
+       * `pendingStoreDetail`, que reaproveita `foto_fachada_url` como
+       * "assinada", Story 3.7): no Admin web `uri` já é uma Blob URL
+       * (`URL.createObjectURL(file)`) válida no navegador da sessão atual,
+       * então o preview/gravação em `db.hubs[].foto_url` continua
+       * funcional para fins de demo, sem simular um endpoint de upload que
+       * não existe neste modo.
+       */
+      uploadFoto(input: HubFotoUploadInput, options?: AsyncCallOptions): Promise<string> {
+        return simulateAsync(() => input.uri, '', options);
       },
     },
 

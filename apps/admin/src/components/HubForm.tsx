@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import type { Hub, HubHorario } from '@keepit/core-data';
 
+import { HUB_FOTO_MIME_TYPES, validarFotoHub } from '../lib/hubFoto';
 import { Button } from './Button';
 import { Card } from './Card';
 
@@ -16,6 +17,15 @@ export interface HubFormValues {
   lng: number;
   ponto_referencia: string;
   horarios: HubHorario[];
+  /**
+   * Novo arquivo de foto selecionado pelo admin (upload ainda pendente,
+   * feito pelo chamador ANTES de `create`/`update` — ver `novo/page.tsx`/
+   * `[id]/page.tsx`). `null` = nenhuma alteração: em `/hubs/novo`, sem
+   * foto; em `/hubs/[id]`, mantém a foto já cadastrada (`initialHub.foto_url`,
+   * NÃO reenviada por este campo — AC2, foto é opcional/só muda se o admin
+   * escolher um novo arquivo).
+   */
+  fotoFile: File | null;
 }
 
 function horarioPadrao(): HubHorario[] {
@@ -29,7 +39,7 @@ function horarioPadrao(): HubHorario[] {
 
 function toFormValues(hub?: Hub | null): HubFormValues {
   if (!hub) {
-    return { nome: '', endereco: '', lat: 0, lng: 0, ponto_referencia: '', horarios: horarioPadrao() };
+    return { nome: '', endereco: '', lat: 0, lng: 0, ponto_referencia: '', horarios: horarioPadrao(), fotoFile: null };
   }
   return {
     nome: hub.nome,
@@ -38,6 +48,7 @@ function toFormValues(hub?: Hub | null): HubFormValues {
     lng: hub.lng,
     ponto_referencia: hub.ponto_referencia ?? '',
     horarios: hub.horarios,
+    fotoFile: null,
   };
 }
 
@@ -60,10 +71,41 @@ export function HubForm({
 }) {
   const [values, setValues] = useState<HubFormValues>(() => toFormValues(initialHub));
   const [tocado, setTocado] = useState(false);
+  const [fotoError, setFotoError] = useState<string | null>(null);
+  const [fotoPreviewUrl, setFotoPreviewUrl] = useState<string | null>(initialHub?.foto_url ?? null);
 
   const nomeValido = values.nome.trim().length > 0;
   const enderecoValido = values.endereco.trim().length > 0;
   const formValido = nomeValido && enderecoValido;
+
+  // Pré-visualização do NOVO arquivo selecionado (AC2) — substitui a foto já
+  // cadastrada (`initialHub.foto_url`) só na tela, o upload de fato acontece
+  // no submit (ver `novo/page.tsx`/`[id]/page.tsx`).
+  useEffect(() => {
+    if (!values.fotoFile) {
+      return;
+    }
+    const objectUrl = URL.createObjectURL(values.fotoFile);
+    setFotoPreviewUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [values.fotoFile]);
+
+  function handleFotoChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    if (!file) {
+      setValues((previous) => ({ ...previous, fotoFile: null }));
+      setFotoError(null);
+      return;
+    }
+    const erro = validarFotoHub(file);
+    if (erro) {
+      setFotoError(erro);
+      event.target.value = '';
+      return;
+    }
+    setFotoError(null);
+    setValues((previous) => ({ ...previous, fotoFile: file }));
+  }
 
   function updateHorario(dia_semana: number, patch: Partial<HubHorario>) {
     setValues((previous) => ({
@@ -142,6 +184,25 @@ export function HubForm({
             />
           </label>
         </div>
+        <label className="flex flex-col gap-1">
+          <span className="text-sm text-text-secondary">Foto do hub (opcional)</span>
+          <input
+            type="file"
+            accept={HUB_FOTO_MIME_TYPES.join(',')}
+            onChange={handleFotoChange}
+            className="text-sm text-text-primary file:mr-3 file:rounded-sm file:border-0 file:bg-bg-elevated file:px-3 file:py-2 file:text-sm file:font-semibold file:text-text-primary"
+          />
+          <span className="text-xs text-text-tertiary">JPG, PNG ou WEBP — até 5MB.</span>
+          {fotoError && <span className="text-xs text-accent-warning">{fotoError}</span>}
+          {fotoPreviewUrl && (
+            // eslint-disable-next-line @next/next/no-img-element -- preview de Blob URL local, next/image exige domínio remoto configurado.
+            <img
+              src={fotoPreviewUrl}
+              alt="Pré-visualização da foto do hub"
+              className="mt-2 h-32 w-32 rounded-sm border border-border-default object-cover"
+            />
+          )}
+        </label>
       </Card>
 
       <Card className="flex flex-col gap-3">

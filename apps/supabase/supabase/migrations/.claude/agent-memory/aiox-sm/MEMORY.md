@@ -1,0 +1,2 @@
+- [Épico 4 catálogo — status e decisões em aberto](project_epic4_catalogo.md) — 4.3-4.8 draftados 2026-08-12; 4.2 é sobre hubs, não catálogo, ficou fora
+- [Padrão de Story deste projeto (Keepit)](feedback_sm_story_pattern_keepit.md) — seções extras (MVP Pilot Classification/Data Mode/Dependencies/Scope/Executor Assignment) e honestidade sobre lacunas/dependências futuras

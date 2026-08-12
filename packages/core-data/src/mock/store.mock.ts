@@ -1,5 +1,5 @@
 import type { Produto } from '../ports/product.port';
-import type { Estabelecimento, LojaEstado, StorePort } from '../ports/store.port';
+import { validarHorariosSemanais, type Estabelecimento, type EstabelecimentoHorario, type LojaEstado, type StorePort } from '../ports/store.port';
 import type { AsyncCallOptions } from '../types';
 import { simulateAsync } from './async-helpers';
 import type { MockDb } from './db';
@@ -86,6 +86,42 @@ export function createStoreMock(db: MockDb): StorePort {
         {} as Estabelecimento,
         options,
       );
+    },
+
+    /**
+     * Story 4.7 (AC1, AC3). Substitui as 7 linhas de
+     * `estabelecimento.horarios` (mesmo array mock que `getById` lê) —
+     * valida `hora_abre < hora_fecha` (defesa em profundidade, mesmo `CHECK`
+     * do banco) ANTES de persistir; falha honestamente, sem gravar nada
+     * parcial. Devolve a releitura real (nunca ecoa `horarios` sem passar
+     * pela validação).
+     */
+    updateHorarios(
+      estabelecimentoId: string,
+      horarios: EstabelecimentoHorario[],
+      options?: AsyncCallOptions,
+    ): Promise<EstabelecimentoHorario[]> {
+      return simulateAsync(
+        () => {
+          const estabelecimento = findOrThrow(estabelecimentoId);
+          const erro = validarHorariosSemanais(horarios);
+          if (erro) {
+            throw new Error(`[mock] updateHorarios — ${erro}`);
+          }
+          estabelecimento.horarios = horarios.map((horario) => ({ ...horario }));
+          return estabelecimento.horarios;
+        },
+        [],
+        options,
+      );
+    },
+
+    checkCnpjDisponivel(_cnpj: string, options?: AsyncCallOptions): Promise<boolean> {
+      // Story 3.3 (AC2, AC4): `Estabelecimento` (tipo acima) não modela
+      // `cnpj` — nenhuma fixture pode colidir, então mock sempre resolve
+      // "disponível", igual ao comportamento honesto do adapter Supabase
+      // até a Story 3.5 popular `estabelecimentos` de verdade.
+      return simulateAsync(() => true, true, options);
     },
   };
 }

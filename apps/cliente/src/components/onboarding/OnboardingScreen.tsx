@@ -31,7 +31,7 @@ interface OnboardingScreenProps {
 export function OnboardingScreen({ heading, subtext, footer }: OnboardingScreenProps) {
   return (
     <Screen contentStyle={styles.content} backgroundColor={darkColors.bg.primary}>
-      <Text style={styles.brand}>KEEPIT</Text>
+      <Text style={styles.brand}>KEEPITHUB</Text>
       <OnboardingIllustration />
       <View style={styles.textBlock}>
         <Text style={styles.heading}>{heading}</Text>
