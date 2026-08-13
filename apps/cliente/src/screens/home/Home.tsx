@@ -14,6 +14,7 @@ import {
   type DevSimState,
 } from '../../components/discovery';
 import { Screen } from '../../components/ui';
+import { useCart } from '../../context/CartContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useHubsList } from '../../hooks/useHubsList';
 import { useStoresList } from '../../hooks/useStoresList';
@@ -52,9 +53,11 @@ export default function Home({ navigation }: Props) {
   const [devState, setDevState] = useState<DevSimState>('normal');
   const options = toAsyncCallOptions(devState);
 
+  const cart = useCart();
   const { data: cliente } = useCurrentCliente();
   const { data: hubs, loading: loadingHubs, error: errorHubs } = useHubsList(options);
-  const hubAtual = hubs[0];
+  // AC1 (Story 5.1.1): Home reflete o hub SELECIONADO (`cart.hubId`), não mais sempre `hubs[0]` fixo.
+  const hubAtual = hubs.find((hub) => hub.id === cart.hubId) ?? hubs[0];
   const hubId = hubAtual?.id ?? DEFAULT_HUB_ID;
 
   const { data: lojas, loading: loadingLojas, error: errorLojas } = useStoresList(hubId, options);
@@ -79,10 +82,7 @@ export default function Home({ navigation }: Props) {
       <View style={styles.header}>
         <View>
           <Text style={styles.retirarEmLabel}>RETIRAR EM</Text>
-          <Pressable
-            style={styles.hubSelector}
-            onPress={() => hubAtual && navigation.navigate('Hub', { hubId: hubAtual.id })}
-          >
+          <Pressable style={styles.hubSelector} onPress={() => navigation.navigate('EscolhaRetirada')}>
             <Text style={styles.hubNome}>{hubAtual?.nome ?? (loadingHubs ? 'Carregando…' : 'Selecionar hub')}</Text>
             <Text style={styles.hubChevron}>⌄</Text>
           </Pressable>
