@@ -77,7 +77,7 @@ export const estabelecimentosFixture: Estabelecimento[] = [
     id: 'estab-farmacia-vida',
     nome_fantasia: 'Farmácia Vida',
     categoria: 'farmacia',
-    descricao: 'Farmácia de bairro com entrega rápida via Hub Centro.',
+    descricao: 'Farmácia de bairro com entrega rápida via Hub Keepit.',
     foto_fachada_url: foto('1576602976047-174e57a47881'),
     endereco: 'Rua das Flores, 200 — Centro',
     lat: -23.551,
