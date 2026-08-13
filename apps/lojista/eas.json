@@ -12,7 +12,31 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "DATA_SOURCE": "mock"
+        "EXPO_PUBLIC_DATA_SOURCE": "mock"
+      }
+    },
+    "demo": {
+      "distribution": "internal",
+      "ios": {
+        "credentialsSource": "local"
+      },
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_DATA_SOURCE": "mock"
+      }
+    },
+    "production": {
+      "distribution": "store",
+      "ios": {
+        "credentialsSource": "local"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_DATA_SOURCE": "supabase"
       }
     }
   },

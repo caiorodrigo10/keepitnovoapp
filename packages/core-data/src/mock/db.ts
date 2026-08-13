@@ -14,6 +14,7 @@ import {
   pedidosFixture,
   produtosFixture,
   reembolsosFixture,
+  saquesFixture,
 } from './fixtures';
 
 /**
@@ -130,7 +131,10 @@ export function createMockDb(): MockDb {
     estabelecimentos: structuredClone(estabelecimentosFixture),
     produtos: structuredClone(produtosFixture),
     pedidos: structuredClone(pedidosFixture),
-    saques: [],
+    // Modo Demo (`docs/architecture/09-modo-demo-mock.md` §3.3) — antes
+    // nascia `[]`; Extrato do Lojista e fila de Saques do Admin abriam
+    // vazios. Ver `fixtures/saques.ts` para o racional dos valores.
+    saques: structuredClone(saquesFixture),
     // Seedado (não vazio) — Story 1.10 (Task 4): preserva a experiência já
     // existente da tela "Fila de reembolsos" do Admin (Story 0.13), que
     // partia de fixtures locais nunca vazias. Novas entradas continuam

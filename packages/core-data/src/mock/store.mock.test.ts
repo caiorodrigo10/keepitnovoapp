@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { StorePort } from '../ports/store.port';
 import { createMockDb, type MockDb } from './db';
-import { createStoreMock } from './store.mock';
+import { createStoreMock, deriveLojaEstado } from './store.mock';
 
 describe('store.mock (contract)', () => {
   let db: MockDb;
@@ -112,6 +112,56 @@ describe('store.mock (contract)', () => {
     await expect(
       port.checkCnpjDisponivel('11.222.333/0001-81', { forceError: true, delayMs: 1 }),
     ).rejects.toThrow();
+  });
+});
+
+/**
+ * Modo Demo (`docs/architecture/09-modo-demo-mock.md` §3.2/§3.4) — trava o
+ * dataset de demonstração: a MAIORIA das lojas ativas usa horário amplo
+ * (`00:00–23:59`, 7 dias) e por isso aparece "Aberta" a qualquer hora/dia,
+ * mas o dataset preserva EXATAMENTE 1 loja "Pausada"
+ * (`pausado_manualmente = true`) e 1 loja "Fechada" (horário estreito) para
+ * o demo continuar exibindo os 3 estados do protótipo (AC1). `now` fixo
+ * (quarta-feira 15h) — dentro da janela ampla e fora da janela estreita da
+ * padaria (06:00–11:00) — para o teste ser determinístico independentemente
+ * do relógio real da máquina que roda a suíte.
+ */
+describe('dataset de demo (docs/architecture/09-modo-demo-mock.md, §3.2/§3.4) — estados AC1', () => {
+  let db: MockDb;
+  let port: StorePort;
+
+  beforeEach(() => {
+    db = createMockDb();
+    port = createStoreMock(db);
+  });
+
+  const now = new Date('2026-07-29T15:00:00'); // quarta-feira, 15h
+
+  it('a MAIORIA das lojas ativas está "Aberta" a qualquer hora do demo (horário amplo)', async () => {
+    const ativas = await port.listByHub('hub-centro', { delayMs: 1 });
+    expect(ativas.length).toBeGreaterThanOrEqual(8);
+
+    const estados = ativas.map((loja) => ({ id: loja.id, estado: deriveLojaEstado(loja, now) }));
+    const abertas = estados.filter((e) => e.estado === 'aberta');
+    const pausadas = estados.filter((e) => e.estado === 'pausada');
+    const fechadas = estados.filter((e) => e.estado === 'fechada');
+
+    expect(abertas.length).toBeGreaterThan(estados.length / 2);
+    expect(pausadas).toHaveLength(1);
+    expect(fechadas).toHaveLength(1);
+  });
+
+  it('exatamente 1 loja "Pausada" independentemente do horário (Loja Bem Vestir)', () => {
+    const bemVestir = db.estabelecimentos.find((e) => e.id === 'estab-bem-vestir')!;
+    expect(deriveLojaEstado(bemVestir, now)).toBe('pausada');
+  });
+
+  it('exatamente 1 loja "Fechada" na maior parte do dia (Padaria Aurora, janela 06:00–11:00)', () => {
+    const padaria = db.estabelecimentos.find((e) => e.id === 'estab-padaria-aurora')!;
+    expect(deriveLojaEstado(padaria, now)).toBe('fechada');
+    // Dentro da janela estreita, a mesma loja fica "aberta" (a regra não muda, só o dado).
+    const dentroDaJanela = new Date('2026-07-29T08:00:00');
+    expect(deriveLojaEstado(padaria, dentroDaJanela)).toBe('aberta');
   });
 });
 

@@ -553,4 +553,112 @@ export const pedidosFixture: Pedido[] = [
       },
     ],
   },
+
+  // ---------------------------------------------------------------------
+  // Modo Demo (`docs/architecture/09-modo-demo-mock.md` §3.4) — cobertura
+  // de TODA a esteira para `cliente-ana` (o único cliente com credenciais
+  // mock, `clientesCredenciaisFixture` em `clientes.ts` — é quem o dono da
+  // Keepit vê logado em "Meus pedidos"): faltavam `em_preparo`/`saindo_hub`/
+  // `no_hub`/`cancelado` na conta dela. Usa as 4 lojas novas de
+  // `estabelecimentos.ts` para o catálogo/detalhe também aparecerem
+  // navegáveis a partir de um pedido real.
+  // ---------------------------------------------------------------------
+  montarPedido({
+    id: 'pedido-3010',
+    numero: 3010,
+    cliente_id: 'cliente-ana',
+    estabelecimento_id: 'estab-hortifruti-sabor-da-terra',
+    hub_id: 'hub-jardins',
+    status: 'em_preparo',
+    criado_em: minutosAtras(12),
+    aceito_em: minutosAtras(10),
+    tempo_estimado_min: 20,
+    taxa_deslocamento_reais: 4.5,
+    itens: [
+      novoItem('pedido-3010', 1, 'Maçã Gala (kg)', 8.9, 2),
+      novoItem('pedido-3010', 2, 'Tomate Italiano (kg)', 7.5, 1),
+    ],
+  }),
+  montarPedido({
+    id: 'pedido-3011',
+    numero: 3011,
+    cliente_id: 'cliente-ana',
+    estabelecimento_id: 'estab-padaria-aurora',
+    hub_id: 'hub-centro',
+    status: 'saindo_hub',
+    criado_em: minutosAtras(30),
+    aceito_em: minutosAtras(28),
+    saiu_hub_em: minutosAtras(4),
+    tempo_estimado_min: 15,
+    taxa_deslocamento_reais: 3.9,
+    itens: [
+      novoItem('pedido-3011', 1, 'Pão Francês (kg)', 14.9, 1),
+      novoItem('pedido-3011', 2, 'Café Torrado e Moído 500g', 22.9, 1),
+    ],
+  }),
+  montarPedido({
+    id: 'pedido-3012',
+    numero: 3012,
+    cliente_id: 'cliente-ana',
+    estabelecimento_id: 'estab-mercadinho-da-esquina',
+    hub_id: 'hub-vila-nova',
+    status: 'no_hub',
+    criado_em: minutosAtras(50),
+    aceito_em: minutosAtras(48),
+    saiu_hub_em: minutosAtras(20),
+    lojista_chegou_em: minutosAtras(6),
+    tempo_estimado_min: 12,
+    taxa_deslocamento_reais: 3.0,
+    pin_texto: '9182',
+    itens: [
+      novoItem('pedido-3012', 1, 'Queijo Minas 500g', 24.9, 1),
+      novoItem('pedido-3012', 2, 'Iogurte Natural', 6.9, 2),
+    ],
+  }),
+  montarPedido({
+    id: 'pedido-3013',
+    numero: 3013,
+    cliente_id: 'cliente-ana',
+    estabelecimento_id: 'estab-boutique-elegance',
+    hub_id: 'hub-jardins',
+    status: 'cancelado',
+    criado_em: minutosAtras(180),
+    cancelado_em: minutosAtras(178),
+    motivo_cancelamento: 'Cliente desistiu da compra antes da loja aceitar.',
+    taxa_deslocamento_reais: 6.5,
+    itens: [novoItem('pedido-3013', 1, 'Vestido Casual', 129.9, 1)],
+  }),
+
+  // ---------------------------------------------------------------------
+  // Modo Demo — filas do Lojista (`estab-farmacia-vida`, sessão fixa de
+  // `CURRENT_ESTABELECIMENTO_ID`): faltava um pedido em `saindo_hub` (fila
+  // "Saindo") e um `cancelado` (aba "Concluídos") — as demais filas
+  // (Novos/Separar/No hub/Entregue/Recusado/Não retirado) já tinham
+  // exemplo antes desta fixture.
+  // ---------------------------------------------------------------------
+  montarPedido({
+    id: 'lj-pedido-2046',
+    numero: 20046,
+    cliente_id: 'lj-cliente-carla',
+    estabelecimento_id: 'estab-farmacia-vida',
+    hub_id: 'hub-centro',
+    status: 'saindo_hub',
+    criado_em: minutosAtras(25),
+    aceito_em: minutosAtras(23),
+    saiu_hub_em: minutosAtras(3),
+    tempo_estimado_min: 20,
+    itens: [novoItem('lj-pedido-2046', 1, 'Álcool em gel 70%', 32, 1)],
+  }),
+  montarPedido({
+    id: 'lj-pedido-2037',
+    numero: 20037,
+    cliente_id: 'lj-cliente-julia',
+    estabelecimento_id: 'estab-farmacia-vida',
+    hub_id: 'hub-centro',
+    status: 'cancelado',
+    criado_em: minutosAtras(600),
+    cancelado_em: minutosAtras(598),
+    motivo_cancelamento: 'Cliente cancelou antes da separação.',
+    itens: [novoItem('lj-pedido-2037', 1, 'Termômetro digital', 45, 1)],
+  }),
 ];

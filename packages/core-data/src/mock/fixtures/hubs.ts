@@ -7,13 +7,20 @@ import type { Hub, HubHorario } from '../../ports/hub.port';
  */
 const FOTO_HUB = 'https://images.unsplash.com/photo-1580674285054-bed31e145f59?w=400&h=400&fit=crop&q=80';
 
-/** Horário padrão 08:00–20:00 todos os dias — usado pelo Hub Centro no protótipo. */
-function horarioPadrao(): HubHorario[] {
+/**
+ * Modo Demo (`docs/architecture/09-modo-demo-mock.md` §3.4) — horário amplo
+ * `00:00–23:59` nos 7 dias. DADO de teste (não regra de negócio): evita que
+ * `podeFinalizarNoHorario` (`apps/cliente/src/lib/checkoutValidation.ts`,
+ * Story 6.3) bloqueie o checkout do demo por o hub estar "fechado" perto do
+ * fim do horário comercial — mesmo racional já aplicado às lojas em
+ * `estabelecimentos.ts#horarioAmplo`.
+ */
+function horarioAmplo(): HubHorario[] {
   return Array.from({ length: 7 }, (_, dia_semana) => ({
     dia_semana,
     aberto: true,
-    hora_abre: '08:00',
-    hora_fecha: '20:00',
+    hora_abre: '00:00',
+    hora_fecha: '23:59',
   }));
 }
 
@@ -34,7 +41,7 @@ export const hubsFixture: Hub[] = [
     ponto_referencia: 'Em frente à praça central',
     foto_url: FOTO_HUB,
     ativo: true,
-    horarios: horarioPadrao(),
+    horarios: horarioAmplo(),
   },
   {
     id: 'hub-jardins',
@@ -45,7 +52,7 @@ export const hubsFixture: Hub[] = [
     ponto_referencia: null,
     foto_url: FOTO_HUB,
     ativo: true,
-    horarios: horarioPadrao(),
+    horarios: horarioAmplo(),
   },
   {
     id: 'hub-vila-nova',
@@ -56,6 +63,6 @@ export const hubsFixture: Hub[] = [
     ponto_referencia: null,
     foto_url: FOTO_HUB,
     ativo: true,
-    horarios: horarioPadrao(),
+    horarios: horarioAmplo(),
   },
 ];
