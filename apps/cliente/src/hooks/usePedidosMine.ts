@@ -60,8 +60,13 @@ export function usePedidosMine(clienteId: string | null, options?: AsyncCallOpti
     }
 
     const controller = startPedidoPolling(() => refreshRef.current(), {
-      setInterval,
-      clearInterval,
+      // [FIX] Passar `setInterval`/`clearInterval` soltos faz `deps.setInterval(...)`
+      // rodar com `this = deps` no web (react-native-web) — o browser exige
+      // `this === window` e lança "Illegal invocation". Envolver em arrow que
+      // chama o global diretamente resolve no web sem alterar o comportamento
+      // no nativo (RN não tem essa checagem de `this`).
+      setInterval: (handler, ms) => setInterval(handler, ms),
+      clearInterval: (id) => clearInterval(id),
       getAppState: () => AppState.currentState,
       addAppStateListener: (callback) => AppState.addEventListener('change', callback),
     });
