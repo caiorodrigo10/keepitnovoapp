@@ -1,190 +1,23 @@
-// GERADO AUTOMATICAMENTE — Story 1.4 (Épico 1).
-// Origem: `supabase gen types` do projeto keepit-dev (ref jhhbewnmnorhmsdvfppo),
-// executado via MCP do Supabase em 2026-07-29.
-// NÃO editar à mão — regenerar quando o schema mudar.
+// GERADO A PARTIR DO SCHEMA REAL — projeto Supabase `keepit-dev` (ref
+// jhhbewnmnorhmsdvfppo), via `mcp__supabase__generate_typescript_types`.
 //
-// Story 2.8 (2026-08-12) — reconciliação manual da tabela `clientes`: este
-// arquivo não foi regenerado desde 2026-07-29, mas a migration
-// `apps/supabase/supabase/migrations/20260731143000_criar_clientes.sql`
-// (Story 2.3, aplicada em 2026-07-31 ao projeto keepit-dev) criou a tabela
-// no banco real sem que os tipos fossem atualizados — confirmado por sonda
-// real via REST (`GET /rest/v1/clientes?select=*&limit=0` → 200 `[]`, sem
-// `SUPABASE_ACCESS_TOKEN` disponível neste ambiente para rodar
-// `supabase gen types` via CLI/login). A entrada `clientes` abaixo espelha
-// exatamente o DDL aplicado (5 colunas do subconjunto mínimo: `id, nome,
-// telefone, cpf, criado_em` — ver o cabeçalho da migration, "ESCOPO (delta
-// desta story)"), não inventa nenhuma coluna do modelo-alvo de
-// `docs/architecture/03-data-models.md` §1.1 que ainda não foi migrada.
+// Bloco 12 (Higiene, 2026-08-13) — reconciliação canônica: os blocos
+// 01-09 mantiveram este arquivo atualizado à mão (sem `SUPABASE_ACCESS_TOKEN`
+// disponível para `supabase gen types` via CLI), acumulando um cabeçalho
+// story-a-story documentando cada reconciliação manual. Esta Story trocou
+// esse processo por uma leitura direta do schema ao vivo via MCP, cobrindo
+// TODAS as tabelas/views/funções aplicadas até aqui (inclui `pedidos.saiu_hub_em`
+// e a função `pode_ver_pedido`, que faltavam no arquivo hand-reconciled) — o
+// histórico de "quem aplicou o quê" continua nas migrations em
+// `apps/supabase/supabase/migrations/` e nos arquivos de Story em
+// `docs/stories/`, não precisa ser duplicado aqui.
 //
-// Story 3.5 (2026-08-12) — reconciliação manual adicional, mesmo padrão da
-// Story 2.8: a RPC `public.criar_estabelecimento_completo` foi aplicada ao
-// `keepit-dev` pela migration
-// `apps/supabase/supabase/migrations/20260812123048_rpc_criar_estabelecimento_completo.sql`
-// (@data-engineer) sem regeneração de tipos (mesma limitação de ambiente —
-// sem `SUPABASE_ACCESS_TOKEN`/login para `supabase gen types`). A entrada
-// `criar_estabelecimento_completo` abaixo espelha EXATAMENTE a assinatura
-// SQL da função (seção `Functions`, 17 parâmetros `p_*` + `RETURNS uuid`) —
-// não inventa nenhum parâmetro. Até a Story 3.7, as tabelas
-// `estabelecimentos`/`estabelecimentos_horarios` NÃO tinham entrada em
-// `Tables` porque nenhum adapter as consultava diretamente (toda escrita
-// passava pela RPC, que roda `SECURITY DEFINER`).
-//
-// Story 3.7 (2026-08-12) — reconciliação manual adicional: `admin.supabase.ts`
-// (`pendingStores`/`pendingStoreDetail`) passou a consultar `estabelecimentos`/
-// `estabelecimentos_horarios` diretamente (SELECT, sob a policy
-// `admin_gerencia_estab`/`admin_le_horarios`) e a chamar a função `is_admin()`
-// (login real do Admin). As 3 entradas abaixo (`estabelecimentos`,
-// `estabelecimentos_horarios`, `admin_users`) e a função `is_admin` espelham
-// EXATAMENTE o schema confirmado por sonda real via REST
-// (`GET {SUPABASE_URL}/rest/v1/` com `service_role`, OpenAPI `definitions`/
-// `paths./rpc/is_admin`, 2026-08-12 — mesma limitação de ambiente sem
-// `SUPABASE_ACCESS_TOKEN`/login para `supabase gen types`), aplicado pelas
-// migrations `20260812123046` (estabelecimentos), `20260812123047`
-// (estabelecimentos_horarios) e `20260812132330` (admin_users/is_admin).
-// `Relationships: []` em ambas as tabelas — os adapters desta Story fazem 2
-// queries separadas (estabelecimentos + estabelecimentos_horarios por
-// `estabelecimento_id`) em vez de embed tipado do PostgREST, então nenhum
-// call-site depende de metadata de FK aqui.
-//
-// Stories 3.8/3.9 (2026-08-12) — reconciliação manual adicional: as RPCs
-// `public.aprovar_lojista(p_estab_id uuid)` e
-// `public.rejeitar_lojista(p_estab_id uuid, p_motivo text)` foram aplicadas ao
-// `keepit-dev` pelas migrations
-// `apps/supabase/supabase/migrations/20260812132332_rpc_aprovar_lojista.sql` e
-// `apps/supabase/supabase/migrations/20260812132333_rpc_rejeitar_lojista.sql`
-// (@data-engineer), mesma limitação de ambiente (sem `SUPABASE_ACCESS_TOKEN`
-// para `supabase gen types`). As 2 entradas abaixo espelham EXATAMENTE a
-// assinatura SQL de cada função (`Args`/`RETURNS uuid`, tipado como `string`
-// no client, mesmo padrão já usado por `criar_estabelecimento_completo`).
-//
-// Story 4.1 (2026-08-12) — reconciliação manual adicional: as tabelas
-// `hubs`/`hubs_horarios` + o bucket público `hubs` foram aplicados ao
-// `keepit-dev` pelas migrations
-// `apps/supabase/supabase/migrations/20260812164000_criar_hubs.sql`,
-// `20260812164100_criar_hubs_horarios.sql` e
-// `20260812164200_storage_bucket_hubs.sql` (@data-engineer), mesma
-// limitação de ambiente (sem `SUPABASE_ACCESS_TOKEN` para
-// `supabase gen types`). As 2 entradas abaixo espelham EXATAMENTE o DDL das
-// migrations (`hubs.lat`/`lng` `numeric(9,6) NOT NULL` — diferente de
-// `estabelecimentos.lat`/`lng`, NULLABLE — ver comentário da própria
-// migration). `Relationships: []` em ambas — `admin.supabase.ts#hubsCrud`
-// faz queries separadas (mesmo padrão de `estabelecimentos`/
-// `estabelecimentos_horarios`, Story 3.7), sem embed tipado do PostgREST.
-//
-// Stories 4.3/4.4 (2026-08-12) — reconciliação manual adicional: a tabela
-// `produtos` + o bucket público `produtos` foram aplicados ao `keepit-dev`
-// pelas migrations
-// `apps/supabase/supabase/migrations/20260812190000_criar_produtos.sql`,
-// `20260812190001_produtos_indice_trgm.sql` e
-// `20260812190002_storage_bucket_produtos.sql` (@data-engineer), mesma
-// limitação de ambiente (sem `SUPABASE_ACCESS_TOKEN` para
-// `supabase gen types`). A entrada `produtos` abaixo espelha EXATAMENTE o
-// DDL da migration `20260812190000` (`preco_reais numeric(10,2) NOT NULL`,
-// mesmo tratamento numérico já usado em `estabelecimentos.taxa_deslocamento_reais`
-// acima — tipado como `number`, não `string`). `Relationships: []` — os
-// adapters desta Story (`product.supabase.ts`) não fazem embed tipado do
-// PostgREST com `estabelecimentos`.
-//
-// Bloco 04 / Story 5.2 (2026-08-12) — reconciliação manual adicional: a
-// tabela de junção `estabelecimentos_hubs` foi aplicada ao `keepit-dev` pela
-// migration
-// `apps/supabase/supabase/migrations/20260812213002_criar_estabelecimentos_hubs.sql`
-// (@data-engineer), mesma limitação de ambiente (sem `SUPABASE_ACCESS_TOKEN`
-// para `supabase gen types`). A entrada `estabelecimentos_hubs` abaixo
-// espelha EXATAMENTE o DDL da migration (PK composta
-// `(estabelecimento_id, hub_id)`, sem `id` próprio, só `criado_em` de
-// auditoria). `Relationships: []` — `store.supabase.ts#listByHub` (Story
-// 5.2) faz 2 queries separadas (`estabelecimentos_hubs` filtrado por
-// `hub_id`, depois `estabelecimentos` por `.in('id', ...)`), sem embed
-// tipado do PostgREST, mesmo padrão já usado pelas demais tabelas deste
-// arquivo.
-//
-// Bloco 06 / Stories 6.6/6.7 (2026-08-13) — reconciliação manual adicional:
-// as tabelas `pedidos`/`pedidos_itens` e a RPC `public.criar_pedido(...)`
-// foram aplicadas ao `keepit-dev` pelas migrations
-// `apps/supabase/supabase/migrations/20260813004932_criar_pedidos.sql`,
-// `20260813004933_criar_pedidos_itens.sql` e
-// `20260813004934_rpc_criar_pedido.sql` (@data-engineer), mesma limitação
-// de ambiente (sem `SUPABASE_ACCESS_TOKEN` para `supabase gen types`). As 2
-// entradas de tabela abaixo espelham EXATAMENTE o DDL aplicado (subset do
-// piloto — colunas de rastreio pós-aceite `saiu_hub_em`/`cliente_chegou_em`/
-// `lojista_chegou_em` e as de PIX/Asaas FICAM FORA, ver cabeçalho da
-// migration `20260813004932`). `pin_hash` está no `Row` (reflete a coluna
-// real), mas nenhum adapter deste bloco a inclui na `select()` — `pin_texto`
-// é o único campo de PIN exposto pela `OrderPort` (`Pedido.pin_hash` não
-// existe no tipo de domínio). `Relationships: []` em ambas — os adapters
-// (`order.supabase.ts`) fazem 2 queries separadas (`pedidos` +
-// `pedidos_itens` por `pedido_id`/`in()`), sem embed tipado do PostgREST,
-// mesmo padrão já usado pelas demais tabelas deste arquivo. A entrada
-// `criar_pedido` espelha EXATAMENTE a assinatura SQL da função (9
-// parâmetros `p_*` + `RETURNS TABLE (pedido_id uuid, numero integer,
-// pin_texto text)`, tipado como array de linhas no client, mesmo padrão de
-// `criar_estabelecimento_completo` para `RETURNS TABLE`).
-//
-// Bloco 06 / Stories 6.8/6.9 (2026-08-13) — reconciliação manual adicional: as
-// RPCs `public.meu_estabelecimento_id()` (RETURNS uuid, sem parâmetros) e
-// `public.aceitar_pedido(p_pedido_id uuid, p_tempo_estimado_min int)`
-// (RETURNS uuid) foram aplicadas ao `keepit-dev` pelas migrations
-// `apps/supabase/supabase/migrations/20260813004932_criar_pedidos.sql`
-// (helper `meu_estabelecimento_id`) e
-// `20260813004935_rpc_aceitar_pedido.sql` (@data-engineer), mesma limitação
-// de ambiente (sem `SUPABASE_ACCESS_TOKEN` para `supabase gen types`). As 2
-// entradas abaixo espelham EXATAMENTE a assinatura SQL de cada função —
-// `meu_estabelecimento_id` sem parâmetros (`Args: Record<PropertyKey, never>`,
-// mesmo padrão de funções sem argumentos), `aceitar_pedido` com os 2
-// parâmetros `p_*` — ambas `RETURNS uuid` (tipado como `string` no client,
-// mesmo padrão de `aprovar_lojista`/`rejeitar_lojista`).
-//
-// Bloco 07 / Stories 6.12/6.15 (2026-08-13) — reconciliação manual adicional:
-// as RPCs `public.avancar_estado_pedido(p_pedido_id uuid, p_novo_status text)`
-// (RETURNS text) e `public.confirmar_pin_pedido(p_pedido_id uuid, p_pin text)`
-// (RETURNS TABLE (resultado text, tentativas_restantes int, bloqueado_ate
-// timestamptz)) foram aplicadas ao `keepit-dev` pelas migrations
-// `apps/supabase/supabase/migrations/20260813022931_rpc_avancar_estado_pedido.sql`
-// e `20260813022932_rpc_confirmar_pin_pedido.sql` (@data-engineer), mesma
-// limitação de ambiente (sem `SUPABASE_ACCESS_TOKEN` para
-// `supabase gen types`). As 2 entradas abaixo espelham EXATAMENTE a
-// assinatura SQL de cada função — `avancar_estado_pedido` retorna o novo
-// `status` como `string` (mesmo padrão de `aprovar_lojista`/
-// `rejeitar_lojista`); `confirmar_pin_pedido` retorna `TABLE`, tipado como
-// array de linhas no client (mesmo padrão de `criar_pedido`), com
-// `tentativas_restantes`/`bloqueado_ate` nullable (a RPC retorna `NULL` no
-// desfecho `'entregue'`).
-//
-// Bloco 08 / Stories 7.6/7.7/7.8 (2026-08-13) — reconciliação manual adicional:
-// a tabela `lancamentos_financeiros` (ledger único append-only), a view
-// `carteira_lojista` (`security_invoker = true`) e a RPC
-// `public.solicitar_saque(p_valor_centavos bigint)` foram aplicadas ao
-// `keepit-dev` pelas migrations
-// `apps/supabase/supabase/migrations/20260813050000_criar_lancamentos_financeiros.sql`,
-// `20260813050001_criar_view_carteira_lojista.sql` e
-// `20260813050004_rpc_solicitar_saque.sql` (@data-engineer), mesma limitação
-// de ambiente (sem `SUPABASE_ACCESS_TOKEN` para `supabase gen types`). A
-// entrada `lancamentos_financeiros` espelha EXATAMENTE o DDL aplicado (Model
-// B — ver comentário da própria migration); `Relationships: []` — os
-// adapters deste bloco (`wallet.supabase.ts`, `analytics.supabase.ts`) fazem
-// queries diretas (`select().eq()`), sem embed tipado do PostgREST. A entrada
-// `carteira_lojista` (em `Views`, não `Tables` — é uma view) espelha os 5
-// campos de saída (`estabelecimento_id` + 4 saldos em REAIS, já divididos por
-// 100 na própria view SQL). A entrada `solicitar_saque` espelha EXATAMENTE a
-// assinatura SQL da função (1 parâmetro `p_valor_centavos bigint`,
-// `RETURNS TABLE (lancamento_id, estabelecimento_id, valor_centavos, status,
-// solicitado_em)`, mesmo padrão de `criar_pedido`/`confirmar_pin_pedido` para
-// `RETURNS TABLE`).
-//
-// Bloco 09 (Épico 8 — Operação Admin, 2026-08-13) — reconciliação manual adicional:
-// colunas `clientes.bloqueado`/`motivo_bloqueio`/`bloqueado_em`, a tabela NOVA
-// `estabelecimentos_falhas` e as RPCs `confirmar_lancamento_admin` (compartilhada
-// 8.2/8.9), `forcar_cancelamento_pedido` (8.4), `bloquear_cliente`/`desbloquear_cliente`
-// (8.5) e `suspender_lojista`/`reativar_lojista` (8.6) foram aplicadas ao `keepit-dev`
-// pelas migrations `apps/supabase/supabase/migrations/20260813070000..070005_*.sql`
-// (@data-engineer), mesma limitação de ambiente (sem `SUPABASE_ACCESS_TOKEN`). Cada
-// entrada espelha EXATAMENTE o DDL/assinatura aplicados (ver o cabeçalho normativo de
-// cada migration para o racional completo).
-//
-// Regenerar via `supabase gen types typescript --project-id
-// jhhbewnmnorhmsdvfppo` (com login) substitui todos os blocos manuais sem
-// alteração de forma esperada.
+// NÃO editar à mão — regenerar via `generate_typescript_types` quando o
+// schema mudar. As seções abaixo de `DatabaseWithoutInternals` (Tables<>,
+// TablesInsert<>, TablesUpdate<>, Enums<>, CompositeTypes<>, Constants) são
+// aliases de conveniência hand-added desde a Story 1.4 — não fazem parte do
+// output bruto do gerador, mas são preservados porque `index.ts` os
+// reexporta (`export * from './supabase'`).
 export type Json =
   | string
   | number
@@ -216,715 +49,808 @@ export type Database = {
         }
         Relationships: []
       }
-      // Bloco 09 / Story 8.5 (2026-08-13) — ver comentário de reconciliação manual no topo do arquivo.
-      // `bloqueado`/`motivo_bloqueio`/`bloqueado_em` NÃO existiam antes (a migration
-      // 20260731143000_criar_clientes.sql listava-as em "FICA FORA"); aplicadas de fato
-      // por 20260813070002_clientes_bloqueio_admin.sql.
+      admin_users: {
+        Row: {
+          criado_em: string
+          id: string
+          nome: string
+        }
+        Insert: {
+          criado_em?: string
+          id: string
+          nome: string
+        }
+        Update: {
+          criado_em?: string
+          id?: string
+          nome?: string
+        }
+        Relationships: []
+      }
       clientes: {
         Row: {
+          bloqueado: boolean
+          bloqueado_em: string | null
+          cpf: string | null
+          criado_em: string
           id: string
+          motivo_bloqueio: string | null
           nome: string
           telefone: string | null
-          cpf: string | null
-          bloqueado: boolean
-          motivo_bloqueio: string | null
-          bloqueado_em: string | null
-          criado_em: string
         }
         Insert: {
+          bloqueado?: boolean
+          bloqueado_em?: string | null
+          cpf?: string | null
+          criado_em?: string
           id: string
+          motivo_bloqueio?: string | null
           nome: string
           telefone?: string | null
-          cpf?: string | null
-          bloqueado?: boolean
-          motivo_bloqueio?: string | null
-          bloqueado_em?: string | null
-          criado_em?: string
         }
         Update: {
+          bloqueado?: boolean
+          bloqueado_em?: string | null
+          cpf?: string | null
+          criado_em?: string
           id?: string
+          motivo_bloqueio?: string | null
           nome?: string
           telefone?: string | null
-          cpf?: string | null
-          bloqueado?: boolean
-          motivo_bloqueio?: string | null
-          bloqueado_em?: string | null
-          criado_em?: string
         }
         Relationships: []
       }
-      // Story 3.7 — ver comentário de reconciliação manual no topo do arquivo.
       estabelecimentos: {
         Row: {
-          id: string
-          dono_user_id: string
-          nome_fantasia: string
-          cnpj: string
-          responsavel_nome: string
-          telefone: string
-          categoria: string
-          descricao: string | null
-          foto_fachada_url: string | null
-          dados_receita: Json | null
-          endereco: string
-          lat: number | null
-          lng: number | null
-          raio_atendimento_km: number | null
-          tempo_medio_entrega_min: number
-          taxa_deslocamento_reais: number
-          ticket_minimo_reais: number | null
-          chave_pix: string
-          chave_pix_tipo: string
-          asaas_wallet_id: string | null
-          status: string
-          motivo_rejeicao: string | null
-          motivo_suspensao: string | null
-          pausado_manualmente: boolean
           aprovado_em: string | null
           aprovado_por: string | null
-          suspenso_em: string | null
-          criado_em: string
+          asaas_wallet_id: string | null
           atualizado_em: string
-          excluido_em: string | null
-        }
-        Insert: {
-          id?: string
-          dono_user_id: string
-          nome_fantasia: string
-          cnpj: string
-          responsavel_nome: string
-          telefone: string
           categoria: string
-          descricao?: string | null
-          foto_fachada_url?: string | null
-          dados_receita?: Json | null
-          endereco: string
-          lat?: number | null
-          lng?: number | null
-          raio_atendimento_km?: number | null
-          tempo_medio_entrega_min: number
-          taxa_deslocamento_reais?: number
-          ticket_minimo_reais?: number | null
           chave_pix: string
           chave_pix_tipo: string
-          asaas_wallet_id?: string | null
-          status?: string
-          motivo_rejeicao?: string | null
-          motivo_suspensao?: string | null
-          pausado_manualmente?: boolean
+          cnpj: string
+          criado_em: string
+          dados_receita: Json | null
+          descricao: string | null
+          dono_user_id: string
+          endereco: string
+          excluido_em: string | null
+          foto_fachada_url: string | null
+          id: string
+          lat: number | null
+          lng: number | null
+          motivo_rejeicao: string | null
+          motivo_suspensao: string | null
+          nome_fantasia: string
+          pausado_manualmente: boolean
+          raio_atendimento_km: number | null
+          responsavel_nome: string
+          status: string
+          suspenso_em: string | null
+          taxa_deslocamento_reais: number
+          telefone: string
+          tempo_medio_entrega_min: number
+          ticket_minimo_reais: number | null
+        }
+        Insert: {
           aprovado_em?: string | null
           aprovado_por?: string | null
-          suspenso_em?: string | null
-          criado_em?: string
+          asaas_wallet_id?: string | null
           atualizado_em?: string
-          excluido_em?: string | null
-        }
-        Update: {
-          id?: string
-          dono_user_id?: string
-          nome_fantasia?: string
-          cnpj?: string
-          responsavel_nome?: string
-          telefone?: string
-          categoria?: string
-          descricao?: string | null
-          foto_fachada_url?: string | null
+          categoria: string
+          chave_pix: string
+          chave_pix_tipo: string
+          cnpj: string
+          criado_em?: string
           dados_receita?: Json | null
-          endereco?: string
+          descricao?: string | null
+          dono_user_id: string
+          endereco: string
+          excluido_em?: string | null
+          foto_fachada_url?: string | null
+          id?: string
           lat?: number | null
           lng?: number | null
-          raio_atendimento_km?: number | null
-          tempo_medio_entrega_min?: number
-          taxa_deslocamento_reais?: number
-          ticket_minimo_reais?: number | null
-          chave_pix?: string
-          chave_pix_tipo?: string
-          asaas_wallet_id?: string | null
-          status?: string
           motivo_rejeicao?: string | null
           motivo_suspensao?: string | null
+          nome_fantasia: string
           pausado_manualmente?: boolean
+          raio_atendimento_km?: number | null
+          responsavel_nome: string
+          status?: string
+          suspenso_em?: string | null
+          taxa_deslocamento_reais?: number
+          telefone: string
+          tempo_medio_entrega_min: number
+          ticket_minimo_reais?: number | null
+        }
+        Update: {
           aprovado_em?: string | null
           aprovado_por?: string | null
-          suspenso_em?: string | null
-          criado_em?: string
+          asaas_wallet_id?: string | null
           atualizado_em?: string
+          categoria?: string
+          chave_pix?: string
+          chave_pix_tipo?: string
+          cnpj?: string
+          criado_em?: string
+          dados_receita?: Json | null
+          descricao?: string | null
+          dono_user_id?: string
+          endereco?: string
           excluido_em?: string | null
+          foto_fachada_url?: string | null
+          id?: string
+          lat?: number | null
+          lng?: number | null
+          motivo_rejeicao?: string | null
+          motivo_suspensao?: string | null
+          nome_fantasia?: string
+          pausado_manualmente?: boolean
+          raio_atendimento_km?: number | null
+          responsavel_nome?: string
+          status?: string
+          suspenso_em?: string | null
+          taxa_deslocamento_reais?: number
+          telefone?: string
+          tempo_medio_entrega_min?: number
+          ticket_minimo_reais?: number | null
         }
         Relationships: []
       }
-      // Story 3.7 — ver comentário de reconciliação manual no topo do arquivo.
+      estabelecimentos_falhas: {
+        Row: {
+          criado_em: string
+          detalhes: string | null
+          estabelecimento_id: string
+          id: string
+          pedido_id: string | null
+          tipo: string
+        }
+        Insert: {
+          criado_em?: string
+          detalhes?: string | null
+          estabelecimento_id: string
+          id?: string
+          pedido_id?: string | null
+          tipo: string
+        }
+        Update: {
+          criado_em?: string
+          detalhes?: string | null
+          estabelecimento_id?: string
+          id?: string
+          pedido_id?: string | null
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "estabelecimentos_falhas_estabelecimento_id_fkey"
+            columns: ["estabelecimento_id"]
+            isOneToOne: false
+            referencedRelation: "carteira_lojista"
+            referencedColumns: ["estabelecimento_id"]
+          },
+          {
+            foreignKeyName: "estabelecimentos_falhas_estabelecimento_id_fkey"
+            columns: ["estabelecimento_id"]
+            isOneToOne: false
+            referencedRelation: "estabelecimentos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "estabelecimentos_falhas_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       estabelecimentos_horarios: {
         Row: {
-          estabelecimento_id: string
-          dia_semana: number
           aberto: boolean
+          dia_semana: number
+          estabelecimento_id: string
           hora_abre: string | null
           hora_fecha: string | null
         }
         Insert: {
-          estabelecimento_id: string
-          dia_semana: number
           aberto?: boolean
+          dia_semana: number
+          estabelecimento_id: string
           hora_abre?: string | null
           hora_fecha?: string | null
         }
         Update: {
-          estabelecimento_id?: string
-          dia_semana?: number
           aberto?: boolean
+          dia_semana?: number
+          estabelecimento_id?: string
           hora_abre?: string | null
           hora_fecha?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "estabelecimentos_horarios_estabelecimento_id_fkey"
+            columns: ["estabelecimento_id"]
+            isOneToOne: false
+            referencedRelation: "carteira_lojista"
+            referencedColumns: ["estabelecimento_id"]
+          },
+          {
+            foreignKeyName: "estabelecimentos_horarios_estabelecimento_id_fkey"
+            columns: ["estabelecimento_id"]
+            isOneToOne: false
+            referencedRelation: "estabelecimentos"
+            referencedColumns: ["id"]
+          },
+        ]
       }
-      // Bloco 04 / Story 5.2 — ver comentário de reconciliação manual no topo do arquivo.
       estabelecimentos_hubs: {
         Row: {
+          criado_em: string
           estabelecimento_id: string
           hub_id: string
-          criado_em: string
         }
         Insert: {
+          criado_em?: string
           estabelecimento_id: string
           hub_id: string
-          criado_em?: string
         }
         Update: {
+          criado_em?: string
           estabelecimento_id?: string
           hub_id?: string
-          criado_em?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "estabelecimentos_hubs_estabelecimento_id_fkey"
+            columns: ["estabelecimento_id"]
+            isOneToOne: false
+            referencedRelation: "carteira_lojista"
+            referencedColumns: ["estabelecimento_id"]
+          },
+          {
+            foreignKeyName: "estabelecimentos_hubs_estabelecimento_id_fkey"
+            columns: ["estabelecimento_id"]
+            isOneToOne: false
+            referencedRelation: "estabelecimentos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "estabelecimentos_hubs_hub_id_fkey"
+            columns: ["hub_id"]
+            isOneToOne: false
+            referencedRelation: "hubs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
-      // Story 4.1 — ver comentário de reconciliação manual no topo do arquivo.
       hubs: {
         Row: {
-          id: string
-          nome: string
+          ativo: boolean
+          atualizado_em: string
+          criado_em: string
           endereco: string
+          foto_url: string | null
+          id: string
           lat: number
           lng: number
+          nome: string
           ponto_referencia: string | null
-          foto_url: string | null
-          ativo: boolean
-          criado_em: string
-          atualizado_em: string
         }
         Insert: {
-          id?: string
-          nome: string
+          ativo?: boolean
+          atualizado_em?: string
+          criado_em?: string
           endereco: string
+          foto_url?: string | null
+          id?: string
           lat: number
           lng: number
+          nome: string
           ponto_referencia?: string | null
-          foto_url?: string | null
-          ativo?: boolean
-          criado_em?: string
-          atualizado_em?: string
         }
         Update: {
-          id?: string
-          nome?: string
+          ativo?: boolean
+          atualizado_em?: string
+          criado_em?: string
           endereco?: string
+          foto_url?: string | null
+          id?: string
           lat?: number
           lng?: number
+          nome?: string
           ponto_referencia?: string | null
-          foto_url?: string | null
-          ativo?: boolean
-          criado_em?: string
-          atualizado_em?: string
         }
         Relationships: []
       }
-      // Story 4.1 — ver comentário de reconciliação manual no topo do arquivo.
       hubs_horarios: {
         Row: {
-          hub_id: string
-          dia_semana: number
           aberto: boolean
+          dia_semana: number
           hora_abre: string | null
           hora_fecha: string | null
-        }
-        Insert: {
           hub_id: string
-          dia_semana: number
-          aberto?: boolean
-          hora_abre?: string | null
-          hora_fecha?: string | null
-        }
-        Update: {
-          hub_id?: string
-          dia_semana?: number
-          aberto?: boolean
-          hora_abre?: string | null
-          hora_fecha?: string | null
-        }
-        Relationships: []
-      }
-      // Stories 4.3/4.4 — ver comentário de reconciliação manual no topo do arquivo.
-      produtos: {
-        Row: {
-          id: string
-          estabelecimento_id: string
-          nome: string
-          descricao: string | null
-          preco_reais: number
-          categoria_produto: string
-          foto_url: string | null
-          ativo: boolean
-          criado_em: string
-          atualizado_em: string
-          excluido_em: string | null
         }
         Insert: {
-          id?: string
-          estabelecimento_id: string
-          nome: string
-          descricao?: string | null
-          preco_reais: number
-          categoria_produto: string
-          foto_url?: string | null
-          ativo?: boolean
-          criado_em?: string
-          atualizado_em?: string
-          excluido_em?: string | null
+          aberto?: boolean
+          dia_semana: number
+          hora_abre?: string | null
+          hora_fecha?: string | null
+          hub_id: string
         }
         Update: {
-          id?: string
-          estabelecimento_id?: string
-          nome?: string
-          descricao?: string | null
-          preco_reais?: number
-          categoria_produto?: string
-          foto_url?: string | null
-          ativo?: boolean
-          criado_em?: string
-          atualizado_em?: string
-          excluido_em?: string | null
+          aberto?: boolean
+          dia_semana?: number
+          hora_abre?: string | null
+          hora_fecha?: string | null
+          hub_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "hubs_horarios_hub_id_fkey"
+            columns: ["hub_id"]
+            isOneToOne: false
+            referencedRelation: "hubs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
-      // Bloco 06 / Stories 6.6/6.7 — ver comentário de reconciliação manual no topo do arquivo.
+      lancamentos_financeiros: {
+        Row: {
+          asaas_id_externo: string | null
+          ator_admin_id: string | null
+          concluido_em: string | null
+          criado_em: string
+          detalhe: string | null
+          disponivel_em: string | null
+          estabelecimento_id: string
+          id: string
+          pedido_id: string | null
+          status: string
+          tipo: string
+          valor_centavos: number
+        }
+        Insert: {
+          asaas_id_externo?: string | null
+          ator_admin_id?: string | null
+          concluido_em?: string | null
+          criado_em?: string
+          detalhe?: string | null
+          disponivel_em?: string | null
+          estabelecimento_id: string
+          id?: string
+          pedido_id?: string | null
+          status?: string
+          tipo: string
+          valor_centavos: number
+        }
+        Update: {
+          asaas_id_externo?: string | null
+          ator_admin_id?: string | null
+          concluido_em?: string | null
+          criado_em?: string
+          detalhe?: string | null
+          disponivel_em?: string | null
+          estabelecimento_id?: string
+          id?: string
+          pedido_id?: string | null
+          status?: string
+          tipo?: string
+          valor_centavos?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lancamentos_financeiros_estabelecimento_id_fkey"
+            columns: ["estabelecimento_id"]
+            isOneToOne: false
+            referencedRelation: "carteira_lojista"
+            referencedColumns: ["estabelecimento_id"]
+          },
+          {
+            foreignKeyName: "lancamentos_financeiros_estabelecimento_id_fkey"
+            columns: ["estabelecimento_id"]
+            isOneToOne: false
+            referencedRelation: "estabelecimentos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lancamentos_financeiros_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pedidos: {
         Row: {
-          id: string
-          numero: number
+          aceito_em: string | null
+          atualizado_em: string
+          cancelado_em: string | null
           cliente_id: string
+          criado_em: string
+          entregue_em: string | null
           estabelecimento_id: string
+          forma_pagamento: string
           hub_id: string
-          status: string
+          id: string
+          motivo_cancelamento: string | null
+          motivo_nao_retirado: string | null
+          motivo_recusa: string | null
+          nf_solicitada: boolean
+          numero: number
+          pago_em: string | null
+          pin_bloqueado_ate: string | null
           pin_hash: string
           pin_texto: string
-          tentativas_pin: number
-          pin_bloqueado_ate: string | null
-          tempo_estimado_min: number | null
-          criado_em: string
-          pago_em: string | null
-          aceito_em: string | null
-          entregue_em: string | null
-          cancelado_em: string | null
+          saiu_hub_em: string | null
+          status: string
           subtotal_produtos_reais: number
           taxa_deslocamento_reais: number
           taxa_keepit_reais: number
           taxa_servico_comprador_reais: number
+          tempo_estimado_min: number | null
+          tentativas_pin: number
           total_pago_reais: number
-          nf_solicitada: boolean
-          motivo_recusa: string | null
-          motivo_cancelamento: string | null
-          motivo_nao_retirado: string | null
-          forma_pagamento: string
-          atualizado_em: string
         }
         Insert: {
-          id?: string
-          numero?: number
+          aceito_em?: string | null
+          atualizado_em?: string
+          cancelado_em?: string | null
           cliente_id: string
+          criado_em?: string
+          entregue_em?: string | null
           estabelecimento_id: string
+          forma_pagamento?: string
           hub_id: string
-          status?: string
+          id?: string
+          motivo_cancelamento?: string | null
+          motivo_nao_retirado?: string | null
+          motivo_recusa?: string | null
+          nf_solicitada?: boolean
+          numero?: number
+          pago_em?: string | null
+          pin_bloqueado_ate?: string | null
           pin_hash: string
           pin_texto: string
-          tentativas_pin?: number
-          pin_bloqueado_ate?: string | null
-          tempo_estimado_min?: number | null
-          criado_em?: string
-          pago_em?: string | null
-          aceito_em?: string | null
-          entregue_em?: string | null
-          cancelado_em?: string | null
+          saiu_hub_em?: string | null
+          status?: string
           subtotal_produtos_reais: number
           taxa_deslocamento_reais: number
           taxa_keepit_reais: number
           taxa_servico_comprador_reais?: number
+          tempo_estimado_min?: number | null
+          tentativas_pin?: number
           total_pago_reais: number
-          nf_solicitada?: boolean
-          motivo_recusa?: string | null
-          motivo_cancelamento?: string | null
-          motivo_nao_retirado?: string | null
-          forma_pagamento?: string
-          atualizado_em?: string
         }
         Update: {
-          id?: string
-          numero?: number
+          aceito_em?: string | null
+          atualizado_em?: string
+          cancelado_em?: string | null
           cliente_id?: string
+          criado_em?: string
+          entregue_em?: string | null
           estabelecimento_id?: string
+          forma_pagamento?: string
           hub_id?: string
-          status?: string
+          id?: string
+          motivo_cancelamento?: string | null
+          motivo_nao_retirado?: string | null
+          motivo_recusa?: string | null
+          nf_solicitada?: boolean
+          numero?: number
+          pago_em?: string | null
+          pin_bloqueado_ate?: string | null
           pin_hash?: string
           pin_texto?: string
-          tentativas_pin?: number
-          pin_bloqueado_ate?: string | null
-          tempo_estimado_min?: number | null
-          criado_em?: string
-          pago_em?: string | null
-          aceito_em?: string | null
-          entregue_em?: string | null
-          cancelado_em?: string | null
+          saiu_hub_em?: string | null
+          status?: string
           subtotal_produtos_reais?: number
           taxa_deslocamento_reais?: number
           taxa_keepit_reais?: number
           taxa_servico_comprador_reais?: number
+          tempo_estimado_min?: number | null
+          tentativas_pin?: number
           total_pago_reais?: number
-          nf_solicitada?: boolean
-          motivo_recusa?: string | null
-          motivo_cancelamento?: string | null
-          motivo_nao_retirado?: string | null
-          forma_pagamento?: string
-          atualizado_em?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "pedidos_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pedidos_estabelecimento_id_fkey"
+            columns: ["estabelecimento_id"]
+            isOneToOne: false
+            referencedRelation: "carteira_lojista"
+            referencedColumns: ["estabelecimento_id"]
+          },
+          {
+            foreignKeyName: "pedidos_estabelecimento_id_fkey"
+            columns: ["estabelecimento_id"]
+            isOneToOne: false
+            referencedRelation: "estabelecimentos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pedidos_hub_id_fkey"
+            columns: ["hub_id"]
+            isOneToOne: false
+            referencedRelation: "hubs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
-      // Bloco 06 / Stories 6.6/6.7 — ver comentário de reconciliação manual no topo do arquivo.
       pedidos_itens: {
         Row: {
           id: string
-          pedido_id: string
-          produto_id: string | null
           nome_snapshot: string
+          pedido_id: string
           preco_unitario_reais: number
+          produto_id: string | null
           quantidade: number
           subtotal_reais: number
         }
         Insert: {
           id?: string
-          pedido_id: string
-          produto_id?: string | null
           nome_snapshot: string
+          pedido_id: string
           preco_unitario_reais: number
+          produto_id?: string | null
           quantidade: number
           subtotal_reais: number
         }
         Update: {
           id?: string
-          pedido_id?: string
-          produto_id?: string | null
           nome_snapshot?: string
+          pedido_id?: string
           preco_unitario_reais?: number
+          produto_id?: string | null
           quantidade?: number
           subtotal_reais?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "pedidos_itens_pedido_id_fkey"
+            columns: ["pedido_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pedidos_itens_produto_id_fkey"
+            columns: ["produto_id"]
+            isOneToOne: false
+            referencedRelation: "produtos"
+            referencedColumns: ["id"]
+          },
+        ]
       }
-      // Bloco 08 / Stories 7.6/7.7/7.8 — ver comentário de reconciliação manual no topo do arquivo.
-      lancamentos_financeiros: {
+      produtos: {
         Row: {
-          id: string
-          estabelecimento_id: string
-          pedido_id: string | null
-          tipo: string
-          valor_centavos: number
-          status: string
-          asaas_id_externo: string | null
-          ator_admin_id: string | null
-          detalhe: string | null
-          disponivel_em: string | null
+          ativo: boolean
+          atualizado_em: string
+          categoria_produto: string
           criado_em: string
-          concluido_em: string | null
-        }
-        Insert: {
-          id?: string
+          descricao: string | null
           estabelecimento_id: string
-          pedido_id?: string | null
-          tipo: string
-          valor_centavos: number
-          status?: string
-          asaas_id_externo?: string | null
-          ator_admin_id?: string | null
-          detalhe?: string | null
-          disponivel_em?: string | null
-          criado_em?: string
-          concluido_em?: string | null
-        }
-        Update: {
-          id?: string
-          estabelecimento_id?: string
-          pedido_id?: string | null
-          tipo?: string
-          valor_centavos?: number
-          status?: string
-          asaas_id_externo?: string | null
-          ator_admin_id?: string | null
-          detalhe?: string | null
-          disponivel_em?: string | null
-          criado_em?: string
-          concluido_em?: string | null
-        }
-        Relationships: []
-      }
-      // Bloco 09 / Story 8.8 (2026-08-13) — ver comentário de reconciliação manual no topo do
-      // arquivo. Tabela NOVA aplicada por 20260813070005_criar_estabelecimentos_falhas.sql
-      // (não existia antes — só o tipo de domínio/mock existiam desde a Story 1.10).
-      estabelecimentos_falhas: {
-        Row: {
-          id: string
-          estabelecimento_id: string
-          pedido_id: string | null
-          tipo: string
-          detalhes: string | null
-          criado_em: string
-        }
-        Insert: {
-          id?: string
-          estabelecimento_id: string
-          pedido_id?: string | null
-          tipo: string
-          detalhes?: string | null
-          criado_em?: string
-        }
-        Update: {
-          id?: string
-          estabelecimento_id?: string
-          pedido_id?: string | null
-          tipo?: string
-          detalhes?: string | null
-          criado_em?: string
-        }
-        Relationships: []
-      }
-      // Story 3.7 — ver comentário de reconciliação manual no topo do arquivo.
-      admin_users: {
-        Row: {
+          excluido_em: string | null
+          foto_url: string | null
           id: string
           nome: string
-          criado_em: string
+          preco_reais: number
         }
         Insert: {
-          id: string
-          nome: string
+          ativo?: boolean
+          atualizado_em?: string
+          categoria_produto: string
           criado_em?: string
+          descricao?: string | null
+          estabelecimento_id: string
+          excluido_em?: string | null
+          foto_url?: string | null
+          id?: string
+          nome: string
+          preco_reais: number
         }
         Update: {
+          ativo?: boolean
+          atualizado_em?: string
+          categoria_produto?: string
+          criado_em?: string
+          descricao?: string | null
+          estabelecimento_id?: string
+          excluido_em?: string | null
+          foto_url?: string | null
           id?: string
           nome?: string
-          criado_em?: string
+          preco_reais?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "produtos_estabelecimento_id_fkey"
+            columns: ["estabelecimento_id"]
+            isOneToOne: false
+            referencedRelation: "carteira_lojista"
+            referencedColumns: ["estabelecimento_id"]
+          },
+          {
+            foreignKeyName: "produtos_estabelecimento_id_fkey"
+            columns: ["estabelecimento_id"]
+            isOneToOne: false
+            referencedRelation: "estabelecimentos"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
-      // Bloco 08 / Stories 7.6/7.7/7.8 — ver comentário de reconciliação manual no topo do arquivo.
       carteira_lojista: {
         Row: {
-          estabelecimento_id: string
-          saldo_disponivel_reais: number
-          saldo_bloqueado_reais: number
-          total_sacado_reais: number
-          total_debitado_reais: number
+          estabelecimento_id: string | null
+          saldo_bloqueado_reais: number | null
+          saldo_disponivel_reais: number | null
+          total_debitado_reais: number | null
+          total_sacado_reais: number | null
         }
         Relationships: []
       }
     }
     Functions: {
-      // Story 3.5 — ver comentário de reconciliação manual no topo do arquivo.
+      aceitar_pedido: {
+        Args: { p_pedido_id: string; p_tempo_estimado_min: number }
+        Returns: string
+      }
+      aprovar_lojista: { Args: { p_estab_id: string }; Returns: string }
+      avancar_estado_pedido: {
+        Args: { p_novo_status: string; p_pedido_id: string }
+        Returns: string
+      }
+      bloquear_cliente: {
+        Args: { p_cliente_id: string; p_motivo: string }
+        Returns: {
+          bloqueado: boolean
+          bloqueado_em: string
+          cliente_id: string
+        }[]
+      }
+      // Bloco 12 — `p_asaas_id_externo`/`p_detalhe` ampliados para `| null`
+      // (o gerador só marca args com `DEFAULT` como opcionais via `?`, mas
+      // não infere nulidade a partir do catálogo; a migration
+      // `20260813070000_rpc_confirmar_lancamento_admin.sql` declara ambos
+      // `text DEFAULT NULL`, e `admin.supabase.ts` passa `detalhe ?? null`
+      // de propósito). Sem essa correção, `supabase gen types` bruto
+      // quebraria a chamada real do adapter.
+      confirmar_lancamento_admin: {
+        Args: {
+          p_asaas_id_externo?: string | null
+          p_detalhe?: string | null
+          p_lancamento_id: string
+          p_resultado: string
+        }
+        Returns: {
+          ator_admin_id: string
+          concluido_em: string
+          lancamento_id: string
+          status: string
+          tipo: string
+        }[]
+      }
+      confirmar_pin_pedido: {
+        Args: { p_pedido_id: string; p_pin: string }
+        Returns: {
+          bloqueado_ate: string
+          resultado: string
+          tentativas_restantes: number
+        }[]
+      }
+      // Bloco 12 — `p_lat`/`p_lng`/`p_raio_atendimento_km`/`p_ticket_minimo_reais`/
+      // `p_foto_fachada_url`/`p_descricao` ampliados para `| null`. A migration
+      // `20260812123048_rpc_criar_estabelecimento_completo.sql` os declara
+      // como `numeric`/`text` simples (sem `DEFAULT`, então sempre exigidos
+      // pelo caller, mas SEM `NOT NULL` — Postgres não permite essa
+      // constraint em parâmetro de função). `estabelecimento-cadastro.supabase.ts`
+      // repassa `input.lat`/`input.descricao`/etc., que são legitimamente
+      // `null` quando o lojista não preenche esses campos opcionais do
+      // cadastro. O gerador bruto (`supabase gen types`) não infere
+      // nulidade de parâmetro a partir do catálogo — só marca `?` quando há
+      // `DEFAULT` — então essa correção é necessária para refletir o que a
+      // RPC de fato aceita, sem alterar nenhum comportamento de runtime.
       criar_estabelecimento_completo: {
         Args: {
-          p_nome_fantasia: string
-          p_cnpj: string
-          p_responsavel_nome: string
-          p_telefone: string
           p_categoria: string
-          p_endereco: string
-          p_lat: number | null
-          p_lng: number | null
-          p_raio_atendimento_km: number | null
-          p_tempo_medio_entrega_min: number
-          p_taxa_deslocamento_reais: number | null
-          p_ticket_minimo_reais: number | null
           p_chave_pix: string
           p_chave_pix_tipo: string
-          p_foto_fachada_url: string | null
+          p_cnpj: string
           p_descricao: string | null
+          p_endereco: string
+          p_foto_fachada_url: string | null
           p_horarios: Json
+          p_lat: number | null
+          p_lng: number | null
+          p_nome_fantasia: string
+          p_raio_atendimento_km: number | null
+          p_responsavel_nome: string
+          p_taxa_deslocamento_reais: number
+          p_telefone: string
+          p_tempo_medio_entrega_min: number
+          p_ticket_minimo_reais: number | null
         }
         Returns: string
       }
-      // Story 3.7 — ver comentário de reconciliação manual no topo do arquivo.
-      is_admin: {
-        Args: {
-          user_id?: string
-        }
-        Returns: boolean
-      }
-      // Stories 3.8/3.9 — ver comentário de reconciliação manual no topo do arquivo.
-      aprovar_lojista: {
-        Args: {
-          p_estab_id: string
-        }
-        Returns: string
-      }
-      // Stories 3.8/3.9 — ver comentário de reconciliação manual no topo do arquivo.
-      rejeitar_lojista: {
-        Args: {
-          p_estab_id: string
-          p_motivo: string
-        }
-        Returns: string
-      }
-      // Bloco 06 / Stories 6.6/6.7 — ver comentário de reconciliação manual no topo do arquivo.
       criar_pedido: {
         Args: {
           p_estabelecimento_id: string
           p_hub_id: string
           p_itens: Json
+          p_nf_solicitada: boolean
           p_subtotal_produtos_reais: number
           p_taxa_deslocamento_reais: number
           p_taxa_keepit_reais: number
           p_taxa_servico_comprador_reais: number
           p_total_pago_reais: number
-          p_nf_solicitada: boolean
         }
         Returns: {
-          pedido_id: string
           numero: number
+          pedido_id: string
           pin_texto: string
         }[]
       }
-      // Bloco 06 / Stories 6.8/6.9 — ver comentário de reconciliação manual no topo do arquivo.
-      meu_estabelecimento_id: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      // Bloco 06 / Story 6.9 — ver comentário de reconciliação manual no topo do arquivo.
-      aceitar_pedido: {
-        Args: {
-          p_pedido_id: string
-          p_tempo_estimado_min: number
-        }
-        Returns: string
-      }
-      // Bloco 07 / Story 6.12 — ver comentário de reconciliação manual no topo do arquivo.
-      avancar_estado_pedido: {
-        Args: {
-          p_pedido_id: string
-          p_novo_status: string
-        }
-        Returns: string
-      }
-      // Bloco 07 / Story 6.15 — ver comentário de reconciliação manual no topo do arquivo.
-      confirmar_pin_pedido: {
-        Args: {
-          p_pedido_id: string
-          p_pin: string
-        }
+      desbloquear_cliente: {
+        Args: { p_cliente_id: string }
         Returns: {
-          resultado: string
-          tentativas_restantes: number | null
-          bloqueado_ate: string | null
+          bloqueado: boolean
+          cliente_id: string
         }[]
       }
-      // Bloco 08 / Story 7.8 — ver comentário de reconciliação manual no topo do arquivo.
-      solicitar_saque: {
-        Args: {
-          p_valor_centavos: number
-        }
-        Returns: {
-          lancamento_id: string
-          estabelecimento_id: string
-          valor_centavos: number
-          status: string
-          solicitado_em: string
-        }[]
-      }
-      // Bloco 09 / Stories 8.2 + 8.9 — ver comentário de reconciliação manual no topo do
-      // arquivo. RPC compartilhada (refund + payout), aplicada por
-      // 20260813070000_rpc_confirmar_lancamento_admin.sql.
-      confirmar_lancamento_admin: {
-        Args: {
-          p_lancamento_id: string
-          p_resultado: string
-          p_detalhe?: string | null
-          p_asaas_id_externo?: string | null
-        }
-        Returns: {
-          lancamento_id: string
-          tipo: string
-          status: string
-          ator_admin_id: string
-          concluido_em: string
-        }[]
-      }
-      // Bloco 09 / Story 8.4 — ver comentário de reconciliação manual no topo do arquivo.
-      // Aplicada por 20260813070001_rpc_forcar_cancelamento_pedido.sql.
       forcar_cancelamento_pedido: {
-        Args: {
-          p_pedido_id: string
-          p_motivo: string
-        }
+        Args: { p_motivo: string; p_pedido_id: string }
         Returns: {
           pedido_id: string
-          status: string
-          refund_id: string
           refund_centavos: number
+          refund_id: string
+          status: string
         }[]
       }
-      // Bloco 09 / Story 8.5 — ver comentário de reconciliação manual no topo do arquivo.
-      // Aplicada por 20260813070002_clientes_bloqueio_admin.sql.
-      bloquear_cliente: {
-        Args: {
-          p_cliente_id: string
-          p_motivo: string
-        }
+      is_admin: { Args: { user_id?: string }; Returns: boolean }
+      meu_estabelecimento_id: { Args: never; Returns: string }
+      pode_ver_pedido: {
+        Args: { pedido_row: Database["public"]["Tables"]["pedidos"]["Row"] }
+        Returns: boolean
+      }
+      reativar_lojista: {
+        Args: { p_estabelecimento_id: string }
         Returns: {
-          cliente_id: string
-          bloqueado: boolean
-          bloqueado_em: string
+          estabelecimento_id: string
+          status: string
         }[]
       }
-      // Bloco 09 / Story 8.5 — ver comentário de reconciliação manual no topo do arquivo.
-      // Aplicada por 20260813070002_clientes_bloqueio_admin.sql.
-      desbloquear_cliente: {
-        Args: {
-          p_cliente_id: string
-        }
+      rejeitar_lojista: {
+        Args: { p_estab_id: string; p_motivo: string }
+        Returns: string
+      }
+      solicitar_saque: {
+        Args: { p_valor_centavos: number }
         Returns: {
-          cliente_id: string
-          bloqueado: boolean
+          estabelecimento_id: string
+          lancamento_id: string
+          solicitado_em: string
+          status: string
+          valor_centavos: number
         }[]
       }
-      // Bloco 09 / Story 8.6 — ver comentário de reconciliação manual no topo do arquivo.
-      // Aplicada por 20260813070004_rpc_suspender_reativar_lojista.sql.
       suspender_lojista: {
-        Args: {
-          p_estabelecimento_id: string
-          p_motivo: string
-        }
+        Args: { p_estabelecimento_id: string; p_motivo: string }
         Returns: {
           estabelecimento_id: string
           status: string
           suspenso_em: string
-        }[]
-      }
-      // Bloco 09 / Story 8.6 — ver comentário de reconciliação manual no topo do arquivo.
-      // Aplicada por 20260813070004_rpc_suspender_reativar_lojista.sql.
-      reativar_lojista: {
-        Args: {
-          p_estabelecimento_id: string
-        }
-        Returns: {
-          estabelecimento_id: string
-          status: string
         }[]
       }
     }

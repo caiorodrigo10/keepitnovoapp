@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
+import { Alert } from 'react-native';
 
 import { getDataClient, type Estabelecimento } from '@keepit/core-data';
 
@@ -29,6 +30,13 @@ const LojaDisponibilidadeContext = createContext<LojaDisponibilidadeContextValue
  * "recebendo pedidos" agora persiste no mock db real e sobrevive a um novo
  * `getById`/remount do provider (antes era estado local-only, ver Stories
  * 0.9/1.10 Dev Notes).
+ *
+ * Bloco 12 (Higiene) — débito REL-001 (gate da Story 4.8): `setRecebendoPedidos`/
+ * `selecionarPausa` faziam update otimista e persistiam com `.catch(() => undefined)`,
+ * engolindo falhas reais de escrita (rede/RLS) — a UI ficava mostrando o estado novo
+ * mesmo quando `estabelecimentos.pausado_manualmente` não mudou no banco. Corrigido
+ * revertendo o estado otimista e avisando via `Alert` em caso de erro — mesma
+ * honestidade já aplicada em `handleSalvar` (`HorariosDisponibilidade.tsx`, Story 4.7).
  */
 export function LojaDisponibilidadeProvider({ children }: PropsWithChildren) {
   const [estabelecimento, setEstabelecimento] = useState<Estabelecimento | null>(null);
@@ -53,21 +61,39 @@ export function LojaDisponibilidadeProvider({ children }: PropsWithChildren) {
   }, []);
 
   function setRecebendoPedidos(value: boolean) {
+    const recebendoAnterior = recebendoPedidos;
+    const pausaAnterior = pausaSelecionada;
     setRecebendoPedidosState(value);
     if (value) setPausaSelecionada(null);
     getDataClient()
       .store.setPausadoManualmente(CURRENT_ESTABELECIMENTO_ID, !value)
       .then((estab) => setEstabelecimento(estab))
-      .catch(() => undefined);
+      .catch(() => {
+        setRecebendoPedidosState(recebendoAnterior);
+        setPausaSelecionada(pausaAnterior);
+        Alert.alert(
+          'Não foi possível atualizar',
+          'Não foi possível salvar a disponibilidade da loja agora. Tente novamente em instantes.',
+        );
+      });
   }
 
   function selecionarPausa(duracao: DuracaoPausa) {
+    const recebendoAnterior = recebendoPedidos;
+    const pausaAnterior = pausaSelecionada;
     setPausaSelecionada(duracao);
     setRecebendoPedidosState(false);
     getDataClient()
       .store.setPausadoManualmente(CURRENT_ESTABELECIMENTO_ID, true)
       .then((estab) => setEstabelecimento(estab))
-      .catch(() => undefined);
+      .catch(() => {
+        setPausaSelecionada(pausaAnterior);
+        setRecebendoPedidosState(recebendoAnterior);
+        Alert.alert(
+          'Não foi possível atualizar',
+          'Não foi possível pausar novos pedidos agora. Tente novamente em instantes.',
+        );
+      });
   }
 
   const value = useMemo<LojaDisponibilidadeContextValue>(
