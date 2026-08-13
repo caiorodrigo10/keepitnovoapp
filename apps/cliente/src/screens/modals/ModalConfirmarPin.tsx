@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
@@ -47,6 +48,12 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ModalConfirmarPin'>;
  * Supabase, Story 6.7) — nenhuma mudança nesta tela além do link "Como
  * chegar" (ver `handleComoChegar` acima), que antes era um `<Text>` sem
  * `onPress` (link morto).
+ *
+ * **Story 6.16 (AC5).** Quando o polling da Story 6.13 (herdado via
+ * `usePedidoDetail` → `usePedidosMine`) detecta que o pedido em foco mudou
+ * para `entregue`, esta tela navega automaticamente para `Recibo` — sem
+ * exigir pull-to-refresh manual nem toque do cliente (nenhum push é
+ * disparado, Épico 2.11 `LATER`).
  */
 export default function ModalConfirmarPin({ route, navigation }: Props) {
   const { data: cliente } = useCurrentCliente();
@@ -54,6 +61,20 @@ export default function ModalConfirmarPin({ route, navigation }: Props) {
   const { data: hub } = useHubDetail(pedido?.hub_id ?? '', { forceEmpty: !pedido });
 
   const status = pedido?.status;
+
+  // Story 6.16 (AC5): dependência é o valor PRIMITIVO `status` (não o
+  // objeto `pedido`) — o efeito só reexecuta quando o status realmente
+  // muda, evitando navegações repetidas a cada releitura do polling que
+  // ainda resulte no mesmo `entregue`.
+  useEffect(() => {
+    if (status === 'entregue' && pedido) {
+      navigation.navigate('Main', {
+        screen: 'PedidosTab',
+        params: { screen: 'Recibo', params: { pedidoId: pedido.id } },
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
 
   return (
     <Screen>

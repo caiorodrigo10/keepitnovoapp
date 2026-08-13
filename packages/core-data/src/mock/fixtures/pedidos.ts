@@ -1,3 +1,5 @@
+import { businessConfig } from '@keepit/config';
+
 import type { Pedido, PedidoItem } from '../../ports/order.port';
 
 function minutosAtras(min: number): string {
@@ -49,7 +51,12 @@ function montarPedido(input: PedidoFixtureInput): Pedido {
     subtotal_produtos_reais: subtotal,
     taxa_deslocamento_reais: taxaDeslocamento,
     taxa_keepit_reais: taxaKeepit,
-    total_pago_reais: round2(subtotal + taxaDeslocamento),
+    // Story 6.16 (AC1, AC3): campo que faltava no read model (ver
+    // `Pedido.taxa_servico_comprador_reais`, `ports/order.port.ts`) — default
+    // ao mesmo placeholder do checkout real (`businessConfig`), nunca 0
+    // hard-coded, para exercitar a linha "Taxa de serviço" do Recibo.
+    taxa_servico_comprador_reais: businessConfig.taxaServicoCompradorReais,
+    total_pago_reais: round2(subtotal + taxaDeslocamento + businessConfig.taxaServicoCompradorReais),
     motivo_recusa: null,
     motivo_cancelamento: null,
     motivo_nao_retirado: null,
@@ -86,6 +93,10 @@ export const pedidosFixture: Pedido[] = [
     subtotal_produtos_reais: 68.3,
     taxa_deslocamento_reais: 4.9,
     taxa_keepit_reais: 8.2, // 12% de 68.30, arredondado
+    // Story 6.16: 0 preserva o total_pago_reais original (68.3 + 4.9 =
+    // 73.2) sem taxa de serviço — exercita o ramo "linha oculta" do Recibo
+    // (AC3: só mostra "Taxa de serviço" quando > 0).
+    taxa_servico_comprador_reais: 0,
     total_pago_reais: 73.2,
     motivo_recusa: null,
     motivo_cancelamento: null,
@@ -124,6 +135,9 @@ export const pedidosFixture: Pedido[] = [
     subtotal_produtos_reais: 54.8,
     taxa_deslocamento_reais: 4.9,
     taxa_keepit_reais: 6.58, // 12% de 54.80, arredondado
+    // Story 6.16: 0 preserva o total_pago_reais original (54.8 + 4.9 =
+    // 59.7) — mesmo racional do pedido-2048 acima.
+    taxa_servico_comprador_reais: 0,
     total_pago_reais: 59.7,
     motivo_recusa: null,
     motivo_cancelamento: null,
@@ -365,6 +379,7 @@ export const pedidosFixture: Pedido[] = [
     subtotal_produtos_reais: 42.0,
     taxa_deslocamento_reais: 4.9,
     taxa_keepit_reais: 5.04,
+    taxa_servico_comprador_reais: 0, // Story 6.16: preserva total_pago_reais original (42.0 + 4.9 = 46.9)
     total_pago_reais: 46.9,
     motivo_recusa: null,
     motivo_cancelamento: null,
@@ -403,6 +418,7 @@ export const pedidosFixture: Pedido[] = [
     subtotal_produtos_reais: 120.0,
     taxa_deslocamento_reais: 5.9,
     taxa_keepit_reais: 14.4,
+    taxa_servico_comprador_reais: 0, // Story 6.16: preserva total_pago_reais original (120.0 + 5.9 = 125.9)
     total_pago_reais: 125.9,
     motivo_recusa: null,
     motivo_cancelamento: null,
@@ -441,6 +457,7 @@ export const pedidosFixture: Pedido[] = [
     subtotal_produtos_reais: 25.5,
     taxa_deslocamento_reais: 3.5,
     taxa_keepit_reais: 3.06,
+    taxa_servico_comprador_reais: 0, // Story 6.16: preserva total_pago_reais original (25.5 + 3.5 = 29.0)
     total_pago_reais: 29.0,
     motivo_recusa: null,
     motivo_cancelamento: null,
@@ -479,6 +496,7 @@ export const pedidosFixture: Pedido[] = [
     subtotal_produtos_reais: 60.0,
     taxa_deslocamento_reais: 4.5,
     taxa_keepit_reais: 7.2,
+    taxa_servico_comprador_reais: 0, // Story 6.16: preserva total_pago_reais original (60.0 + 4.5 = 64.5)
     total_pago_reais: 64.5,
     motivo_recusa: null,
     motivo_cancelamento: 'Lojista suspenso por reincidência de chargeback — pedido cancelado de ofício pelo admin.',
@@ -517,6 +535,7 @@ export const pedidosFixture: Pedido[] = [
     subtotal_produtos_reais: 18.9,
     taxa_deslocamento_reais: 4.9,
     taxa_keepit_reais: 2.27,
+    taxa_servico_comprador_reais: 0, // Story 6.16: preserva total_pago_reais original (18.9 + 4.9 = 23.8)
     total_pago_reais: 23.8,
     motivo_recusa: null,
     motivo_cancelamento: null,

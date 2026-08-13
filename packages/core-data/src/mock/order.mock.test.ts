@@ -2,6 +2,7 @@ import { businessConfig } from '@keepit/config';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { OrderPort } from '../ports/order.port';
+import { PinBloqueadoError, PinIncorretoError } from '../ports/order.port';
 import { createMockDb, type MockDb } from './db';
 import { createOrderMock } from './order.mock';
 
@@ -43,6 +44,9 @@ describe('order.mock (contract)', () => {
     expect(pedido.subtotal_produtos_reais).toBeCloseTo(29.8, 2);
     expect(pedido.taxa_keepit_reais).toBeCloseTo((29.8 * businessConfig.taxaKeepitPercent) / 100, 2);
     expect(pedido.taxa_deslocamento_reais).toBeCloseTo(taxaDeslocamento, 2);
+    // Story 6.16 (AC1, AC3): campo que faltava no read model — volta a
+    // aparecer no `Pedido` retornado por `create`, como o resto dos totais.
+    expect(pedido.taxa_servico_comprador_reais).toBeCloseTo(taxaServico, 2);
     expect(pedido.total_pago_reais).toBeCloseTo(total, 2);
     // AC6: status inicial alinhado ao piloto real (pagamento simulado em dev).
     expect(pedido.status).toBe('aguardando_aceite');
@@ -62,20 +66,32 @@ describe('order.mock (contract)', () => {
     expect(pedidos.every((p) => p.cliente_id === 'cliente-ana')).toBe(true);
   });
 
-  it('confirmPin blocks after businessConfig.pinTentativasMax wrong attempts', async () => {
+  it('confirmPin blocks after businessConfig.pinTentativasMax wrong attempts (Story 6.15, AC3, AC8) — rejects with PinIncorretoError then PinBloqueadoError, mesmas classes do adapter Supabase', async () => {
     const pedidoId = 'pedido-2049';
 
-    for (let i = 0; i < businessConfig.pinTentativasMax; i += 1) {
-      await expect(port.confirmPin(pedidoId, '0000', { delayMs: 1 })).rejects.toThrow();
+    for (let i = 0; i < businessConfig.pinTentativasMax - 1; i += 1) {
+      const promise = port.confirmPin(pedidoId, '0000', { delayMs: 1 });
+      await expect(promise).rejects.toBeInstanceOf(PinIncorretoError);
+      await promise.catch((err: PinIncorretoError) => {
+        expect(err.tentativasRestantes).toBe(businessConfig.pinTentativasMax - 1 - i);
+      });
     }
 
-    await expect(port.confirmPin(pedidoId, '7734', { delayMs: 1 })).rejects.toThrow(/bloqueado/i);
+    // 5º erro: bloqueia e zera tentativas_pin (mesmo comportamento da RPC real).
+    const quintoErro = port.confirmPin(pedidoId, '0000', { delayMs: 1 });
+    await expect(quintoErro).rejects.toBeInstanceOf(PinBloqueadoError);
+
+    // Tentativa (mesmo com PIN correto) durante o bloqueio ativo continua bloqueada,
+    // sem consumir/incrementar tentativa.
+    await expect(port.confirmPin(pedidoId, '7734', { delayMs: 1 })).rejects.toBeInstanceOf(PinBloqueadoError);
   });
 
-  it('confirmPin with the correct PIN transitions status to "entregue"', async () => {
+  it('confirmPin with the correct PIN transitions status to "entregue" and zeroes tentativas_pin/pin_bloqueado_ate', async () => {
     const pedido = await port.confirmPin('pedido-2049', '7734', { delayMs: 1 });
     expect(pedido.status).toBe('entregue');
     expect(pedido.entregue_em).not.toBeNull();
+    expect(pedido.tentativas_pin).toBe(0);
+    expect(pedido.pin_bloqueado_ate).toBeNull();
   });
 
   it('is genuinely asynchronous — does not resolve on the same tick', () => {

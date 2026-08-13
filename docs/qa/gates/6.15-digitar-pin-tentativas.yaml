@@ -1,0 +1,24 @@
+schema: 1
+story: '6.15'
+gate: CONCERNS
+status_reason: 'PIN validado server-side via crypt, lockout 5/5min e ownership dentro da RPC SECURITY DEFINER; adapter lê a LINHA DE RESULTADO (nunca sucesso fictício), pin_hash nunca vaza e entregue só via confirmar_pin_pedido. Falta a verificação manual device/E2E contra o backend real.'
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-08-13T03:15:00Z'
+top_issues:
+  - id: 'TEST-001'
+    severity: medium
+    finding: 'Teste manual/device com DATA_SOURCE=supabase não executado (PIN correto → entregue; 5 erros → mensagem de bloqueio distinta). Peça central de segurança do bloco: 10 casos unitários cobrem o adapter, mas o lockout/reset real da RPC ainda não foi exercido em ambiente.'
+    suggested_action: 'Executar o teste manual em device/ambiente Supabase real (acerto, 5 erros consecutivos → bloqueio, reset por timestamp) antes do fechamento do piloto.'
+  - id: 'MNT-001'
+    severity: low
+    finding: 'order.mock.ts#confirmPin não valida o estado no_hub (fixture pedido-2049 está em aguardando_aceite) — divergência conhecida e disclosed vs. a RPC real, que exige no_hub (ESTADO_INVALIDO). Não afeta o caminho real; é limitação do mock.'
+    suggested_action: 'Ao evoluir as fixtures do mock, alinhar o guard de estado (no_hub) para paridade total mock↔real.'
+  - id: 'DOC-001'
+    severity: low
+    finding: 'packages/shared-types/src/supabase.ts foi reconciliado manualmente (entrada confirmar_pin_pedido, Returns TABLE sem pin_hash) por ausência de SUPABASE_ACCESS_TOKEN para supabase gen types.'
+    suggested_action: 'Regenerar os tipos via supabase gen types quando houver token.'
+  - id: 'SEC-001'
+    severity: low
+    finding: 'pin_texto continua no tipo de domínio Pedido e é selecionado em PEDIDO_COLUMNS (carregado também no app Lojista via listByEstabelecimento). Superfície pré-existente das Stories 6.6/6.7, governada por RLS — não introduzida por esta Story; pin_hash nunca é exposto e a comparação do PIN é 100% server-side.'
+    suggested_action: 'Revisar em story futura se pin_texto deve ficar restrito por RLS de coluna ao lado cliente (fora do escopo de 6.15).'
+waiver: { active: false }

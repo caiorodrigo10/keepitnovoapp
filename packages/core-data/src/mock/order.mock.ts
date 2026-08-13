@@ -8,7 +8,7 @@ import type {
   PedidoItem,
   PedidoStatus,
 } from '../ports/order.port';
-import { OrderTransitionError } from '../ports/order.port';
+import { OrderTransitionError, PinBloqueadoError, PinIncorretoError } from '../ports/order.port';
 import type { AsyncCallOptions } from '../types';
 import { generateMockId, generatePin, simulateAsync } from './async-helpers';
 import type { MockDb } from './db';
@@ -104,6 +104,7 @@ export function createOrderMock(db: MockDb): OrderPort {
             subtotal_produtos_reais: roundReais(input.subtotal_produtos_reais),
             taxa_deslocamento_reais: roundReais(input.taxa_deslocamento_reais),
             taxa_keepit_reais: roundReais(input.taxa_keepit_reais),
+            taxa_servico_comprador_reais: roundReais(input.taxa_servico_comprador_reais),
             total_pago_reais: roundReais(input.total_pago_reais),
             motivo_recusa: null,
             motivo_cancelamento: null,
@@ -160,27 +161,42 @@ export function createOrderMock(db: MockDb): OrderPort {
       );
     },
 
+    /**
+     * Story 6.15 (AC3, AC4, AC5, AC8) — [IDS] ADAPT: passa a lançar
+     * `PinIncorretoError`/`PinBloqueadoError` (tipos de domínio,
+     * `order.port.ts`) em vez de `Error` genérico, para que
+     * `OrdersContext.confirmPin` (lado lojista) diferencie "PIN incorreto"
+     * de "bloqueado" da MESMA forma em `DATA_SOURCE=mock` e
+     * `DATA_SOURCE=supabase` (paridade de tipo com `order.supabase.ts`).
+     * No 5º erro, zera `tentativas_pin` ao gravar o bloqueio — mesmo
+     * comportamento da RPC real `confirmar_pin_pedido` (a janela reinicia
+     * na próxima tentativa, ver header da migration
+     * `20260813022932_rpc_confirmar_pin_pedido.sql`, "LOCKOUT / RESET").
+     */
     confirmPin(pedidoId: string, pin: string, options?: AsyncCallOptions): Promise<Pedido> {
       return simulateAsync(
         () => {
           const pedido = findOrThrow(pedidoId);
 
           if (pedido.pin_bloqueado_ate && new Date(pedido.pin_bloqueado_ate) > new Date()) {
-            throw new Error('[mock] PIN bloqueado — aguarde o desbloqueio automático');
+            throw new PinBloqueadoError(pedido.pin_bloqueado_ate);
           }
 
           if (pin !== pedido.pin_texto) {
             pedido.tentativas_pin += 1;
             if (pedido.tentativas_pin >= businessConfig.pinTentativasMax) {
-              pedido.pin_bloqueado_ate = new Date(
-                Date.now() + businessConfig.pinBloqueioMin * 60 * 1000,
-              ).toISOString();
+              const bloqueadoAte = new Date(Date.now() + businessConfig.pinBloqueioMin * 60 * 1000).toISOString();
+              pedido.pin_bloqueado_ate = bloqueadoAte;
+              pedido.tentativas_pin = 0;
+              throw new PinBloqueadoError(bloqueadoAte);
             }
-            throw new Error('[mock] PIN incorreto');
+            throw new PinIncorretoError(businessConfig.pinTentativasMax - pedido.tentativas_pin);
           }
 
           pedido.status = 'entregue';
           pedido.entregue_em = new Date().toISOString();
+          pedido.tentativas_pin = 0;
+          pedido.pin_bloqueado_ate = null;
           return pedido;
         },
         {} as Pedido,

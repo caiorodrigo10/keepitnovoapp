@@ -135,6 +135,22 @@
 // parâmetros `p_*` — ambas `RETURNS uuid` (tipado como `string` no client,
 // mesmo padrão de `aprovar_lojista`/`rejeitar_lojista`).
 //
+// Bloco 07 / Stories 6.12/6.15 (2026-08-13) — reconciliação manual adicional:
+// as RPCs `public.avancar_estado_pedido(p_pedido_id uuid, p_novo_status text)`
+// (RETURNS text) e `public.confirmar_pin_pedido(p_pedido_id uuid, p_pin text)`
+// (RETURNS TABLE (resultado text, tentativas_restantes int, bloqueado_ate
+// timestamptz)) foram aplicadas ao `keepit-dev` pelas migrations
+// `apps/supabase/supabase/migrations/20260813022931_rpc_avancar_estado_pedido.sql`
+// e `20260813022932_rpc_confirmar_pin_pedido.sql` (@data-engineer), mesma
+// limitação de ambiente (sem `SUPABASE_ACCESS_TOKEN` para
+// `supabase gen types`). As 2 entradas abaixo espelham EXATAMENTE a
+// assinatura SQL de cada função — `avancar_estado_pedido` retorna o novo
+// `status` como `string` (mesmo padrão de `aprovar_lojista`/
+// `rejeitar_lojista`); `confirmar_pin_pedido` retorna `TABLE`, tipado como
+// array de linhas no client (mesmo padrão de `criar_pedido`), com
+// `tentativas_restantes`/`bloqueado_ate` nullable (a RPC retorna `NULL` no
+// desfecho `'entregue'`).
+//
 // Regenerar via `supabase gen types typescript --project-id
 // jhhbewnmnorhmsdvfppo` (com login) substitui todos os blocos manuais sem
 // alteração de forma esperada.
@@ -667,6 +683,26 @@ export type Database = {
           p_tempo_estimado_min: number
         }
         Returns: string
+      }
+      // Bloco 07 / Story 6.12 — ver comentário de reconciliação manual no topo do arquivo.
+      avancar_estado_pedido: {
+        Args: {
+          p_pedido_id: string
+          p_novo_status: string
+        }
+        Returns: string
+      }
+      // Bloco 07 / Story 6.15 — ver comentário de reconciliação manual no topo do arquivo.
+      confirmar_pin_pedido: {
+        Args: {
+          p_pedido_id: string
+          p_pin: string
+        }
+        Returns: {
+          resultado: string
+          tentativas_restantes: number | null
+          bloqueado_ate: string | null
+        }[]
       }
     }
     Enums: {

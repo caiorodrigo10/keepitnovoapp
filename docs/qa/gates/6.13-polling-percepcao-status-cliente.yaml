@@ -1,0 +1,20 @@
+schema: 1
+story: '6.13'
+gate: CONCERNS
+status_reason: 'Mecanismo de polling puro completo e bem testado (9 testes, fake timers + AppState fake); para em terminal, pausa/retoma em background, cleanup sem vazar timer. Único débito: a fiação de runtime em usePedidosMine e o teste em device/E2E não são cobertos por unit test (gap de harness RN documentado).'
+reviewer: 'Quinn'
+updated: '2026-08-13T04:05:00Z'
+top_issues:
+  - id: 'TEST-001'
+    severity: low
+    finding: 'A lógica de agendamento é 100% testada como módulo puro (pedidoPolling.ts, 9 testes), mas a fiação real em usePedidosMine.ts (AppState.addEventListener("change"), setInterval reais, gating do useEffect por existePedidoEmAndamento) só é validada por typecheck + code review — apps/cliente não tem harness de teste de hook/componente React (gap de infra já documentado nas Stories 2.1/5.4/5.6/6.1).'
+    suggested_action: 'Aceitar como débito de teste do piloto; cobrir quando um harness RN (ex.: @testing-library/react-native) for introduzido no app.'
+  - id: 'TEST-002'
+    severity: low
+    finding: 'Teste manual/device (Lojista "Saindo para o hub" → tela "Seu pedido" do Cliente atualiza sozinha) permanece pendente — requer emulador/device.'
+    suggested_action: 'Executar o teste manual no primeiro ciclo com device/emulador disponível antes do piloto.'
+  - id: 'ARCH-001'
+    severity: low
+    finding: 'AUTO-DECISION documentada: polling centralizado no hook faz a instância de MeusPedidos (bottom tab, não desmontada ao trocar de aba) continuar em polling enquanto outra aba do app está em foco — nunca em background do SO (coberto por AppState/AC4). Custo desprezível para a escala do piloto (~200 usuários, 15s).'
+    suggested_action: 'Reavaliar useFocusEffect por tela se o volume real do piloto tornar o custo de leitura perceptível.'
+waiver: { active: false }

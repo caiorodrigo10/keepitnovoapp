@@ -1,0 +1,16 @@
+schema: 1
+story: '6.16'
+gate: CONCERNS
+status_reason: 'Recibo exibe hub + totais no padrão exato do Checkout (Subtotal/Deslocamento/Taxa de serviço provisória condicional/Total); taxa Keepit NUNCA é exibida ao cliente e nenhum código de carteira/ledger/D+7 foi introduzido (confirmado por grep e leitura). Gap adicional real (taxa_servico_comprador_reais ausente do read model) corrigido e testado nos dois adapters. Único débito: render do Recibo, navegação automática e device/E2E não são unit-testados (gap de harness RN).'
+reviewer: 'Quinn'
+updated: '2026-08-13T04:05:00Z'
+top_issues:
+  - id: 'TEST-001'
+    severity: low
+    finding: 'A correção de dados (taxa_servico_comprador_reais no read model: port + adapter Supabase + mock + fixtures) é bem testada (asserção da releitura em order.mock.test.ts e order.supabase.test.ts). Mas o render de Recibo.tsx (hub, linha condicional de taxa de serviço) e o useEffect de navegação automática em ModalConfirmarPin.tsx só são validados por typecheck + code review — sem harness de componente RN em apps/cliente.'
+    suggested_action: 'Aceitar como débito de teste do piloto; cobrir com harness RN quando disponível.'
+  - id: 'TEST-002'
+    severity: low
+    finding: 'Teste manual/device com DATA_SOURCE=supabase (fluxo até a RPC de PIN confirmar entrega, observar navegação automática para o Recibo com hub e totais) permanece pendente — requer device/emulador.'
+    suggested_action: 'Executar no primeiro ciclo com device disponível antes do piloto.'
+waiver: { active: false }

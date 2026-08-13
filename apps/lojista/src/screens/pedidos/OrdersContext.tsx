@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from 'react';
 
-import { getDataClient, type Pedido } from '@keepit/core-data';
+import { getDataClient, PinBloqueadoError, PinIncorretoError, type Pedido } from '@keepit/core-data';
 
 import { CURRENT_ESTABELECIMENTO_ID, CURRENT_HUB_ID } from '../catalogo/currentStore';
 
@@ -32,6 +32,20 @@ const STATUS_CONCLUIDOS = new Set([
   'estornado_chargeback',
 ]);
 
+/**
+ * Story 6.15 (AC5) — [IDS] CREATE: substitui o antigo `{ pedido, correto:
+ * boolean }` (que colapsava "PIN incorreto" e "bloqueado" na mesma
+ * mensagem genérica — gap confirmado no Dev Notes da Story). `motivo`
+ * distingue os dois desfechos de erro para `DigitarPin.tsx` mostrar o texto
+ * honesto certo; `tentativasRestantes`/`bloqueadoAte` vêm direto de
+ * `PinIncorretoError`/`PinBloqueadoError` (`@keepit/core-data`), mesmas
+ * classes lançadas por `order.mock.ts` e `order.supabase.ts` (paridade).
+ */
+export type ConfirmPinResult =
+  | { pedido: Pedido; correto: true }
+  | { pedido: Pedido; correto: false; motivo: 'incorreto'; tentativasRestantes: number }
+  | { pedido: Pedido; correto: false; motivo: 'bloqueado'; bloqueadoAte: string };
+
 interface OrdersContextValue {
   ativos: Pedido[];
   concluidos: Pedido[];
@@ -49,7 +63,7 @@ interface OrdersContextValue {
   refuseOrder: (pedidoId: string, motivo: string) => Promise<Pedido>;
   markReadyForHub: (pedidoId: string) => Promise<Pedido>;
   markArrivedAtHub: (pedidoId: string) => Promise<Pedido>;
-  confirmPin: (pedidoId: string, pin: string) => Promise<{ pedido: Pedido; correto: boolean }>;
+  confirmPin: (pedidoId: string, pin: string) => Promise<ConfirmPinResult>;
   markCustomerNoShow: (pedidoId: string, motivo: string) => Promise<Pedido>;
 }
 
@@ -190,17 +204,42 @@ export function OrdersProvider({ children }: PropsWithChildren) {
         upsert(pedido);
         return pedido;
       },
+      /**
+       * Story 6.15 (AC5) — [IDS] ADAPT: antes capturava QUALQUER erro e
+       * respondia sempre `{ correto: false }` (gap confirmado — colapsava
+       * "PIN incorreto" e "bloqueado" na mesma mensagem genérica em
+       * `DigitarPin.tsx`). Agora distingue por `instanceof`
+       * `PinIncorretoError`/`PinBloqueadoError` (mesmas classes lançadas
+       * por `order.mock.ts`/`order.supabase.ts` — paridade). Não chama mais
+       * `order.getById` no catch (ainda `NotImplementedError` no adapter
+       * Supabase, fora do escopo desta Story) — o `pedido` retornado no
+       * erro é o último estado local conhecido; a UI só precisa dele para o
+       * resumo do card, não para `tentativas_pin`/`pin_bloqueado_ate` (que
+       * vêm do próprio erro). Qualquer outro erro (estrutural —
+       * `AUTENTICACAO_NECESSARIA`/`PEDIDO_NAO_ENCONTRADO`/`ACESSO_NEGADO`/
+       * `ESTADO_INVALIDO`) continua propagando, não é engolido.
+       */
       async confirmPin(pedidoId, pin) {
         try {
           const pedido = await getDataClient().order.confirmPin(pedidoId, pin);
           upsert(pedido);
           return { pedido, correto: true };
-        } catch {
+        } catch (err) {
           const pedidoAtual = pedidos.find((p) => p.id === pedidoId);
           if (!pedidoAtual) throw new Error(`[lojista] Pedido não encontrado: ${pedidoId}`);
-          const pedidoAtualizado = await getDataClient().order.getById(pedidoId);
-          if (pedidoAtualizado) upsert(pedidoAtualizado);
-          return { pedido: pedidoAtualizado ?? pedidoAtual, correto: false };
+
+          if (err instanceof PinBloqueadoError) {
+            return { pedido: pedidoAtual, correto: false, motivo: 'bloqueado', bloqueadoAte: err.bloqueadoAte };
+          }
+          if (err instanceof PinIncorretoError) {
+            return {
+              pedido: pedidoAtual,
+              correto: false,
+              motivo: 'incorreto',
+              tentativasRestantes: err.tentativasRestantes,
+            };
+          }
+          throw err;
         }
       },
       async markCustomerNoShow(pedidoId, motivo) {

@@ -96,11 +96,30 @@ export class AcessoNegadoError extends Error {
 /**
  * RPC: `ESTADO_INVALIDO` — o pedido já não está em `aguardando_aceite`
  * (proteção contra dupla-aceitação: dois toques em "Confirmar" ou dois
- * lojistas tentando aceitar o mesmo pedido).
+ * lojistas tentando aceitar o mesmo pedido). Story 6.15 (AC2) — REUSE: a RPC
+ * `confirmar_pin_pedido` levanta o MESMO código para "pedido fora de
+ * `no_hub`" (mesma causa raiz: pré-condição de estado violada).
  */
 export class EstadoInvalidoError extends Error {
   constructor() {
-    super('[core-data] aceitar_pedido — pedido já não está aguardando aceite (ESTADO_INVALIDO)');
+    super('[core-data] pedido em estado que não admite a operação (ESTADO_INVALIDO)');
     this.name = 'EstadoInvalidoError';
+  }
+}
+
+/**
+ * Story 6.12 (AC2, AC6) — erro NOMEADO da RPC `avancar_estado_pedido`
+ * (`apps/supabase/supabase/migrations/20260813022931_rpc_avancar_estado_pedido.sql`):
+ * o alvo pedido está fora do conjunto que a RPC produz, OU o par
+ * (status atual → alvo) não é uma transição permitida no piloto — inclui a
+ * proteção contra dupla-execução (ex.: pedido já `saindo_hub` recebendo
+ * `p_novo_status='saindo_hub'` de novo). `PEDIDO_NAO_ENCONTRADO`/
+ * `ACESSO_NEGADO`/`AUTENTICACAO_NECESSARIA` são REUSE das classes já
+ * declaradas acima (mesma causa raiz da RPC `aceitar_pedido`).
+ */
+export class TransicaoInvalidaError extends Error {
+  constructor() {
+    super('[core-data] avancar_estado_pedido — transição de status não permitida a partir do estado atual (TRANSICAO_INVALIDA)');
+    this.name = 'TransicaoInvalidaError';
   }
 }

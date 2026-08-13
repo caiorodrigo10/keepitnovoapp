@@ -22,6 +22,7 @@ describe('businessConfig', () => {
       clienteNaoApareceuPercentCliente: 20,
       clienteNaoApareceuPercentLojista: 80,
       lojistaNaoVeioPercent: 100,
+      pedidoPollingIntervalSeg: 15,
     });
   });
 
@@ -47,6 +48,7 @@ describe('businessConfig', () => {
         'clienteNaoApareceuPercentCliente',
         'clienteNaoApareceuPercentLojista',
         'lojistaNaoVeioPercent',
+        'pedidoPollingIntervalSeg',
       ].sort(),
     );
   });
@@ -68,5 +70,9 @@ describe('businessConfig', () => {
     expect(businessConfig.clienteNaoApareceuPercentCliente).toBe(20);
     expect(businessConfig.clienteNaoApareceuPercentLojista).toBe(80);
     expect(businessConfig.lojistaNaoVeioPercent).toBe(100);
+  });
+
+  it('pedidoPollingIntervalSeg (Story 6.13, AC2) é 15s — decisão técnica de UX/custo, não regra de negócio', () => {
+    expect(businessConfig.pedidoPollingIntervalSeg).toBe(15);
   });
 });

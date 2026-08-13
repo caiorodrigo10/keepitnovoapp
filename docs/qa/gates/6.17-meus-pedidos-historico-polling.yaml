@@ -1,0 +1,12 @@
+schema: 1
+story: '6.17'
+gate: PASS
+status_reason: 'Nenhuma linha de produção alterada — MeusPedidos.tsx já correto (Épico 0) e herda o polling via usePedidosMine (Story 6.13). Classificação de abas coberta exaustivamente por teste puro novo (7 testes) sobre os 15 valores do enum PedidoStatus, incluindo os 8 terminais de exceção; nenhuma lógica de cancelamento/reembolso introduzida (confirmado por leitura).'
+reviewer: 'Quinn'
+updated: '2026-08-13T04:05:00Z'
+top_issues:
+  - id: 'TEST-001'
+    severity: low
+    finding: 'AC5 (a lista atualiza sozinha via polling) é herdada da Story 6.13 e não é re-testada aqui; o teste de integração ponta-a-ponta em device permanece pendente (gap de harness RN + device, mesmo débito da 6.13). A classificação de abas — o único risco real desta Story — está exaustivamente coberta.'
+    suggested_action: 'Cobrir o polling da lista no teste de device conjunto do bloco (ver gate 6.13).'
+waiver: { active: false }

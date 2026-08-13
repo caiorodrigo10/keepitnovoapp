@@ -66,6 +66,17 @@ export interface Pedido {
   taxa_deslocamento_reais: number;
   /** 12% de `subtotal_produtos_reais` — calculado via `businessConfig.taxaKeepitPercent`, nunca hard-coded. */
   taxa_keepit_reais: number;
+  /**
+   * Story 6.16 (AC1, AC3) — [IDS] ADAPT: campo que faltava neste tipo de
+   * domínio. `CreatePedidoInput.taxa_servico_comprador_reais` (Story 6.6) já
+   * existia e já era persistido pela RPC `criar_pedido`/pelo mock, mas o
+   * READ MODEL (`Pedido`) nunca expunha o valor de volta — gap real
+   * confirmado por leitura direta de `PEDIDO_COLUMNS`/`mapRowToPedido`
+   * (`order.supabase.ts`), necessário para `Recibo.tsx` corrigir o rótulo
+   * "Taxa de serviço" (hoje ligado erroneamente a `taxa_deslocamento_reais`,
+   * mesmo bug já corrigido em `Checkout.tsx`, Rodada 8).
+   */
+  taxa_servico_comprador_reais: number;
   total_pago_reais: number;
   motivo_recusa: string | null;
   motivo_cancelamento: string | null;
@@ -138,6 +149,37 @@ export class OrderTransitionError extends Error {
  * `OrderStatusOverrideContext` local do app Cliente (`apps/cliente`).
  */
 export type AdvanceableStatus = Extract<PedidoStatus, 'em_preparo' | 'saindo_hub' | 'no_hub'>;
+
+/**
+ * Story 6.15 (AC3, AC4, AC8) — [IDS] CREATE, mesmo padrão de erro tipado
+ * domínio-level já usado por `OrderTransitionError` acima (não vive em
+ * `order-errors.ts` porque não é um erro NOMEADO exclusivo da RPC real —
+ * `confirmar_pin_pedido` devolve o desfecho `'pin_incorreto'` como LINHA DE
+ * RESULTADO, não `RAISE`, e `order.mock.ts#confirmPin` precisa lançar o
+ * MESMO tipo para que `OrdersContext`/`DigitarPin.tsx` (lado lojista)
+ * diferenciem a mensagem de forma idêntica em `DATA_SOURCE=mock` e
+ * `DATA_SOURCE=supabase`). Carrega `tentativasRestantes` (derivado da RPC
+ * ou do contador local do mock) — nunca o PIN digitado nem o `pin_hash`.
+ */
+export class PinIncorretoError extends Error {
+  constructor(public readonly tentativasRestantes: number) {
+    super(`[core-data] confirmPin — PIN incorreto (tentativas restantes: ${tentativasRestantes}).`);
+    this.name = 'PinIncorretoError';
+  }
+}
+
+/**
+ * Story 6.15 (AC3, AC4, AC5, AC8) — par de `PinIncorretoError` acima, mesmo
+ * racional (tipo de domínio compartilhado entre mock e adapter real).
+ * Carrega `bloqueadoAte` (ISO timestamp) para a UI derivar o tempo restante
+ * de bloqueio (AC5) — nunca o PIN digitado nem o `pin_hash`.
+ */
+export class PinBloqueadoError extends Error {
+  constructor(public readonly bloqueadoAte: string) {
+    super(`[core-data] confirmPin — PIN bloqueado até ${bloqueadoAte}.`);
+    this.name = 'PinBloqueadoError';
+  }
+}
 
 export interface OrderPort {
   create(input: CreatePedidoInput, options?: AsyncCallOptions): Promise<Pedido>;

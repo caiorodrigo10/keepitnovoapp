@@ -79,6 +79,19 @@ export const businessConfig = {
   clienteNaoApareceuPercentLojista: 80,
   /** Lojista não aparece no hub → reembolso integral ao cliente + falha de qualidade do lojista. */
   lojistaNaoVeioPercent: 100,
+  /**
+   * Intervalo (segundos) de releitura periódica de `OrderPort.listMine` no
+   * app Cliente enquanto existir pedido em andamento (`isPedidoEmAndamento`)
+   * — substitui push nativo, que é `LATER` em todo o Épico 6 (ver Épico
+   * 2.11). **[AUTO-DECISION]** Story 6.13, AC2 — decisão TÉCNICA de
+   * UX/custo, NÃO é regra de negócio, não bloqueia por ratificação do
+   * stakeholder: 15s é rápido o bastante para o cliente perceber "a
+   * caminho"/"pronto no hub" sem sensação de app travado, e barato o
+   * bastante em leitura para a escala do piloto (~200 usuários,
+   * `docs/architecture/07-mvp-pilot-backend.md` §"Objetivo"). Reavaliar se
+   * o volume real do piloto tornar o custo de leitura perceptível.
+   */
+  pedidoPollingIntervalSeg: 15,
 } as const;
 
 export type BusinessConfig = typeof businessConfig;

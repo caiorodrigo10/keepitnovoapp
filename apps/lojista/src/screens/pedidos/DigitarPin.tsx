@@ -32,20 +32,25 @@ const TECLADO: Array<string | null> = ['1', '2', '3', '4', '5', '6', '7', '8', '
  * Disponível apenas quando `status === 'no_hub'` (habilitado por
  * `markArrivedAtHub`, Task 6) — `order.port.confirmPin` local rejeita
  * qualquer outro status com `OrderTransitionError`.
+ *
+ * Story 6.15 (AC5) — a mensagem de erro (mesmo slot visual de antes) agora
+ * diferencia "PIN incorreto" de "bloqueado" a partir do `motivo` devolvido
+ * por `confirmPin` (`OrdersContext`), em vez do antigo booleano `erro` que
+ * colapsava os dois casos na mesma frase genérica.
  */
 export default function DigitarPin({ navigation, route }: Props) {
   const { pedidoId } = route.params;
   const { getById, hubNome, confirmPin } = useOrdersContext();
   const pedido = getById(pedidoId);
   const [digitos, setDigitos] = useState('');
-  const [erro, setErro] = useState(false);
+  const [erroTexto, setErroTexto] = useState<string | null>(null);
   const [confirmando, setConfirmando] = useState(false);
 
   if (!pedido) return null;
 
   function onDigitPress(tecla: string | null) {
     if (!tecla || confirmando) return;
-    setErro(false);
+    setErroTexto(null);
     if (tecla === 'backspace') {
       setDigitos((previous) => previous.slice(0, -1));
       return;
@@ -59,10 +64,26 @@ export default function DigitarPin({ navigation, route }: Props) {
       const resultado = await confirmPin(pedidoId, digitos);
       if (resultado.correto) {
         navigation.replace('ConfirmarRetirada', { pedidoId });
-      } else {
-        setErro(true);
-        setDigitos('');
+        return;
       }
+      if (resultado.motivo === 'bloqueado') {
+        const minutosRestantes = Math.max(
+          1,
+          Math.ceil((new Date(resultado.bloqueadoAte).getTime() - Date.now()) / 60000),
+        );
+        setErroTexto(`Bloqueado por mais ${minutosRestantes} min. Peça ao cliente para conferir o código.`);
+      } else {
+        setErroTexto(
+          `PIN incorreto. Peça o código novamente ao cliente. (${resultado.tentativasRestantes} tentativa${resultado.tentativasRestantes === 1 ? '' : 's'} restante${resultado.tentativasRestantes === 1 ? '' : 's'}.)`,
+        );
+      }
+      setDigitos('');
+    } catch {
+      // Erro ESTRUTURAL (AUTENTICACAO_NECESSARIA/PEDIDO_NAO_ENCONTRADO/ACESSO_NEGADO/
+      // ESTADO_INVALIDO) — nunca engolido silenciosamente, mas também sem inventar
+      // um motivo de PIN que não ocorreu.
+      setErroTexto('Não foi possível confirmar o PIN agora. Tente novamente.');
+      setDigitos('');
     } finally {
       setConfirmando(false);
     }
@@ -103,10 +124,8 @@ export default function DigitarPin({ navigation, route }: Props) {
           })}
         </View>
 
-        {erro ? (
-          <Text style={[styles.erroTexto, { color: darkColors.accent.warning }]}>
-            PIN incorreto. Peça o código novamente ao cliente.
-          </Text>
+        {erroTexto ? (
+          <Text style={[styles.erroTexto, { color: darkColors.accent.warning }]}>{erroTexto}</Text>
         ) : null}
 
         <View style={styles.teclado}>
