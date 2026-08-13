@@ -2,7 +2,7 @@ import { businessConfig } from '@keepit/config';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { OrderPort } from '../ports/order.port';
-import { PinBloqueadoError, PinIncorretoError } from '../ports/order.port';
+import { OrderTransitionError, PinBloqueadoError, PinIncorretoError } from '../ports/order.port';
 import { createMockDb, type MockDb } from './db';
 import { createOrderMock } from './order.mock';
 
@@ -48,8 +48,10 @@ describe('order.mock (contract)', () => {
     // aparecer no `Pedido` retornado por `create`, como o resto dos totais.
     expect(pedido.taxa_servico_comprador_reais).toBeCloseTo(taxaServico, 2);
     expect(pedido.total_pago_reais).toBeCloseTo(total, 2);
-    // AC6: status inicial alinhado ao piloto real (pagamento simulado em dev).
-    expect(pedido.status).toBe('aguardando_aceite');
+    // Story 6.7.1 (AC5): status inicial volta a ser `aguardando_pagamento` —
+    // a transição para `aguardando_aceite` passa a ser feita por
+    // `confirmarPagamento`, chamada automaticamente pela UI (ver testes abaixo).
+    expect(pedido.status).toBe('aguardando_pagamento');
     expect(pedido.pin_texto).toMatch(/^\d{4}$/);
     expect(pedido.itens).toHaveLength(1);
     expect(pedido.itens[0]).toMatchObject({
@@ -86,6 +88,38 @@ describe('order.mock (contract)', () => {
 
     // Nenhum efeito colateral — nenhum pedido novo criado para o cliente bloqueado.
     expect(db.pedidos.length).toBe(pedidosAntes);
+  });
+
+  it('confirmarPagamento transitions aguardando_pagamento -> aguardando_aceite, without touching aceito_em (Story 6.7.1, AC1-AC4)', async () => {
+    const criado = await port.create(
+      {
+        cliente_id: 'cliente-ana',
+        estabelecimento_id: 'estab-farmacia-vida',
+        hub_id: 'hub-centro',
+        itens: [{ produto_id: 'produto-dipirona', nome_snapshot: 'Dipirona', preco_unitario_reais: 14.9, quantidade: 1 }],
+        forma_pagamento: 'pix',
+        subtotal_produtos_reais: 14.9,
+        taxa_deslocamento_reais: 5,
+        taxa_keepit_reais: 1.5,
+        taxa_servico_comprador_reais: businessConfig.taxaServicoCompradorReais,
+        total_pago_reais: 14.9 + 5 + businessConfig.taxaServicoCompradorReais,
+        nf_solicitada: false,
+      },
+      { delayMs: 1 },
+    );
+    expect(criado.status).toBe('aguardando_pagamento');
+
+    const confirmado = await port.confirmarPagamento(criado.id, { delayMs: 1 });
+    expect(confirmado.status).toBe('aguardando_aceite');
+    // `aceito_em` continua exclusivo de `accept` (Story 6.9) — confirmarPagamento
+    // só confirma o PAGAMENTO, não o aceite da loja.
+    expect(confirmado.aceito_em).toBeNull();
+  });
+
+  it('confirmarPagamento rejects with OrderTransitionError from any other status (Story 6.7.1, AC4)', async () => {
+    // Fixture `pedido-2049` já nasce em `aguardando_aceite` (Story 0.10/6.6 fixtures).
+    await expect(port.confirmarPagamento('pedido-2049', { delayMs: 1 })).rejects.toThrow(/não permitida/i);
+    await expect(port.confirmarPagamento('pedido-2049', { delayMs: 1 })).rejects.toBeInstanceOf(OrderTransitionError);
   });
 
   it('listMine resolves with only the pedidos of the given cliente', async () => {

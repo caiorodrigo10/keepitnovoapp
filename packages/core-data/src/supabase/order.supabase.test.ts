@@ -340,6 +340,37 @@ describe('order.supabase.ts — accept (Story 6.9, AC2, AC3, AC5)', () => {
   });
 });
 
+describe('order.supabase.ts — confirmarPagamento (Story 6.7.1, AC1, AC2, AC3, AC4)', () => {
+  it('não faz nenhum UPDATE/RPC — apenas releitura real via fetchPedidoPorId (no-op)', async () => {
+    const { client, rpc, builders } = fakeClient({
+      pedidos: { data: PEDIDO_ROW, error: null },
+      pedidosItens: { data: [PEDIDO_ITEM_ROW], error: null },
+    });
+
+    const port = createOrderSupabase(client);
+    const pedido = await port.confirmarPagamento('pedido-1');
+
+    expect(rpc).not.toHaveBeenCalled();
+    expect(builders.pedidos.eq).toHaveBeenCalledWith('id', 'pedido-1');
+    expect(pedido.id).toBe('pedido-1');
+    expect(pedido.status).toBe('aguardando_aceite');
+  });
+
+  it('pedido inexistente/RLS bloqueando: lança em vez de simular sucesso (nunca engole o erro)', async () => {
+    const { client } = fakeClient({ pedidos: { data: null, error: null } });
+
+    const port = createOrderSupabase(client);
+    await expect(port.confirmarPagamento('pedido-inexistente')).rejects.toThrow(/releitura não encontrou a linha/);
+  });
+
+  it('propaga erro de rede da releitura sem mascarar', async () => {
+    const { client } = fakeClient({ pedidos: { data: null, error: { message: 'erro de rede', code: '500' } } });
+
+    const port = createOrderSupabase(client);
+    await expect(port.confirmarPagamento('pedido-1')).rejects.toMatchObject({ message: 'erro de rede' });
+  });
+});
+
 describe('order.supabase.ts — markReadyForHub (Story 6.12, AC2, AC4, AC6)', () => {
   const SAINDO_HUB_ROW = { ...PEDIDO_ROW, status: 'saindo_hub', saiu_hub_em: '2026-08-13T11:00:00.000Z' };
 

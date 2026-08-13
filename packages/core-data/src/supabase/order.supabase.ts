@@ -435,6 +435,36 @@ export function createOrderSupabase(client?: SupabaseClient<Database>): OrderPor
       return pedido;
     },
 
+    /**
+     * Story 6.7.1 (AC1, AC2, AC3, AC4) — no-op de RELEITURA, não uma
+     * mutação. A RPC `criar_pedido` (Story 6.6) já cria o pedido diretamente
+     * em `aguardando_aceite` — não existe, em `DATA_SOURCE=supabase`, um
+     * estado intermediário `aguardando_pagamento` a sair (isso só existe no
+     * mock, Story 6.6 Data Mode). Este método existe para as telas
+     * `ModalPagamentoPix`/`ModalProcessandoPagamento` (`apps/cliente`)
+     * chamarem a MESMA função de porta nos dois `DATA_SOURCE`, mantendo a
+     * MESMA experiência visual sem inventar um endpoint/RPC novo — [AUTO-DECISION]
+     * ver Dev Notes da Story 6.7.1 ("visual unificado").
+     *
+     * [IDS] REUSE de `fetchPedidoPorId` (mesma releitura real já usada por
+     * `create`/`accept`/`markReadyForHub`/`markArrivedAtHub`/`confirmPin`) —
+     * NÃO chama `port.getById` (que ainda é `NotImplementedError`, Épico 6
+     * pendente) nem faz nenhum `UPDATE`. `pedidoId` inexistente/RLS bloqueando
+     * é honesto: lança em vez de simular sucesso, mesmo padrão dos demais
+     * métodos deste adapter.
+     */
+    async confirmarPagamento(pedidoId: string, _options?: AsyncCallOptions): Promise<Pedido> {
+      const supabase = resolveClient();
+
+      const pedido = await fetchPedidoPorId(supabase, pedidoId);
+      if (!pedido) {
+        throw new Error(
+          '[core-data/supabase] confirmarPagamento — releitura não encontrou a linha (RLS bloqueando ou id inesperado).',
+        );
+      }
+      return pedido;
+    },
+
     async cancel(_pedidoId: string, _motivo: string, _options?: AsyncCallOptions): Promise<Pedido> {
       throw new NotImplementedError(PORT, 'cancel', EPIC);
     },

@@ -13,7 +13,6 @@ import { useCart } from '../../context/CartContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useStoreDetail } from '../../hooks/useStoreDetail';
 import { computeCheckoutTotals } from '../../lib/checkoutTotals';
-import { isSupabaseDataSource } from '../../lib/dataSource';
 import type { HomeStackParamList, RootStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Pagamento'>;
@@ -36,9 +35,22 @@ function roundReais(value: number): number {
  * **Story 6.6 (Bloco 06).** Em `DATA_SOURCE=supabase`, "Pagar" chama a RPC
  * real `criar_pedido` (pagamento SIMULADO em dev — sem cobrança/QR PIX,
  * fronteira do Épico 7) via `OrderPort.create` (implementação real do
- * adapter Supabase) e navega para a tela do PIN (`ModalConfirmarPin`,
- * Story 6.7) com o pedido recém-criado. Em `DATA_SOURCE=mock`, preserva o
- * fluxo anterior (navega para `PedidosTab`, Story 0.7).
+ * adapter Supabase).
+ *
+ * **Story 6.7.1 (AC1, AC3, AC7) — [AUTO-DECISION] visual unificado nos dois
+ * `DATA_SOURCE`.** Depois de `order.create`, "Pagar" NUNCA navega "seco":
+ * sempre passa por uma tela de feedback visual de pagamento antes do PIN
+ * (`ModalConfirmarPin`, Story 6.7) — `ModalPagamentoPix` (PIX, QR REAL do
+ * payload FAKE + copia-e-cola) ou `ModalProcessandoPagamento` (cartão
+ * salvo), escolhida por `cart.payment.type`. Nos dois `DATA_SOURCE`
+ * (mock e supabase) — não só quando `isSupabaseDataSource()` — porque o
+ * `OrderPort.confirmarPagamento` chamado por essas telas é um no-op de
+ * releitura no adapter Supabase (nenhuma mutação nova), mantendo a MESMA UX
+ * sem inventar backend (ver Dev Notes da Story 6.7.1, "AUTO-DECISION").
+ *
+ * O antigo desvio para `PedidosTab` (mock) — Story 0.7 — deixa de existir:
+ * agora as duas novas telas navegam para `ModalConfirmarPin` ao final
+ * (mesmo destino que o supabase já usava desde a Story 6.7).
  *
  * Os totais enviados a `order.create` são EXATAMENTE os que o Checkout já
  * calculou/exibiu (`taxaDeslocamentoReais` via `useStoreDetail`, o MESMO
@@ -95,14 +107,14 @@ export default function Pagamento({ navigation }: Props) {
       });
       cart.clearOrder();
 
-      if (isSupabaseDataSource()) {
-        // Story 6.7 — pedido real criado, mostra o PIN de retirada.
-        rootNavigation.navigate('ModalConfirmarPin', { pedidoId: pedido.id });
-        return;
+      // Story 6.7.1 (AC1, AC3, AC7): nunca navega "seco" — sempre passa por
+      // uma tela de feedback de pagamento antes do PIN, nos dois
+      // DATA_SOURCE (ver AUTO-DECISION no JSDoc do arquivo).
+      if (cart.payment.type === 'pix') {
+        rootNavigation.navigate('ModalPagamentoPix', { pedidoId: pedido.id });
+      } else {
+        rootNavigation.navigate('ModalProcessandoPagamento', { pedidoId: pedido.id });
       }
-      // Ponto de saída para a Story 0.7 ("Meus Pedidos") — fluxo mock
-      // preservado, apenas troca de tab para onde o pedido mock aparece.
-      navigation.getParent()?.navigate('PedidosTab' as never);
     } catch (error) {
       setErro(error instanceof Error ? error.message : 'Não foi possível concluir o pagamento. Tente novamente.');
     } finally {

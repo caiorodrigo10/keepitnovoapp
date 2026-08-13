@@ -195,6 +195,23 @@ export interface OrderPort {
    */
   confirmPin(pedidoId: string, pin: string, options?: AsyncCallOptions): Promise<Pedido>;
   /**
+   * Story 6.7.1 (AC1, AC2, AC3, AC4, AC8) — confirma o pagamento simulado
+   * (PIX/cartão) chamado automaticamente pelas telas `ModalPagamentoPix`/
+   * `ModalProcessandoPagamento` após um atraso simulado de UX (~5s PIX/~2s
+   * cartão — NUNCA regra de negócio, ver `apps/cliente/src/lib/pagamentoSimulado.ts`).
+   * - **Mock**: transiciona `aguardando_pagamento` → `aguardando_aceite`
+   *   (mesmo padrão `assertStatus`/`OrderTransitionError` de
+   *   `accept`/`markReadyForHub`/`markArrivedAtHub`).
+   * - **Supabase**: no-op de releitura — o pedido já chega em
+   *   `aguardando_aceite` pela RPC `criar_pedido` (Story 6.6); nenhum
+   *   endpoint/RPC novo é criado aqui. Mantém a MESMA UX (telas de
+   *   PIX/processando) nos dois `DATA_SOURCE` sem inventar backend.
+   * Retomada futura (Bloco 08-PIX/Épico 7): quando o webhook real
+   * `PAYMENT_RECEIVED` existir (Story 7.5), ele chama este mesmo método —
+   * nenhum redesenho de UI necessário.
+   */
+  confirmarPagamento(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido>;
+  /**
    * Cancelamento pelo Cliente. A % de reembolso (AC9) é derivada do status
    * ATUAL do pedido no momento da chamada (pré-aceite = 100%; pós-aceite,
    * antes de "Saindo para o hub" = 90/10) — rejeita com `OrderTransitionError`

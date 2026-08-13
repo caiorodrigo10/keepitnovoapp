@@ -11,7 +11,9 @@ import { AuthStack } from './AuthStack';
 import { MainTabs } from './MainTabs';
 import ModalCPF from '../screens/modals/ModalCPF';
 import ModalConfirmarPin from '../screens/modals/ModalConfirmarPin';
+import ModalPagamentoPix from '../screens/modals/ModalPagamentoPix';
 import ModalPermissaoPush from '../screens/modals/ModalPermissaoPush';
+import ModalProcessandoPagamento from '../screens/modals/ModalProcessandoPagamento';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -125,6 +127,9 @@ export function RootNavigator() {
       <Stack.Group screenOptions={{ presentation: 'modal' }}>
         <Stack.Screen name="ModalCPF" component={ModalCPF} />
         <Stack.Screen name="ModalConfirmarPin" component={ModalConfirmarPin} />
+        {/* Story 6.7.1 — feedback visual de pagamento (PIX/cartão), entre "Pagar" e ModalConfirmarPin. */}
+        <Stack.Screen name="ModalPagamentoPix" component={ModalPagamentoPix} />
+        <Stack.Screen name="ModalProcessandoPagamento" component={ModalProcessandoPagamento} />
         <Stack.Screen name="ModalPermissaoPush" component={ModalPermissaoPush} />
       </Stack.Group>
     </Stack.Navigator>

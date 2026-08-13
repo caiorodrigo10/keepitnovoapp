@@ -54,15 +54,24 @@ export function createOrderMock(db: MockDb): OrderPort {
      * exigida pela AC7: os dois adapters têm o MESMO contrato (pass-through
      * do snapshot), não duas implementações divergentes da mesma fórmula.
      *
-     * **AC6 — decisão registrada:** o status inicial passa de
+     * **AC6 (Story 6.6) — decisão registrada:** o status inicial passou de
      * `'aguardando_pagamento'` para `'aguardando_aceite'`, alinhando ao
      * comportamento do piloto real (RPC sempre cria em `aguardando_aceite`
      * — pagamento simulado em dev, sem estado intermediário). Corrige o gap
-     * pré-existente descrito no Data Mode da Story 6.6: antes desta
+     * pré-existente descrito no Data Mode da Story 6.6: antes daquela
      * mudança, um pedido mock recém-criado não aparecia como "Novo" na tela
      * `NovosPedidos` do Lojista (`isNovo` só é `true` para
      * `aguardando_aceite`). Ver Change Log da Story 6.6 para o racional
      * completo.
+     *
+     * **AC5/AC6 (Story 6.7.1) — REVERTIDO:** o status inicial volta a ser
+     * `'aguardando_pagamento'`. A Story 6.7.1 introduz o método
+     * `confirmarPagamento` (chamado automaticamente pelas novas telas de
+     * PIX/processando, ~5s/~2s de simulação de UX) que agora faz a
+     * transição `aguardando_pagamento` → `aguardando_aceite` — o pedido
+     * volta a aparecer como "Novo" na tela `NovosPedidos` do Lojista
+     * poucos segundos depois, mesma janela de latência que já existia
+     * (`DEFAULT_MOCK_DELAY_MS`), sem regressão perceptível.
      */
     create(input: CreatePedidoInput, options?: AsyncCallOptions): Promise<Pedido> {
       return simulateAsync(
@@ -102,7 +111,7 @@ export function createOrderMock(db: MockDb): OrderPort {
             cliente_id: input.cliente_id,
             estabelecimento_id: input.estabelecimento_id,
             hub_id: input.hub_id,
-            status: 'aguardando_aceite',
+            status: 'aguardando_pagamento',
             pin_texto: generatePin(),
             tentativas_pin: 0,
             pin_bloqueado_ate: null,
@@ -210,6 +219,29 @@ export function createOrderMock(db: MockDb): OrderPort {
           pedido.entregue_em = new Date().toISOString();
           pedido.tentativas_pin = 0;
           pedido.pin_bloqueado_ate = null;
+          return pedido;
+        },
+        {} as Pedido,
+        options,
+      );
+    },
+
+    /**
+     * Story 6.7.1 (AC1, AC2, AC3, AC4, AC8) — [IDS] ADAPT: mesmo padrão
+     * `assertStatus`/`OrderTransitionError` já usado por
+     * `accept`/`markReadyForHub`/`markArrivedAtHub` neste arquivo. Chamado
+     * automaticamente por `ModalPagamentoPix`/`ModalProcessandoPagamento`
+     * (`apps/cliente`) após um atraso simulado de UX — nunca uma regra de
+     * negócio nova. Não altera `aceito_em` (quem seta esse campo continua
+     * sendo `accept`, Story 6.9) — `confirmarPagamento` só confirma que o
+     * PAGAMENTO foi recebido, não que a loja aceitou o pedido.
+     */
+    confirmarPagamento(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido> {
+      return simulateAsync(
+        () => {
+          const pedido = findOrThrow(pedidoId);
+          assertStatus(pedido, 'confirmarPagamento', ['aguardando_pagamento']);
+          pedido.status = 'aguardando_aceite';
           return pedido;
         },
         {} as Pedido,
