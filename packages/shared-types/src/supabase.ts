@@ -151,6 +151,27 @@
 // `tentativas_restantes`/`bloqueado_ate` nullable (a RPC retorna `NULL` no
 // desfecho `'entregue'`).
 //
+// Bloco 08 / Stories 7.6/7.7/7.8 (2026-08-13) — reconciliação manual adicional:
+// a tabela `lancamentos_financeiros` (ledger único append-only), a view
+// `carteira_lojista` (`security_invoker = true`) e a RPC
+// `public.solicitar_saque(p_valor_centavos bigint)` foram aplicadas ao
+// `keepit-dev` pelas migrations
+// `apps/supabase/supabase/migrations/20260813050000_criar_lancamentos_financeiros.sql`,
+// `20260813050001_criar_view_carteira_lojista.sql` e
+// `20260813050004_rpc_solicitar_saque.sql` (@data-engineer), mesma limitação
+// de ambiente (sem `SUPABASE_ACCESS_TOKEN` para `supabase gen types`). A
+// entrada `lancamentos_financeiros` espelha EXATAMENTE o DDL aplicado (Model
+// B — ver comentário da própria migration); `Relationships: []` — os
+// adapters deste bloco (`wallet.supabase.ts`, `analytics.supabase.ts`) fazem
+// queries diretas (`select().eq()`), sem embed tipado do PostgREST. A entrada
+// `carteira_lojista` (em `Views`, não `Tables` — é uma view) espelha os 5
+// campos de saída (`estabelecimento_id` + 4 saldos em REAIS, já divididos por
+// 100 na própria view SQL). A entrada `solicitar_saque` espelha EXATAMENTE a
+// assinatura SQL da função (1 parâmetro `p_valor_centavos bigint`,
+// `RETURNS TABLE (lancamento_id, estabelecimento_id, valor_centavos, status,
+// solicitado_em)`, mesmo padrão de `criar_pedido`/`confirmar_pin_pedido` para
+// `RETURNS TABLE`).
+//
 // Regenerar via `supabase gen types typescript --project-id
 // jhhbewnmnorhmsdvfppo` (com login) substitui todos os blocos manuais sem
 // alteração de forma esperada.
@@ -583,6 +604,52 @@ export type Database = {
         }
         Relationships: []
       }
+      // Bloco 08 / Stories 7.6/7.7/7.8 — ver comentário de reconciliação manual no topo do arquivo.
+      lancamentos_financeiros: {
+        Row: {
+          id: string
+          estabelecimento_id: string
+          pedido_id: string | null
+          tipo: string
+          valor_centavos: number
+          status: string
+          asaas_id_externo: string | null
+          ator_admin_id: string | null
+          detalhe: string | null
+          disponivel_em: string | null
+          criado_em: string
+          concluido_em: string | null
+        }
+        Insert: {
+          id?: string
+          estabelecimento_id: string
+          pedido_id?: string | null
+          tipo: string
+          valor_centavos: number
+          status?: string
+          asaas_id_externo?: string | null
+          ator_admin_id?: string | null
+          detalhe?: string | null
+          disponivel_em?: string | null
+          criado_em?: string
+          concluido_em?: string | null
+        }
+        Update: {
+          id?: string
+          estabelecimento_id?: string
+          pedido_id?: string | null
+          tipo?: string
+          valor_centavos?: number
+          status?: string
+          asaas_id_externo?: string | null
+          ator_admin_id?: string | null
+          detalhe?: string | null
+          disponivel_em?: string | null
+          criado_em?: string
+          concluido_em?: string | null
+        }
+        Relationships: []
+      }
       // Story 3.7 — ver comentário de reconciliação manual no topo do arquivo.
       admin_users: {
         Row: {
@@ -604,7 +671,17 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      // Bloco 08 / Stories 7.6/7.7/7.8 — ver comentário de reconciliação manual no topo do arquivo.
+      carteira_lojista: {
+        Row: {
+          estabelecimento_id: string
+          saldo_disponivel_reais: number
+          saldo_bloqueado_reais: number
+          total_sacado_reais: number
+          total_debitado_reais: number
+        }
+        Relationships: []
+      }
     }
     Functions: {
       // Story 3.5 — ver comentário de reconciliação manual no topo do arquivo.
@@ -702,6 +779,19 @@ export type Database = {
           resultado: string
           tentativas_restantes: number | null
           bloqueado_ate: string | null
+        }[]
+      }
+      // Bloco 08 / Story 7.8 — ver comentário de reconciliação manual no topo do arquivo.
+      solicitar_saque: {
+        Args: {
+          p_valor_centavos: number
+        }
+        Returns: {
+          lancamento_id: string
+          estabelecimento_id: string
+          valor_centavos: number
+          status: string
+          solicitado_em: string
         }[]
       }
     }

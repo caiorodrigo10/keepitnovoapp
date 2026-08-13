@@ -1,1 +1,2 @@
 - [Não aplicar no Supabase sem autorização](feedback_nao_aplicar_no_supabase_sem_autorizacao.md) — migrations são escritas e revisadas; Caio autoriza a aplicação em passo separado
+- [Migrations confiam nas default privileges do Supabase](project_supabase_default_privileges.md) — nunca GRANT explícito p/ anon/authenticated; como bootstrappar Postgres efêmero p/ validar

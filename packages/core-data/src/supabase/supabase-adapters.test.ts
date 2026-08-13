@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { createAdminSupabase } from './admin.supabase';
-import { createAnalyticsSupabase } from './analytics.supabase';
 import { createAuthSupabase } from './auth.supabase';
 import { NotImplementedError } from './not-implemented-error';
 import { createOrderSupabase } from './order.supabase';
 import { createStoreSupabase } from './store.supabase';
-import { createWalletSupabase } from './wallet.supabase';
 
 /**
  * Chama um método de port passando `undefined` para todos os parâmetros
@@ -63,19 +61,14 @@ describe('supabase adapters (esqueleto — Story 1.9)', () => {
     await expectNotImplemented(port.markClienteChegou.bind(port), 1);
   });
 
-  it('wallet.supabase.ts — todo método rejeita com NotImplementedError', async () => {
-    const port = createWalletSupabase();
-    await expectNotImplemented(port.getBalance.bind(port), 1);
-    await expectNotImplemented(port.requestWithdrawal.bind(port), 2);
-    await expectNotImplemented(port.statement.bind(port), 1);
-  });
+  // wallet.supabase.ts — `getBalance`/`statement` (Story 7.7) e
+  // `requestWithdrawal` (Story 7.8) já são implementações reais, cobertas em
+  // `wallet.supabase.test.ts`. Esqueleto encerrado (nenhum método restante).
 
-  it('analytics.supabase.ts — todo método rejeita com NotImplementedError', async () => {
-    const port = createAnalyticsSupabase();
-    await expectNotImplemented(port.salesSummary.bind(port), 2);
-    await expectNotImplemented(port.topProducts.bind(port), 2);
-    await expectNotImplemented(port.monthlyStatement.bind(port), 1);
-  });
+  // analytics.supabase.ts — `salesSummary`/`topProducts` (Story 7.10) e
+  // `monthlyStatement` (Story 7.9) já são implementações reais, cobertas em
+  // `analytics.supabase.test.ts`. Esqueleto encerrado (nenhum método
+  // restante).
 
   it('admin.supabase.ts — todo método (exceto pendingStores/pendingStoreDetail, Story 3.7; approve/reject, Stories 3.8/3.9; e hubsCrud.*, Story 4.1) rejeita com NotImplementedError', async () => {
     const port = createAdminSupabase();
