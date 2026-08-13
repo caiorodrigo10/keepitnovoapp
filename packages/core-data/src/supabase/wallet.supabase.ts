@@ -14,7 +14,7 @@ import {
 const CARTEIRA_COLUMNS =
   'estabelecimento_id, saldo_disponivel_reais, saldo_bloqueado_reais, total_sacado_reais, total_debitado_reais';
 
-const LANCAMENTO_COLUMNS = 'id, estabelecimento_id, valor_centavos, status, criado_em, concluido_em';
+export const LANCAMENTO_COLUMNS = 'id, estabelecimento_id, valor_centavos, status, criado_em, concluido_em';
 
 type CarteiraRow = {
   estabelecimento_id: string;
@@ -24,7 +24,7 @@ type CarteiraRow = {
   total_debitado_reais: number;
 };
 
-type LancamentoRow = {
+export type LancamentoRow = {
   id: string;
   estabelecimento_id: string;
   valor_centavos: number;
@@ -42,13 +42,13 @@ type LancamentoRow = {
  * Admin executar o PIX manual, Bloco 09) — `'processando'` permanece um
  * valor válido do TIPO mas nunca é PRODUZIDO por este adapter.
  */
-const STATUS_MAP: Record<string, SaqueStatus> = {
+export const STATUS_MAP: Record<string, SaqueStatus> = {
   pendente: 'solicitado',
   concluido: 'concluido',
   erro: 'erro',
 };
 
-function mapLancamentoToSaque(row: LancamentoRow): Saque {
+export function mapLancamentoToSaque(row: LancamentoRow): Saque {
   return {
     id: row.id,
     estabelecimento_id: row.estabelecimento_id,

@@ -3,32 +3,30 @@
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-import type { Pedido, ReembolsoPendente } from '@keepit/core-data';
+import type { Estabelecimento, Saque } from '@keepit/core-data';
 
 import { Badge } from '../../../../src/components/Badge';
 import { Button } from '../../../../src/components/Button';
 import { Card } from '../../../../src/components/Card';
 import { getAdminDataClient } from '../../../../src/lib/adminClient';
-import { formatReais, REEMBOLSO_MOTIVO_LABEL } from '../../../../src/lib/adminLabels';
+import { formatReais, SAQUE_STATUS_LABEL } from '../../../../src/lib/adminLabels';
 
 /**
- * Executar reembolso — Épico 0, Story 0.13 (Task 3, AC1-3), religado para
- * `client.admin.refundQueue` (Story 1.10, Task 4). "Confirmar estorno" chama
- * `refundQueue.process` (transição `pendente_admin -> estornado`).
- *
- * `?erro=1` na URL passa `{ forceError: true }` para `refundQueue.process`
- * (mesmo mecanismo de `AsyncCallOptions` das demais ports) para exercitar o
- * estado de erro exigido pela Task 3/AC3 — a Promise rejeita e o card de
- * erro genérico (mesmo usado para falha de carregamento) é exibido.
+ * Marcar saque executado — Story 8.9 (AC3, AC4, AC5). Mesmo padrão manual
+ * auditável de `/reembolsos/[id]` (Story 8.2): "Marcar executado" confirma
+ * que o admin já fez o PIX manual fora do sistema (`resultado: 'concluido'`,
+ * SEM chamada Asaas real); "Marcar erro" registra a falha auditada
+ * (`resultado: 'erro'`, com detalhe opcional). Log de auditoria nativo do
+ * ledger (`ator_admin_id`/`concluido_em`) — nenhuma tabela de log separada.
  */
-export default function ExecutarReembolsoPage() {
+export default function ProcessarSaquePage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
   const forceActionError = searchParams.get('erro') === '1';
 
-  const [reembolso, setReembolso] = useState<ReembolsoPendente | null>(null);
-  const [pedido, setPedido] = useState<Pedido | null>(null);
+  const [saque, setSaque] = useState<Saque | null>(null);
+  const [lojista, setLojista] = useState<Estabelecimento | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<Error | null>(null);
 
@@ -43,15 +41,13 @@ export default function ExecutarReembolsoPage() {
     setLoadError(null);
 
     const client = getAdminDataClient();
-    client.admin.refundQueue
-      .list()
-      .then(async (reembolsos) => {
+    Promise.all([client.admin.payoutQueue.list(), client.admin.listAllEstabelecimentos()])
+      .then(([saques, lojas]) => {
         if (cancelled) return;
-        const encontrado = reembolsos.find((r) => r.id === params.id) ?? null;
-        setReembolso(encontrado);
+        const encontrado = saques.find((s) => s.id === params.id) ?? null;
+        setSaque(encontrado);
         if (encontrado) {
-          const p = await client.order.getById(encontrado.pedido_id);
-          if (!cancelled) setPedido(p);
+          setLojista(lojas.find((l) => l.id === encontrado.estabelecimento_id) ?? null);
         }
         setLoading(false);
       })
@@ -67,22 +63,16 @@ export default function ExecutarReembolsoPage() {
     };
   }, [params.id]);
 
-  /**
-   * Story 8.2 (AC2) — "Confirmar estorno" registra a confirmação MANUAL
-   * auditável (`resultado: 'concluido'`) — **nenhuma chamada Asaas real**
-   * (seam honesta, ver Story 8.2 "Ajuste de piloto"). O admin confirma que
-   * já fez (ou vai fazer) o PIX/estorno de fato fora do sistema.
-   */
-  function handleConfirmarEstorno() {
+  function handleMarcarExecutado() {
     setActionPending(true);
     setActionError(null);
 
     getAdminDataClient()
-      .admin.refundQueue.process(params.id, 'concluido', undefined, { forceError: forceActionError })
+      .admin.payoutQueue.process(params.id, 'concluido', undefined, { forceError: forceActionError })
       .then((atualizado) => {
         setActionPending(false);
-        setReembolso(atualizado);
-        router.push('/reembolsos');
+        setSaque(atualizado);
+        router.push('/saques');
       })
       .catch((error: unknown) => {
         setActionPending(false);
@@ -90,20 +80,15 @@ export default function ExecutarReembolsoPage() {
       });
   }
 
-  /**
-   * Story 8.2 (AC2) — caminho de falha: o PIX/estorno manual não deu certo
-   * (dados bancários incorretos, etc.). Registra `resultado: 'erro'` com
-   * `detalhe` — nenhum sucesso fictício é exibido.
-   */
   function handleMarcarErro() {
     setActionPending(true);
     setActionError(null);
 
     getAdminDataClient()
-      .admin.refundQueue.process(params.id, 'erro', detalheErro.trim() || undefined, { forceError: forceActionError })
+      .admin.payoutQueue.process(params.id, 'erro', detalheErro.trim() || undefined, { forceError: forceActionError })
       .then((atualizado) => {
         setActionPending(false);
-        setReembolso(atualizado);
+        setSaque(atualizado);
         setShowErroForm(false);
       })
       .catch((error: unknown) => {
@@ -113,42 +98,37 @@ export default function ExecutarReembolsoPage() {
   }
 
   if (loading) {
-    return <p className="text-sm text-text-tertiary">Carregando reembolso…</p>;
+    return <p className="text-sm text-text-tertiary">Carregando saque…</p>;
   }
 
-  if (loadError || !reembolso) {
+  if (loadError || !saque) {
     return (
       <Card className="border-accent-warning/40">
         <p className="text-sm text-accent-warning">
-          {loadError ? `Erro ao carregar reembolso: ${loadError.message}` : 'Reembolso não encontrado.'}
+          {loadError ? `Erro ao carregar saque: ${loadError.message}` : 'Saque não encontrado.'}
         </p>
       </Card>
     );
   }
 
+  const podeProcessar = saque.status !== 'concluido' && saque.status !== 'erro';
+
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-bold text-text-primary">Executar Reembolso</h1>
+        <h1 className="text-2xl font-bold text-text-primary">Marcar Saque Executado</h1>
         <div className="mt-1 flex items-center gap-2">
-          <Badge variant="warning">{REEMBOLSO_MOTIVO_LABEL[reembolso.motivo]}</Badge>
-          <Badge variant="neutral">{reembolso.status}</Badge>
+          <Badge variant="neutral">{SAQUE_STATUS_LABEL[saque.status]}</Badge>
         </div>
       </div>
 
       <Card className="flex flex-col gap-3">
-        <h2 className="text-xs font-semibold uppercase tracking-section text-text-tertiary">
-          Pedido vinculado
-        </h2>
+        <h2 className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Lojista</h2>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-          <dt className="text-text-tertiary">Número</dt>
-          <dd className="text-text-primary">#{pedido?.numero ?? '—'}</dd>
-          <dt className="text-text-tertiary">Forma de pagamento</dt>
-          <dd className="text-text-primary">{reembolso.forma_pagamento.toUpperCase()}</dd>
-          <dt className="text-text-tertiary">Valor a estornar</dt>
-          <dd className="text-text-primary">{formatReais(reembolso.valor_a_estornar_reais)}</dd>
-          <dt className="text-text-tertiary">Valor ao lojista</dt>
-          <dd className="text-text-primary">{formatReais(reembolso.valor_ao_lojista_reais)}</dd>
+          <dt className="text-text-tertiary">Nome</dt>
+          <dd className="text-text-primary">{lojista?.nome_fantasia ?? saque.estabelecimento_id}</dd>
+          <dt className="text-text-tertiary">Valor a repassar</dt>
+          <dd className="text-text-primary">{formatReais(saque.valor_reais)}</dd>
         </dl>
       </Card>
 
@@ -158,10 +138,10 @@ export default function ExecutarReembolsoPage() {
         </Card>
       )}
 
-      {reembolso.status !== 'estornado' && reembolso.status !== 'erro' && !showErroForm && (
+      {podeProcessar && !showErroForm && (
         <div className="flex gap-3">
-          <Button onClick={handleConfirmarEstorno} disabled={actionPending}>
-            {actionPending ? 'Processando…' : 'Confirmar estorno'}
+          <Button onClick={handleMarcarExecutado} disabled={actionPending}>
+            {actionPending ? 'Processando…' : 'Marcar executado'}
           </Button>
           <Button variant="secondary" onClick={() => setShowErroForm(true)} disabled={actionPending}>
             Marcar como erro
@@ -169,7 +149,7 @@ export default function ExecutarReembolsoPage() {
         </div>
       )}
 
-      {reembolso.status !== 'estornado' && reembolso.status !== 'erro' && showErroForm && (
+      {podeProcessar && showErroForm && (
         <Card className="flex flex-col gap-3">
           <label className="flex flex-col gap-1">
             <span className="text-xs font-semibold uppercase tracking-section text-text-tertiary">

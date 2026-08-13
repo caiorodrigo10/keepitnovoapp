@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 
-import { createAdminSupabase } from './admin.supabase';
 import { createAuthSupabase } from './auth.supabase';
 import { NotImplementedError } from './not-implemented-error';
 import { createOrderSupabase } from './order.supabase';
@@ -70,20 +69,14 @@ describe('supabase adapters (esqueleto — Story 1.9)', () => {
   // `analytics.supabase.test.ts`. Esqueleto encerrado (nenhum método
   // restante).
 
-  it('admin.supabase.ts — todo método (exceto pendingStores/pendingStoreDetail, Story 3.7; approve/reject, Stories 3.8/3.9; e hubsCrud.*, Story 4.1) rejeita com NotImplementedError', async () => {
-    const port = createAdminSupabase();
-    await expectNotImplemented(port.refundQueue.list.bind(port.refundQueue), 0);
-    await expectNotImplemented(port.refundQueue.process.bind(port.refundQueue), 1);
-    await expectNotImplemented(port.listClientes.bind(port), 0);
-    await expectNotImplemented(port.blockCliente.bind(port), 2);
-    await expectNotImplemented(port.unblockCliente.bind(port), 1);
-    await expectNotImplemented(port.listAllEstabelecimentos.bind(port), 0);
-    await expectNotImplemented(port.suspendLojista.bind(port), 2);
-    await expectNotImplemented(port.lojistaQualityView.bind(port), 1);
-    await expectNotImplemented(port.financialDashboard.bind(port), 1);
-    await expectNotImplemented(port.listAllOrders.bind(port), 0);
-    await expectNotImplemented(port.forceCancelOrder.bind(port), 2);
-  });
+  // admin.supabase.ts — esqueleto ENCERRADO (Bloco 09, Épico 8): todos os
+  // métodos que ainda lançavam `NotImplementedError` (`refundQueue.*`,
+  // `payoutQueue.*`, `listClientes`, `blockCliente`, `unblockCliente`,
+  // `listAllEstabelecimentos`, `suspendLojista`, `reactivateLojista`,
+  // `lojistaQualityView`, `lojistaOrderCounts`, `financialDashboard`,
+  // `listAllOrders`, `forceCancelOrder`) são implementações reais desde as
+  // Stories 8.1-8.9, cobertas em `admin.supabase.test.ts`. Nenhum método
+  // restante — este describe fica só com o histórico dos demais arquivos.
 
   it('mensagem de erro identifica port + método + épico correto (amostra por arquivo)', async () => {
     await expect(createStoreSupabase().getCatalog(undefined as never)).rejects.toThrow(
@@ -91,12 +84,6 @@ describe('supabase adapters (esqueleto — Story 1.9)', () => {
     );
     await expect(createOrderSupabase().getById(undefined as never)).rejects.toThrow(
       '[core-data/supabase] order.getById — implementar no Épico 6',
-    );
-    await expect(createAdminSupabase().refundQueue.list()).rejects.toThrow(
-      '[core-data/supabase] admin.refundQueue.list — implementar no Épico 8',
-    );
-    await expect(createAdminSupabase().listAllOrders()).rejects.toThrow(
-      '[core-data/supabase] admin.listAllOrders — implementar no Épico 8',
     );
   });
 });

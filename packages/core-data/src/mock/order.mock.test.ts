@@ -60,6 +60,34 @@ describe('order.mock (contract)', () => {
     });
   });
 
+  it('create rejeita cliente bloqueado (Story 8.5 AC4) — paridade mock↔real, nenhum pedido é criado', async () => {
+    db.clientes.find((c) => c.id === 'cliente-ana')!.bloqueado = true;
+
+    const pedidosAntes = db.pedidos.length;
+
+    await expect(
+      port.create(
+        {
+          cliente_id: 'cliente-ana',
+          estabelecimento_id: 'estab-farmacia-vida',
+          hub_id: 'hub-centro',
+          itens: [{ produto_id: 'produto-dipirona', nome_snapshot: 'Dipirona', preco_unitario_reais: 14.9, quantidade: 1 }],
+          forma_pagamento: 'pix',
+          subtotal_produtos_reais: 14.9,
+          taxa_deslocamento_reais: 5,
+          taxa_keepit_reais: 1.5,
+          taxa_servico_comprador_reais: businessConfig.taxaServicoCompradorReais,
+          total_pago_reais: 14.9 + 5 + businessConfig.taxaServicoCompradorReais,
+          nf_solicitada: false,
+        },
+        { delayMs: 1 },
+      ),
+    ).rejects.toThrow(/bloqueado/i);
+
+    // Nenhum efeito colateral — nenhum pedido novo criado para o cliente bloqueado.
+    expect(db.pedidos.length).toBe(pedidosAntes);
+  });
+
   it('listMine resolves with only the pedidos of the given cliente', async () => {
     const pedidos = await port.listMine('cliente-ana', { delayMs: 1 });
     expect(pedidos.length).toBeGreaterThan(0);

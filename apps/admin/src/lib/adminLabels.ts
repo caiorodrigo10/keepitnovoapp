@@ -1,4 +1,4 @@
-import type { EstabelecimentoFalhaTipo, PedidoStatus, ReembolsoMotivo } from '@keepit/core-data';
+import type { EstabelecimentoFalhaTipo, PedidoStatus, ReembolsoMotivo, SaqueStatus } from '@keepit/core-data';
 
 /**
  * Traduções de enums do schema para exibição — Story 0.13 (Tasks 2, 4, 9),
@@ -42,6 +42,14 @@ export const ESTABELECIMENTO_FALHA_TIPO_LABEL: Record<EstabelecimentoFalhaTipo, 
   atraso_grave: 'Atraso grave',
   chargeback: 'Chargeback',
   reclamacao_admin: 'Reclamação (admin)',
+};
+
+/** Story 8.9 — fila de saques (`/saques`), mesmo padrão de rótulo de `REEMBOLSO_MOTIVO_LABEL`. */
+export const SAQUE_STATUS_LABEL: Record<SaqueStatus, string> = {
+  solicitado: 'Solicitado',
+  processando: 'Processando',
+  concluido: 'Concluído',
+  erro: 'Erro',
 };
 
 export function formatReais(value: number): string {

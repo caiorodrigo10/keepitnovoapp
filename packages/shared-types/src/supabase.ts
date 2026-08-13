@@ -172,6 +172,16 @@
 // solicitado_em)`, mesmo padrão de `criar_pedido`/`confirmar_pin_pedido` para
 // `RETURNS TABLE`).
 //
+// Bloco 09 (Épico 8 — Operação Admin, 2026-08-13) — reconciliação manual adicional:
+// colunas `clientes.bloqueado`/`motivo_bloqueio`/`bloqueado_em`, a tabela NOVA
+// `estabelecimentos_falhas` e as RPCs `confirmar_lancamento_admin` (compartilhada
+// 8.2/8.9), `forcar_cancelamento_pedido` (8.4), `bloquear_cliente`/`desbloquear_cliente`
+// (8.5) e `suspender_lojista`/`reativar_lojista` (8.6) foram aplicadas ao `keepit-dev`
+// pelas migrations `apps/supabase/supabase/migrations/20260813070000..070005_*.sql`
+// (@data-engineer), mesma limitação de ambiente (sem `SUPABASE_ACCESS_TOKEN`). Cada
+// entrada espelha EXATAMENTE o DDL/assinatura aplicados (ver o cabeçalho normativo de
+// cada migration para o racional completo).
+//
 // Regenerar via `supabase gen types typescript --project-id
 // jhhbewnmnorhmsdvfppo` (com login) substitui todos os blocos manuais sem
 // alteração de forma esperada.
@@ -206,12 +216,19 @@ export type Database = {
         }
         Relationships: []
       }
+      // Bloco 09 / Story 8.5 (2026-08-13) — ver comentário de reconciliação manual no topo do arquivo.
+      // `bloqueado`/`motivo_bloqueio`/`bloqueado_em` NÃO existiam antes (a migration
+      // 20260731143000_criar_clientes.sql listava-as em "FICA FORA"); aplicadas de fato
+      // por 20260813070002_clientes_bloqueio_admin.sql.
       clientes: {
         Row: {
           id: string
           nome: string
           telefone: string | null
           cpf: string | null
+          bloqueado: boolean
+          motivo_bloqueio: string | null
+          bloqueado_em: string | null
           criado_em: string
         }
         Insert: {
@@ -219,6 +236,9 @@ export type Database = {
           nome: string
           telefone?: string | null
           cpf?: string | null
+          bloqueado?: boolean
+          motivo_bloqueio?: string | null
+          bloqueado_em?: string | null
           criado_em?: string
         }
         Update: {
@@ -226,6 +246,9 @@ export type Database = {
           nome?: string
           telefone?: string | null
           cpf?: string | null
+          bloqueado?: boolean
+          motivo_bloqueio?: string | null
+          bloqueado_em?: string | null
           criado_em?: string
         }
         Relationships: []
@@ -650,6 +673,36 @@ export type Database = {
         }
         Relationships: []
       }
+      // Bloco 09 / Story 8.8 (2026-08-13) — ver comentário de reconciliação manual no topo do
+      // arquivo. Tabela NOVA aplicada por 20260813070005_criar_estabelecimentos_falhas.sql
+      // (não existia antes — só o tipo de domínio/mock existiam desde a Story 1.10).
+      estabelecimentos_falhas: {
+        Row: {
+          id: string
+          estabelecimento_id: string
+          pedido_id: string | null
+          tipo: string
+          detalhes: string | null
+          criado_em: string
+        }
+        Insert: {
+          id?: string
+          estabelecimento_id: string
+          pedido_id?: string | null
+          tipo: string
+          detalhes?: string | null
+          criado_em?: string
+        }
+        Update: {
+          id?: string
+          estabelecimento_id?: string
+          pedido_id?: string | null
+          tipo?: string
+          detalhes?: string | null
+          criado_em?: string
+        }
+        Relationships: []
+      }
       // Story 3.7 — ver comentário de reconciliação manual no topo do arquivo.
       admin_users: {
         Row: {
@@ -792,6 +845,86 @@ export type Database = {
           valor_centavos: number
           status: string
           solicitado_em: string
+        }[]
+      }
+      // Bloco 09 / Stories 8.2 + 8.9 — ver comentário de reconciliação manual no topo do
+      // arquivo. RPC compartilhada (refund + payout), aplicada por
+      // 20260813070000_rpc_confirmar_lancamento_admin.sql.
+      confirmar_lancamento_admin: {
+        Args: {
+          p_lancamento_id: string
+          p_resultado: string
+          p_detalhe?: string | null
+          p_asaas_id_externo?: string | null
+        }
+        Returns: {
+          lancamento_id: string
+          tipo: string
+          status: string
+          ator_admin_id: string
+          concluido_em: string
+        }[]
+      }
+      // Bloco 09 / Story 8.4 — ver comentário de reconciliação manual no topo do arquivo.
+      // Aplicada por 20260813070001_rpc_forcar_cancelamento_pedido.sql.
+      forcar_cancelamento_pedido: {
+        Args: {
+          p_pedido_id: string
+          p_motivo: string
+        }
+        Returns: {
+          pedido_id: string
+          status: string
+          refund_id: string
+          refund_centavos: number
+        }[]
+      }
+      // Bloco 09 / Story 8.5 — ver comentário de reconciliação manual no topo do arquivo.
+      // Aplicada por 20260813070002_clientes_bloqueio_admin.sql.
+      bloquear_cliente: {
+        Args: {
+          p_cliente_id: string
+          p_motivo: string
+        }
+        Returns: {
+          cliente_id: string
+          bloqueado: boolean
+          bloqueado_em: string
+        }[]
+      }
+      // Bloco 09 / Story 8.5 — ver comentário de reconciliação manual no topo do arquivo.
+      // Aplicada por 20260813070002_clientes_bloqueio_admin.sql.
+      desbloquear_cliente: {
+        Args: {
+          p_cliente_id: string
+        }
+        Returns: {
+          cliente_id: string
+          bloqueado: boolean
+        }[]
+      }
+      // Bloco 09 / Story 8.6 — ver comentário de reconciliação manual no topo do arquivo.
+      // Aplicada por 20260813070004_rpc_suspender_reativar_lojista.sql.
+      suspender_lojista: {
+        Args: {
+          p_estabelecimento_id: string
+          p_motivo: string
+        }
+        Returns: {
+          estabelecimento_id: string
+          status: string
+          suspenso_em: string
+        }[]
+      }
+      // Bloco 09 / Story 8.6 — ver comentário de reconciliação manual no topo do arquivo.
+      // Aplicada por 20260813070004_rpc_suspender_reativar_lojista.sql.
+      reativar_lojista: {
+        Args: {
+          p_estabelecimento_id: string
+        }
+        Returns: {
+          estabelecimento_id: string
+          status: string
         }[]
       }
     }

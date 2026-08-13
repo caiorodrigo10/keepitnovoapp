@@ -63,6 +63,21 @@ export class HubIndisponivelError extends Error {
 }
 
 /**
+ * RPC: `CLIENTE_BLOQUEADO` — Bloco 09 (Story 8.5, AC4). `criar_pedido` passou
+ * a checar `clientes.bloqueado = true` (bloqueio administrativo por
+ * fraude/abuso, Story 8.5) ANTES de qualquer efeito colateral (PIN, INSERT
+ * de pedido/itens/lançamentos) — reaproveita o mesmo `RAISE EXCEPTION` da
+ * migration reaplicada (`20260813070003_rpc_criar_pedido_bloqueio_cliente.sql`,
+ * `CREATE OR REPLACE FUNCTION criar_pedido` com a MESMA assinatura).
+ */
+export class ClienteBloqueadoError extends Error {
+  constructor() {
+    super('[core-data] criar_pedido — cliente bloqueado pelo admin não pode criar pedidos (CLIENTE_BLOQUEADO)');
+    this.name = 'ClienteBloqueadoError';
+  }
+}
+
+/**
  * Story 6.9 (AC2) — erros NOMEADOS da RPC `aceitar_pedido`
  * (`apps/supabase/supabase/migrations/20260813004935_rpc_aceitar_pedido.sql`).
  * `AUTENTICACAO_NECESSARIA` é REUSE da classe já declarada acima

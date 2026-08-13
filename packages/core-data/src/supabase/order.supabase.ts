@@ -16,6 +16,7 @@ import type { AsyncCallOptions } from '../types';
 import {
   AcessoNegadoError,
   AutenticacaoNecessariaError,
+  ClienteBloqueadoError,
   ClienteNaoEncontradoError,
   EstadoInvalidoError,
   HubIndisponivelError,
@@ -46,13 +47,19 @@ const EPIC = 'Épico 6';
  * era gravada por `criar_pedido` (Story 6.6), mas nunca tinha sido lida de
  * volta pelo read model (gap real, ver `Pedido.taxa_servico_comprador_reais`
  * em `ports/order.port.ts`).
+ *
+ * [IDS] REUSE (Bloco 09, Stories 8.3/8.4) — `PEDIDO_COLUMNS`/`mapRowToPedido`/
+ * `fetchItensPorPedidoIds`/`fetchPedidoPorId` exportados para
+ * `admin.supabase.ts#listAllOrders`/`forceCancelOrder` reaproveitarem a MESMA
+ * leitura/mapeamento de `pedidos` (nenhuma leitura administrativa de pedido
+ * deveria divergir do mapeamento canônico já usado pelo Cliente/Lojista).
  */
-const PEDIDO_COLUMNS =
+export const PEDIDO_COLUMNS =
   'id, numero, cliente_id, estabelecimento_id, hub_id, status, pin_texto, tentativas_pin, pin_bloqueado_ate, tempo_estimado_min, criado_em, aceito_em, saiu_hub_em, entregue_em, cancelado_em, subtotal_produtos_reais, taxa_deslocamento_reais, taxa_keepit_reais, taxa_servico_comprador_reais, total_pago_reais, motivo_recusa, motivo_cancelamento, motivo_nao_retirado, forma_pagamento';
 
 const PEDIDO_ITEM_COLUMNS = 'id, pedido_id, produto_id, nome_snapshot, preco_unitario_reais, quantidade, subtotal_reais';
 
-type PedidoRow = {
+export type PedidoRow = {
   id: string;
   numero: number;
   cliente_id: string;
@@ -112,7 +119,7 @@ function mapRowToPedidoItem(row: PedidoItemRow): PedidoItem {
  * real (`row.saiu_hub_em`), não mais hard-coded `null` — a coluna existe e é
  * gravada pela RPC `avancar_estado_pedido`.
  */
-function mapRowToPedido(row: PedidoRow, itens: PedidoItem[]): Pedido {
+export function mapRowToPedido(row: PedidoRow, itens: PedidoItem[]): Pedido {
   return {
     id: row.id,
     numero: row.numero,
@@ -151,7 +158,7 @@ function mapRowToPedido(row: PedidoRow, itens: PedidoItem[]): Pedido {
  * entrada resolve `{}` sem tocar a rede (mesmo padrão de
  * `fetchEstabelecimentosPorIds`, `store.supabase.ts`).
  */
-async function fetchItensPorPedidoIds(
+export async function fetchItensPorPedidoIds(
   supabase: SupabaseClient<Database>,
   pedidoIds: string[],
 ): Promise<Record<string, PedidoItem[]>> {
@@ -182,7 +189,7 @@ async function fetchItensPorPedidoIds(
  * (cliente-dono, lojista-dono ou admin) — `null` honesto se a linha não
  * existir ou a RLS bloquear (nunca simula um pedido).
  */
-async function fetchPedidoPorId(supabase: SupabaseClient<Database>, pedidoId: string): Promise<Pedido | null> {
+export async function fetchPedidoPorId(supabase: SupabaseClient<Database>, pedidoId: string): Promise<Pedido | null> {
   const { data, error } = await supabase.from('pedidos').select(PEDIDO_COLUMNS).eq('id', pedidoId).maybeSingle();
   if (error) {
     throw error;
@@ -252,6 +259,10 @@ export function createOrderSupabase(client?: SupabaseClient<Database>): OrderPor
         const message = error.message ?? '';
         if (message.includes('AUTENTICACAO_NECESSARIA')) throw new AutenticacaoNecessariaError();
         if (message.includes('CLIENTE_NAO_ENCONTRADO')) throw new ClienteNaoEncontradoError();
+        // Story 8.5 (AC4) — checado pela RPC ANTES de ITENS_INVALIDOS/LOJA_INDISPONIVEL/etc.
+        // (mesma ordem do RAISE EXCEPTION na migration reaplicada); `.includes()` aqui não
+        // depende da ordem dos `if`s porque os textos são mutuamente exclusivos.
+        if (message.includes('CLIENTE_BLOQUEADO')) throw new ClienteBloqueadoError();
         if (message.includes('ITENS_INVALIDOS')) throw new ItensInvalidosError();
         if (message.includes('LOJA_INDISPONIVEL')) throw new LojaIndisponivelError();
         if (message.includes('HUB_NAO_ATENDIDO')) throw new HubNaoAtendidoError();

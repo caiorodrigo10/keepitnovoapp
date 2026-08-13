@@ -18,10 +18,18 @@ import { NotImplementedError } from './not-implemented-error';
 const PORT = 'store';
 const EPIC_DESCOBERTA = 'Épico 5';
 
-const ESTABELECIMENTO_COLUMNS =
+/**
+ * [IDS] REUSE (Bloco 09, Story 8.3) — `ESTABELECIMENTO_COLUMNS`/
+ * `mapRowToEstabelecimento`/`fetchHorarios` exportados para
+ * `admin.supabase.ts#listAllEstabelecimentos` reaproveitar a MESMA
+ * leitura/mapeamento de `estabelecimentos` (mesmo tipo de domínio
+ * `Estabelecimento`, sem status filtrado — o admin precisa ver TODOS os
+ * status, ao contrário da Descoberta pública).
+ */
+export const ESTABELECIMENTO_COLUMNS =
   'id, nome_fantasia, categoria, descricao, foto_fachada_url, endereco, lat, lng, raio_atendimento_km, tempo_medio_entrega_min, taxa_deslocamento_reais, ticket_minimo_reais, status, motivo_rejeicao, motivo_suspensao, pausado_manualmente';
 
-type EstabelecimentoRow = {
+export type EstabelecimentoRow = {
   id: string;
   nome_fantasia: string;
   categoria: string;
@@ -54,7 +62,7 @@ type EstabelecimentoHorarioRow = {
  * Sob a RLS `lojista_gerencia_horarios`/`publico_ve_horarios` já existentes
  * (Story 3.5) — sem migration nova.
  */
-async function fetchHorarios(
+export async function fetchHorarios(
   supabase: SupabaseClient<Database>,
   estabelecimentoId: string,
 ): Promise<EstabelecimentoHorario[]> {
@@ -112,7 +120,7 @@ async function fetchEstabelecimentoIdsPorHub(
  * campos — o coalesce só existe para satisfazer o contrato de tipo do
  * `StorePort` existente, não é lido por `HorariosDisponibilidade.tsx`.
  */
-function mapRowToEstabelecimento(row: EstabelecimentoRow, horarios: EstabelecimentoHorario[]): Estabelecimento {
+export function mapRowToEstabelecimento(row: EstabelecimentoRow, horarios: EstabelecimentoHorario[]): Estabelecimento {
   return {
     id: row.id,
     nome_fantasia: row.nome_fantasia,

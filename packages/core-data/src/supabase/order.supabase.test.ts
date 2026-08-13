@@ -7,6 +7,7 @@ import { PinBloqueadoError, PinIncorretoError } from '../ports/order.port';
 import {
   AcessoNegadoError,
   AutenticacaoNecessariaError,
+  ClienteBloqueadoError,
   ClienteNaoEncontradoError,
   EstadoInvalidoError,
   HubIndisponivelError,
@@ -179,6 +180,12 @@ describe('order.supabase.ts — create (Story 6.6, AC1, AC3, AC4)', () => {
     const { client } = fakeClient({ rpc: { data: null, error: { message: 'CLIENTE_NAO_ENCONTRADO', code: 'P0001' } } });
     const port = createOrderSupabase(client);
     await expect(port.create(INPUT)).rejects.toBeInstanceOf(ClienteNaoEncontradoError);
+  });
+
+  it('mapeia CLIENTE_BLOQUEADO para ClienteBloqueadoError (Story 8.5 AC4 — bloqueio administrativo)', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'CLIENTE_BLOQUEADO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.create(INPUT)).rejects.toBeInstanceOf(ClienteBloqueadoError);
   });
 
   it('mapeia ITENS_INVALIDOS para ItensInvalidosError', async () => {

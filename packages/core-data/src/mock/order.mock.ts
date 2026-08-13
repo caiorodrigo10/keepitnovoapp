@@ -72,6 +72,19 @@ export function createOrderMock(db: MockDb): OrderPort {
             throw new Error(`[mock] Estabelecimento não encontrado: ${input.estabelecimento_id}`);
           }
 
+          // Story 8.5 (AC4) — paridade mock↔real: cliente bloqueado pelo admin
+          // (`admin.blockCliente`) não cria novos pedidos. Checado ANTES de
+          // qualquer efeito colateral (PIN, push em `db.pedidos`) — mesmo
+          // padrão de guarda-antes-de-mutar da RPC real
+          // (`20260813070003_rpc_criar_pedido_bloqueio_cliente.sql`). Erro
+          // genérico `[mock]`, mesmo estilo de "Estabelecimento não
+          // encontrado" acima — a classe dedicada `ClienteBloqueadoError`
+          // fica no adapter Supabase (`order-errors.ts`), não neste mock.
+          const cliente = db.clientes.find((c) => c.id === input.cliente_id);
+          if (cliente?.bloqueado) {
+            throw new Error('[mock] Cliente bloqueado pelo admin não pode criar pedidos (CLIENTE_BLOQUEADO)');
+          }
+
           const pedidoId = generateMockId('pedido');
           const itens: PedidoItem[] = input.itens.map((item, index) => ({
             id: `${pedidoId}-item-${index + 1}`,

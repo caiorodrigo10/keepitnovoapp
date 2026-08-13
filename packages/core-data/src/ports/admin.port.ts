@@ -5,6 +5,16 @@ import type { FormaPagamento, Pedido, PedidoStatus } from './order.port';
 import type { Hub, HubHorario } from './hub.port';
 /** [IDS] REUSE — mesmo tipo já fixado por `EstabelecimentoCadastroPort` (Story 3.5) para `chave_pix_tipo`. */
 import type { ChavePixTipoCadastro } from './estabelecimento-cadastro.port';
+/**
+ * [IDS] REUSE (Story 8.9) — `Saque`/`SaqueStatus` já modelam EXATAMENTE a
+ * forma de um lançamento `tipo='payout'` do ponto de vista do lojista
+ * (`WalletPort.statement`, Bloco 08). A fila administrativa de saques (8.9)
+ * é a MESMA entidade vista pelo admin (todos os estabelecimentos, filtrado
+ * por `status='pendente'`) — reaproveitar o tipo evita duplicar um
+ * `PayoutPendente` quase idêntico (mesmo raciocínio já registrado no JSDoc
+ * de `ReembolsoPendente`/`refundQueue`, que reconcilia o ledger único).
+ */
+import type { Saque } from './wallet.port';
 
 /**
  * 9 valores exatos do CHECK constraint de `reembolsos_pendentes.motivo`.
@@ -22,6 +32,16 @@ export type ReembolsoMotivo =
   | 'cancelamento_admin';
 
 export type ReembolsoStatus = 'pendente_admin' | 'em_processamento' | 'estornado' | 'erro';
+
+/**
+ * Resultado que o admin registra ao confirmar manualmente um lançamento
+ * pendente (reembolso OU saque) — Stories 8.2/8.9, RPC compartilhada
+ * `confirmar_lancamento_admin`. `em_processamento`/`pendente_admin` NUNCA são
+ * produzidos por esta chamada (são estados de leitura/otimismo client-side —
+ * ver Story 8.1 Dependencies item 1); só o DESFECHO (sucesso ou falha) é
+ * escrito.
+ */
+export type LancamentoConfirmResultado = 'concluido' | 'erro';
 
 /**
  * Domínio: tabela `reembolsos_pendentes`.
@@ -71,6 +91,26 @@ export interface FinancialDashboardResult {
   gmvReais: number;
   receitaKeepitReais: number;
   ranking: FinancialRankingEntry[];
+  /**
+   * [AUTO-DECISION] Story 8.7 — @po marcou contagens + taxa de sucesso como
+   * SHOULD (agregação barata sobre a MESMA leitura de `pedidos` do período,
+   * central à "visão executiva" do AC1). Contadas por `criado_em` dentro do
+   * período (não `entregue_em`, ao contrário de `gmvReais`/`receitaKeepitReais`
+   * — "pedidos totais" inclui os que NUNCA chegaram a `entregue`). Ranking de
+   * hubs e gráfico de linha (Recharts) ficam como débito não-bloqueante
+   * (decisão de @po registrada na Story 8.7), não implementados aqui.
+   */
+  pedidosTotais: number;
+  pedidosEntregues: number;
+  pedidosCancelados: number;
+  pedidosNoShow: number;
+  /**
+   * `pedidosEntregues / (pedidosEntregues + pedidosCancelados + pedidosNoShow)`,
+   * em percentual (0-100), arredondado a 1 casa. `0` honesto quando o
+   * denominador é zero (nenhum pedido concluído/cancelado/no-show no
+   * período) — nunca `NaN`/`Infinity` vazando para a UI.
+   */
+  taxaSucessoPercent: number;
 }
 
 /** Extensões aceitas pelo bucket PÚBLICO `hubs` (`allowed_mime_types`, migration `20260812164200`). */
@@ -207,7 +247,38 @@ export interface AdminPort {
   };
   refundQueue: {
     list(options?: AsyncCallOptions): Promise<ReembolsoPendente[]>;
-    process(id: string, options?: AsyncCallOptions): Promise<ReembolsoPendente>;
+    /**
+     * [AUTO-DECISION] Story 8.2 (AC2) — assinatura estendida com `resultado`/
+     * `detalhe` (não existia no esqueleto original, que só marcava sucesso).
+     * A RPC real (`confirmar_lancamento_admin`) exige o desfecho explícito —
+     * sem isso não há como o admin registrar uma falha auditável (AC2: "marca
+     * 'concluido' OU 'erro' com detalhe"). `detalhe` é a nota livre (motivo do
+     * erro/referência do PIX manual) — opcional em ambos os resultados.
+     */
+    process(
+      id: string,
+      resultado: LancamentoConfirmResultado,
+      detalhe?: string,
+      options?: AsyncCallOptions,
+    ): Promise<ReembolsoPendente>;
+  };
+
+  /**
+   * Story 8.9 — fila administrativa de saques (`lancamentos_financeiros
+   * WHERE tipo='payout' AND status='pendente'`), mesmo padrão estrutural de
+   * `refundQueue` (IDS: ADAPT do precedente 8.1/8.2). Reaproveita `Saque`/
+   * `SaqueStatus` (`WalletPort`) em vez de um tipo `PayoutPendente` novo —
+   * mesma entidade, ângulo administrativo (todos os estabelecimentos) em vez
+   * do ângulo do lojista (um `estabelecimento_id`).
+   */
+  payoutQueue: {
+    list(options?: AsyncCallOptions): Promise<Saque[]>;
+    process(
+      id: string,
+      resultado: LancamentoConfirmResultado,
+      detalhe?: string,
+      options?: AsyncCallOptions,
+    ): Promise<Saque>;
   };
 
   // ---------------------------------------------------------------------
@@ -230,7 +301,34 @@ export interface AdminPort {
    */
   listAllEstabelecimentos(options?: AsyncCallOptions): Promise<Estabelecimento[]>;
   suspendLojista(estabelecimentoId: string, motivo: string, options?: AsyncCallOptions): Promise<Estabelecimento>;
+  /**
+   * [IDS] CREATE (Story 8.6) — capacidade genuinamente nova, ausente da port
+   * até esta Story (confirmado por busca no código-fonte: nenhuma UI/mock
+   * prévios). Par de `suspendLojista`: reverte `status: 'suspenso' →
+   * 'ativo'`. Guarda de estado simétrica (só reativa quem está `suspenso` —
+   * nunca promove `em_analise`/`rejeitado` pulando `approve`).
+   */
+  reactivateLojista(estabelecimentoId: string, options?: AsyncCallOptions): Promise<Estabelecimento>;
   lojistaQualityView(estabelecimentoId: string, options?: AsyncCallOptions): Promise<EstabelecimentoFalha[]>;
+  /**
+   * [AUTO-DECISION] Story 8.8 (AC1) — método NOVO, separado de
+   * `lojistaQualityView` (em vez de alargar o retorno de `EstabelecimentoFalha[]`
+   * para um objeto composto) → (reason: preserva o tipo de retorno já
+   * consumido pela UI existente, evita uma mudança de forma disruptiva num
+   * método já implementado; `@po` marcou as contagens como CORE mas não
+   * prescreveu a forma exata — este é o "método adicional" citado como
+   * alternativa nas Tasks da Story). Contagem sobre `pedidos` do lojista:
+   * `entregues` = `status='entregue'`; `cancelados` = qualquer status
+   * `cancelado*`/`recusado`/`estornado_chargeback`; `noShow` =
+   * `nao_retirado`/`nao_entregue_lojista` (lojista não apareceu). Nenhum
+   * filtro de período — contagem histórica total (mesmo espírito do texto do
+   * Épico, "decidir quando suspender" olha o histórico completo, não uma
+   * janela).
+   */
+  lojistaOrderCounts(
+    estabelecimentoId: string,
+    options?: AsyncCallOptions,
+  ): Promise<{ entregues: number; cancelados: number; noShow: number }>;
   /**
    * GMV/receita Keepit/ranking por loja no período — deriva 100% de
    * `pedidos.total_pago_reais`/`taxa_keepit_reais` de pedidos `entregue`,

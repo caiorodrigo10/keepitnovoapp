@@ -6,9 +6,13 @@ import { useEffect, useState } from 'react';
 import type { Estabelecimento } from '@keepit/core-data';
 
 import { Card } from '../../../src/components/Card';
-import { useLojistaQuality } from '../../../src/hooks/useAdminOps';
+import { useLojistaOrderCounts, useLojistaQuality } from '../../../src/hooks/useAdminOps';
 import { getAdminDataClient } from '../../../src/lib/adminClient';
 import { ESTABELECIMENTO_FALHA_TIPO_LABEL, formatDateTime } from '../../../src/lib/adminLabels';
+
+/** Story 8.8 (AC2) — alerta visual se >3 falhas registradas nos últimos 30 dias (limiar exato, não >=3). Janela móvel a partir de `Date.now()`, client-side (nenhum dado novo — só lógica de exibição sobre a lista já retornada por `lojistaQualityView`). */
+const JANELA_ALERTA_DIAS = 30;
+const LIMIAR_ALERTA_FALHAS = 3;
 
 /**
  * Vista de qualidade do lojista — Épico 0, Story 0.13 (Task 9, AC1-3).
@@ -42,8 +46,15 @@ export default function QualidadeLojistaPage() {
     forceEmpty,
     forceError,
   });
+  const { data: counts, loading: countsLoading } = useLojistaOrderCounts(selecionadoId ?? '');
 
   const lojistaSelecionado = lojistas.find((l) => l.id === selecionadoId) ?? null;
+
+  // Story 8.8 (AC2) — >3 falhas em 30 dias (janela móvel a partir de agora), calculado
+  // client-side sobre a lista já retornada por `lojistaQualityView` — nenhum dado novo.
+  const limiteAlerta = new Date(Date.now() - JANELA_ALERTA_DIAS * 24 * 60 * 60 * 1000);
+  const falhasRecentes = falhas.filter((f) => new Date(f.criado_em) >= limiteAlerta);
+  const alertaAtivo = falhasRecentes.length > LIMIAR_ALERTA_FALHAS;
 
   return (
     <div className="flex flex-col gap-6">
@@ -66,6 +77,32 @@ export default function QualidadeLojistaPage() {
           ))}
         </select>
       </label>
+
+      {!countsLoading && selecionadoId && (
+        <div className="grid grid-cols-3 gap-4">
+          <Card>
+            <p className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Entregues</p>
+            <p className="mt-2 text-2xl font-bold text-text-primary">{counts.entregues}</p>
+          </Card>
+          <Card>
+            <p className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Cancelados</p>
+            <p className="mt-2 text-2xl font-bold text-text-primary">{counts.cancelados}</p>
+          </Card>
+          <Card>
+            <p className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Não retirado / não veio</p>
+            <p className="mt-2 text-2xl font-bold text-text-primary">{counts.noShow}</p>
+          </Card>
+        </div>
+      )}
+
+      {alertaAtivo && (
+        <Card className="border-accent-warning/40">
+          <p className="text-sm font-semibold text-accent-warning">
+            ⚠ Mais de {LIMIAR_ALERTA_FALHAS} falhas registradas nos últimos {JANELA_ALERTA_DIAS} dias (
+            {falhasRecentes.length}) — considere avaliar a suspensão deste lojista.
+          </p>
+        </Card>
+      )}
 
       {loading && <p className="text-sm text-text-tertiary">Carregando falhas…</p>}
 
