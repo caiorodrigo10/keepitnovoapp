@@ -3,8 +3,9 @@
     "appVersionSource": "local"
   },
   "build": {
-    "pilot": {
+    "demo": {
       "distribution": "store",
+      "autoIncrement": true,
       "ios": {
         "credentialsSource": "local"
       },
@@ -15,11 +16,9 @@
         "EXPO_PUBLIC_DATA_SOURCE": "mock"
       }
     },
-    "demo": {
+    "demo-apk": {
       "distribution": "internal",
-      "ios": {
-        "credentialsSource": "local"
-      },
+      "autoIncrement": true,
       "android": {
         "buildType": "apk"
       },
@@ -29,6 +28,7 @@
     },
     "production": {
       "distribution": "store",
+      "autoIncrement": true,
       "ios": {
         "credentialsSource": "local"
       },
@@ -41,7 +41,19 @@
     }
   },
   "submit": {
-    "pilot": {
+    "demo": {
+      "ios": {
+        "ascAppId": "6796881085",
+        "ascApiKeyPath": "credentials/AuthKey.p8",
+        "ascApiKeyId": "T5CQNTR77Y",
+        "ascApiKeyIssuerId": "207349a8-a4fb-4b33-a791-c3b66358f3d1"
+      },
+      "android": {
+        "serviceAccountKeyPath": "./credentials/play-service-account.json",
+        "track": "internal"
+      }
+    },
+    "production": {
       "ios": {
         "ascAppId": "6796881085",
         "ascApiKeyPath": "credentials/AuthKey.p8",
