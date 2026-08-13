@@ -160,7 +160,7 @@ export default function ProcessarSaquePage() {
               onChange={(event) => setDetalheErro(event.target.value)}
               rows={2}
               placeholder="Ex.: dados bancários incorretos, PIX manual falhou…"
-              className="rounded-sm border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary placeholder:text-text-placeholder focus:border-accent-brand focus:outline-none"
+              className="rounded-md border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary placeholder:text-text-placeholder transition-colors focus:border-accent-brand focus:outline-none"
             />
           </label>
           <div className="flex gap-3">

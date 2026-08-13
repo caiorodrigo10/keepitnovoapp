@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 
 import type { Estabelecimento } from '@keepit/core-data';
 
+import { Button } from '../../../src/components/Button';
 import { Card } from '../../../src/components/Card';
 import { useLojistaOrderCounts, useLojistaQuality } from '../../../src/hooks/useAdminOps';
 import { getAdminDataClient } from '../../../src/lib/adminClient';
@@ -68,7 +69,7 @@ export default function QualidadeLojistaPage() {
         <select
           value={selecionadoId ?? ''}
           onChange={(event) => setSelecionadoId(event.target.value)}
-          className="rounded-sm border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary focus:border-accent-brand focus:outline-none"
+          className="min-h-11 rounded-md border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary transition-colors focus:border-accent-brand focus:outline-none"
         >
           {lojistas.map((lojista) => (
             <option key={lojista.id} value={lojista.id}>
@@ -109,13 +110,9 @@ export default function QualidadeLojistaPage() {
       {!loading && error && (
         <Card className="border-accent-warning/40">
           <p className="mb-3 text-sm text-accent-warning">Erro ao carregar falhas: {error.message}</p>
-          <button
-            type="button"
-            onClick={refresh}
-            className="text-sm font-semibold text-accent-brand underline underline-offset-2"
-          >
+          <Button variant="secondary" onClick={refresh}>
             Tentar novamente
-          </button>
+          </Button>
         </Card>
       )}
 
