@@ -84,9 +84,14 @@ export function RootNavigator() {
     }, SESSION_TIMEOUT_MS);
 
     function handleAuthStateChange(next: Cliente | null) {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeoutId);
+      // O primeiro evento cancela o timeout de fallback (Story 2.6, AC7).
+      // `settled` NÃO pode bloquear eventos seguintes: signUp/signIn/signOut
+      // emitem novas sessões depois do 1º estado e PRECISAM re-renderizar
+      // Auth<->Main (REL-008: o guard anterior engolia o SIGNED_IN pós-boot).
+      if (!settled) {
+        settled = true;
+        clearTimeout(timeoutId);
+      }
       setCliente(next);
     }
 
