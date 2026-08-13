@@ -30,6 +30,7 @@ export default function AceitarPedido({ navigation, route }: Props) {
   const pedido = getById(pedidoId);
   const [tempoEstimadoMin, setTempoEstimadoMin] = useState(tempoMedioPrepMin);
   const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
 
   if (!pedido) {
     return (
@@ -39,11 +40,22 @@ export default function AceitarPedido({ navigation, route }: Props) {
     );
   }
 
+  /**
+   * Story 6.9 (AC3, AC5). Mensagem honesta a partir do erro NOMEADO da RPC
+   * `aceitar_pedido` — mesmo padrão já usado por `Pagamento.tsx`
+   * (`error.message` das classes dedicadas de `order-errors.ts`, que já
+   * carregam texto legível pelo lojista, ex.: dupla-aceitação/
+   * `ESTADO_INVALIDO`). Nenhuma navegação em caso de erro — o lojista
+   * permanece na tela para tentar de novo ou voltar manualmente.
+   */
   async function onConfirmar() {
     setSalvando(true);
+    setErro(null);
     try {
       await acceptOrder(pedidoId, tempoEstimadoMin);
       navigation.goBack();
+    } catch (error) {
+      setErro(error instanceof Error ? error.message : 'Não foi possível aceitar o pedido agora. Tente novamente.');
     } finally {
       setSalvando(false);
     }
@@ -69,6 +81,8 @@ export default function AceitarPedido({ navigation, route }: Props) {
           step={5}
           unit="min"
         />
+
+        {erro ? <Text style={[styles.erroTexto, { color: darkColors.accent.warning }]}>{erro}</Text> : null}
       </View>
 
       <View style={styles.footer}>
@@ -92,6 +106,10 @@ const styles = StyleSheet.create({
     fontFamily: 'HankenGrotesk-Regular',
     fontSize: typography.sizes.md.fontSize,
     lineHeight: typography.sizes.md.lineHeight,
+  },
+  erroTexto: {
+    fontFamily: 'HankenGrotesk-Medium',
+    fontSize: typography.sizes.base.fontSize,
   },
   footer: {
     paddingHorizontal: spacing[5],

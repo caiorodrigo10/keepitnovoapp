@@ -5,6 +5,7 @@ import { darkColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { useOrdersContext } from '../screens/pedidos/OrdersContext';
 import { formatReais, getStatusBadge, inicialDoNome, tempoRelativo } from '../screens/pedidos/statusMeta';
+import { tempoAceiteTexto } from '../screens/pedidos/tempoAceite';
 
 /**
  * Card de pedido da lista "Pedidos" — Story 0.10 (Task 2/8). Fiel a
@@ -78,6 +79,12 @@ export function PedidoCard({ pedido, onPress, onAceitar, onRecusar, onAcaoStatus
       <Text numberOfLines={1} style={[styles.itens, { color: darkColors.text.secondary }]}>
         {pedido.itens.length} {pedido.itens.length === 1 ? 'item' : 'itens'} · {resumoItens}
       </Text>
+
+      {isNovo ? (
+        <Text style={[styles.prazoAceite, { color: darkColors.text.tertiary }]}>
+          {tempoAceiteTexto(pedido.criado_em)}
+        </Text>
+      ) : null}
 
       <View style={styles.footer}>
         <Text style={[styles.total, { color: darkColors.text.primary }]}>{formatReais(pedido.total_pago_reais)}</Text>
@@ -172,6 +179,10 @@ const styles = StyleSheet.create({
   itens: {
     fontFamily: 'HankenGrotesk-Regular',
     fontSize: typography.sizes.base.fontSize,
+  },
+  prazoAceite: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.xs.fontSize,
   },
   footer: {
     flexDirection: 'row',

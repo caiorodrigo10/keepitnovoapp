@@ -99,6 +99,42 @@
 // tipado do PostgREST, mesmo padrão já usado pelas demais tabelas deste
 // arquivo.
 //
+// Bloco 06 / Stories 6.6/6.7 (2026-08-13) — reconciliação manual adicional:
+// as tabelas `pedidos`/`pedidos_itens` e a RPC `public.criar_pedido(...)`
+// foram aplicadas ao `keepit-dev` pelas migrations
+// `apps/supabase/supabase/migrations/20260813004932_criar_pedidos.sql`,
+// `20260813004933_criar_pedidos_itens.sql` e
+// `20260813004934_rpc_criar_pedido.sql` (@data-engineer), mesma limitação
+// de ambiente (sem `SUPABASE_ACCESS_TOKEN` para `supabase gen types`). As 2
+// entradas de tabela abaixo espelham EXATAMENTE o DDL aplicado (subset do
+// piloto — colunas de rastreio pós-aceite `saiu_hub_em`/`cliente_chegou_em`/
+// `lojista_chegou_em` e as de PIX/Asaas FICAM FORA, ver cabeçalho da
+// migration `20260813004932`). `pin_hash` está no `Row` (reflete a coluna
+// real), mas nenhum adapter deste bloco a inclui na `select()` — `pin_texto`
+// é o único campo de PIN exposto pela `OrderPort` (`Pedido.pin_hash` não
+// existe no tipo de domínio). `Relationships: []` em ambas — os adapters
+// (`order.supabase.ts`) fazem 2 queries separadas (`pedidos` +
+// `pedidos_itens` por `pedido_id`/`in()`), sem embed tipado do PostgREST,
+// mesmo padrão já usado pelas demais tabelas deste arquivo. A entrada
+// `criar_pedido` espelha EXATAMENTE a assinatura SQL da função (9
+// parâmetros `p_*` + `RETURNS TABLE (pedido_id uuid, numero integer,
+// pin_texto text)`, tipado como array de linhas no client, mesmo padrão de
+// `criar_estabelecimento_completo` para `RETURNS TABLE`).
+//
+// Bloco 06 / Stories 6.8/6.9 (2026-08-13) — reconciliação manual adicional: as
+// RPCs `public.meu_estabelecimento_id()` (RETURNS uuid, sem parâmetros) e
+// `public.aceitar_pedido(p_pedido_id uuid, p_tempo_estimado_min int)`
+// (RETURNS uuid) foram aplicadas ao `keepit-dev` pelas migrations
+// `apps/supabase/supabase/migrations/20260813004932_criar_pedidos.sql`
+// (helper `meu_estabelecimento_id`) e
+// `20260813004935_rpc_aceitar_pedido.sql` (@data-engineer), mesma limitação
+// de ambiente (sem `SUPABASE_ACCESS_TOKEN` para `supabase gen types`). As 2
+// entradas abaixo espelham EXATAMENTE a assinatura SQL de cada função —
+// `meu_estabelecimento_id` sem parâmetros (`Args: Record<PropertyKey, never>`,
+// mesmo padrão de funções sem argumentos), `aceitar_pedido` com os 2
+// parâmetros `p_*` — ambas `RETURNS uuid` (tipado como `string` no client,
+// mesmo padrão de `aprovar_lojista`/`rejeitar_lojista`).
+//
 // Regenerar via `supabase gen types typescript --project-id
 // jhhbewnmnorhmsdvfppo` (com login) substitui todos os blocos manuais sem
 // alteração de forma esperada.
@@ -409,6 +445,128 @@ export type Database = {
         }
         Relationships: []
       }
+      // Bloco 06 / Stories 6.6/6.7 — ver comentário de reconciliação manual no topo do arquivo.
+      pedidos: {
+        Row: {
+          id: string
+          numero: number
+          cliente_id: string
+          estabelecimento_id: string
+          hub_id: string
+          status: string
+          pin_hash: string
+          pin_texto: string
+          tentativas_pin: number
+          pin_bloqueado_ate: string | null
+          tempo_estimado_min: number | null
+          criado_em: string
+          pago_em: string | null
+          aceito_em: string | null
+          entregue_em: string | null
+          cancelado_em: string | null
+          subtotal_produtos_reais: number
+          taxa_deslocamento_reais: number
+          taxa_keepit_reais: number
+          taxa_servico_comprador_reais: number
+          total_pago_reais: number
+          nf_solicitada: boolean
+          motivo_recusa: string | null
+          motivo_cancelamento: string | null
+          motivo_nao_retirado: string | null
+          forma_pagamento: string
+          atualizado_em: string
+        }
+        Insert: {
+          id?: string
+          numero?: number
+          cliente_id: string
+          estabelecimento_id: string
+          hub_id: string
+          status?: string
+          pin_hash: string
+          pin_texto: string
+          tentativas_pin?: number
+          pin_bloqueado_ate?: string | null
+          tempo_estimado_min?: number | null
+          criado_em?: string
+          pago_em?: string | null
+          aceito_em?: string | null
+          entregue_em?: string | null
+          cancelado_em?: string | null
+          subtotal_produtos_reais: number
+          taxa_deslocamento_reais: number
+          taxa_keepit_reais: number
+          taxa_servico_comprador_reais?: number
+          total_pago_reais: number
+          nf_solicitada?: boolean
+          motivo_recusa?: string | null
+          motivo_cancelamento?: string | null
+          motivo_nao_retirado?: string | null
+          forma_pagamento?: string
+          atualizado_em?: string
+        }
+        Update: {
+          id?: string
+          numero?: number
+          cliente_id?: string
+          estabelecimento_id?: string
+          hub_id?: string
+          status?: string
+          pin_hash?: string
+          pin_texto?: string
+          tentativas_pin?: number
+          pin_bloqueado_ate?: string | null
+          tempo_estimado_min?: number | null
+          criado_em?: string
+          pago_em?: string | null
+          aceito_em?: string | null
+          entregue_em?: string | null
+          cancelado_em?: string | null
+          subtotal_produtos_reais?: number
+          taxa_deslocamento_reais?: number
+          taxa_keepit_reais?: number
+          taxa_servico_comprador_reais?: number
+          total_pago_reais?: number
+          nf_solicitada?: boolean
+          motivo_recusa?: string | null
+          motivo_cancelamento?: string | null
+          motivo_nao_retirado?: string | null
+          forma_pagamento?: string
+          atualizado_em?: string
+        }
+        Relationships: []
+      }
+      // Bloco 06 / Stories 6.6/6.7 — ver comentário de reconciliação manual no topo do arquivo.
+      pedidos_itens: {
+        Row: {
+          id: string
+          pedido_id: string
+          produto_id: string | null
+          nome_snapshot: string
+          preco_unitario_reais: number
+          quantidade: number
+          subtotal_reais: number
+        }
+        Insert: {
+          id?: string
+          pedido_id: string
+          produto_id?: string | null
+          nome_snapshot: string
+          preco_unitario_reais: number
+          quantidade: number
+          subtotal_reais: number
+        }
+        Update: {
+          id?: string
+          pedido_id?: string
+          produto_id?: string | null
+          nome_snapshot?: string
+          preco_unitario_reais?: number
+          quantidade?: number
+          subtotal_reais?: number
+        }
+        Relationships: []
+      }
       // Story 3.7 — ver comentário de reconciliação manual no topo do arquivo.
       admin_users: {
         Row: {
@@ -475,6 +633,38 @@ export type Database = {
         Args: {
           p_estab_id: string
           p_motivo: string
+        }
+        Returns: string
+      }
+      // Bloco 06 / Stories 6.6/6.7 — ver comentário de reconciliação manual no topo do arquivo.
+      criar_pedido: {
+        Args: {
+          p_estabelecimento_id: string
+          p_hub_id: string
+          p_itens: Json
+          p_subtotal_produtos_reais: number
+          p_taxa_deslocamento_reais: number
+          p_taxa_keepit_reais: number
+          p_taxa_servico_comprador_reais: number
+          p_total_pago_reais: number
+          p_nf_solicitada: boolean
+        }
+        Returns: {
+          pedido_id: string
+          numero: number
+          pin_texto: string
+        }[]
+      }
+      // Bloco 06 / Stories 6.8/6.9 — ver comentário de reconciliação manual no topo do arquivo.
+      meu_estabelecimento_id: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
+      // Bloco 06 / Story 6.9 — ver comentário de reconciliação manual no topo do arquivo.
+      aceitar_pedido: {
+        Args: {
+          p_pedido_id: string
+          p_tempo_estimado_min: number
         }
         Returns: string
       }

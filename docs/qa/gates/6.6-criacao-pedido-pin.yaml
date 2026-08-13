@@ -1,0 +1,34 @@
+schema: 1
+story: '6.6'
+gate: CONCERNS
+status_reason: 'create real chama a RPC SECURITY DEFINER criar_pedido sem enviar cliente_id (RPC usa auth.uid()) nem forma_pagamento, monta o Pedido por read-after-write (nunca ecoa o input) e mapeia os 6 erros nomeados; pin_hash nunca sai do backend (ausente de PEDIDO_COLUMNS/tipo Pedido/retorno da RPC; asserção em teste); pagamento simulado sem gateway; RLS ENABLE+FORCE fail-closed. Débito principal: a RPC nao recalcula totais server-side (confia no checkout client-side) — aceitável só no piloto sem dinheiro real, fechar no Épico 7.'
+reviewer: 'Quinn'
+updated: '2026-08-13T01:45:00Z'
+top_issues:
+  - id: 'SEC-006'
+    severity: medium
+    finding: 'A RPC criar_pedido persiste os totais recebidos do checkout client-side sem recálculo autoritativo server-side. Uma chamada direta à RPC com a própria sessão poderia gravar subtotal/total adulterados (sempre no escopo do próprio auth.uid(), nunca para outro cliente).'
+    suggested_action: 'Aceitável no piloto (pagamento SIMULADO, sem cobrança/PIX real). Épico 7: recálculo autoritativo server-side + valor cobrado vindo do gateway Asaas (não da UI). Débito de segurança registrado.'
+  - id: 'TEST-001'
+    severity: low
+    finding: 'A derivação nova taxa_keepit_reais = subtotal * taxaKeepitPercent/100 em Pagamento.tsx não tem teste unitário dedicado (computeCheckoutTotals é testado; essa linha específica não).'
+    suggested_action: 'Extrair a derivação para função pura testável ou cobrir quando Pagamento.tsx ganhar harness (Épico 7).'
+  - id: 'DEV-001'
+    severity: low
+    finding: 'Teste manual/device com DATA_SOURCE=supabase real não executado (sem Expo/device no sandbox). Cobertura automatizada equivalente presente (payload exato + read-after-write).'
+    suggested_action: 'Verificar em device no piloto: criar pedido → pedidos.status=aguardando_aceite, pin_texto 4 dígitos, pin_hash presente no banco, pedidos_itens com snapshot correto.'
+  - id: 'DEV-002'
+    severity: low
+    finding: 'shared-types/src/supabase.ts reconciliado manualmente com pedidos/pedidos_itens/criar_pedido (mesmo padrão das Stories 3.5/3.7/4.x/5.2).'
+    suggested_action: 'Regenerar do schema real quando o pipeline de types estiver disponível.'
+evidence:
+  tests_reviewed: 'core-data 376/376 (order.supabase.test.ts 12, order.mock.test.ts 16); cliente 101/101; pnpm qa 27/27 — reexecutados fresh (sem cache) no worktree.'
+  acs_covered: [1, 2, 3, 4, 5, 6, 7]
+  security_confirmed:
+    - 'pin_hash nunca exposto: fora de PEDIDO_COLUMNS, do tipo Pedido e do retorno da RPC (só pin_texto); asserção not.toHaveProperty em teste; grep confirma que só aparece no tipo gerado da tabela e em asserções negativas.'
+    - 'create não envia cliente_id (RPC usa auth.uid()); teste assere ausência de cliente_id/p_cliente_id/forma_pagamento no payload.'
+    - 'RPC SECURITY DEFINER + search_path='''' + EXECUTE só authenticated + REVOKE PUBLIC/anon; PIN via CSPRNG gen_random_bytes + rejection sampling + bcrypt.'
+    - 'Pagamento simulado: pago_em=NOW, forma pix fixa, sem tokenização/gateway/QR PIX.'
+    - 'Sem service_role no bundle (grep só acha comentários confirmando a ausência).'
+    - 'RLS pedidos/pedidos_itens ENABLE+FORCE; INSERT/UPDATE/DELETE diretos = false (só RPC escreve).'
+waiver: { active: false }

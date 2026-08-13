@@ -1,6 +1,7 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
+import { SUPORTE_WHATSAPP_DISPONIVEL, SUPORTE_WHATSAPP_NUMERO } from '@keepit/config';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { AsyncStateBlock } from '../../components/discovery';
@@ -9,9 +10,23 @@ import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useHubDetail } from '../../hooks/useHubDetail';
 import { usePedidoDetail } from '../../hooks/usePedidoDetail';
 import { Screen } from '../../components/ui';
+import { comoChegarLabel, comoChegarUrl } from '../../lib/comoChegar';
 import { formatReais } from '../../lib/format';
 import { timelineStepIndex } from '../../lib/pedidoStatus';
 import type { RootStackParamList } from '../../navigation/types';
+
+/**
+ * Story 6.7 (AC2) — seam WA-001 (`@keepit/config`), mesmo padrão já
+ * validado em `apps/lojista/src/screens/perfil/ExcluirConta.tsx`/
+ * `Configuracoes.tsx`. Sem mapa integrado no MVP — o destino, quando
+ * disponível, é abrir uma conversa de WhatsApp perguntando a localização.
+ */
+function handleComoChegar(): void {
+  const url = comoChegarUrl(SUPORTE_WHATSAPP_DISPONIVEL, SUPORTE_WHATSAPP_NUMERO);
+  if (url) {
+    void Linking.openURL(url);
+  }
+}
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ModalConfirmarPin'>;
 
@@ -26,6 +41,12 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ModalConfirmarPin'>;
  * Rota `ModalConfirmarPin` (decisão da Story 0.3): é o destino real do item
  * de inventário "Confirmar retirada / PIN" da Story 0.7 — o cliente só
  * EXIBE o PIN aqui, nunca digita (quem digita é o lojista, Story 0.10).
+ *
+ * **Story 6.7.** Em `DATA_SOURCE=supabase`, `usePedidoDetail`/
+ * `usePedidosMine` passam a resolver `OrderPort.listMine` real (adapter
+ * Supabase, Story 6.7) — nenhuma mudança nesta tela além do link "Como
+ * chegar" (ver `handleComoChegar` acima), que antes era um `<Text>` sem
+ * `onPress` (link morto).
  */
 export default function ModalConfirmarPin({ route, navigation }: Props) {
   const { data: cliente } = useCurrentCliente();
@@ -77,7 +98,11 @@ export default function ModalConfirmarPin({ route, navigation }: Props) {
                 <Text style={styles.hubNome}>{hub.nome}</Text>
                 <Text style={styles.hubEndereco}>{hub.endereco}</Text>
               </View>
-              <Text style={styles.comoChegar}>Como chegar</Text>
+              <Pressable onPress={handleComoChegar} disabled={!SUPORTE_WHATSAPP_DISPONIVEL} hitSlop={8}>
+                <Text style={[styles.comoChegar, !SUPORTE_WHATSAPP_DISPONIVEL && styles.comoChegarDesabilitado]}>
+                  {comoChegarLabel(SUPORTE_WHATSAPP_DISPONIVEL)}
+                </Text>
+              </Pressable>
             </View>
           )}
 
@@ -195,6 +220,9 @@ const styles = StyleSheet.create({
     fontFamily: 'HankenGrotesk-SemiBold',
     fontSize: typography.sizes.sm.fontSize,
     color: lightColors.accent.successFg,
+  },
+  comoChegarDesabilitado: {
+    color: lightColors.text.tertiary,
   },
   footer: {
     fontFamily: 'HankenGrotesk-Regular',

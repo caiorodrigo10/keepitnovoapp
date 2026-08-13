@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 
+import { businessConfig } from '@keepit/config';
 import { getDataClient } from '@keepit/core-data';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
@@ -9,9 +11,16 @@ import { SelectableRow } from '../../components/checkout';
 import { Button, Screen } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
-import type { HomeStackParamList } from '../../navigation/types';
+import { useStoreDetail } from '../../hooks/useStoreDetail';
+import { computeCheckoutTotals } from '../../lib/checkoutTotals';
+import { isSupabaseDataSource } from '../../lib/dataSource';
+import type { HomeStackParamList, RootStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Pagamento'>;
+
+function roundReais(value: number): number {
+  return Math.round(value * 100) / 100;
+}
 
 /**
  * Pagamento (Task 5, AC1/AC3/AC4). Fiel a `cliente-13-pagamento.png`
@@ -20,14 +29,30 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'Pagamento'>;
  * (Task 6, alinhado ao inventário de telas da Story 0.3/AC1 desta story).
  *
  * Botão final "Pagar" (AC3): nenhuma cobrança real — chama
- * `order.port.create` (mock, Story 0.2) para registrar o pedido mock com
- * os dados já coletados (carrinho, hub, forma de pagamento), sem
- * tokenização/gateway/QR PIX real. Ponto de saída para a Story 0.7 (Meus
- * Pedidos), fora do escopo desta story.
+ * `order.port.create` para registrar o pedido com os dados já coletados
+ * (carrinho, hub, forma de pagamento), sem tokenização/gateway/QR PIX
+ * real.
+ *
+ * **Story 6.6 (Bloco 06).** Em `DATA_SOURCE=supabase`, "Pagar" chama a RPC
+ * real `criar_pedido` (pagamento SIMULADO em dev — sem cobrança/QR PIX,
+ * fronteira do Épico 7) via `OrderPort.create` (implementação real do
+ * adapter Supabase) e navega para a tela do PIN (`ModalConfirmarPin`,
+ * Story 6.7) com o pedido recém-criado. Em `DATA_SOURCE=mock`, preserva o
+ * fluxo anterior (navega para `PedidosTab`, Story 0.7).
+ *
+ * Os totais enviados a `order.create` são EXATAMENTE os que o Checkout já
+ * calculou/exibiu (`taxaDeslocamentoReais` via `useStoreDetail`, o MESMO
+ * hook/dado que `Checkout.tsx` usa, e a MESMA fórmula `computeCheckoutTotals`,
+ * Story 6.2) — nenhum valor novo inventado aqui. `taxa_keepit_reais` é a
+ * ÚNICA derivação nova desta tela (nunca exibida ao cliente, Story 6.2
+ * AC3), pela mesma fórmula já usada pelo mock (`order.mock.ts`,
+ * `businessConfig.taxaKeepitPercent` sobre o subtotal).
  */
 export default function Pagamento({ navigation }: Props) {
   const cart = useCart();
   const { data: cliente } = useCurrentCliente();
+  const { data: loja } = useStoreDetail(cart.estabelecimentoId ?? '', {});
+  const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
@@ -42,16 +67,41 @@ export default function Pagamento({ navigation }: Props) {
     setErro(null);
     try {
       const client = getDataClient();
-      await client.order.create({
+      const taxaDeslocamentoReais = loja?.taxa_deslocamento_reais ?? 0;
+      const { taxaServicoReais, totalReais } = computeCheckoutTotals(
+        cart.subtotalReais,
+        taxaDeslocamentoReais,
+        businessConfig.taxaServicoCompradorReais,
+      );
+      const taxaKeepitReais = roundReais((cart.subtotalReais * businessConfig.taxaKeepitPercent) / 100);
+
+      const pedido = await client.order.create({
         cliente_id: cliente.id,
         estabelecimento_id: cart.estabelecimentoId,
         hub_id: cart.hubId,
-        itens: cart.items.map((item) => ({ produto_id: item.produtoId, quantidade: item.quantidade })),
+        itens: cart.items.map((item) => ({
+          produto_id: item.produtoId,
+          nome_snapshot: item.nome,
+          preco_unitario_reais: item.precoSnapshotReais,
+          quantidade: item.quantidade,
+        })),
         forma_pagamento: cart.payment.type === 'pix' ? 'pix' : 'cartao',
+        subtotal_produtos_reais: cart.subtotalReais,
+        taxa_deslocamento_reais: taxaDeslocamentoReais,
+        taxa_keepit_reais: taxaKeepitReais,
+        taxa_servico_comprador_reais: taxaServicoReais,
+        total_pago_reais: totalReais,
+        nf_solicitada: cart.nfSolicitada,
       });
       cart.clearOrder();
-      // Ponto de saída para a Story 0.7 ("Meus Pedidos") — fora do escopo
-      // desta story, apenas troca de tab para onde o pedido mock aparece.
+
+      if (isSupabaseDataSource()) {
+        // Story 6.7 — pedido real criado, mostra o PIN de retirada.
+        rootNavigation.navigate('ModalConfirmarPin', { pedidoId: pedido.id });
+        return;
+      }
+      // Ponto de saída para a Story 0.7 ("Meus Pedidos") — fluxo mock
+      // preservado, apenas troca de tab para onde o pedido mock aparece.
       navigation.getParent()?.navigate('PedidosTab' as never);
     } catch (error) {
       setErro(error instanceof Error ? error.message : 'Não foi possível concluir o pagamento. Tente novamente.');

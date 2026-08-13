@@ -74,17 +74,47 @@ export interface Pedido {
   itens: PedidoItem[];
 }
 
+/**
+ * Story 6.6 (AC1, AC4) — estendido com `nome_snapshot`/`preco_unitario_reais`
+ * (antes só `{produto_id, quantidade}`). A RPC real `criar_pedido`
+ * (`20260813004934_rpc_criar_pedido.sql`) espera cada item de `p_itens` já
+ * com o snapshot do nome/preço — ela CONGELA o que recebe, não relê
+ * `produtos` para montar o snapshot. `preco_unitario_reais` é o preço
+ * CONGELADO no carrinho (`CartItem.precoSnapshotReais`, Story 6.1), não o
+ * preço atual do catálogo.
+ */
 export interface CreatePedidoItemInput {
   produto_id: string;
+  nome_snapshot: string;
+  preco_unitario_reais: number;
   quantidade: number;
 }
 
+/**
+ * Story 6.6 (AC1, AC4) — estendido com os 5 totais de cabeçalho +
+ * `nf_solicitada`. A RPC real `criar_pedido` os recebe como PARÂMETROS e os
+ * PERSISTE como snapshot (não os recalcula a partir de `produtos` — ver
+ * `docs/stories/6.6.story.md`, AC1, "LIMITAÇÃO DE PILOTO"). Quem chama
+ * `OrderPort.create` (`Pagamento.tsx`) é responsável por calcular esses
+ * valores com a MESMA fórmula usada no Checkout (`computeCheckoutTotals`,
+ * Story 6.2) + `taxa_keepit_reais` (nunca exibida ao cliente — Story 6.2
+ * AC3), garantindo paridade com o que o Checkout já mostrou antes de
+ * "Pagar" (nenhum valor novo inventado nesta camada).
+ */
 export interface CreatePedidoInput {
   cliente_id: string;
   estabelecimento_id: string;
   hub_id: string;
   itens: CreatePedidoItemInput[];
   forma_pagamento: FormaPagamento;
+  subtotal_produtos_reais: number;
+  taxa_deslocamento_reais: number;
+  /** 12%→10% de `subtotal_produtos_reais` (`businessConfig.taxaKeepitPercent`) — cobrada do LOJISTA, nunca exibida ao cliente. */
+  taxa_keepit_reais: number;
+  /** Taxa fixa do comprador (`businessConfig.taxaServicoCompradorReais`, hoje R$ 2,90, provisória). */
+  taxa_servico_comprador_reais: number;
+  total_pago_reais: number;
+  nf_solicitada: boolean;
 }
 
 /**

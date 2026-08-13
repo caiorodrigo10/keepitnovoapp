@@ -41,6 +41,29 @@ export function createOrderMock(db: MockDb): OrderPort {
   }
 
   return {
+    /**
+     * Story 6.6 (AC1, AC4, AC6) — [IDS] ADAPT. `CreatePedidoInput` agora
+     * carrega o snapshot dos itens (`nome_snapshot`/`preco_unitario_reais`)
+     * e os 5 totais de cabeçalho já calculados por quem chama (mesma
+     * fórmula do Checkout, Story 6.2). Este mock deixou de RE-DERIVAR esses
+     * valores a partir de `db.produtos`/`db.estabelecimentos` — passou a
+     * CONGELAR/PERSISTIR exatamente o que recebe, mesmo comportamento da
+     * RPC real `criar_pedido` (`20260813004934_rpc_criar_pedido.sql`, "os
+     * totais de cabeçalho são recebidos como parâmetros e persistidos como
+     * snapshot — a RPC não os recalcula"). Isso é a paridade mock↔real
+     * exigida pela AC7: os dois adapters têm o MESMO contrato (pass-through
+     * do snapshot), não duas implementações divergentes da mesma fórmula.
+     *
+     * **AC6 — decisão registrada:** o status inicial passa de
+     * `'aguardando_pagamento'` para `'aguardando_aceite'`, alinhando ao
+     * comportamento do piloto real (RPC sempre cria em `aguardando_aceite`
+     * — pagamento simulado em dev, sem estado intermediário). Corrige o gap
+     * pré-existente descrito no Data Mode da Story 6.6: antes desta
+     * mudança, um pedido mock recém-criado não aparecia como "Novo" na tela
+     * `NovosPedidos` do Lojista (`isNovo` só é `true` para
+     * `aguardando_aceite`). Ver Change Log da Story 6.6 para o racional
+     * completo.
+     */
     create(input: CreatePedidoInput, options?: AsyncCallOptions): Promise<Pedido> {
       return simulateAsync(
         () => {
@@ -50,28 +73,15 @@ export function createOrderMock(db: MockDb): OrderPort {
           }
 
           const pedidoId = generateMockId('pedido');
-          const itens: PedidoItem[] = input.itens.map((item, index) => {
-            const produto = db.produtos.find((p) => p.id === item.produto_id);
-            if (!produto) {
-              throw new Error(`[mock] Produto não encontrado: ${item.produto_id}`);
-            }
-            const subtotal = roundReais(produto.preco_reais * item.quantidade);
-            return {
-              id: `${pedidoId}-item-${index + 1}`,
-              pedido_id: pedidoId,
-              produto_id: produto.id,
-              nome_snapshot: produto.nome,
-              preco_unitario_reais: produto.preco_reais,
-              quantidade: item.quantidade,
-              subtotal_reais: subtotal,
-            };
-          });
-
-          const subtotalProdutos = roundReais(itens.reduce((sum, item) => sum + item.subtotal_reais, 0));
-          // Taxa Keepit incide sobre subtotal_produtos_reais, NUNCA sobre a taxa de deslocamento.
-          const taxaKeepit = roundReais((subtotalProdutos * businessConfig.taxaKeepitPercent) / 100);
-          const taxaDeslocamento = estabelecimento.taxa_deslocamento_reais;
-          const totalPago = roundReais(subtotalProdutos + taxaDeslocamento);
+          const itens: PedidoItem[] = input.itens.map((item, index) => ({
+            id: `${pedidoId}-item-${index + 1}`,
+            pedido_id: pedidoId,
+            produto_id: item.produto_id,
+            nome_snapshot: item.nome_snapshot,
+            preco_unitario_reais: item.preco_unitario_reais,
+            quantidade: item.quantidade,
+            subtotal_reais: roundReais(item.preco_unitario_reais * item.quantidade),
+          }));
 
           const pedido: Pedido = {
             id: pedidoId,
@@ -79,7 +89,7 @@ export function createOrderMock(db: MockDb): OrderPort {
             cliente_id: input.cliente_id,
             estabelecimento_id: input.estabelecimento_id,
             hub_id: input.hub_id,
-            status: 'aguardando_pagamento',
+            status: 'aguardando_aceite',
             pin_texto: generatePin(),
             tentativas_pin: 0,
             pin_bloqueado_ate: null,
@@ -91,10 +101,10 @@ export function createOrderMock(db: MockDb): OrderPort {
             lojista_chegou_em: null,
             entregue_em: null,
             cancelado_em: null,
-            subtotal_produtos_reais: subtotalProdutos,
-            taxa_deslocamento_reais: taxaDeslocamento,
-            taxa_keepit_reais: taxaKeepit,
-            total_pago_reais: totalPago,
+            subtotal_produtos_reais: roundReais(input.subtotal_produtos_reais),
+            taxa_deslocamento_reais: roundReais(input.taxa_deslocamento_reais),
+            taxa_keepit_reais: roundReais(input.taxa_keepit_reais),
+            total_pago_reais: roundReais(input.total_pago_reais),
             motivo_recusa: null,
             motivo_cancelamento: null,
             motivo_nao_retirado: null,
@@ -114,10 +124,18 @@ export function createOrderMock(db: MockDb): OrderPort {
       return simulateAsync(() => db.pedidos.filter((p) => p.cliente_id === clienteId), [], options);
     },
 
+    /**
+     * Story 6.9 — [IDS] ADAPT: passa a usar `assertStatus`, mesmo padrão já
+     * usado por `refuse`/`markReadyForHub`/`markArrivedAtHub` no próprio
+     * arquivo (gap pré-existente documentado no Dev Notes da Story 6.9).
+     * Paridade com a RPC real `aceitar_pedido`, que só transiciona a partir
+     * de `aguardando_aceite` (proteção contra dupla-aceitação).
+     */
     accept(pedidoId: string, tempoEstimadoMin: number, options?: AsyncCallOptions): Promise<Pedido> {
       return simulateAsync(
         () => {
           const pedido = findOrThrow(pedidoId);
+          assertStatus(pedido, 'accept', ['aguardando_aceite']);
           pedido.status = 'aceito';
           pedido.tempo_estimado_min = tempoEstimadoMin;
           pedido.aceito_em = new Date().toISOString();

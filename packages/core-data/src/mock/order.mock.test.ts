@@ -14,23 +14,46 @@ describe('order.mock (contract)', () => {
     port = createOrderMock(db);
   });
 
-  it('create computes taxa_keepit_reais from businessConfig.taxaKeepitPercent over subtotal only', async () => {
+  it('create persiste o snapshot de itens e os totais de cabeçalho recebidos (Story 6.6, AC1/AC7 — sem recalcular a partir do catálogo)', async () => {
+    const subtotal = 29.8; // 2x produto-dipirona a R$ 14,90 (mesmo valor do catálogo, calculado por quem chama)
+    const taxaKeepit = (subtotal * businessConfig.taxaKeepitPercent) / 100;
+    const taxaDeslocamento = 5;
+    const taxaServico = businessConfig.taxaServicoCompradorReais;
+    const total = subtotal + taxaDeslocamento + taxaServico;
+
     const pedido = await port.create(
       {
         cliente_id: 'cliente-ana',
         estabelecimento_id: 'estab-farmacia-vida',
         hub_id: 'hub-centro',
-        itens: [{ produto_id: 'produto-dipirona', quantidade: 2 }],
+        itens: [
+          { produto_id: 'produto-dipirona', nome_snapshot: 'Dipirona Monoidratada 500mg', preco_unitario_reais: 14.9, quantidade: 2 },
+        ],
         forma_pagamento: 'pix',
+        subtotal_produtos_reais: subtotal,
+        taxa_deslocamento_reais: taxaDeslocamento,
+        taxa_keepit_reais: taxaKeepit,
+        taxa_servico_comprador_reais: taxaServico,
+        total_pago_reais: total,
+        nf_solicitada: false,
       },
       { delayMs: 1 },
     );
 
     expect(pedido.subtotal_produtos_reais).toBeCloseTo(29.8, 2);
     expect(pedido.taxa_keepit_reais).toBeCloseTo((29.8 * businessConfig.taxaKeepitPercent) / 100, 2);
-    expect(pedido.status).toBe('aguardando_pagamento');
+    expect(pedido.taxa_deslocamento_reais).toBeCloseTo(taxaDeslocamento, 2);
+    expect(pedido.total_pago_reais).toBeCloseTo(total, 2);
+    // AC6: status inicial alinhado ao piloto real (pagamento simulado em dev).
+    expect(pedido.status).toBe('aguardando_aceite');
     expect(pedido.pin_texto).toMatch(/^\d{4}$/);
     expect(pedido.itens).toHaveLength(1);
+    expect(pedido.itens[0]).toMatchObject({
+      nome_snapshot: 'Dipirona Monoidratada 500mg',
+      preco_unitario_reais: 14.9,
+      quantidade: 2,
+      subtotal_reais: 29.8,
+    });
   });
 
   it('listMine resolves with only the pedidos of the given cliente', async () => {
@@ -88,6 +111,17 @@ describe('order.mock (contract)', () => {
     const pedidos = await port.listByEstabelecimento('estab-farmacia-vida', { delayMs: 1 });
     expect(pedidos.length).toBeGreaterThan(0);
     expect(pedidos.every((p) => p.estabelecimento_id === 'estab-farmacia-vida')).toBe(true);
+  });
+
+  it('accept transitions aguardando_aceite -> aceito, persisting tempo_estimado_min/aceito_em (Story 6.9)', async () => {
+    const pedido = await port.accept('pedido-2049', 25, { delayMs: 1 });
+    expect(pedido.status).toBe('aceito');
+    expect(pedido.tempo_estimado_min).toBe(25);
+    expect(pedido.aceito_em).not.toBeNull();
+  });
+
+  it('accept rejects double-acceptance — pedido já em "aceito" (Story 6.9, paridade com a RPC ESTADO_INVALIDO)', async () => {
+    await expect(port.accept('pedido-ops-3005', 25, { delayMs: 1 })).rejects.toThrow(/não permitida/i);
   });
 
   it('markReadyForHub transitions aceito/em_preparo -> saindo_hub and rejects otherwise', async () => {

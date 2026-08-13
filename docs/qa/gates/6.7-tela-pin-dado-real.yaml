@@ -1,0 +1,22 @@
+schema: 1
+story: '6.7'
+gate: CONCERNS
+status_reason: 'listMine real autoriza SEMPRE pela sessão (auth.getUser() → eq cliente_id=user.id), ignorando o clienteId recebido como param (teste prova); [] honesto sem sessão; SELECT explícito exclui pin_hash; RLS ve_pedidos_relacionados como 2ª barreira. Link "Como chegar" ganhou onPress real via seam WA-001 com estado honesto de indisponibilidade — nunca wa.me com número inventado. ModalConfirmarPin sem redesenho. Único débito: verificação manual/device pendente.'
+reviewer: 'Quinn'
+updated: '2026-08-13T01:45:00Z'
+top_issues:
+  - id: 'DEV-003'
+    severity: low
+    finding: 'Teste manual/device (DATA_SOURCE=supabase: criar pedido → Meus Pedidos → tocar no pedido em andamento → ver PIN real na tela) não executado (sem Expo/device no sandbox). Cobertura automatizada equivalente em order.supabase.test.ts#listMine.'
+    suggested_action: 'Verificar em device no piloto — AC1/AC3 (dado real na tela do PIN) confirmadas visualmente.'
+evidence:
+  tests_reviewed: 'cliente 101/101 (comoChegar.test.ts 5, dataSource.test.ts 4); listMine em order.supabase.test.ts (3 casos: sem sessão → [], filtra por auth.uid() e não pelo param, mapeia sem vazar pin_hash) — reexecutados fresh no worktree.'
+  acs_covered: [1, 2, 3, 4, 5]
+  security_confirmed:
+    - 'listMine autoriza por auth.uid() da sessão, não pelo clienteId do param; teste assere .eq(cliente_id, cliente-da-sessao) mesmo recebendo outro id como argumento.'
+    - '[] honesto quando não há sessão (nunca lança, nunca vaza pedidos de terceiro).'
+    - 'pin_hash fora de PEDIDO_COLUMNS e do tipo Pedido; só pin_texto (legível ao dono via RLS pode_ver_pedido).'
+    - 'Nenhum número de WhatsApp hardcoded — comoChegarUrl retorna null quando indisponível; SUPORTE_WHATSAPP_NUMERO=null (WA-001 pendente).'
+    - 'Sem service_role no bundle.'
+  regression: 'ModalConfirmarPin sem redesenho além do link; usePedidoDetail/usePedidosMine inalterados; mock listMine/fixtures preservados.'
+waiver: { active: false }

@@ -46,16 +46,15 @@ describe('supabase adapters (esqueleto — Story 1.9)', () => {
   // (Stories 4.3/4.4) e `getById`/`update`/`pause`/`delete` (Stories 4.5/4.6)
   // já são implementações reais, cobertas em `product.supabase.test.ts`.
 
-  it('order.supabase.ts — todo método rejeita com NotImplementedError', async () => {
+  // order.supabase.ts — `create` (Story 6.6), `listMine` (Story 6.7),
+  // `accept` (Story 6.9) e `listByEstabelecimento` (Story 6.8) já são
+  // implementações reais, cobertas em `order.supabase.test.ts`.
+  it('order.supabase.ts — demais métodos rejeitam com NotImplementedError', async () => {
     const port = createOrderSupabase();
-    await expectNotImplemented(port.create.bind(port), 1);
-    await expectNotImplemented(port.listMine.bind(port), 1);
     await expectNotImplemented(port.getById.bind(port), 1);
-    await expectNotImplemented(port.accept.bind(port), 2);
     await expectNotImplemented(port.refuse.bind(port), 2);
     await expectNotImplemented(port.confirmPin.bind(port), 2);
     await expectNotImplemented(port.cancel.bind(port), 2);
-    await expectNotImplemented(port.listByEstabelecimento.bind(port), 1);
     await expectNotImplemented(port.markReadyForHub.bind(port), 1);
     await expectNotImplemented(port.markArrivedAtHub.bind(port), 1);
     await expectNotImplemented(port.markCustomerNoShow.bind(port), 2);
@@ -96,8 +95,8 @@ describe('supabase adapters (esqueleto — Story 1.9)', () => {
     await expect(createStoreSupabase().getCatalog(undefined as never)).rejects.toThrow(
       '[core-data/supabase] store.getCatalog — implementar no Épico 5',
     );
-    await expect(createOrderSupabase().create(undefined as never)).rejects.toThrow(
-      '[core-data/supabase] order.create — implementar no Épico 6',
+    await expect(createOrderSupabase().getById(undefined as never)).rejects.toThrow(
+      '[core-data/supabase] order.getById — implementar no Épico 6',
     );
     await expect(createAdminSupabase().refundQueue.list()).rejects.toThrow(
       '[core-data/supabase] admin.refundQueue.list — implementar no Épico 8',
