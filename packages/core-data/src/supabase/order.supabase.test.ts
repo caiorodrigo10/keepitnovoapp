@@ -6,6 +6,7 @@ import type { CreatePedidoInput } from '../ports/order.port';
 import { PinBloqueadoError, PinIncorretoError } from '../ports/order.port';
 import {
   AcessoNegadoError,
+  AtrasoNaoConfirmadoError,
   AutenticacaoNecessariaError,
   ClienteBloqueadoError,
   ClienteNaoEncontradoError,
@@ -725,5 +726,60 @@ describe('order.supabase.ts — reportLojistaNaoVeio (Story 6.20, AC2, AC4)', ()
     const { client } = fakeClient({ rpc: { data: null, error: { message: 'erro de rede', code: '500' } } });
     const port = createOrderSupabase(client);
     await expect(port.reportLojistaNaoVeio('pedido-1')).rejects.toMatchObject({ message: 'erro de rede' });
+  });
+});
+
+describe('order.supabase.ts — cancelPedidoAtraso (Story 6.21, AC2, AC3)', () => {
+  const CANCELADO_ATRASO_ROW = { ...PEDIDO_ROW, status: 'cancelado_atraso', cancelado_em: '2026-08-13T12:00:00.000Z' };
+
+  it('chama a RPC cancelar_pedido_atraso e monta o Pedido a partir da releitura real (RPC retorna só o uuid)', async () => {
+    const { client, rpc } = fakeClient({
+      rpc: { data: 'pedido-1', error: null },
+      pedidos: { data: CANCELADO_ATRASO_ROW, error: null },
+      pedidosItens: { data: [PEDIDO_ITEM_ROW], error: null },
+    });
+
+    const port = createOrderSupabase(client);
+    const pedido = await port.cancelPedidoAtraso('pedido-1');
+
+    expect(rpc).toHaveBeenCalledWith('cancelar_pedido_atraso', { p_pedido_id: 'pedido-1' });
+    expect(pedido.status).toBe('cancelado_atraso');
+    expect(pedido.cancelado_em).toBe('2026-08-13T12:00:00.000Z');
+  });
+
+  it('mapeia AUTENTICACAO_NECESSARIA para AutenticacaoNecessariaError', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'AUTENTICACAO_NECESSARIA', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.cancelPedidoAtraso('pedido-1')).rejects.toBeInstanceOf(AutenticacaoNecessariaError);
+  });
+
+  it('mapeia PEDIDO_NAO_ENCONTRADO para PedidoNaoEncontradoError', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'PEDIDO_NAO_ENCONTRADO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.cancelPedidoAtraso('pedido-inexistente')).rejects.toBeInstanceOf(PedidoNaoEncontradoError);
+  });
+
+  it('mapeia ACESSO_NEGADO para AcessoNegadoError (pedido de outro cliente)', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'ACESSO_NEGADO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.cancelPedidoAtraso('pedido-de-outro-cliente')).rejects.toBeInstanceOf(AcessoNegadoError);
+  });
+
+  it('mapeia ESTADO_INVALIDO para EstadoInvalidoError — fora de aceito/em_preparo', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'ESTADO_INVALIDO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.cancelPedidoAtraso('pedido-no-hub')).rejects.toBeInstanceOf(EstadoInvalidoError);
+  });
+
+  it('mapeia ATRASO_NAO_CONFIRMADO para AtrasoNaoConfirmadoError — reforço server-side do AC1', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'ATRASO_NAO_CONFIRMADO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.cancelPedidoAtraso('pedido-dentro-do-prazo')).rejects.toBeInstanceOf(AtrasoNaoConfirmadoError);
+  });
+
+  it('propaga qualquer outro erro sem mascarar e sem sucesso simulado', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'erro de rede', code: '500' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.cancelPedidoAtraso('pedido-1')).rejects.toMatchObject({ message: 'erro de rede' });
   });
 });

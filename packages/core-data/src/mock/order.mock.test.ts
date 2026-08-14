@@ -316,4 +316,36 @@ describe('order.mock (contract)', () => {
 
     await expect(port.cancel('lj-pedido-2045', 'Tarde demais', { delayMs: 1 })).rejects.toThrow(/não permitida/i);
   });
+
+  it('cancelPedidoAtraso (Story 6.21, AC2/AC3): sucesso quando 2x tempo_estimado_min vencido, popula refund 100% + falha atraso_grave', async () => {
+    // lj-pedido-2048: fixture status 'em_preparo', tempo_estimado_min 20 →
+    // limiar de 2x = 40min. Empurra aceito_em para além disso.
+    const pedido = db.pedidos.find((p) => p.id === 'lj-pedido-2048')!;
+    pedido.aceito_em = new Date(Date.now() - 45 * 60_000).toISOString();
+
+    const atualizado = await port.cancelPedidoAtraso('lj-pedido-2048', { delayMs: 1 });
+    expect(atualizado.status).toBe('cancelado_atraso');
+    expect(atualizado.cancelado_em).not.toBeNull();
+
+    const reembolso = db.reembolsos.find((r) => r.pedido_id === atualizado.id);
+    expect(reembolso?.motivo).toBe('cancelamento_atraso');
+    expect(reembolso?.valor_a_estornar_reais).toBeCloseTo(atualizado.total_pago_reais, 2);
+
+    const falha = db.falhas.find((f) => f.pedido_id === atualizado.id);
+    expect(falha?.tipo).toBe('atraso_grave');
+    expect(falha?.estabelecimento_id).toBe(atualizado.estabelecimento_id);
+  });
+
+  it('cancelPedidoAtraso rejects when the pedido is not in aceito/em_preparo', async () => {
+    // lj-pedido-2045: fixture status 'no_hub'.
+    await expect(port.cancelPedidoAtraso('lj-pedido-2045', { delayMs: 1 })).rejects.toThrow(/não permitida/i);
+  });
+
+  it('cancelPedidoAtraso rejects before 2x tempo_estimado_min (ATRASO_NAO_CONFIRMADO — server-side reinforcement)', async () => {
+    // lj-pedido-2048: aceito_em minutosAtras(4) na fixture, tempo_estimado_min
+    // 20 → limiar de 40min ainda não vencido.
+    await expect(port.cancelPedidoAtraso('lj-pedido-2048', { delayMs: 1 })).rejects.toThrow(
+      /ATRASO_NAO_CONFIRMADO/,
+    );
+  });
 });

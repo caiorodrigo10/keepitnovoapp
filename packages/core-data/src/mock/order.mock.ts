@@ -434,5 +434,50 @@ export function createOrderMock(db: MockDb): OrderPort {
         options,
       );
     },
+
+    /**
+     * Story 6.21 (AC2, AC3) — mesma lógica que a RPC real
+     * `cancelar_pedido_atraso` reforça server-side: status
+     * `aceito`/`em_preparo` (via `assertStatus`) e o atraso (`NOW() >
+     * aceito_em + 2 * tempo_estimado_min`) já confirmado — nunca confia só no
+     * client ter mostrado o prompt. Efeitos:
+     * `registrarReembolso(..., 'cancelamento_atraso')` (já suporta esse
+     * motivo, 100% ao cliente via `businessConfig.lojistaNaoVeioPercent`) +
+     * `registrarFalha(..., 'atraso_grave')`.
+     */
+    cancelPedidoAtraso(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido> {
+      return simulateAsync(
+        () => {
+          const pedido = findOrThrow(pedidoId);
+          assertStatus(pedido, 'cancelPedidoAtraso', ['aceito', 'em_preparo']);
+
+          if (!pedido.aceito_em || !pedido.tempo_estimado_min) {
+            throw new Error(
+              '[mock] cancelPedidoAtraso — pedido sem aceito_em/tempo_estimado_min para calcular o atraso (ATRASO_NAO_CONFIRMADO)',
+            );
+          }
+
+          const limiteMs = new Date(pedido.aceito_em).getTime() + 2 * pedido.tempo_estimado_min * 60_000;
+          if (Date.now() <= limiteMs) {
+            throw new Error(
+              '[mock] cancelPedidoAtraso — atraso (2x tempo_estimado_min) ainda não confirmado (ATRASO_NAO_CONFIRMADO)',
+            );
+          }
+
+          pedido.status = 'cancelado_atraso';
+          pedido.cancelado_em = new Date().toISOString();
+          registrarReembolso(db, pedido, 'cancelamento_atraso');
+          registrarFalha(
+            db,
+            pedido,
+            'atraso_grave',
+            `Pedido #${pedido.numero} — cancelado pelo cliente por atraso além de 2x o tempo estimado.`,
+          );
+          return pedido;
+        },
+        {} as Pedido,
+        options,
+      );
+    },
   };
 }

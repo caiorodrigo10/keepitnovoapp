@@ -15,6 +15,7 @@ import { PinBloqueadoError, PinIncorretoError } from '../ports/order.port';
 import type { AsyncCallOptions } from '../types';
 import {
   AcessoNegadoError,
+  AtrasoNaoConfirmadoError,
   AutenticacaoNecessariaError,
   ClienteBloqueadoError,
   ClienteNaoEncontradoError,
@@ -738,6 +739,50 @@ export function createOrderSupabase(client?: SupabaseClient<Database>): OrderPor
       if (!pedido) {
         throw new Error(
           '[core-data/supabase] reportar_lojista_nao_veio — reportado mas a releitura não encontrou a linha (RLS bloqueando ou id inesperado).',
+        );
+      }
+      return pedido;
+    },
+
+    /**
+     * Story 6.21 (AC2, AC3). Chama a RPC `SECURITY DEFINER`
+     * `cancelar_pedido_atraso` — autoriza por SESSÃO
+     * (`pedidos.cliente_id = auth.uid()`); exige `status IN ('aceito',
+     * 'em_preparo')`; a RPC reforça SERVER-SIDE a condição de atraso do AC1
+     * (`ATRASO_NAO_CONFIRMADO` se chamada antes de `aceito_em + 2 *
+     * tempo_estimado_min`) — nunca confia só no client ter mostrado o
+     * prompt. Em sucesso, na MESMA transação da RPC: transição + refund 100%
+     * pendente + falha de qualidade do lojista — este adapter só chama a RPC
+     * e relê.
+     *
+     * Mapeia os 5 erros NOMEADOS (`RAISE EXCEPTION`) para classes dedicadas
+     * (`order-errors.ts`) — nunca engole o erro, nunca simula sucesso.
+     */
+    async cancelPedidoAtraso(pedidoId: string, _options?: AsyncCallOptions): Promise<Pedido> {
+      const supabase = resolveClient();
+
+      const { data, error } = await supabase.rpc('cancelar_pedido_atraso', {
+        p_pedido_id: pedidoId,
+      });
+
+      if (error) {
+        const message = error.message ?? '';
+        if (message.includes('AUTENTICACAO_NECESSARIA')) throw new AutenticacaoNecessariaError();
+        if (message.includes('PEDIDO_NAO_ENCONTRADO')) throw new PedidoNaoEncontradoError();
+        if (message.includes('ACESSO_NEGADO')) throw new AcessoNegadoError();
+        if (message.includes('ATRASO_NAO_CONFIRMADO')) throw new AtrasoNaoConfirmadoError();
+        if (message.includes('ESTADO_INVALIDO')) throw new EstadoInvalidoError();
+        throw error;
+      }
+
+      if (!data) {
+        throw new Error('[core-data/supabase] cancelar_pedido_atraso — RPC retornou vazio sem erro.');
+      }
+
+      const pedido = await fetchPedidoPorId(supabase, data);
+      if (!pedido) {
+        throw new Error(
+          '[core-data/supabase] cancelar_pedido_atraso — cancelado mas a releitura não encontrou a linha (RLS bloqueando ou id inesperado).',
         );
       }
       return pedido;

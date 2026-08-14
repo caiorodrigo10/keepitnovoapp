@@ -723,6 +723,14 @@ export type Database = {
           cliente_id: string
         }[]
       }
+      // Bloco 10 (Story 6.21) — RPC nova
+      // (20260814000003_rpc_cancelar_pedido_atraso.sql). Retorna só o `uuid`
+      // do pedido; os 3 efeitos (status/refund/falha) são atômicos na RPC,
+      // mas não fazem parte do retorno da função.
+      cancelar_pedido_atraso: {
+        Args: { p_pedido_id: string }
+        Returns: string
+      }
       // Bloco 12 — `p_asaas_id_externo`/`p_detalhe` ampliados para `| null`
       // (o gerador só marca args com `DEFAULT` como opcionais via `?`, mas
       // não infere nulidade a partir do catálogo; a migration

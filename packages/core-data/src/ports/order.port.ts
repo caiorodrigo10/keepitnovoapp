@@ -262,4 +262,15 @@ export interface OrderPort {
    * lojista (`tipo='lojista_nao_apareceu'`), os 3 efeitos atômicos.
    */
   reportLojistaNaoVeio(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido>;
+  /**
+   * Story 6.21 (AC2, AC3) — o cliente cancela um pedido muito atrasado
+   * (avisado in-app via polling client-side, Story 6.13 — sem `pg_cron`/push,
+   * ver Classificação da Story). Exige `status IN ('aceito', 'em_preparo')`;
+   * reforço SERVER-SIDE (mock e real) da condição de atraso do AC1
+   * (`NOW() > aceito_em + 2 * tempo_estimado_min`) — nunca confia só no
+   * client ter mostrado o prompt. Em sucesso: `status -> 'cancelado_atraso'`,
+   * reembolso 100% pendente + falha de qualidade do lojista
+   * (`tipo='atraso_grave'`), os 3 efeitos atômicos.
+   */
+  cancelPedidoAtraso(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido>;
 }
