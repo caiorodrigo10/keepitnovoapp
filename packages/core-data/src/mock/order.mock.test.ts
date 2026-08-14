@@ -254,6 +254,44 @@ describe('order.mock (contract)', () => {
     await expect(port.markClienteChegou('lj-pedido-2049', { delayMs: 1 })).rejects.toThrow(/não permitida/i);
   });
 
+  it('reportLojistaNaoVeio (Story 6.20, AC2/AC4): sucesso quando no_hub + cliente_chegou_em vencido, popula refund 100% + falha', async () => {
+    // lj-pedido-2045: fixture status 'no_hub', tempo_estimado_min 15. Marca
+    // chegada "no passado" (além de max(15, esperaLojistaMaxMin)=20min) para
+    // exercitar o reforço de tempo sem depender de timers reais.
+    const pedido = db.pedidos.find((p) => p.id === 'lj-pedido-2045')!;
+    pedido.cliente_chegou_em = new Date(Date.now() - 25 * 60_000).toISOString();
+
+    const atualizado = await port.reportLojistaNaoVeio('lj-pedido-2045', { delayMs: 1 });
+    expect(atualizado.status).toBe('nao_entregue_lojista');
+
+    const reembolso = db.reembolsos.find((r) => r.pedido_id === atualizado.id);
+    expect(reembolso?.motivo).toBe('nao_entregue_lojista');
+    expect(reembolso?.valor_a_estornar_reais).toBeCloseTo(atualizado.total_pago_reais, 2);
+
+    const falha = db.falhas.find((f) => f.pedido_id === atualizado.id);
+    expect(falha?.tipo).toBe('lojista_nao_apareceu');
+    expect(falha?.estabelecimento_id).toBe(atualizado.estabelecimento_id);
+  });
+
+  it('reportLojistaNaoVeio rejects when the pedido is not in no_hub', async () => {
+    // lj-pedido-2048: fixture status 'em_preparo'.
+    await expect(port.reportLojistaNaoVeio('lj-pedido-2048', { delayMs: 1 })).rejects.toThrow(/não permitida/i);
+  });
+
+  it('reportLojistaNaoVeio rejects when cliente_chegou_em is not set (ESTADO_INVALIDO)', async () => {
+    // lj-pedido-2045: fixture status 'no_hub', cliente_chegou_em null.
+    await expect(port.reportLojistaNaoVeio('lj-pedido-2045', { delayMs: 1 })).rejects.toThrow(/ESTADO_INVALIDO/);
+  });
+
+  it('reportLojistaNaoVeio rejects before the minimum waiting time (TEMPO_MINIMO_NAO_ATINGIDO — server-side reinforcement)', async () => {
+    const pedido = db.pedidos.find((p) => p.id === 'lj-pedido-2045')!;
+    pedido.cliente_chegou_em = new Date().toISOString(); // acabou de chegar
+
+    await expect(port.reportLojistaNaoVeio('lj-pedido-2045', { delayMs: 1 })).rejects.toThrow(
+      /TEMPO_MINIMO_NAO_ATINGIDO/,
+    );
+  });
+
   it('refuse populates a reembolso (motivo: recusa_lojista, 100% cliente)', async () => {
     const pedido = await port.refuse('lj-pedido-2049', 'Sem estoque', { delayMs: 1 });
     const reembolso = db.reembolsos.find((r) => r.pedido_id === pedido.id);

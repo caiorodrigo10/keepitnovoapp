@@ -10,9 +10,10 @@ import { OrderStatusDevAdvancer, PedidoTimeline } from '../../components/pedidos
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useHubDetail } from '../../hooks/useHubDetail';
 import { usePedidoDetail } from '../../hooks/usePedidoDetail';
-import { Screen } from '../../components/ui';
+import { Button, Screen } from '../../components/ui';
 import { comoChegarLabel, comoChegarUrl } from '../../lib/comoChegar';
 import { formatReais } from '../../lib/format';
+import { podeReportarLojistaNaoVeio } from '../../lib/lojistaNaoVeio';
 import { timelineStepIndex } from '../../lib/pedidoStatus';
 import type { RootStackParamList } from '../../navigation/types';
 
@@ -124,6 +125,32 @@ export default function ModalConfirmarPin({ route, navigation }: Props) {
                   {comoChegarLabel(SUPORTE_WHATSAPP_DISPONIVEL)}
                 </Text>
               </Pressable>
+            </View>
+          )}
+
+          {/**
+           * Story 6.20 (AC1) — ponto de entrada que hoje não existe em
+           * nenhum lugar (`LojistaNaoVeio.tsx` só era alcançável
+           * programaticamente até esta Story). Só aparece quando a condição
+           * do AC1 é satisfeita — reforçada server-side pela RPC
+           * `reportar_lojista_nao_veio` (nunca só a UI decide).
+           */}
+          {podeReportarLojistaNaoVeio(pedido) && (
+            <View style={styles.lojistaNaoVeioCard}>
+              <Text style={styles.lojistaNaoVeioTitulo}>O lojista ainda não chegou?</Text>
+              <Text style={styles.lojistaNaoVeioCopy}>
+                Se você já esperou o tempo combinado, pode reportar e receber reembolso integral.
+              </Text>
+              <Button
+                title="Lojista não veio"
+                variant="outline"
+                onPress={() =>
+                  navigation.navigate('Main', {
+                    screen: 'PedidosTab',
+                    params: { screen: 'LojistaNaoVeio', params: { pedidoId: pedido.id } },
+                  })
+                }
+              />
             </View>
           )}
 
@@ -244,6 +271,24 @@ const styles = StyleSheet.create({
   },
   comoChegarDesabilitado: {
     color: lightColors.text.tertiary,
+  },
+  lojistaNaoVeioCard: {
+    backgroundColor: lightColors.bg.surface,
+    borderRadius: radii.card,
+    padding: spacing['4'],
+    marginBottom: spacing['4'],
+    gap: spacing['3'],
+  },
+  lojistaNaoVeioTitulo: {
+    fontFamily: 'HankenGrotesk-SemiBold',
+    fontSize: typography.sizes.md.fontSize,
+    color: lightColors.text.primary,
+  },
+  lojistaNaoVeioCopy: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.text.secondary,
+    lineHeight: typography.sizes.sm.lineHeight,
   },
   footer: {
     fontFamily: 'HankenGrotesk-Regular',

@@ -12,6 +12,7 @@ import { OrderTransitionError, PinBloqueadoError, PinIncorretoError } from '../p
 import type { AsyncCallOptions } from '../types';
 import { generateMockId, generatePin, simulateAsync } from './async-helpers';
 import type { MockDb } from './db';
+import { registrarFalha } from './falha-helpers';
 import { registrarReembolso } from './refund-helpers';
 
 function roundReais(value: number): number {
@@ -381,6 +382,52 @@ export function createOrderMock(db: MockDb): OrderPort {
           const pedido = findOrThrow(pedidoId);
           assertStatus(pedido, 'markClienteChegou', ['no_hub']);
           pedido.cliente_chegou_em = new Date().toISOString();
+          return pedido;
+        },
+        {} as Pedido,
+        options,
+      );
+    },
+
+    /**
+     * Story 6.20 (AC2, AC4) — mesma lógica que a RPC real
+     * `reportar_lojista_nao_veio` reforça server-side: status `no_hub` +
+     * `cliente_chegou_em` preenchido (via `assertStatus`/checagem explícita) e
+     * o tempo mínimo (`max(tempo_estimado_min, businessConfig.esperaLojistaMaxMin)`)
+     * já vencido — nunca confia só na UI ter escondido/mostrado o botão.
+     * Efeitos: `registrarReembolso(..., 'nao_entregue_lojista')` (já suporta
+     * esse motivo, 100% ao cliente) + `registrarFalha(...,
+     * 'lojista_nao_apareceu')` (novo helper, mesmo padrão de
+     * `refund-helpers.ts`).
+     */
+    reportLojistaNaoVeio(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido> {
+      return simulateAsync(
+        () => {
+          const pedido = findOrThrow(pedidoId);
+          assertStatus(pedido, 'reportLojistaNaoVeio', ['no_hub']);
+
+          if (!pedido.cliente_chegou_em) {
+            throw new Error(
+              '[mock] reportLojistaNaoVeio — pedido sem cliente_chegou_em registrado (ESTADO_INVALIDO)',
+            );
+          }
+
+          const esperaMin = Math.max(pedido.tempo_estimado_min ?? 0, businessConfig.esperaLojistaMaxMin);
+          const limiteMs = new Date(pedido.cliente_chegou_em).getTime() + esperaMin * 60_000;
+          if (Date.now() <= limiteMs) {
+            throw new Error(
+              '[mock] reportLojistaNaoVeio — tempo mínimo de espera pelo lojista ainda não atingido (TEMPO_MINIMO_NAO_ATINGIDO)',
+            );
+          }
+
+          pedido.status = 'nao_entregue_lojista';
+          registrarReembolso(db, pedido, 'nao_entregue_lojista');
+          registrarFalha(
+            db,
+            pedido,
+            'lojista_nao_apareceu',
+            `Pedido #${pedido.numero} — lojista não compareceu ao hub dentro do prazo.`,
+          );
           return pedido;
         },
         {} as Pedido,

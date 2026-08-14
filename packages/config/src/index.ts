@@ -92,6 +92,15 @@ export const businessConfig = {
    * o volume real do piloto tornar o custo de leitura perceptível.
    */
   pedidoPollingIntervalSeg: 15,
+  /**
+   * Tempo máximo (minutos) de espera do cliente pelo lojista no hub, contado a
+   * partir de `cliente_chegou_em`, antes do botão "Lojista não veio" ficar
+   * disponível — `max(tempo_estimado_min, esperaLojistaMaxMin)`. Story 6.20
+   * (AC1) — valor literal do épico (`docs/prd/epics/6-pedido-pin.md`, "20
+   * min"), não é um placeholder pendente de stakeholder (mesmo raciocínio já
+   * usado pela Story 6.3 para `margemHorarioPedidoMin`).
+   */
+  esperaLojistaMaxMin: 20,
 } as const;
 
 export type BusinessConfig = typeof businessConfig;

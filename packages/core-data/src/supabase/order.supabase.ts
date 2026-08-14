@@ -26,6 +26,7 @@ import {
   MotivoObrigatorioError,
   PedidoNaoEncontradoError,
   TempoEstimadoInvalidoError,
+  TempoMinimoNaoAtingidoError,
   TransicaoInvalidaError,
 } from './order-errors';
 import { NotImplementedError } from './not-implemented-error';
@@ -56,7 +57,7 @@ const EPIC = 'Épico 6';
  * deveria divergir do mapeamento canônico já usado pelo Cliente/Lojista).
  */
 export const PEDIDO_COLUMNS =
-  'id, numero, cliente_id, estabelecimento_id, hub_id, status, pin_texto, tentativas_pin, pin_bloqueado_ate, tempo_estimado_min, criado_em, aceito_em, saiu_hub_em, entregue_em, cancelado_em, subtotal_produtos_reais, taxa_deslocamento_reais, taxa_keepit_reais, taxa_servico_comprador_reais, total_pago_reais, motivo_recusa, motivo_cancelamento, motivo_nao_retirado, forma_pagamento';
+  'id, numero, cliente_id, estabelecimento_id, hub_id, status, pin_texto, tentativas_pin, pin_bloqueado_ate, tempo_estimado_min, criado_em, aceito_em, saiu_hub_em, cliente_chegou_em, entregue_em, cancelado_em, subtotal_produtos_reais, taxa_deslocamento_reais, taxa_keepit_reais, taxa_servico_comprador_reais, total_pago_reais, motivo_recusa, motivo_cancelamento, motivo_nao_retirado, forma_pagamento';
 
 const PEDIDO_ITEM_COLUMNS = 'id, pedido_id, produto_id, nome_snapshot, preco_unitario_reais, quantidade, subtotal_reais';
 
@@ -74,6 +75,7 @@ export type PedidoRow = {
   criado_em: string;
   aceito_em: string | null;
   saiu_hub_em: string | null;
+  cliente_chegou_em: string | null;
   entregue_em: string | null;
   cancelado_em: string | null;
   subtotal_produtos_reais: number;
@@ -110,15 +112,20 @@ function mapRowToPedidoItem(row: PedidoItemRow): PedidoItem {
 }
 
 /**
- * Story 6.6/6.7 — `cliente_chegou_em`/`lojista_chegou_em` sempre `null`:
- * colunas que a `Pedido` (contrato de domínio) exige mas o schema do piloto
- * NÃO cria ainda (rastreio pós-aceite, "FICA FORA" na migration
- * `20260813004932`; confirmado LATER pela Story 6.12, Dependencies) —
- * honesto sobre o que o piloto rastreia hoje, em vez de inventar um valor.
- * Reavaliar quando essas colunas forem migradas.
+ * Story 6.6/6.7 — `lojista_chegou_em` sempre `null`: coluna que a `Pedido`
+ * (contrato de domínio) exige mas o schema do piloto NÃO cria (rastreio de
+ * chegada do LOJISTA ao hub, "FICA FORA" na migration `20260813004932`,
+ * decisão deliberada reforçada em `20260813022930` — `status='no_hub'` é
+ * atingido por um único check-in operacional do lojista via
+ * `avancar_estado_pedido`, sem coluna de timestamp dedicada) — honesto sobre
+ * o que o piloto rastreia hoje, em vez de inventar um valor.
  * Story 6.12 (AC2, AC4) — ADAPT: `saiu_hub_em` passou a vir da RELEITURA
  * real (`row.saiu_hub_em`), não mais hard-coded `null` — a coluna existe e é
  * gravada pela RPC `avancar_estado_pedido`.
+ * Story 6.20 (pré-requisito, ver `20260814000001_pedidos_add_cliente_chegou_em.sql`)
+ * — ADAPT: `cliente_chegou_em` passou a vir da RELEITURA real
+ * (`row.cliente_chegou_em`), não mais hard-coded `null` — a coluna foi
+ * adicionada nesta mesma Story e é gravada pela RPC `marcar_cliente_chegou`.
  */
 export function mapRowToPedido(row: PedidoRow, itens: PedidoItem[]): Pedido {
   return {
@@ -135,7 +142,7 @@ export function mapRowToPedido(row: PedidoRow, itens: PedidoItem[]): Pedido {
     criado_em: row.criado_em,
     aceito_em: row.aceito_em,
     saiu_hub_em: row.saiu_hub_em,
-    cliente_chegou_em: null,
+    cliente_chegou_em: row.cliente_chegou_em,
     lojista_chegou_em: null,
     entregue_em: row.entregue_em,
     cancelado_em: row.cancelado_em,
@@ -653,8 +660,87 @@ export function createOrderSupabase(client?: SupabaseClient<Database>): OrderPor
       throw new NotImplementedError(PORT, 'advanceStatus', EPIC);
     },
 
-    async markClienteChegou(_pedidoId: string, _options?: AsyncCallOptions): Promise<Pedido> {
-      throw new NotImplementedError(PORT, 'markClienteChegou', EPIC);
+    /**
+     * Story 6.20 (pré-requisito, ver
+     * `20260814000001_pedidos_add_cliente_chegou_em.sql`). Chama a RPC
+     * `SECURITY DEFINER` `marcar_cliente_chegou` — autoriza por SESSÃO
+     * (`pedidos.cliente_id = auth.uid()`), nunca por um `pedidoId` cru
+     * assumido como dono; exige `status = 'no_hub'`. [IDS] ADAPT: fecha o
+     * débito técnico registrado pela Story 6.14 (`NotImplementedError`
+     * deliberado — cliente_chegou_em não existia no schema do piloto até
+     * esta Story). A RPC retorna SÓ o `uuid` — o `Pedido` final vem de uma
+     * RELEITURA real (`fetchPedidoPorId`), mesmo padrão de
+     * `create`/`accept`/`refuse`.
+     */
+    async markClienteChegou(pedidoId: string, _options?: AsyncCallOptions): Promise<Pedido> {
+      const supabase = resolveClient();
+
+      const { data, error } = await supabase.rpc('marcar_cliente_chegou', {
+        p_pedido_id: pedidoId,
+      });
+
+      if (error) {
+        const message = error.message ?? '';
+        if (message.includes('AUTENTICACAO_NECESSARIA')) throw new AutenticacaoNecessariaError();
+        if (message.includes('PEDIDO_NAO_ENCONTRADO')) throw new PedidoNaoEncontradoError();
+        if (message.includes('ACESSO_NEGADO')) throw new AcessoNegadoError();
+        if (message.includes('ESTADO_INVALIDO')) throw new EstadoInvalidoError();
+        throw error;
+      }
+
+      if (!data) {
+        throw new Error('[core-data/supabase] marcar_cliente_chegou — RPC retornou vazio sem erro.');
+      }
+
+      const pedido = await fetchPedidoPorId(supabase, data);
+      if (!pedido) {
+        throw new Error(
+          '[core-data/supabase] marcar_cliente_chegou — chegada confirmada mas a releitura não encontrou a linha (RLS bloqueando ou id inesperado).',
+        );
+      }
+      return pedido;
+    },
+
+    /**
+     * Story 6.20 (AC2, AC4). Chama a RPC `SECURITY DEFINER`
+     * `reportar_lojista_nao_veio` — autoriza por SESSÃO
+     * (`pedidos.cliente_id = auth.uid()`); exige `status = 'no_hub'` E
+     * `cliente_chegou_em` preenchido; a RPC reforça SERVER-SIDE a condição de
+     * tempo do AC1 (`TEMPO_MINIMO_NAO_ATINGIDO`) — nunca confia só na UI. Em
+     * sucesso, na MESMA transação da RPC: transição + refund 100% pendente +
+     * falha de qualidade do lojista — este adapter só chama a RPC e relê.
+     *
+     * Mapeia os 5 erros NOMEADOS (`RAISE EXCEPTION`) para classes dedicadas
+     * (`order-errors.ts`) — nunca engole o erro, nunca simula sucesso.
+     */
+    async reportLojistaNaoVeio(pedidoId: string, _options?: AsyncCallOptions): Promise<Pedido> {
+      const supabase = resolveClient();
+
+      const { data, error } = await supabase.rpc('reportar_lojista_nao_veio', {
+        p_pedido_id: pedidoId,
+      });
+
+      if (error) {
+        const message = error.message ?? '';
+        if (message.includes('AUTENTICACAO_NECESSARIA')) throw new AutenticacaoNecessariaError();
+        if (message.includes('PEDIDO_NAO_ENCONTRADO')) throw new PedidoNaoEncontradoError();
+        if (message.includes('ACESSO_NEGADO')) throw new AcessoNegadoError();
+        if (message.includes('TEMPO_MINIMO_NAO_ATINGIDO')) throw new TempoMinimoNaoAtingidoError();
+        if (message.includes('ESTADO_INVALIDO')) throw new EstadoInvalidoError();
+        throw error;
+      }
+
+      if (!data) {
+        throw new Error('[core-data/supabase] reportar_lojista_nao_veio — RPC retornou vazio sem erro.');
+      }
+
+      const pedido = await fetchPedidoPorId(supabase, data);
+      if (!pedido) {
+        throw new Error(
+          '[core-data/supabase] reportar_lojista_nao_veio — reportado mas a releitura não encontrou a linha (RLS bloqueando ou id inesperado).',
+        );
+      }
+      return pedido;
     },
   };
 }

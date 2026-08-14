@@ -252,4 +252,14 @@ export interface OrderPort {
   advanceStatus(pedidoId: string, nextStatus: AdvanceableStatus, options?: AsyncCallOptions): Promise<Pedido>;
   /** Marca `cliente_chegou_em` — metade do cliente na "janela de tolerância no hub". Exige status `no_hub`. */
   markClienteChegou(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido>;
+  /**
+   * Story 6.20 (AC2, AC4) — o cliente reporta que o lojista não apareceu no
+   * hub. Exige `status = 'no_hub'` E `cliente_chegou_em` preenchido; reforço
+   * SERVER-SIDE (mock e real) da condição de tempo do AC1
+   * (`cliente_chegou_em + max(tempo_estimado_min, businessConfig.esperaLojistaMaxMin)`)
+   * — nunca confia só na visibilidade do botão na UI. Em sucesso: `status ->
+   * 'nao_entregue_lojista'`, reembolso 100% pendente + falha de qualidade do
+   * lojista (`tipo='lojista_nao_apareceu'`), os 3 efeitos atômicos.
+   */
+  reportLojistaNaoVeio(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido>;
 }

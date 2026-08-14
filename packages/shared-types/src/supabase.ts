@@ -470,6 +470,7 @@ export type Database = {
           aceito_em: string | null
           atualizado_em: string
           cancelado_em: string | null
+          cliente_chegou_em: string | null
           cliente_id: string
           criado_em: string
           entregue_em: string | null
@@ -500,6 +501,7 @@ export type Database = {
           aceito_em?: string | null
           atualizado_em?: string
           cancelado_em?: string | null
+          cliente_chegou_em?: string | null
           cliente_id: string
           criado_em?: string
           entregue_em?: string | null
@@ -530,6 +532,7 @@ export type Database = {
           aceito_em?: string | null
           atualizado_em?: string
           cancelado_em?: string | null
+          cliente_chegou_em?: string | null
           cliente_id?: string
           criado_em?: string
           entregue_em?: string | null
@@ -819,6 +822,13 @@ export type Database = {
         }[]
       }
       is_admin: { Args: { user_id?: string }; Returns: boolean }
+      // Bloco 10 (Story 6.20, pré-requisito) — RPC nova
+      // (20260814000001_pedidos_add_cliente_chegou_em.sql). Retorna só o
+      // `uuid` do pedido (mesmo padrão de `aceitar_pedido`).
+      marcar_cliente_chegou: {
+        Args: { p_pedido_id: string }
+        Returns: string
+      }
       meu_estabelecimento_id: { Args: never; Returns: string }
       pode_ver_pedido: {
         Args: { pedido_row: Database["public"]["Tables"]["pedidos"]["Row"] }
@@ -841,6 +851,14 @@ export type Database = {
       }
       rejeitar_lojista: {
         Args: { p_estab_id: string; p_motivo: string }
+        Returns: string
+      }
+      // Bloco 10 (Story 6.20) — RPC nova
+      // (20260814000002_rpc_reportar_lojista_nao_veio.sql). Retorna só o
+      // `uuid` do pedido; os 3 efeitos (status/refund/falha) são atômicos na
+      // RPC, mas não fazem parte do retorno da função.
+      reportar_lojista_nao_veio: {
+        Args: { p_pedido_id: string }
         Returns: string
       }
       solicitar_saque: {
