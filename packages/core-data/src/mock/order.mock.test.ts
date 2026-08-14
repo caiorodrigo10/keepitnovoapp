@@ -261,6 +261,11 @@ describe('order.mock (contract)', () => {
     expect(reembolso?.valor_a_estornar_reais).toBeCloseTo(pedido.total_pago_reais, 2);
   });
 
+  it('refuse rejects when the pedido is no longer aguardando_aceite (Story 6.11, AC6 — parity with the real RPC)', async () => {
+    // lj-pedido-2048: fixture status 'em_preparo' (já aceito).
+    await expect(port.refuse('lj-pedido-2048', 'Sem estoque', { delayMs: 1 })).rejects.toThrow(/não permitida/i);
+  });
+
   it('cancel derives the refund % from the pedido status (AC9: pre-aceite 100%, pós-aceite 90/10) and blocks after saindo_hub', async () => {
     const preAceite = await port.cancel('lj-pedido-2049', 'Mudei de ideia', { delayMs: 1 });
     const reembolsoPre = db.reembolsos.find((r) => r.pedido_id === preAceite.id);

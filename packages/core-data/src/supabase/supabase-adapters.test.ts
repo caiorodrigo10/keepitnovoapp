@@ -45,15 +45,15 @@ describe('supabase adapters (esqueleto — Story 1.9)', () => {
 
   // order.supabase.ts — `create` (Story 6.6), `listMine` (Story 6.7),
   // `accept` (Story 6.9), `listByEstabelecimento` (Story 6.8),
-  // `markReadyForHub` (Story 6.12), `confirmPin` (Story 6.15) e
-  // `markArrivedAtHub` (Story 6.14) já são implementações reais, cobertas em
-  // `order.supabase.test.ts`. `markClienteChegou` permanece `NotImplementedError`
-  // — DEFERIDO (LATER), decisão explícita da Story 6.14 (ver Scope/Débito
-  // conhecido no story file).
+  // `markReadyForHub` (Story 6.12), `confirmPin` (Story 6.15),
+  // `markArrivedAtHub` (Story 6.14) e `refuse` (Story 6.11) já são
+  // implementações reais, cobertas em `order.supabase.test.ts`.
+  // `markClienteChegou` permanece `NotImplementedError` — DEFERIDO (LATER),
+  // decisão explícita da Story 6.14 (ver Scope/Débito conhecido no story
+  // file).
   it('order.supabase.ts — demais métodos rejeitam com NotImplementedError', async () => {
     const port = createOrderSupabase();
     await expectNotImplemented(port.getById.bind(port), 1);
-    await expectNotImplemented(port.refuse.bind(port), 2);
     await expectNotImplemented(port.cancel.bind(port), 2);
     await expectNotImplemented(port.markCustomerNoShow.bind(port), 2);
     await expectNotImplemented(port.advanceStatus.bind(port), 2);

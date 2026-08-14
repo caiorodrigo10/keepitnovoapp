@@ -831,6 +831,14 @@ export type Database = {
           status: string
         }[]
       }
+      // Bloco 10 (Story 6.11) — RPC nova
+      // (20260814000000_rpc_recusar_pedido.sql). Retorna só o `uuid` do
+      // pedido (mesmo padrão de `aceitar_pedido`); o refund 100% é inserido
+      // na MESMA transação, mas não faz parte do retorno da função.
+      recusar_pedido: {
+        Args: { p_motivo: string; p_pedido_id: string }
+        Returns: string
+      }
       rejeitar_lojista: {
         Args: { p_estab_id: string; p_motivo: string }
         Returns: string

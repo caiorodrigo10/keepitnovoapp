@@ -23,6 +23,7 @@ import {
   HubNaoAtendidoError,
   ItensInvalidosError,
   LojaIndisponivelError,
+  MotivoObrigatorioError,
   PedidoNaoEncontradoError,
   TempoEstimadoInvalidoError,
   TransicaoInvalidaError,
@@ -371,8 +372,50 @@ export function createOrderSupabase(client?: SupabaseClient<Database>): OrderPor
       return pedido;
     },
 
-    async refuse(_pedidoId: string, _motivo: string, _options?: AsyncCallOptions): Promise<Pedido> {
-      throw new NotImplementedError(PORT, 'refuse', EPIC);
+    /**
+     * Story 6.11 (AC2, AC3). Chama a RPC `SECURITY DEFINER` `recusar_pedido` —
+     * autoriza por ownership (`estabelecimentos.dono_user_id = auth.uid()`) OU
+     * `is_admin()`, DENTRO da função (mesmo padrão de `accept`); só transiciona
+     * a partir de `aguardando_aceite` (recusa fora dessa janela vira
+     * `ESTADO_INVALIDO`, não sucesso silencioso). Na mesma transação da RPC, um
+     * refund 100% pendente é inserido no ledger — este adapter não precisa
+     * (nem pode) inserir nada além de chamar a RPC. A RPC retorna SÓ o `uuid`
+     * do pedido (`RETURNS uuid`, não a linha completa) — o `Pedido` final vem
+     * de uma RELEITURA real (`fetchPedidoPorId`), mesmo padrão de
+     * `create`/`accept`.
+     *
+     * Mapeia os 5 erros NOMEADOS (`RAISE EXCEPTION`) para classes dedicadas
+     * (`order-errors.ts`) — nunca engole o erro, nunca simula sucesso.
+     */
+    async refuse(pedidoId: string, motivo: string, _options?: AsyncCallOptions): Promise<Pedido> {
+      const supabase = resolveClient();
+
+      const { data, error } = await supabase.rpc('recusar_pedido', {
+        p_pedido_id: pedidoId,
+        p_motivo: motivo,
+      });
+
+      if (error) {
+        const message = error.message ?? '';
+        if (message.includes('AUTENTICACAO_NECESSARIA')) throw new AutenticacaoNecessariaError();
+        if (message.includes('MOTIVO_OBRIGATORIO')) throw new MotivoObrigatorioError();
+        if (message.includes('PEDIDO_NAO_ENCONTRADO')) throw new PedidoNaoEncontradoError();
+        if (message.includes('ACESSO_NEGADO')) throw new AcessoNegadoError();
+        if (message.includes('ESTADO_INVALIDO')) throw new EstadoInvalidoError();
+        throw error;
+      }
+
+      if (!data) {
+        throw new Error('[core-data/supabase] recusar_pedido — RPC retornou vazio sem erro.');
+      }
+
+      const pedido = await fetchPedidoPorId(supabase, data);
+      if (!pedido) {
+        throw new Error(
+          '[core-data/supabase] recusar_pedido — pedido recusado mas a releitura não encontrou a linha (RLS bloqueando ou id inesperado).',
+        );
+      }
+      return pedido;
     },
 
     /**

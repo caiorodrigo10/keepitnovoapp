@@ -169,10 +169,18 @@ export function createOrderMock(db: MockDb): OrderPort {
       );
     },
 
+    /**
+     * Story 6.11 (AC6) — [IDS] ADAPT: passa a usar `assertStatus`, mesmo
+     * padrão já usado por `accept`/`markReadyForHub`/`markArrivedAtHub` neste
+     * arquivo (reforço opcional/paridade com a RPC real `recusar_pedido`, que
+     * só transiciona a partir de `aguardando_aceite` — mesmo tratamento dado
+     * a esse gap pela Story 6.9 em `accept`).
+     */
     refuse(pedidoId: string, motivo: string, options?: AsyncCallOptions): Promise<Pedido> {
       return simulateAsync(
         () => {
           const pedido = findOrThrow(pedidoId);
+          assertStatus(pedido, 'refuse', ['aguardando_aceite']);
           pedido.status = 'recusado';
           pedido.motivo_recusa = motivo;
           registrarReembolso(db, pedido, 'recusa_lojista');

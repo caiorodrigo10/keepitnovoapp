@@ -96,6 +96,20 @@ export default function Recibo({ route, navigation }: Props) {
             </View>
           )}
 
+          {/**
+           * Story 6.11 (AC5) — bloco condicional (mesmo padrão já usado acima
+           * para a tag "provisório" da taxa de serviço, Story 6.16): exibe o
+           * motivo da recusa quando o pedido foi recusado pelo lojista. Nenhuma
+           * tela nova — `Recibo` já é o "detalhe" que todo pedido concluído
+           * (incluindo `recusado`) abre a partir de "Meus pedidos".
+           */}
+          {pedido.status === 'recusado' && !!pedido.motivo_recusa && (
+            <View style={styles.motivoRow}>
+              <Text style={styles.motivoLabel}>Motivo da recusa</Text>
+              <Text style={styles.motivoCopy}>{pedido.motivo_recusa}</Text>
+            </View>
+          )}
+
           <View style={styles.itens}>
             {pedido.itens.map((item) => (
               <View key={item.id} style={styles.itemRow}>
@@ -246,6 +260,23 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.xs.fontSize,
     color: lightColors.text.secondary,
     marginTop: 2,
+  },
+  motivoRow: {
+    backgroundColor: lightColors.bg.surface,
+    borderRadius: radii.card,
+    padding: spacing['3'],
+    marginBottom: spacing['4'],
+  },
+  motivoLabel: {
+    fontFamily: 'HankenGrotesk-SemiBold',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.accent.warning,
+    marginBottom: 2,
+  },
+  motivoCopy: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.text.secondary,
   },
   itens: {
     marginBottom: spacing['2'],
