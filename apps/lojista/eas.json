@@ -49,7 +49,7 @@
         "ascApiKeyIssuerId": "207349a8-a4fb-4b33-a791-c3b66358f3d1"
       },
       "android": {
-        "serviceAccountKeyPath": "./credentials/play-service-account.json",
+        "serviceAccountKeyPath": "/root/.secrets/keepit-play-service-account.json",
         "track": "internal"
       }
     },
@@ -61,7 +61,7 @@
         "ascApiKeyIssuerId": "207349a8-a4fb-4b33-a791-c3b66358f3d1"
       },
       "android": {
-        "serviceAccountKeyPath": "./credentials/play-service-account.json",
+        "serviceAccountKeyPath": "/root/.secrets/keepit-play-service-account.json",
         "track": "internal"
       }
     }
