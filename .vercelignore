@@ -1,0 +1,37 @@
+# Secrets — never upload (belt-and-suspenders alongside .gitignore)
+.env
+.env.*
+*.key
+*.pem
+.env.asaas
+
+# Dependencies / build artifacts
+node_modules
+.next
+.turbo
+dist
+build
+*.tsbuildinfo
+
+# Git worktrees (2.1 GB — not needed to build the admin app)
+.worktrees
+
+# Tooling / assistants scratch
+.aiox
+.aiox-core
+.orca
+.antigravity
+.codex
+.cursor
+.gemini
+.kimi
+.claude
+.playwright-mcp
+.github
+
+# Docs, prototype and screenshots — irrelevant to the build
+docs
+keepit-app
+*.png
+ENTENDIMENTO_APP.md
+README.md
