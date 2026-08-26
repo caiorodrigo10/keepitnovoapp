@@ -1,1 +1,2 @@
 - [Não aplicar no Supabase sem autorização](feedback_nao_aplicar_no_supabase_sem_autorizacao.md) — migrations são escritas e revisadas; Caio autoriza a aplicação em passo separado
+- [Validação offline via docker Postgres](feedback_validacao_offline_docker_pg.md) — sem MCP, valido migrations em PG15 efêmero + stubs Supabase (runtime smoke tests)

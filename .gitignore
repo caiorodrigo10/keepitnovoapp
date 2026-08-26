@@ -56,3 +56,6 @@ apps/*/credentials/*service-account*.json
 *serviceAccount*.json
 *.jks
 *.keystore
+
+# Asaas sandbox (local, NUNCA commitar)
+.env.asaas

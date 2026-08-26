@@ -85,6 +85,14 @@ Perguntas:
 
 → STAKEHOLDER. Modelo padrão de marketplace é **repassar o chargeback ao lojista** e reter parte do saldo — mas precisa ser decisão explícita e documentada em Termos.
 
+### 1.8 🔴 Mecânica financeira do reembolso parcial (levantado na orquestração, 2026-08-13) — BLOQUEIA o Bloco 10 (6.18/6.19)
+A matriz de cancelamento (Rodada 2) decidiu os **percentuais** (cliente vs. lojista): 100% / 90%-10% / 20%-80% / 100%. Mas ao implementar os **produtores de reembolso** (Épico 6: 6.11 recusa, 6.18 cliente cancela, 6.19 no-show cliente, 6.20 lojista não veio, 6.21 atraso) faltam decisões de **como o dinheiro se move no ledger**, que NÃO posso assumir:
+1. **Taxa Keepit (10%) em cancelamento:** nos casos 100% (recusa/timeout/lojista não veio/atraso), o cliente recebe tudo de volta e a Keepit **fica com 0**? (provável, mas confirmar). Nos casos parciais (90%-10% e 20%-80%), o "10% / 80% do lojista" é **bruto** (lojista recebe o % cheio do total) ou a Keepit ainda desconta sua comissão de 10% dessa parcela?
+2. **Vesting da compensação do lojista:** o valor retido pelo lojista (10% ou 80%) cai **imediato** na carteira dele ou entra no **escrow D+7** (como uma venda normal)? Não houve entrega para ancorar o D+7.
+3. **Taxa de serviço do comprador (R$2,90, ainda provisória):** é reembolsada ao cliente no cancelamento, ou retida (é serviço já prestado)?
+
+→ STAKEHOLDER. **Impacto:** os casos de reembolso **100%** (6.11/6.20/6.21 e timeout 6.10) são inequívocos e podem ser construídos assim que priorizados; os **parciais** (6.18 90%-10%, 6.19 20%-80%) dependem destas respostas. O ledger (Model B) já suporta lançar `refund` (cliente) + `merchant_credit` (lojista) — falta só a REGRA dos valores/vesting.
+
 ### 1.7 ✅ Nota fiscal — Rodada 5
 - Quem emite a NF do produto para o cliente: **lojista** (marketplace) ou **Keepit** (revenda)?
 - Keepit emite NF da taxa de serviço para o lojista?
@@ -255,6 +263,16 @@ O usuário disse "painel básico para cruzar dados". Precisamos definir o que ex
 ### 6.2 🟡 Acesso
 - Quantas pessoas usam? Login por e-mail/senha ou SSO?
 - Papéis internos (financeiro, operações, admin geral)?
+
+→ STAKEHOLDER.
+
+### 6.3 🟢 Visibilidade das falhas de qualidade pelo lojista (levantado na orquestração do Bloco 09, 2026-08-13)
+A tabela `estabelecimentos_falhas` (Story 8.8) foi implementada **admin-only** — o lojista **não** vê o próprio histórico de falhas. Isso segue o doc normativo `docs/architecture/05-security.md §3.6` ("Lojista NÃO vê seu próprio histórico — por design, reduz atrito"). **Pergunta:** o stakeholder confirma que o lojista NÃO deve ver as próprias falhas, ou quer expor (transparência)? Se expor, é só uma policy `FOR SELECT USING estabelecimento_id = meu_estabelecimento_id()` a mais. Não bloqueia — a implementação atual segue o doc.
+
+→ STAKEHOLDER.
+
+### 6.4 🟢 Base da "Taxa de sucesso" do dashboard (levantado na orquestração do Bloco 09, 2026-08-13)
+No dashboard financeiro (Story 8.7), `Taxa de sucesso = entregues / (entregues + cancelados + no-show)` — **exclui pedidos em curso** do denominador. Definição honesta e documentada, seguindo a AC. **Pergunta:** o stakeholder confirma essa base, ou quer outra (ex.: incluir/segmentar por tipo de cancelamento)? Não bloqueia.
 
 → STAKEHOLDER.
 
@@ -511,6 +529,15 @@ Fonte de ambas: **@pm (Morgan), formalizando default já assumido pelos Épicos 
 ---
 
 ## Decisões (fechadas)
+
+### Rodada 9 — 2026-08-14 (Caio)
+
+#### Escopo do timeout automático do aceite (Story 6.10)
+
+- **[Story 6.10 mantida `LATER`]** O timeout automático do aceite via `pg_cron` (cancelamento automático de pedido não aceito em 10 min) **fica fora do piloto por enquanto**. `docs/prd/07-plano-mvp-piloto.md` já classificava a 6.10 como `LATER` ("Admin apenas sinaliza pedidos vencidos no piloto"), e o fallback manual (Story 8.4, RPC `forcar_cancelamento_pedido`, já `Done`) cobre o caso no piloto sem precisar habilitar `pg_cron` no Supabase do piloto.
+- **[Natureza da decisão]** Não é regra de negócio financeira — é confirmação de escopo técnico do piloto (automação vs. operação manual do admin), levantada pelo @sm ao encontrar conflito entre o épico completo (`docs/prd/epics/6-pedido-pin.md`) e o plano do piloto.
+- **[O que segue construído no mesmo lote]** As 3 stories irmãs de reembolso 100% inequívoco (6.11 recusa do lojista, 6.20 lojista não veio, 6.21 atraso do lojista) **não têm esse conflito** e foram implementadas e aprovadas em QA (`Done`) no mesmo lote — ver `docs/orchestration/` para o relatório da orquestração.
+- **[Fonte da decisão]** Caio, 2026-08-14.
 
 ### Rodada 8 — 2026-08-02 (Caio)
 
