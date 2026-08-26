@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
@@ -7,10 +7,13 @@ import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { SelectableRow } from '../../components/checkout';
 import { AsyncStateBlock, DevStateToggle, toAsyncCallOptions, type DevSimState } from '../../components/discovery';
-import { Button, Screen } from '../../components/ui';
+import { Button, Screen, TextField } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
 import { useHubsList } from '../../hooks/useHubsList';
-import { DEFAULT_HUB_ID, formatHubDistanciaKm } from '../../lib/discoveryDisplay';
+import { DEFAULT_HUB_ID } from '../../lib/discoveryDisplay';
+import { formatDistanceKm, haversineKm, type LatLng } from '../../lib/distance';
+import { geocodeCep } from '../../lib/geocodeCep';
+import { getCurrentCoords } from '../../lib/geolocation';
 import type { HomeStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'EscolhaRetirada'>;
@@ -22,6 +25,27 @@ function formatAbertoAte(hub: Hub): string | undefined {
     return undefined;
   }
   return `Aberto até ${horario.hora_fecha.slice(0, 5).replace(':00', 'h')}`;
+}
+
+interface HubComDistancia {
+  hub: Hub;
+  distanciaKm: number | null;
+}
+
+/**
+ * AC2/AC3/AC4 (Story 5.1.1): calcula a distância de cada hub à `origin`
+ * (GPS ou CEP geocodado) e ordena por distância crescente quando há
+ * origem. Sem origem, mantém a ordem recebida de `useHubsList` e omite a
+ * distância (nunca trava — degradação graciosa).
+ */
+function ordenarPorDistancia(hubs: Hub[], origin: LatLng | null): HubComDistancia[] {
+  if (!origin) {
+    return hubs.map((hub) => ({ hub, distanciaKm: null }));
+  }
+
+  return hubs
+    .map((hub) => ({ hub, distanciaKm: haversineKm(origin, { lat: hub.lat, lng: hub.lng }) }))
+    .sort((a, b) => a.distanciaKm - b.distanciaKm);
 }
 
 /**
@@ -38,6 +62,17 @@ function formatAbertoAte(hub: Hub): string | undefined {
  * (nome/endereço/distância/aberto até) como único mecanismo de escolha —
  * ver `docs/design-refs/INDEX.md#Conflitos`. Pendente de revisão do
  * stakeholder se o mapa deve ser adicionado antes do lançamento.
+ *
+ * **Distância real por GPS/CEP (Story 5.1.1, AC2-AC4):** ao montar, tenta
+ * `getCurrentCoords()` (Expo Location no nativo, `navigator.geolocation` no
+ * web). Se obtiver a posição: calcula Haversine cliente↔hub
+ * (`lib/distance.ts`) e ordena por distância crescente. Se a localização for
+ * negada/indisponível: mostra um input de CEP; `geocodeCep` (BrasilAPI CEP
+ * v2) resolve a origem a partir do CEP com o mesmo cálculo. Sem GPS e sem
+ * CEP (ou CEP que não resolve): a lista continua funcional, sem distância —
+ * nenhum caminho trava ou impede a seleção (degradação graciosa, AC3/AC4).
+ * O cálculo aqui é client-side, para o demo/mock — produção migra para Edge
+ * Function (FR59), fora do escopo desta Story.
  */
 export default function EscolhaRetirada({ navigation }: Props) {
   const cart = useCart();
@@ -46,6 +81,50 @@ export default function EscolhaRetirada({ navigation }: Props) {
 
   const { data: hubs, loading, error } = useHubsList(options);
   const [selecionado, setSelecionado] = useState<string>(cart.hubId ?? DEFAULT_HUB_ID);
+
+  const [origin, setOrigin] = useState<LatLng | null>(null);
+  const [mostrarInputCep, setMostrarInputCep] = useState(false);
+  const [cepInput, setCepInput] = useState('');
+  const [cepMensagem, setCepMensagem] = useState<string | undefined>(undefined);
+  const [geocodificandoCep, setGeocodificandoCep] = useState(false);
+
+  // AC2/AC3: tenta GPS ao abrir; sem sucesso, cai no fallback de CEP — nunca trava.
+  useEffect(() => {
+    let cancelado = false;
+
+    getCurrentCoords()
+      .then((coords) => {
+        if (cancelado) return;
+        if (coords) {
+          setOrigin(coords);
+        } else {
+          setMostrarInputCep(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelado) setMostrarInputCep(true);
+      });
+
+    return () => {
+      cancelado = true;
+    };
+  }, []);
+
+  const hubsComDistancia = useMemo(() => ordenarPorDistancia(hubs, origin), [hubs, origin]);
+
+  const handleBuscarCep = async () => {
+    setCepMensagem(undefined);
+    setGeocodificandoCep(true);
+    const coords = await geocodeCep(cepInput);
+    setGeocodificandoCep(false);
+
+    if (coords) {
+      setOrigin(coords);
+    } else {
+      // AC3: degradação graciosa — CEP inválido/sem coordenadas/erro de rede, lista segue sem distância.
+      setCepMensagem('Não encontramos esse CEP. A lista continua disponível, sem distância.');
+    }
+  };
 
   const handleConfirmar = () => {
     cart.setHubId(selecionado);
@@ -72,13 +151,34 @@ export default function EscolhaRetirada({ navigation }: Props) {
         <AsyncStateBlock kind="empty" emptyLabel="Nenhum hub disponível perto de você." />
       ) : (
         <>
+          {mostrarInputCep && !origin && (
+            <View style={styles.cepBlock}>
+              <TextField
+                label="Não conseguimos sua localização — informe seu CEP"
+                value={cepInput}
+                onChangeText={(value) => {
+                  setCepInput(value);
+                  setCepMensagem(undefined);
+                }}
+                placeholder="00000-000"
+                keyboardType="numeric"
+                error={cepMensagem}
+              />
+              <Button
+                title={geocodificandoCep ? 'Buscando…' : 'Usar este CEP'}
+                onPress={handleBuscarCep}
+                loading={geocodificandoCep}
+              />
+            </View>
+          )}
+
           <View style={styles.list}>
-            {hubs.map((hub) => (
+            {hubsComDistancia.map(({ hub, distanciaKm }) => (
               <SelectableRow
                 key={hub.id}
                 selected={hub.id === selecionado}
                 title={hub.nome}
-                subtitle={`${hub.endereco} · ${formatHubDistanciaKm(hub.id)}`}
+                subtitle={distanciaKm != null ? `${hub.endereco} · ${formatDistanceKm(distanciaKm)}` : hub.endereco}
                 highlight={formatAbertoAte(hub)}
                 onPress={() => setSelecionado(hub.id)}
               />
@@ -121,5 +221,8 @@ const styles = StyleSheet.create({
   list: {
     marginTop: spacing['2'],
     marginBottom: spacing['5'],
+  },
+  cepBlock: {
+    marginTop: spacing['2'],
   },
 });

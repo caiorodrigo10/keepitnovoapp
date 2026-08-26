@@ -1,0 +1,20 @@
+schema: 1
+story: '6.3'
+gate: CONCERNS
+status_reason: 'Validação temporal fail-closed correta e bem coberta por testes unitários; débitos não-bloqueantes: teste em device não executado (sandbox sem simulador) e risco de burla client-side explicitamente aceito no piloto, a fechar antes de 6.6+.'
+reviewer: 'Quinn'
+updated: '2026-08-12T23:40:00Z'
+top_issues:
+  - id: 'REL-001'
+    severity: low
+    finding: 'Teste manual/device não executado (ambiente sem simulador) — hub com fechamento próximo vs. folga ampla verificados apenas por testes unitários da função pura.'
+    suggested_action: 'Validar em device na fase de piloto: modal aparece com hub apertado, passa com folga.'
+  - id: 'SEC-001'
+    severity: low
+    finding: 'Validação 100% client-side — pode ser burlada por app manipulado. Risco documentado e ACEITO no piloto (nenhum dinheiro/pedido nesta etapa); NÃO assumido resolvido para a criação real de pedido (6.6+).'
+    suggested_action: 'Revalidar server-side antes de qualquer Story que crie pedido real (6.6+).'
+  - id: 'REL-002'
+    severity: low
+    finding: 'now.getDay()/getHours() usa o relógio local do device; hub.horarios presumem fuso local (BR). Mesmo padrão do precedente EscolhaRetirada#formatAbertoAte — não é regressão nova.'
+    suggested_action: 'Confirmar fuso do device no piloto; sem ação de código nesta Story.'
+waiver: { active: false }

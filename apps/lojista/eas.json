@@ -3,8 +3,9 @@
     "appVersionSource": "local"
   },
   "build": {
-    "pilot": {
+    "demo": {
       "distribution": "store",
+      "autoIncrement": true,
       "ios": {
         "credentialsSource": "local"
       },
@@ -12,12 +13,35 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "DATA_SOURCE": "mock"
+        "EXPO_PUBLIC_DATA_SOURCE": "mock"
+      }
+    },
+    "demo-apk": {
+      "distribution": "internal",
+      "autoIncrement": true,
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_DATA_SOURCE": "mock"
+      }
+    },
+    "production": {
+      "distribution": "store",
+      "autoIncrement": true,
+      "ios": {
+        "credentialsSource": "local"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_DATA_SOURCE": "supabase"
       }
     }
   },
   "submit": {
-    "pilot": {
+    "demo": {
       "ios": {
         "ascAppId": "6796881536",
         "ascApiKeyPath": "credentials/AuthKey.p8",
@@ -25,7 +49,19 @@
         "ascApiKeyIssuerId": "207349a8-a4fb-4b33-a791-c3b66358f3d1"
       },
       "android": {
-        "serviceAccountKeyPath": "./credentials/play-service-account.json",
+        "serviceAccountKeyPath": "/root/.secrets/keepit-play-service-account.json",
+        "track": "internal"
+      }
+    },
+    "production": {
+      "ios": {
+        "ascAppId": "6796881536",
+        "ascApiKeyPath": "credentials/AuthKey.p8",
+        "ascApiKeyId": "T5CQNTR77Y",
+        "ascApiKeyIssuerId": "207349a8-a4fb-4b33-a791-c3b66358f3d1"
+      },
+      "android": {
+        "serviceAccountKeyPath": "/root/.secrets/keepit-play-service-account.json",
         "track": "internal"
       }
     }

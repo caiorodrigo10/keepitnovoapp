@@ -104,6 +104,15 @@ Espelha `auth.users` para dados de perfil do cliente. Criado via trigger em `aut
 
 > **Reconciliado com a decisão 10.4 (2026-07-29):** autenticação do Cliente é **e-mail + senha** (Supabase Auth nativo), **sem SMS no MVP**. Consequências neste schema: (a) `telefone` é **nullable** (campo opcional no cadastro); (b) a coluna `telefone_confirmado` **saiu** — o telefone não é verificado; (c) a tabela `clientes_confirmacao_telefone` saiu do MVP (ver 1.2).
 > Este bloco é a fonte de verdade do DDL e **bate com a Story 2.3 do Épico 2** (`docs/prd/epics/2-auth-cliente.md`), que define o subconjunto mínimo criado na migration do Épico 2 (`id`, `nome`, `telefone` nullable, `cpf` nullable, `criado_em`). As demais colunas abaixo pertencem a épicos posteriores (push, bloqueio, soft delete) e entram por migrations incrementais.
+>
+> **PILOTO aplicado (2026-08-13, Bloco 09 / Story 8.5) — correção de fato:** as
+> colunas `bloqueado`/`motivo_bloqueio`/`bloqueado_em` **NÃO foram criadas** na
+> migration inicial do Épico 2 (`20260731143000_criar_clientes.sql` as lista
+> explicitamente em "FICA FORA") — ao contrário do que Stories 8.5/8.9 afirmavam
+> ("já existem, Bloco 02"). A migration `20260813070002_clientes_bloqueio_admin.sql`
+> as cria de fato, incluindo `bloqueado_em timestamptz` (ausente da versão anterior
+> deste DDL). (Des)bloqueio é **RPC-only** (`bloquear_cliente`/`desbloquear_cliente`,
+> ver `05-security.md` §3.1/§3.14) — nunca `UPDATE` direto, nem pelo admin logado.
 
 ```sql
 CREATE TABLE clientes (
@@ -115,6 +124,7 @@ CREATE TABLE clientes (
   notificacoes_ativas boolean NOT NULL DEFAULT true,
   bloqueado boolean NOT NULL DEFAULT false,
   motivo_bloqueio text,
+  bloqueado_em timestamptz,                          -- NULL enquanto não bloqueado; RPC-only (Bloco 09)
   hub_padrao_id uuid,                                -- reservado para v2 ("hub favorito"); no MVP fica NULL
   criado_em timestamptz NOT NULL DEFAULT NOW(),
   atualizado_em timestamptz NOT NULL DEFAULT NOW(),
@@ -317,6 +327,12 @@ CREATE TABLE estabelecimentos_horarios (
 ### 1.6 `estabelecimentos_falhas`
 
 Registro de falhas de qualidade (no-show do lojista, atraso, etc.).
+
+> **PILOTO aplicado (2026-08-13, Bloco 09 / Story 8.8):** DDL abaixo aplicado tal
+> como documentado por `20260813070005_criar_estabelecimentos_falhas.sql` — sem
+> divergência (era modelo-alvo desde a Story 1.10; o Bloco 09 apenas
+> materializou o schema já descrito aqui). RLS **admin-only**, sem leitura para o
+> lojista (ver `05-security.md` §3.6).
 
 ```sql
 CREATE TABLE estabelecimentos_falhas (
@@ -685,7 +701,7 @@ reduz**. Por tipo:
 | `charge` | + | pagamento do cliente pelo pedido (recibo da plataforma) | **Não** — auditoria/rastreio do dinheiro que entrou |
 | `platform_fee` | − | comissão Keepit de **12%** sobre o subtotal do pedido | **Sim** (débito da comissão) |
 | `merchant_credit` | + | crédito bruto do pedido entregue = `subtotal + taxa_deslocamento` | **Sim** (sujeito a D+7) |
-| `merchant_credit` | − | ajuste manual do Admin que **debita** o lojista (`admin_acao_financeira`) | **Sim** (imediato → `total_debitado`) |
+| `merchant_credit` | − | ajuste manual do Admin que **debita** o lojista | **Sim** (imediato → `total_debitado`) — ⚠️ **planejado, sem RPC própria aplicada no piloto** (ver nota 2026-08-13 abaixo) |
 | `refund` | − | dinheiro devolvido ao **cliente** (reembolso) | **Não** — auditoria; espelha o legado, onde `reembolsos_pendentes` **não** entrava na carteira |
 | `payout` | − | saque/repasse PIX manual ao lojista | **Sim** (imediato → `total_sacado`) |
 
@@ -763,10 +779,21 @@ No ledger, ela é materializada no campo `disponivel_em`:
 - Para `payout`, `refund` e ajustes (`merchant_credit` negativo), `disponivel_em`
   fica **NULL** (efeito imediato — débito/saque não é "bloqueado").
 
-Escrita financeira administrativa (reembolso/repasse/ajuste) passa **somente** pela
-RPC `admin_acao_financeira(...)` `SECURITY DEFINER` sob `is_admin()` (overlay 07),
-sempre com `ator_admin_id`. O webhook Asaas (`asaas-payment-webhook`) registra o
-`charge` do pagamento confirmado.
+Escrita financeira administrativa passa **somente** por RPC `SECURITY DEFINER` sob
+`is_admin()`, sempre com `ator_admin_id`. O webhook Asaas
+(`asaas-payment-webhook`) registra o `charge` do pagamento confirmado.
+
+> **Atualização (2026-08-13, Bloco 09) — RPCs realmente aplicadas:** o parágrafo
+> original planejava uma RPC genérica única, `admin_acao_financeira(...)`,
+> cobrindo reembolso/repasse/ajuste. A implementação real (Épico 8) dividiu isso
+> em **duas RPCs mais específicas** — `confirmar_lancamento_admin` (confirma um
+> `refund`/`payout` já `pendente`, Stories 8.2/8.9) e `forcar_cancelamento_pedido`
+> (cancela o pedido e cria o `refund` `pendente`, Story 8.4). **Nenhuma RPC de
+> "ajuste manual" (criar um `merchant_credit` negativo avulso, sem pedido) foi
+> aplicada no piloto** — a linha correspondente na tabela de sinais (§6.1) e no
+> mapeamento abaixo (§6.3) descreve uma capacidade do **modelo-alvo**, ainda sem
+> RPC própria. Ver `05-security.md` §3.11/§3.14 para o detalhe das RPCs
+> aplicadas.
 
 ### 6.2 View `carteira_lojista` — agregação do ledger
 
@@ -833,12 +860,12 @@ na criação do `payout` (RPC/Edge Function que lê esta view); o mínimo de saq
 
 **Mapeamento piloto (ledger) ↔ modelo-alvo (tabelas):**
 
-| Fluxo | Piloto — lançamento no ledger | Modelo-alvo (tabela antiga) |
+| Fluxo | Piloto — lançamento no ledger (RPC aplicada) | Modelo-alvo (tabela antiga) |
 |---|---|---|
-| Solicitação de saque | `payout` `status='pendente'`, `valor_centavos` negativo | `saques` (`status='solicitado'`) |
-| Admin executa o PIX manual | mesmo lançamento → `status='concluido'`, grava `asaas_id_externo` + `concluido_em` + `ator_admin_id` | `saques` (`status='concluido'`, `asaas_transfer_id`) |
-| Reembolso ao cliente | `refund` `status='pendente'`→`'concluido'` (auditoria; não entra na carteira) | `reembolsos_pendentes` |
-| Ajuste/estorno que debita o lojista | `merchant_credit` negativo (via `admin_acao_financeira`, com `ator_admin_id`) | `debitos_lojista` (`motivo='ajuste_admin'`) |
+| Solicitação de saque | `payout` `status='pendente'` via `solicitar_saque(p_valor_centavos)` (Story 7.8) | `saques` (`status='solicitado'`) |
+| Admin executa o PIX manual | mesmo lançamento → `status='concluido'` via `confirmar_lancamento_admin(...)` (Story 8.9), grava `asaas_id_externo` + `concluido_em` + `ator_admin_id` | `saques` (`status='concluido'`, `asaas_transfer_id`) |
+| Reembolso por cancelamento forçado do Admin | `pedidos.status→cancelado` + `refund` `status='pendente'` via `forcar_cancelamento_pedido(p_pedido_id, p_motivo)` (Story 8.4), depois `→'concluido'` via `confirmar_lancamento_admin(...)` (Story 8.2) | `reembolsos_pendentes` |
+| Ajuste/estorno que debita o lojista | `merchant_credit` negativo — ⚠️ **modelo-alvo, sem RPC aplicada no piloto** (nenhuma RPC de ajuste manual avulso foi construída no Bloco 09; ver nota 2026-08-13 em §6.1) | `debitos_lojista` (`motivo='ajuste_admin'`) |
 | Chargeback | `merchant_credit` negativo (clawback) + `refund` — **pós-piloto** (cartão/chargeback fora do piloto, ver nota do topo) | `chargebacks` + `debitos_lojista` (`motivo='taxa_chargeback'`) |
 | Comissão Keepit (12%) | `platform_fee` negativo por pedido | (calculado na view antiga) |
 | Pagamento do cliente | `charge` positivo (via webhook Asaas) | (implícito em `pedidos`) |

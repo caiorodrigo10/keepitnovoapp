@@ -2,6 +2,7 @@ import { businessConfig } from '@keepit/config';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { OrderPort } from '../ports/order.port';
+import { OrderTransitionError, PinBloqueadoError, PinIncorretoError } from '../ports/order.port';
 import { createMockDb, type MockDb } from './db';
 import { createOrderMock } from './order.mock';
 
@@ -14,23 +15,111 @@ describe('order.mock (contract)', () => {
     port = createOrderMock(db);
   });
 
-  it('create computes taxa_keepit_reais from businessConfig.taxaKeepitPercent over subtotal only', async () => {
+  it('create persiste o snapshot de itens e os totais de cabeçalho recebidos (Story 6.6, AC1/AC7 — sem recalcular a partir do catálogo)', async () => {
+    const subtotal = 29.8; // 2x produto-dipirona a R$ 14,90 (mesmo valor do catálogo, calculado por quem chama)
+    const taxaKeepit = (subtotal * businessConfig.taxaKeepitPercent) / 100;
+    const taxaDeslocamento = 5;
+    const taxaServico = businessConfig.taxaServicoCompradorReais;
+    const total = subtotal + taxaDeslocamento + taxaServico;
+
     const pedido = await port.create(
       {
         cliente_id: 'cliente-ana',
         estabelecimento_id: 'estab-farmacia-vida',
         hub_id: 'hub-centro',
-        itens: [{ produto_id: 'produto-dipirona', quantidade: 2 }],
+        itens: [
+          { produto_id: 'produto-dipirona', nome_snapshot: 'Dipirona Monoidratada 500mg', preco_unitario_reais: 14.9, quantidade: 2 },
+        ],
         forma_pagamento: 'pix',
+        subtotal_produtos_reais: subtotal,
+        taxa_deslocamento_reais: taxaDeslocamento,
+        taxa_keepit_reais: taxaKeepit,
+        taxa_servico_comprador_reais: taxaServico,
+        total_pago_reais: total,
+        nf_solicitada: false,
       },
       { delayMs: 1 },
     );
 
     expect(pedido.subtotal_produtos_reais).toBeCloseTo(29.8, 2);
     expect(pedido.taxa_keepit_reais).toBeCloseTo((29.8 * businessConfig.taxaKeepitPercent) / 100, 2);
+    expect(pedido.taxa_deslocamento_reais).toBeCloseTo(taxaDeslocamento, 2);
+    // Story 6.16 (AC1, AC3): campo que faltava no read model — volta a
+    // aparecer no `Pedido` retornado por `create`, como o resto dos totais.
+    expect(pedido.taxa_servico_comprador_reais).toBeCloseTo(taxaServico, 2);
+    expect(pedido.total_pago_reais).toBeCloseTo(total, 2);
+    // Story 6.7.1 (AC5): status inicial volta a ser `aguardando_pagamento` —
+    // a transição para `aguardando_aceite` passa a ser feita por
+    // `confirmarPagamento`, chamada automaticamente pela UI (ver testes abaixo).
     expect(pedido.status).toBe('aguardando_pagamento');
     expect(pedido.pin_texto).toMatch(/^\d{4}$/);
     expect(pedido.itens).toHaveLength(1);
+    expect(pedido.itens[0]).toMatchObject({
+      nome_snapshot: 'Dipirona Monoidratada 500mg',
+      preco_unitario_reais: 14.9,
+      quantidade: 2,
+      subtotal_reais: 29.8,
+    });
+  });
+
+  it('create rejeita cliente bloqueado (Story 8.5 AC4) — paridade mock↔real, nenhum pedido é criado', async () => {
+    db.clientes.find((c) => c.id === 'cliente-ana')!.bloqueado = true;
+
+    const pedidosAntes = db.pedidos.length;
+
+    await expect(
+      port.create(
+        {
+          cliente_id: 'cliente-ana',
+          estabelecimento_id: 'estab-farmacia-vida',
+          hub_id: 'hub-centro',
+          itens: [{ produto_id: 'produto-dipirona', nome_snapshot: 'Dipirona', preco_unitario_reais: 14.9, quantidade: 1 }],
+          forma_pagamento: 'pix',
+          subtotal_produtos_reais: 14.9,
+          taxa_deslocamento_reais: 5,
+          taxa_keepit_reais: 1.5,
+          taxa_servico_comprador_reais: businessConfig.taxaServicoCompradorReais,
+          total_pago_reais: 14.9 + 5 + businessConfig.taxaServicoCompradorReais,
+          nf_solicitada: false,
+        },
+        { delayMs: 1 },
+      ),
+    ).rejects.toThrow(/bloqueado/i);
+
+    // Nenhum efeito colateral — nenhum pedido novo criado para o cliente bloqueado.
+    expect(db.pedidos.length).toBe(pedidosAntes);
+  });
+
+  it('confirmarPagamento transitions aguardando_pagamento -> aguardando_aceite, without touching aceito_em (Story 6.7.1, AC1-AC4)', async () => {
+    const criado = await port.create(
+      {
+        cliente_id: 'cliente-ana',
+        estabelecimento_id: 'estab-farmacia-vida',
+        hub_id: 'hub-centro',
+        itens: [{ produto_id: 'produto-dipirona', nome_snapshot: 'Dipirona', preco_unitario_reais: 14.9, quantidade: 1 }],
+        forma_pagamento: 'pix',
+        subtotal_produtos_reais: 14.9,
+        taxa_deslocamento_reais: 5,
+        taxa_keepit_reais: 1.5,
+        taxa_servico_comprador_reais: businessConfig.taxaServicoCompradorReais,
+        total_pago_reais: 14.9 + 5 + businessConfig.taxaServicoCompradorReais,
+        nf_solicitada: false,
+      },
+      { delayMs: 1 },
+    );
+    expect(criado.status).toBe('aguardando_pagamento');
+
+    const confirmado = await port.confirmarPagamento(criado.id, { delayMs: 1 });
+    expect(confirmado.status).toBe('aguardando_aceite');
+    // `aceito_em` continua exclusivo de `accept` (Story 6.9) — confirmarPagamento
+    // só confirma o PAGAMENTO, não o aceite da loja.
+    expect(confirmado.aceito_em).toBeNull();
+  });
+
+  it('confirmarPagamento rejects with OrderTransitionError from any other status (Story 6.7.1, AC4)', async () => {
+    // Fixture `pedido-2049` já nasce em `aguardando_aceite` (Story 0.10/6.6 fixtures).
+    await expect(port.confirmarPagamento('pedido-2049', { delayMs: 1 })).rejects.toThrow(/não permitida/i);
+    await expect(port.confirmarPagamento('pedido-2049', { delayMs: 1 })).rejects.toBeInstanceOf(OrderTransitionError);
   });
 
   it('listMine resolves with only the pedidos of the given cliente', async () => {
@@ -39,20 +128,32 @@ describe('order.mock (contract)', () => {
     expect(pedidos.every((p) => p.cliente_id === 'cliente-ana')).toBe(true);
   });
 
-  it('confirmPin blocks after businessConfig.pinTentativasMax wrong attempts', async () => {
+  it('confirmPin blocks after businessConfig.pinTentativasMax wrong attempts (Story 6.15, AC3, AC8) — rejects with PinIncorretoError then PinBloqueadoError, mesmas classes do adapter Supabase', async () => {
     const pedidoId = 'pedido-2049';
 
-    for (let i = 0; i < businessConfig.pinTentativasMax; i += 1) {
-      await expect(port.confirmPin(pedidoId, '0000', { delayMs: 1 })).rejects.toThrow();
+    for (let i = 0; i < businessConfig.pinTentativasMax - 1; i += 1) {
+      const promise = port.confirmPin(pedidoId, '0000', { delayMs: 1 });
+      await expect(promise).rejects.toBeInstanceOf(PinIncorretoError);
+      await promise.catch((err: PinIncorretoError) => {
+        expect(err.tentativasRestantes).toBe(businessConfig.pinTentativasMax - 1 - i);
+      });
     }
 
-    await expect(port.confirmPin(pedidoId, '7734', { delayMs: 1 })).rejects.toThrow(/bloqueado/i);
+    // 5º erro: bloqueia e zera tentativas_pin (mesmo comportamento da RPC real).
+    const quintoErro = port.confirmPin(pedidoId, '0000', { delayMs: 1 });
+    await expect(quintoErro).rejects.toBeInstanceOf(PinBloqueadoError);
+
+    // Tentativa (mesmo com PIN correto) durante o bloqueio ativo continua bloqueada,
+    // sem consumir/incrementar tentativa.
+    await expect(port.confirmPin(pedidoId, '7734', { delayMs: 1 })).rejects.toBeInstanceOf(PinBloqueadoError);
   });
 
-  it('confirmPin with the correct PIN transitions status to "entregue"', async () => {
+  it('confirmPin with the correct PIN transitions status to "entregue" and zeroes tentativas_pin/pin_bloqueado_ate', async () => {
     const pedido = await port.confirmPin('pedido-2049', '7734', { delayMs: 1 });
     expect(pedido.status).toBe('entregue');
     expect(pedido.entregue_em).not.toBeNull();
+    expect(pedido.tentativas_pin).toBe(0);
+    expect(pedido.pin_bloqueado_ate).toBeNull();
   });
 
   it('is genuinely asynchronous — does not resolve on the same tick', () => {
@@ -88,6 +189,17 @@ describe('order.mock (contract)', () => {
     const pedidos = await port.listByEstabelecimento('estab-farmacia-vida', { delayMs: 1 });
     expect(pedidos.length).toBeGreaterThan(0);
     expect(pedidos.every((p) => p.estabelecimento_id === 'estab-farmacia-vida')).toBe(true);
+  });
+
+  it('accept transitions aguardando_aceite -> aceito, persisting tempo_estimado_min/aceito_em (Story 6.9)', async () => {
+    const pedido = await port.accept('pedido-2049', 25, { delayMs: 1 });
+    expect(pedido.status).toBe('aceito');
+    expect(pedido.tempo_estimado_min).toBe(25);
+    expect(pedido.aceito_em).not.toBeNull();
+  });
+
+  it('accept rejects double-acceptance — pedido já em "aceito" (Story 6.9, paridade com a RPC ESTADO_INVALIDO)', async () => {
+    await expect(port.accept('pedido-ops-3005', 25, { delayMs: 1 })).rejects.toThrow(/não permitida/i);
   });
 
   it('markReadyForHub transitions aceito/em_preparo -> saindo_hub and rejects otherwise', async () => {

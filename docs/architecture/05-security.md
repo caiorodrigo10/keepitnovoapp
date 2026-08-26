@@ -67,6 +67,21 @@ Padrão: uma policy por operação (`SELECT`, `INSERT`, `UPDATE`, `DELETE`). Nom
 
 ### 3.1 `clientes`
 
+> **PILOTO aplicado (2026-08-13, Bloco 09 / Story 8.5) — `cliente_atualiza_proprio`
+> corrigida:** o `WITH CHECK` original abaixo (subquery `bloqueado = (SELECT
+> bloqueado FROM clientes WHERE id = auth.uid())`) é **inexequível no Postgres**
+> ("infinite recursion detected in policy", PG15) — mesmo problema já resolvido em
+> `estabelecimentos` (§3.4, trigger `estabelecimentos_bloqueia_imutaveis`). A
+> migration `20260813070002_clientes_bloqueio_admin.sql` substitui essa abordagem
+> por um `BEFORE UPDATE` trigger (`clientes_bloqueia_imutaveis`) que bloqueia
+> mudança de `bloqueado`/`motivo_bloqueio`/`bloqueado_em` para qualquer `current_user
+> IN ('authenticated', 'anon')` — inclusive o admin logado, que também é
+> `authenticated`. (Des)bloqueio passa a ser **RPC-only**
+> (`bloquear_cliente`/`desbloquear_cliente`, `SECURITY DEFINER`, ver abaixo), o
+> mesmo padrão já usado por `estabelecimentos.status`. `cliente_atualiza_proprio`
+> perde o `WITH CHECK` de `bloqueado` (a coluna já é imutável via trigger,
+> independente da policy).
+
 ```sql
 ALTER TABLE clientes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE clientes FORCE ROW LEVEL SECURITY;
@@ -76,16 +91,17 @@ CREATE POLICY cliente_le_proprio ON clientes
   FOR SELECT
   USING (id = auth.uid() OR is_admin());
 
--- Cliente atualiza apenas o próprio perfil (não pode mudar bloqueado, cpf via UPDATE direto)
+-- Cliente atualiza apenas o próprio perfil. bloqueado/motivo_bloqueio/bloqueado_em
+-- são imutáveis para 'authenticated'/'anon' via trigger (ver nota acima) — não
+-- precisam de WITH CHECK dedicado aqui (evita a recursão do desenho original).
 CREATE POLICY cliente_atualiza_proprio ON clientes
   FOR UPDATE
   USING (id = auth.uid())
-  WITH CHECK (
-    id = auth.uid()
-    AND bloqueado = (SELECT bloqueado FROM clientes WHERE id = auth.uid())  -- não pode auto-desbloquear
-  );
+  WITH CHECK (id = auth.uid());
 
--- Admin vê e atualiza qualquer cliente
+-- Admin vê e atualiza qualquer cliente (SELECT de todos habilita a listagem
+-- administrativa da Story 8.5; a trigger acima ainda impede o admin de tocar os
+-- campos de bloqueio fora das RPCs)
 CREATE POLICY admin_gerencia_clientes ON clientes
   FOR ALL
   USING (is_admin())
@@ -95,7 +111,34 @@ CREATE POLICY admin_gerencia_clientes ON clientes
 CREATE POLICY sem_insert_direto_clientes ON clientes
   FOR INSERT
   WITH CHECK (false);
+
+-- BEFORE UPDATE: bloqueia troca de bloqueado/motivo_bloqueio/bloqueado_em por
+-- authenticated/anon (inclusive admin logado) — só RPC SECURITY DEFINER
+-- (current_user = owner) passa. Aplicada por 20260813070002_clientes_bloqueio_admin.sql.
+CREATE OR REPLACE FUNCTION clientes_bloqueia_imutaveis()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF current_user IN ('authenticated', 'anon') THEN
+    IF NEW.bloqueado         IS DISTINCT FROM OLD.bloqueado
+       OR NEW.motivo_bloqueio IS DISTINCT FROM OLD.motivo_bloqueio
+       OR NEW.bloqueado_em    IS DISTINCT FROM OLD.bloqueado_em THEN
+      RAISE EXCEPTION 'COLUNA_IMUTAVEL: bloqueado/motivo_bloqueio/bloqueado_em só mudam por RPC admin';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = '';
+
+CREATE TRIGGER trg_clientes_imutaveis
+  BEFORE UPDATE ON clientes
+  FOR EACH ROW EXECUTE FUNCTION clientes_bloqueia_imutaveis();
 ```
+
+**RPCs `bloquear_cliente(p_cliente_id, p_motivo)` / `desbloquear_cliente(p_cliente_id)`**
+(Bloco 09, Story 8.5) — `SECURITY DEFINER` + `search_path=''`, guard `is_admin()`
+(`NAO_AUTORIZADO` se não-admin), `MOTIVO_OBRIGATORIO` exige texto não-vazio em
+`bloquear_cliente`. `REVOKE ALL FROM PUBLIC, anon` + `GRANT EXECUTE TO authenticated`
+(mesmo padrão de hardening das demais RPCs admin — ver §3.14).
 
 ### 3.2 `clientes_confirmacao_telefone` — REMOVIDA DO MVP
 
@@ -142,38 +185,56 @@ CREATE POLICY admin_le_cartoes ON clientes_cartoes
 
 ### 3.4 `estabelecimentos`
 
+> **PILOTO aplicado (2026-08-12/13, Stories 3.5/3.7/8.6) — `lojista_atualiza_proprio`
+> corrigida:** o `WITH CHECK` abaixo com subconsultas na PRÓPRIA tabela
+> (`status = (SELECT status FROM estabelecimentos WHERE id = estabelecimentos.id)`,
+> etc.) é **inexequível no Postgres** (recursão infinita de policy, PG15) e tinha um
+> bug de shadowing (`id = id` sempre verdadeiro). A migration
+> `20260812123046_criar_estabelecimentos.sql` substitui a imutabilidade de
+> `status`/`cnpj`/`asaas_wallet_id`/`dono_user_id` por um `BEFORE UPDATE` trigger
+> (`estabelecimentos_bloqueia_imutaveis`), mesmo padrão depois reaplicado em
+> `clientes` (§3.1, Bloco 09). `lojista_atualiza_proprio` fica só ownership
+> (`dono_user_id = auth.uid()`); a imutabilidade das colunas sensíveis é
+> responsabilidade do trigger, não da policy. `publico_ve_ativos` NÃO tem
+> `OR is_admin()` — desnecessário: `admin_gerencia_estab` (`FOR ALL`) já concede
+> SELECT de tudo ao admin, OR'd com as demais policies (`20260812132331`).
+> **Suspensão/reativação são RPC-only (Bloco 09, Story 8.6):** `suspender_lojista`/
+> `reativar_lojista` (`SECURITY DEFINER`) mudam `status` rodando como owner — o
+> trigger libera esse caminho (`current_user` = owner, não `authenticated`), mas
+> continua bloqueando qualquer `UPDATE` direto de `status` pelo app (inclusive
+> admin logado). Ver §3.14 para a lista completa de RPCs administrativas.
+
 ```sql
 ALTER TABLE estabelecimentos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE estabelecimentos FORCE ROW LEVEL SECURITY;
 
--- SELECT público apenas para estabelecimentos ativos (para clientes descobrirem)
+-- SELECT público apenas para estabelecimentos ativos (para clientes descobrirem);
+-- dono vê o próprio; admin vê tudo via admin_gerencia_estab (FOR ALL) abaixo.
 CREATE POLICY publico_ve_ativos ON estabelecimentos
   FOR SELECT
   USING (
     (status = 'ativo' AND pausado_manualmente = false AND excluido_em IS NULL)
     OR dono_user_id = auth.uid()
-    OR is_admin()
   );
 
--- Lojista atualiza dados operacionais do seu estabelecimento
--- Restrição: não pode mudar status, CNPJ, dono_user_id, asaas_wallet_id, aprovado_em
+-- Lojista atualiza dados operacionais do seu estabelecimento (ownership only).
+-- Imutabilidade de status/cnpj/asaas_wallet_id/dono_user_id fica no trigger
+-- `estabelecimentos_bloqueia_imutaveis` (ver nota acima e bloco abaixo).
 CREATE POLICY lojista_atualiza_proprio ON estabelecimentos
   FOR UPDATE
   USING (dono_user_id = auth.uid())
-  WITH CHECK (
-    dono_user_id = auth.uid()
-    AND status = (SELECT status FROM estabelecimentos WHERE id = estabelecimentos.id)
-    AND cnpj = (SELECT cnpj FROM estabelecimentos WHERE id = estabelecimentos.id)
-    AND asaas_wallet_id IS NOT DISTINCT FROM (SELECT asaas_wallet_id FROM estabelecimentos WHERE id = estabelecimentos.id)
-  );
+  WITH CHECK (dono_user_id = auth.uid());
 
--- Admin faz tudo
+-- Admin faz tudo (concede SELECT de todos os estabelecimentos, inclusive
+-- em_analise — base da fila de aprovação da Story 3.7)
 CREATE POLICY admin_gerencia_estab ON estabelecimentos
   FOR ALL
   USING (is_admin())
   WITH CHECK (is_admin());
 
--- INSERT via app do lojista após signup (cria com status em_analise)
+-- INSERT via app do lojista após signup (cria com status em_analise). Na prática o
+-- cadastro real passa pela RPC criar_estabelecimento_completo (SECURITY DEFINER);
+-- esta policy é defesa em profundidade para INSERT direto com a chave anon/authenticated.
 CREATE POLICY lojista_cria_proprio ON estabelecimentos
   FOR INSERT
   WITH CHECK (
@@ -181,7 +242,41 @@ CREATE POLICY lojista_cria_proprio ON estabelecimentos
     AND status = 'em_analise'
     AND asaas_wallet_id IS NULL
   );
+
+-- BEFORE UPDATE: bloqueia troca de dono_user_id/cnpj/status/asaas_wallet_id por
+-- authenticated/anon (inclusive admin logado) — só caminhos privilegiados (RPC
+-- SECURITY DEFINER, roda como owner) passam. Aplicada por 20260812123046_criar_estabelecimentos.sql.
+CREATE OR REPLACE FUNCTION estabelecimentos_bloqueia_imutaveis()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF current_user IN ('authenticated', 'anon') THEN
+    IF NEW.dono_user_id IS DISTINCT FROM OLD.dono_user_id THEN
+      RAISE EXCEPTION 'COLUNA_IMUTAVEL: dono_user_id nao pode ser alterado';
+    END IF;
+    IF NEW.cnpj IS DISTINCT FROM OLD.cnpj THEN
+      RAISE EXCEPTION 'COLUNA_IMUTAVEL: cnpj nao pode ser alterado';
+    END IF;
+    IF NEW.status IS DISTINCT FROM OLD.status THEN
+      RAISE EXCEPTION 'COLUNA_IMUTAVEL: status so pode ser alterado por admin';
+    END IF;
+    IF NEW.asaas_wallet_id IS DISTINCT FROM OLD.asaas_wallet_id THEN
+      RAISE EXCEPTION 'COLUNA_IMUTAVEL: asaas_wallet_id nao pode ser alterado pelo lojista';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = '';
+
+CREATE TRIGGER trg_estabelecimentos_imutaveis
+  BEFORE UPDATE ON estabelecimentos
+  FOR EACH ROW EXECUTE FUNCTION estabelecimentos_bloqueia_imutaveis();
 ```
+
+**RPCs `suspender_lojista(p_estabelecimento_id, p_motivo)` / `reativar_lojista(p_estabelecimento_id)`**
+(Bloco 09, Story 8.6) — `SECURITY DEFINER` + `search_path=''`, guard `is_admin()`,
+`ESTADO_INVALIDO` se a transição não é `ativo→suspenso` (suspender) ou
+`suspenso→ativo` (reativar). `REVOKE ALL FROM PUBLIC, anon` + `GRANT EXECUTE TO
+authenticated`. Ver §3.14.
 
 ### 3.5 `estabelecimentos_horarios`
 
@@ -218,6 +313,12 @@ CREATE POLICY lojista_gerencia_horarios ON estabelecimentos_horarios
 ### 3.6 `estabelecimentos_falhas`
 
 Só admin lê e escreve. Lojista não vê seu próprio histórico (por design — reduz atrito).
+
+> **PILOTO aplicado (2026-08-13, Bloco 09 / Story 8.8):** tabela e policy abaixo
+> aplicadas tal como documentadas por
+> `20260813070005_criar_estabelecimentos_falhas.sql` — nenhuma divergência (o DDL
+> era modelo-alvo desde a Story 1.10; o Bloco 09 apenas materializou o que já
+> estava aqui). Admin-only confirmado; sem policy de leitura para o lojista.
 
 ```sql
 ALTER TABLE estabelecimentos_falhas ENABLE ROW LEVEL SECURITY;
@@ -380,20 +481,81 @@ CREATE POLICY sem_delete_pedidos_itens ON pedidos_itens
 **Convenção crítica**: escrita em `pedidos.status`, `pin_hash`, valores, timestamps é **exclusiva de funções server-side** que validam pré-condições. Cliente e lojista **não fazem UPDATE direto** — chamam funções específicas (`aceitar-pedido`, confirmação de PIN, `cancelar-pedido`, etc.) que validam autorização e escrevem sob privilégio controlado.
 
 > **PIN e ação financeira são RPC `SECURITY DEFINER` no piloto (2026-08-12):** a
-> confirmação de PIN (`confirmar_pin_pedido`) e a ação financeira administrativa
-> (`admin_acao_financeira`, guardada por `is_admin()`) **não** são Edge Functions —
-> são RPCs PostgreSQL `SECURITY DEFINER` chamadas via `supabase-js`. O critério do
-> piloto é: **Edge Function só quando há segredo server-side ou validação de origem
-> externa (Asaas); autorização + escrita no banco resolvem-se com RLS + RPC
-> `SECURITY DEFINER`**. Restam apenas `create-pix-payment` e `asaas-payment-webhook`
-> como Edge Functions. As garantias de segurança são idênticas (validação
-> server-side, PIN não exposto, autorização por papel/ownership); muda só o veículo.
-> Ver [`07-mvp-pilot-backend.md`](./07-mvp-pilot-backend.md) §"Edge Functions
+> confirmação de PIN (`confirmar_pin_pedido`) e as ações financeiras
+> administrativas **não** são Edge Functions — são RPCs PostgreSQL `SECURITY
+> DEFINER` chamadas via `supabase-js`. O critério do piloto é: **Edge Function só
+> quando há segredo server-side ou validação de origem externa (Asaas);
+> autorização + escrita no banco resolvem-se com RLS + RPC `SECURITY DEFINER`**.
+> Restam apenas `create-pix-payment` e `asaas-payment-webhook` como Edge
+> Functions. As garantias de segurança são idênticas (validação server-side, PIN
+> não exposto, autorização por papel/ownership); muda só o veículo. Ver
+> [`07-mvp-pilot-backend.md`](./07-mvp-pilot-backend.md) §"Edge Functions
 > mínimas".
+>
+> **Atualização (2026-08-13, Bloco 09):** `admin_acao_financeira` (nome
+> genérico planejado neste parágrafo) foi **substituída na implementação real**
+> por duas RPCs mais específicas — `confirmar_lancamento_admin` (confirma um
+> `refund`/`payout` já `pendente` no ledger, Stories 8.2/8.9) e
+> `forcar_cancelamento_pedido` (cancela um pedido em qualquer estado não-terminal
+> e cria o `refund` `pendente` correspondente, Story 8.4). Nenhuma RPC "genérica"
+> de ajuste financeiro ad-hoc foi aplicada no piloto. `forcar_cancelamento_pedido`
+> é `SECURITY DEFINER` + guard `is_admin()`, `MOTIVO_OBRIGATORIO`/`ESTADO_INVALIDO`
+> nomeados — grava `motivo_cancelamento` em `pedidos` e insere o lançamento
+> `refund` em `lancamentos_financeiros` na mesma transação. Ver §3.14 para a
+> lista completa de RPCs administrativas do Bloco 09.
 
-### 3.12 `reembolsos_pendentes`, `saques`, `chargebacks`, `debitos_lojista`
+### 3.12 `lancamentos_financeiros` — ledger único do piloto
 
-Financeiro sensível — leitura escopada, escrita só admin/service_role.
+> **PILOTO aplicado (2026-08-13, Bloco 08, Stories 7.6-7.8) — substitui o modelo
+> fragmentado abaixo:** `reembolsos_pendentes`, `saques`, `chargebacks` e
+> `debitos_lojista` **NÃO são criadas nas migrations do piloto** (ver
+> `03-data-models.md` §6.3). Todo o financeiro sensível — reembolso, saque,
+> ajuste, cobrança — vive numa única tabela append-only,
+> `lancamentos_financeiros`, com leitura escopada por dono/admin e **escrita
+> negada para todos os roles do app**: só as RPCs `SECURITY DEFINER` (rodam como
+> owner, que tem `BYPASSRLS`) escrevem. As 4 policies antigas (DDL original
+> preservado no `<details>` abaixo, por rastreabilidade) são substituídas pelas
+> 4 policies do ledger.
+
+```sql
+ALTER TABLE lancamentos_financeiros ENABLE ROW LEVEL SECURITY;
+ALTER TABLE lancamentos_financeiros FORCE ROW LEVEL SECURITY;
+
+-- SELECT: admin lê tudo; lojista só os lançamentos do próprio estabelecimento.
+-- meu_estabelecimento_id() é NULL para quem não é lojista → "= NULL" nunca casa
+-- (0 linhas), sem precisar de OR explícito para excluir clientes/anon.
+CREATE POLICY le_ve_relacionados ON lancamentos_financeiros
+  FOR SELECT
+  USING (
+    is_admin()
+    OR estabelecimento_id = meu_estabelecimento_id()
+  );
+
+-- INSERT/UPDATE/DELETE diretos do app: NEGADOS para todo mundo, inclusive admin.
+-- Só as RPCs SECURITY DEFINER escrevem (rodam como owner do banco, que tem BYPASSRLS):
+--   criar_pedido (charge), avancar_estado_pedido (merchant_credit/platform_fee no
+--   entregue), solicitar_saque (payout pendente), confirmar_lancamento_admin
+--   (confirma refund/payout pendente), forcar_cancelamento_pedido (refund).
+CREATE POLICY le_sem_insert_direto ON lancamentos_financeiros
+  FOR INSERT WITH CHECK (false);
+CREATE POLICY le_sem_update_direto ON lancamentos_financeiros
+  FOR UPDATE USING (false) WITH CHECK (false);
+CREATE POLICY le_sem_delete_direto ON lancamentos_financeiros
+  FOR DELETE USING (false);
+```
+
+**WARN 0028/0029 aceito (intencional, mesmo padrão dos Blocos 01-08):** os
+advisors do Supabase (`anon_security_definer_function_executable` /
+`authenticated_security_definer_function_executable`) disparam `WARN` genérico
+para qualquer função `SECURITY DEFINER` executável por `anon`/`authenticated` —
+mesmo quando a função já faz `REVOKE ALL FROM PUBLIC, anon` e só
+`GRANT EXECUTE TO authenticated` (padrão de todas as RPCs administrativas do
+Bloco 09, ver §3.14). O advisor não distingue "guardada por `is_admin()` dentro
+da função" de "sem guard nenhum" — os dois WARN são **aceitos como ruído
+esperado**, não um gap de segurança real (confirmado nas Stories 8.2/8.9).
+
+<details>
+<summary>DDLs do modelo-alvo (pós-piloto — NÃO aplicadas nas migrations do piloto)</summary>
 
 ```sql
 -- reembolsos_pendentes
@@ -439,6 +601,8 @@ CREATE POLICY lojista_ve_proprios_debitos ON debitos_lojista
   FOR SELECT USING (estabelecimento_id = meu_estabelecimento_id() OR is_admin());
 ```
 
+</details>
+
 ### 3.13 View `carteira_lojista`
 
 Views não têm RLS diretamente — mas herdam RLS das tabelas subjacentes se `security_invoker = true` (Postgres 15+).
@@ -447,7 +611,37 @@ Views não têm RLS diretamente — mas herdam RLS das tabelas subjacentes se `s
 ALTER VIEW carteira_lojista SET (security_invoker = true);
 ```
 
-Isso faz a view respeitar RLS das tabelas `pedidos`, `saques`, `debitos_lojista` para o user que consulta. Como lojista só vê pedidos do próprio estabelecimento, ele só vê o próprio saldo. Admin vê tudo naturalmente.
+> **PILOTO aplicado (2026-08-13, Bloco 08, Story 7.6):** a view agrega
+> `lancamentos_financeiros` `LEFT JOIN` `estabelecimentos` (ver `03-data-models.md`
+> §6.2) — não mais `pedidos`/`saques`/`debitos_lojista` (essas três não existem no
+> piloto). `security_invoker = true` faz a view respeitar a RLS de
+> `lancamentos_financeiros` (§3.12, `le_ve_relacionados`) para quem consulta. Como
+> o lojista só lê os próprios lançamentos, ele só vê o próprio saldo agregado;
+> admin vê tudo. Mesma garantia do parágrafo original, ângulo do ledger único.
+
+### 3.14 RPCs administrativas `SECURITY DEFINER` — visão consolidada (Bloco 09, Épico 8)
+
+> **PILOTO aplicado (2026-08-13).** Toda operação administrativa sensível
+> (reembolso/repasse, cancelamento forçado, bloqueio de cliente, suspensão de
+> lojista) passa por RPC `SECURITY DEFINER`, nunca por `UPDATE` direto de
+> cliente/lojista/admin sob RLS. Padrão de hardening comum a todas: `search_path
+> = ''`, guard `is_admin()` no corpo (`RAISE EXCEPTION 'NAO_AUTORIZADO'` se
+> falhar), `REVOKE ALL FROM PUBLIC, anon` + `GRANT EXECUTE TO authenticated`, e
+> um vocabulário fixo de erros nomeados (`AUTENTICACAO_NECESSARIA`,
+> `NAO_AUTORIZADO`, mais os específicos de cada RPC) que o adapter TS traduz em
+> classes dedicadas — nunca um `catch` genérico.
+
+| RPC | Story | Tabela afetada | Guard / erros nomeados | Doc de policy |
+|---|---|---|---|---|
+| `confirmar_lancamento_admin(p_lancamento_id, p_resultado, p_detalhe?, p_asaas_id_externo?)` | 8.2 / 8.9 | `lancamentos_financeiros` (`refund`/`payout` `pendente→concluido\|erro`) | `is_admin()`; `RESULTADO_INVALIDO`, `LANCAMENTO_NAO_ENCONTRADO`, `TIPO_INVALIDO`, `ESTADO_INVALIDO` | §3.12 |
+| `forcar_cancelamento_pedido(p_pedido_id, p_motivo)` | 8.4 | `pedidos.status→cancelado` + INSERT `refund` em `lancamentos_financeiros` | `is_admin()`; `MOTIVO_OBRIGATORIO`, `PEDIDO_NAO_ENCONTRADO`, `ESTADO_INVALIDO` | §3.11 |
+| `bloquear_cliente(p_cliente_id, p_motivo)` / `desbloquear_cliente(p_cliente_id)` | 8.5 | `clientes.bloqueado/motivo_bloqueio/bloqueado_em` | `is_admin()`; `MOTIVO_OBRIGATORIO` (só bloquear), `CLIENTE_NAO_ENCONTRADO` | §3.1 |
+| `suspender_lojista(p_estabelecimento_id, p_motivo)` / `reativar_lojista(p_estabelecimento_id)` | 8.6 | `estabelecimentos.status` (`ativo↔suspenso`) | `is_admin()`; `MOTIVO_OBRIGATORIO` (só suspender), `ESTABELECIMENTO_NAO_ENCONTRADO`, `ESTADO_INVALIDO` | §3.4 |
+
+Todas compartilham o mesmo **WARN 0028/0029 aceito** documentado em §3.12 — os
+advisors do Supabase marcam qualquer `SECURITY DEFINER` executável por
+`authenticated` como `WARN`, independente do guard `is_admin()` no corpo da
+função; tratado como ruído esperado desde o Bloco 01.
 
 ## 4. Gestão de segredos
 

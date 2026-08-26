@@ -1,34 +1,23 @@
 import type { Produto } from '../ports/product.port';
-import { validarHorariosSemanais, type Estabelecimento, type EstabelecimentoHorario, type LojaEstado, type StorePort } from '../ports/store.port';
+import {
+  deriveLojaEstado,
+  validarHorariosSemanais,
+  type Estabelecimento,
+  type EstabelecimentoHorario,
+  type LojaEstado,
+  type StorePort,
+} from '../ports/store.port';
 import type { AsyncCallOptions } from '../types';
 import { simulateAsync } from './async-helpers';
 import type { MockDb } from './db';
 
 /**
- * Deriva o estado da loja (AC1) a partir de `pausado_manualmente` +
- * `horarios` do dia/hora correntes. Vive aqui (não no tipo de domínio)
- * porque é lógica de apresentação sobre dados brutos do schema.
+ * Story 5.3 (AC4) — `[IDS] ADAPT`: `deriveLojaEstado` relocada para
+ * `store.port.ts` (fonte única, mesmo padrão de `validarHorariosSemanais`)
+ * e reexportada aqui para não quebrar importadores existentes
+ * (`store.mock.test.ts`). Nenhuma mudança de comportamento.
  */
-export function deriveLojaEstado(estabelecimento: Estabelecimento, now: Date = new Date()): LojaEstado {
-  if (estabelecimento.pausado_manualmente) {
-    return 'pausada';
-  }
-
-  const diaSemana = now.getDay();
-  const horarioHoje = estabelecimento.horarios.find((h) => h.dia_semana === diaSemana);
-
-  if (!horarioHoje || !horarioHoje.aberto || !horarioHoje.hora_abre || !horarioHoje.hora_fecha) {
-    return 'fechada';
-  }
-
-  const horaAtual = now.getHours() * 60 + now.getMinutes();
-  const [abreH, abreM] = horarioHoje.hora_abre.split(':').map(Number);
-  const [fechaH, fechaM] = horarioHoje.hora_fecha.split(':').map(Number);
-  const abreMin = abreH * 60 + abreM;
-  const fechaMin = fechaH * 60 + fechaM;
-
-  return horaAtual >= abreMin && horaAtual < fechaMin ? 'aberta' : 'fechada';
-}
+export { deriveLojaEstado };
 
 export function createStoreMock(db: MockDb): StorePort {
   function findOrThrow(id: string): Estabelecimento {

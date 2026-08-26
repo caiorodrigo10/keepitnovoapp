@@ -1,0 +1,44 @@
+schema: 1
+story: '5.7'
+gate: CONCERNS
+status_reason: 'Ajuste único e específico desta Story: inverter a ordem das seções em `BuscaProduto.tsx` para LOJAS antes de PRODUTOS (AC2/AC4). Verificado por leitura direta do JSX: seção "LOJAS" (`BuscaProduto.tsx` linha 116) renderiza ANTES da seção "PRODUTOS" (linha 129) — ordem correta em relação ao épico ("cards de loja acima dos de produto"). Mudança puramente de apresentação: `useSearchLojas`/`useSearchProdutos` e os dados retornados não foram alterados. `BuscaLoja.tsx` já não tinha o problema (não renderiza produtos). O escopo de hub (`cart.hubId` + guard) é HERDADO da Story 5.6 nos mesmos dois arquivos — decisão de @architect NÃO duplicada (confirmado: mesmo bloco de guard, mesmo comentário compartilhado). Testes reexecutados fora do cache Turbo (vitest direto): cliente 48/48. Typecheck limpo (exit 0). CONCERNS (não PASS) porque a ordem visual não tem teste de regressão automatizado — `apps/cliente` não tem harness de componente RN (a troca de duas `<View>` é verificada por code review, não por render test); confirmação visual/device pendente. Nenhum critical/high.'
+reviewer: 'Quinn'
+updated: '2026-08-12T22:30:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static
+    evidence: 'Mesma tela de busca da 5.6 (`BuscaProduto.tsx`/`BuscaLoja.tsx`) — sem regressão; escopo de hub herdado da 5.6.'
+  AC2:
+    status: MET
+    method: static
+    evidence: '`BuscaProduto.tsx`: bloco `lojas.length > 0` com título "LOJAS" (linhas 116-127) precede o bloco `produtos.length > 0` com título "PRODUTOS" (linhas 129-141). Ordem alvo atingida — lojas acima de produtos.'
+  AC3:
+    status: MET
+    method: static
+    evidence: 'Toque no `StoreCard` navega para `Loja` (`estabelecimentoId`) — catálogo da Story 5.4; pré-existente, sem regressão (BuscaProduto linha 123 / BuscaLoja linha 92).'
+  AC4:
+    status: MET
+    method: static
+    evidence: 'Quando o termo bate em ambos, as duas seções ("LOJAS" e "PRODUTOS") são renderizadas com título próprio e separadas; só a ORDEM foi ajustada (AC2). Cada seção é condicional ao respectivo `length > 0`.'
+
+security:
+  status: PASS
+  notes: |
+    - Nenhuma mudança de dados: só reordenação de JSX. Sem nova superfície de risco.
+    - Sem ranking de relevância inventado; busca por loja continua sobre a leitura pública escopada ao hub (mesma fonte da 5.6, RLS fail-closed / mock filtra ativo).
+    - Nenhuma duplicação da decisão de guard/hub (herdada, não reaberta).
+
+issues:
+  - id: DEV-5.7-001
+    severity: low
+    category: tests
+    description: 'A nova ordem visual das seções (LOJAS antes de PRODUTOS) não tem teste de regressão automatizado — `apps/cliente` não tem harness de teste de componente RN. A troca é puramente de JSX (duas `<View>` invertidas), verificada por leitura de código + typecheck.'
+    recommendation: 'Confirmar visualmente em device que, quando o termo bate em loja e produto, a seção de lojas aparece acima. Coberto pelo mesmo débito de harness da 5.6/5.4.'
+
+recommendations:
+  immediate: []
+  future:
+    - 'Confirmação visual/device da ordem das seções.'
+    - 'Harness de componente RN em `apps/cliente` para travar a ordem contra regressão futura.'

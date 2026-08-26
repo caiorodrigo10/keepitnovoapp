@@ -115,45 +115,57 @@ describe('store.mock (contract)', () => {
   });
 });
 
-describe('deriveLojaEstado', () => {
-  const baseLoja = {
-    id: 'x',
-    nome_fantasia: 'x',
-    categoria: 'x',
-    descricao: null,
-    foto_fachada_url: null,
-    endereco: 'x',
-    lat: 0,
-    lng: 0,
-    raio_atendimento_km: 1,
-    tempo_medio_entrega_min: 10,
-    taxa_deslocamento_reais: 0,
-    ticket_minimo_reais: null,
-    status: 'ativo' as const,
-    motivo_rejeicao: null,
-    motivo_suspensao: null,
-    pausado_manualmente: false,
-    horarios: [{ dia_semana: 3, aberto: true, hora_abre: '09:00', hora_fecha: '18:00' }],
-  };
+/**
+ * Modo Demo (`docs/architecture/09-modo-demo-mock.md` §3.2/§3.4) — trava o
+ * dataset de demonstração: a MAIORIA das lojas ativas usa horário amplo
+ * (`00:00–23:59`, 7 dias) e por isso aparece "Aberta" a qualquer hora/dia,
+ * mas o dataset preserva EXATAMENTE 1 loja "Pausada"
+ * (`pausado_manualmente = true`) e 1 loja "Fechada" (horário estreito) para
+ * o demo continuar exibindo os 3 estados do protótipo (AC1). `now` fixo
+ * (quarta-feira 15h) — dentro da janela ampla e fora da janela estreita da
+ * padaria (06:00–11:00) — para o teste ser determinístico independentemente
+ * do relógio real da máquina que roda a suíte.
+ */
+describe('dataset de demo (docs/architecture/09-modo-demo-mock.md, §3.2/§3.4) — estados AC1', () => {
+  let db: MockDb;
+  let port: StorePort;
 
-  it('returns "pausada" when pausado_manualmente = true, even inside horário', () => {
-    const wednesdayNoon = new Date('2026-07-29T12:00:00'); // wednesday
-    const estado = deriveLojaEstado({ ...baseLoja, pausado_manualmente: true }, wednesdayNoon);
-    expect(estado).toBe('pausada');
+  beforeEach(() => {
+    db = createMockDb();
+    port = createStoreMock(db);
   });
 
-  it('returns "aberta" within the configured horário', () => {
-    const wednesdayNoon = new Date('2026-07-29T12:00:00');
-    expect(deriveLojaEstado(baseLoja, wednesdayNoon)).toBe('aberta');
+  const now = new Date('2026-07-29T15:00:00'); // quarta-feira, 15h
+
+  it('a MAIORIA das lojas ativas está "Aberta" a qualquer hora do demo (horário amplo)', async () => {
+    const ativas = await port.listByHub('hub-centro', { delayMs: 1 });
+    expect(ativas.length).toBeGreaterThanOrEqual(8);
+
+    const estados = ativas.map((loja) => ({ id: loja.id, estado: deriveLojaEstado(loja, now) }));
+    const abertas = estados.filter((e) => e.estado === 'aberta');
+    const pausadas = estados.filter((e) => e.estado === 'pausada');
+    const fechadas = estados.filter((e) => e.estado === 'fechada');
+
+    expect(abertas.length).toBeGreaterThan(estados.length / 2);
+    expect(pausadas).toHaveLength(1);
+    expect(fechadas).toHaveLength(1);
   });
 
-  it('returns "fechada" outside the configured horário', () => {
-    const wednesdayNight = new Date('2026-07-29T22:00:00');
-    expect(deriveLojaEstado(baseLoja, wednesdayNight)).toBe('fechada');
+  it('exatamente 1 loja "Pausada" independentemente do horário (Loja Bem Vestir)', () => {
+    const bemVestir = db.estabelecimentos.find((e) => e.id === 'estab-bem-vestir')!;
+    expect(deriveLojaEstado(bemVestir, now)).toBe('pausada');
   });
 
-  it('returns "fechada" on a day without a horário entry', () => {
-    const thursdayNoon = new Date('2026-07-30T12:00:00'); // no horário seeded for this day
-    expect(deriveLojaEstado(baseLoja, thursdayNoon)).toBe('fechada');
+  it('exatamente 1 loja "Fechada" na maior parte do dia (Padaria Aurora, janela 06:00–11:00)', () => {
+    const padaria = db.estabelecimentos.find((e) => e.id === 'estab-padaria-aurora')!;
+    expect(deriveLojaEstado(padaria, now)).toBe('fechada');
+    // Dentro da janela estreita, a mesma loja fica "aberta" (a regra não muda, só o dado).
+    const dentroDaJanela = new Date('2026-07-29T08:00:00');
+    expect(deriveLojaEstado(padaria, dentroDaJanela)).toBe('aberta');
   });
 });
+
+// `deriveLojaEstado` foi relocada para `store.port.ts` (Story 5.3, AC4,
+// `[IDS] ADAPT`, fonte única mock/Supabase) — testes movidos para
+// `store.port.test.ts` junto de `validarHorariosSemanais` (mesmo padrão de
+// função pura compartilhada testada isoladamente de seus consumidores).

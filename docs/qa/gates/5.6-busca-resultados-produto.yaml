@@ -1,0 +1,53 @@
+schema: 1
+story: '5.6'
+gate: CONCERNS
+status_reason: 'Dois gaps concretos fechados sobre hooks/telas já existentes, sem port/adapter nova. AC3 (ordenação por preço) atendido e coberto por teste automatizado: `sortProdutosByPrecoAsc` extraída como função pura, aplicada ao resultado JÁ filtrado por texto/categoria — ordena por `preco_reais` ascendente, SEM ranking por relevância inventado (grep confirma: a única menção a "relevância" é a NEGAÇÃO em comentário). AC5 (escopo de hub) atendido por código: `DEFAULT_HUB_ID` hard-coded trocado por `useCart().hubId` em `BuscaProduto.tsx`/`BuscaLoja.tsx`, com guard honesto quando `hubId === null` (mensagem + CTA "Escolher hub" → `EscolhaRetirada`, reuso 100% de `AsyncStateBlock`/`Button`, sem redirect silencioso). Testes reexecutados fora do cache Turbo (vitest direto): cliente 48/48, incl. os 4 novos de sort. Typecheck do cliente limpo (exit 0). CONCERNS (não PASS) porque o comportamento novo de AC5 (guard + propagação de `cart.hubId`) é verificado só por leitura de código + typecheck — `apps/cliente` não tem harness de teste de componente/hook RN (`vitest.config.ts#include` só cobre `*.test.ts`), débito de infra já registrado desde a Story 5.4; e a revisão de @architect do mecanismo de guard foi substituída por `[AUTO-DECISION @dev]` (sem @architect na sessão). Confirmação visual/device pendente. Nenhum critical/high.'
+reviewer: 'Quinn'
+updated: '2026-08-12T22:30:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static
+    evidence: 'Tela de busca acessível via `SearchBar` readOnly no header da Home navegando para `BuscaProduto` — pré-existente, sem regressão.'
+  AC2:
+    status: MET
+    method: static
+    evidence: 'Input com placeholder de busca presente (`SearchBar placeholder="Buscar produto"`) — pré-existente.'
+  AC3:
+    status: MET
+    method: empirical
+    evidence: '`useSearchProdutos.ts` aplica `sortProdutosByPrecoAsc(filtrados)` (linha 62) ao resultado já filtrado por texto/categoria. Função pura, imutável (`[...items].sort`), ordena por `a.produto.preco_reais - b.produto.preco_reais`. 4 testes em `useSearchProdutos.test.ts` (asc, imutabilidade, lista vazia, estabilidade em preços iguais = sem ranking) — verdes. Alinhado ao épico ("ILIKE simples + ordenação por preço"); sem ranking por relevância.'
+  AC4:
+    status: MET
+    method: static
+    evidence: 'Toque no `ProductRow` navega para `DetalheProduto` (linha 137) — pré-existente (Story 5.5).'
+  AC5:
+    status: MET
+    method: static
+    evidence: '`hubId = cart.hubId` via `useCart()` (BuscaProduto linha 48 / BuscaLoja linha 41), substituindo `DEFAULT_HUB_ID`. Guard `if (hubId === null)` (BuscaProduto linha 70 / BuscaLoja linha 45) renderiza mensagem + CTA "Escolher hub" → `navigation.navigate(''EscolhaRetirada'')`, sem loop (goBack/Cancelar sempre disponível). Verificado por leitura de código + typecheck; propagação/guard sem teste automatizado (sem harness RN); confirmação em device pendente.'
+
+security:
+  status: PASS
+  notes: |
+    - Nenhum ranking de relevância inventado: só `preco_reais` ascendente. A única ocorrência de "relevância" no código é a negação em comentário.
+    - Busca não vaza inativo: a fonte é a leitura pública já escopada — `store.listByHub` (mock filtra `status==='ativo'`; supabase depende da RLS fail-closed `publico_ve_estab_hubs`, só hub ativo + loja ativa/não-pausada/não-excluída) e `product.list` (mock e supabase filtram `excluido_em IS NULL` + `ativo=true` por padrão, pois `incluirInativos` não é passado). Nenhum caminho paralelo.
+    - Guard de hub ausente é fail-safe (mensagem honesta, sem tela branca, sem crash quando `hubId` é null).
+
+issues:
+  - id: DEV-5.6-001
+    severity: low
+    category: tests
+    description: 'A propagação de `cart.hubId` e o guard de hub ausente (AC5) — comportamento novo dentro de componentes React — não têm teste automatizado. `apps/cliente` não tem harness de teste de componente/hook RN (débito de infra já registrado na Story 5.4). Verificado por leitura de código + typecheck.'
+    recommendation: 'Exercitar em device/E2E: sem hub selecionado a busca mostra o guard + CTA; com hub selecionado a busca opera escopada ao hub real. Opcionalmente, introduzir harness de componente RN no monorepo para fechar o débito estrutural.'
+  - id: DEV-5.6-002
+    severity: low
+    category: requirements
+    description: 'A revisão de @architect do mecanismo de guard (redirect vs. mensagem+CTA) foi substituída por `[AUTO-DECISION @dev]` por ausência de @architect na sessão. A decisão (mensagem+CTA em vez de redirect silencioso) é sólida e documentada inline, mas a revisão formal do quality_gate declarado (@architect) não ocorreu.'
+    recommendation: 'Confirmação leve do @architect do padrão de guard quando disponível — não bloqueia; a decisão é honesta e reusa componentes existentes.'
+
+recommendations:
+  immediate: []
+  future:
+    - 'Confirmação em device do guard de hub ausente e do escopo real de busca por `cart.hubId`.'
+    - 'Harness de teste de componente/hook RN em `apps/cliente` para cobrir guard/propagação de contexto (fecha DEV-5.6-001 e o mesmo débito das Stories 5.4/5.7).'

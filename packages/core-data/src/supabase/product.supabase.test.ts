@@ -108,6 +108,61 @@ describe('product.supabase.ts — list (Story 4.3, AC1, AC2, AC6)', () => {
   });
 });
 
+/**
+ * Stories 5.4 (AC2) / 5.5 (AC1) — confirmação end-to-end de que `list`/
+ * `getById` (já reais desde 4.3/4.5, sob a RLS `publico_ve_produtos`) servem
+ * corretamente o app Cliente (anônimo/cliente autenticado), não só o app
+ * Lojista (onde `lojista_gerencia_produtos` também libera a leitura, podendo
+ * mascarar um problema específico de `publico_ve_produtos`). O adapter em si
+ * (`createProductSupabase`) é o MESMO consumido pelos dois apps — não há
+ * "modo Cliente" separado no código; a barreira real é a policy no Postgres,
+ * não testável por um client fake (fica registrada como confirmação
+ * manual/integração real no Dev Agent Record da Story). Aqui, o client fake
+ * simula o efeito observável de `publico_ve_produtos` (RLS filtra
+ * silenciosamente, nunca lança) — mesmo padrão dos testes de `getById`
+ * acima, mas explicitamente descrevendo o cenário "loja pausada" exigido
+ * pela Story 5.5.
+ */
+describe('product.supabase.ts — confirmação end-to-end a partir do app Cliente (Stories 5.4 AC2, 5.5 AC1)', () => {
+  it('list retorna só produtos ativos/não-excluídos — mesmo contrato usado por Loja.tsx via useCatalogo', async () => {
+    const { client, builder } = fakeClient({ produtos: { data: [PRODUTO_ROW], error: null } });
+    const port = createProductSupabase(client);
+
+    const produtos = await port.list('estab-1');
+
+    expect(builder.eq).toHaveBeenCalledWith('ativo', true);
+    expect(produtos).toEqual([PRODUTO_ROW]);
+  });
+
+  it('list de loja sem produtos publicados resolve [] honesto (RLS publico_ve_produtos, sem erro)', async () => {
+    const { client } = fakeClient({ produtos: { data: [], error: null } });
+    const port = createProductSupabase(client);
+
+    await expect(port.list('estab-loja-pausada')).resolves.toEqual([]);
+  });
+
+  it('getById retorna o produto real quando visível ao cliente', async () => {
+    const { client } = fakeClient({ produtos: { data: PRODUTO_ROW, error: null } });
+    const port = createProductSupabase(client);
+
+    await expect(port.getById('produto-1')).resolves.toEqual(PRODUTO_ROW);
+  });
+
+  it('getById de produto de loja pausada/inativa retorna null (RLS publico_ve_produtos bloqueia, nunca lança)', async () => {
+    const { client } = fakeClient({ produtos: { data: null, error: null } });
+    const port = createProductSupabase(client);
+
+    await expect(port.getById('produto-de-loja-pausada')).resolves.toBeNull();
+  });
+
+  it('getById de produto inexistente retorna null', async () => {
+    const { client } = fakeClient({ produtos: { data: null, error: null } });
+    const port = createProductSupabase(client);
+
+    await expect(port.getById('produto-inexistente')).resolves.toBeNull();
+  });
+});
+
 describe('product.supabase.ts — create (Story 4.4, AC2, AC3, AC6)', () => {
   it('insere o produto e devolve a linha REAL persistida (nunca ecoa o input)', async () => {
     const { client, from, builder } = fakeClient({ produtos: { data: PRODUTO_ROW, error: null } });

@@ -7,17 +7,41 @@ import type {
   FinancialDashboardResult,
   FinancialRankingEntry,
   HubFotoUploadInput,
+  LancamentoConfirmResultado,
   ReembolsoPendente,
   UpdateHubInput,
 } from '../ports/admin.port';
 import type { Hub } from '../ports/hub.port';
 import type { Pedido, PedidoStatus } from '../ports/order.port';
 import type { Estabelecimento } from '../ports/store.port';
+import type { Saque } from '../ports/wallet.port';
 import type { AsyncCallOptions } from '../types';
 import { generateMockId, simulateAsync } from './async-helpers';
 import type { MockDb } from './db';
 import { estabelecimentosAdminExtraFixture } from './fixtures/estabelecimentos-admin';
 import { registrarReembolso } from './refund-helpers';
+
+/**
+ * Status de `pedidos` (Story 8.4/8.8) tratados como "cancelamento" para fins
+ * de contagem de qualidade (`lojistaOrderCounts`) e de taxa de sucesso do
+ * dashboard (`financialDashboard`) — [AUTO-DECISION] inclui todos os
+ * `cancelado*`/`recusado`/`estornado_chargeback`; EXCLUI `nao_retirado`/
+ * `nao_entregue_lojista` (contados à parte, como `noShow`, ver
+ * `NO_SHOW_PEDIDO_STATUSES` abaixo) — mesma distinção operacional da matriz
+ * de reembolso (`docs/PERGUNTAS_REGRAS_NEGOCIO.md` Rodada 2): cancelamento e
+ * no-show são causas diferentes, o admin precisa distingui-las para decidir
+ * suspensão.
+ */
+const CANCELADO_PEDIDO_STATUSES: ReadonlySet<PedidoStatus> = new Set([
+  'cancelado',
+  'cancelado_timeout',
+  'cancelado_atraso',
+  'cancelado_admin',
+  'recusado',
+  'estornado_chargeback',
+]);
+
+const NO_SHOW_PEDIDO_STATUSES: ReadonlySet<PedidoStatus> = new Set(['nao_retirado', 'nao_entregue_lojista']);
 
 const TERMINAL_PEDIDO_STATUSES: ReadonlySet<PedidoStatus> = new Set([
   'entregue',
@@ -241,17 +265,81 @@ export function createAdminMock(db: MockDb): AdminPort {
 
     refundQueue: {
       list(options?: AsyncCallOptions): Promise<ReembolsoPendente[]> {
-        return simulateAsync(() => db.reembolsos.filter((r) => r.status === 'pendente_admin'), [], options);
+        return simulateAsync(
+          () =>
+            db.reembolsos
+              .filter((r) => r.status === 'pendente_admin')
+              .sort((a, b) => a.criado_em.localeCompare(b.criado_em)),
+          [],
+          options,
+        );
       },
 
-      process(id: string, options?: AsyncCallOptions): Promise<ReembolsoPendente> {
+      /**
+       * Story 8.2 (AC2) — assinatura estendida com `resultado`/`detalhe`
+       * (`_detalhe` não é modelado em `ReembolsoPendente`, tipo de UI sem
+       * coluna de detalhe — mesma simplificação honesta já aplicada em
+       * outros pontos do mock; o adapter Supabase real grava `detalhe` no
+       * ledger, mas o retorno mapeado para `ReembolsoPendente` também não o
+       * expõe). `resultado === 'erro'` mapeia para `status: 'erro'` (nunca
+       * um sucesso fictício); `'concluido'` mapeia para `'estornado'`
+       * (rótulo de UI já existente, ver Story 8.1 mapeamento status).
+       */
+      process(
+        id: string,
+        resultado: LancamentoConfirmResultado,
+        _detalhe?: string,
+        options?: AsyncCallOptions,
+      ): Promise<ReembolsoPendente> {
         return simulateAsync(
           () => {
             const reembolso = findReembolsoOrThrow(id);
-            reembolso.status = 'estornado';
+            reembolso.status = resultado === 'erro' ? 'erro' : 'estornado';
             return reembolso;
           },
           {} as ReembolsoPendente,
+          options,
+        );
+      },
+    },
+
+    payoutQueue: {
+      /**
+       * Story 8.9 — [IDS] REUSE de `db.saques` (mesma coleção mock que
+       * `wallet.mock.ts#requestWithdrawal` já popula com `status:
+       * 'solicitado'`, ver Dev Notes da Story). Filtra os pendentes
+       * (`'solicitado'` = ângulo do lojista para o mesmo estado que o
+       * ledger real chama `'pendente'`), ordenados por `solicitado_em asc`
+       * — mesma ordenação de `refundQueue.list`.
+       */
+      list(options?: AsyncCallOptions): Promise<Saque[]> {
+        return simulateAsync(
+          () =>
+            db.saques
+              .filter((s) => s.status === 'solicitado')
+              .sort((a, b) => a.solicitado_em.localeCompare(b.solicitado_em)),
+          [],
+          options,
+        );
+      },
+
+      process(
+        id: string,
+        resultado: LancamentoConfirmResultado,
+        _detalhe?: string,
+        options?: AsyncCallOptions,
+      ): Promise<Saque> {
+        return simulateAsync(
+          () => {
+            const saque = db.saques.find((s) => s.id === id);
+            if (!saque) {
+              throw new Error(`[mock] Saque não encontrado: ${id}`);
+            }
+            saque.status = resultado === 'erro' ? 'erro' : 'concluido';
+            saque.concluido_em = new Date().toISOString();
+            return saque;
+          },
+          {} as Saque,
           options,
         );
       },
@@ -327,6 +415,33 @@ export function createAdminMock(db: MockDb): AdminPort {
       );
     },
 
+    /**
+     * Story 8.6 (AC4) — [IDS] CREATE, capacidade nova. Guarda simétrica a
+     * `suspendLojista`: só reativa quem está `suspenso` (nunca promove
+     * `em_analise`/`rejeitado`, evitando pular `approve`). [AUTO-DECISION]
+     * limpa `motivo_suspensao` ao reativar (não preserva como histórico) —
+     * mesma decisão aplicada na RPC real (`20260813070004`), sem
+     * `suspenso_em` no tipo `Estabelecimento` (a port não modela essa
+     * coluna administrativa — ver JSDoc de `EstabelecimentoAdmin`).
+     */
+    reactivateLojista(estabelecimentoId: string, options?: AsyncCallOptions): Promise<Estabelecimento> {
+      return simulateAsync(
+        () => {
+          const estabelecimento = findEstabelecimentoOrThrow(estabelecimentoId);
+          if (estabelecimento.status !== 'suspenso') {
+            throw new Error(
+              `[mock] Estabelecimento ${estabelecimento.nome_fantasia} não pode ser reativado a partir do status "${estabelecimento.status}"`,
+            );
+          }
+          estabelecimento.status = 'ativo';
+          estabelecimento.motivo_suspensao = null;
+          return estabelecimento;
+        },
+        {} as Estabelecimento,
+        options,
+      );
+    },
+
     lojistaQualityView(estabelecimentoId: string, options?: AsyncCallOptions): Promise<EstabelecimentoFalha[]> {
       return simulateAsync(
         () =>
@@ -334,6 +449,25 @@ export function createAdminMock(db: MockDb): AdminPort {
             .filter((f) => f.estabelecimento_id === estabelecimentoId)
             .sort((a, b) => b.criado_em.localeCompare(a.criado_em)),
         [],
+        options,
+      );
+    },
+
+    /** Story 8.8 (AC1) — ver JSDoc de `AdminPort.lojistaOrderCounts` para a definição exata de cada balde. */
+    lojistaOrderCounts(
+      estabelecimentoId: string,
+      options?: AsyncCallOptions,
+    ): Promise<{ entregues: number; cancelados: number; noShow: number }> {
+      return simulateAsync(
+        () => {
+          const pedidosDoLojista = db.pedidos.filter((p) => p.estabelecimento_id === estabelecimentoId);
+          return {
+            entregues: pedidosDoLojista.filter((p) => p.status === 'entregue').length,
+            cancelados: pedidosDoLojista.filter((p) => CANCELADO_PEDIDO_STATUSES.has(p.status)).length,
+            noShow: pedidosDoLojista.filter((p) => NO_SHOW_PEDIDO_STATUSES.has(p.status)).length,
+          };
+        },
+        { entregues: 0, cancelados: 0, noShow: 0 },
         options,
       );
     },
@@ -368,9 +502,50 @@ export function createAdminMock(db: MockDb): AdminPort {
             }))
             .sort((a, b) => b.gmvReais - a.gmvReais);
 
-          return { periodoDias, gmvReais, receitaKeepitReais, ranking };
+          // [AUTO-DECISION] Story 8.7 (SHOULD) — contagens/taxa de sucesso
+          // filtradas por `criado_em` (não `entregue_em`, ao contrário de
+          // GMV/receita acima): "pedidos totais" precisa incluir os que
+          // NUNCA chegaram a `entregue` (cancelados/no-show), então filtrar
+          // por `entregue_em` os excluiria silenciosamente.
+          const pedidosNoPeriodoPorCriacao = db.pedidos.filter((p) => new Date(p.criado_em) >= limite);
+          const pedidosEntreguesNoPeriodoPorCriacao = pedidosNoPeriodoPorCriacao.filter(
+            (p) => p.status === 'entregue',
+          ).length;
+          const pedidosCanceladosNoPeriodo = pedidosNoPeriodoPorCriacao.filter((p) =>
+            CANCELADO_PEDIDO_STATUSES.has(p.status),
+          ).length;
+          const pedidosNoShowNoPeriodo = pedidosNoPeriodoPorCriacao.filter((p) =>
+            NO_SHOW_PEDIDO_STATUSES.has(p.status),
+          ).length;
+          const denominadorSucesso = pedidosEntreguesNoPeriodoPorCriacao + pedidosCanceladosNoPeriodo + pedidosNoShowNoPeriodo;
+          const taxaSucessoPercent =
+            denominadorSucesso === 0
+              ? 0
+              : Math.round((pedidosEntreguesNoPeriodoPorCriacao / denominadorSucesso) * 1000) / 10;
+
+          return {
+            periodoDias,
+            gmvReais,
+            receitaKeepitReais,
+            ranking,
+            pedidosTotais: pedidosNoPeriodoPorCriacao.length,
+            pedidosEntregues: pedidosEntreguesNoPeriodoPorCriacao,
+            pedidosCancelados: pedidosCanceladosNoPeriodo,
+            pedidosNoShow: pedidosNoShowNoPeriodo,
+            taxaSucessoPercent,
+          };
         },
-        { periodoDias, gmvReais: 0, receitaKeepitReais: 0, ranking: [] },
+        {
+          periodoDias,
+          gmvReais: 0,
+          receitaKeepitReais: 0,
+          ranking: [],
+          pedidosTotais: 0,
+          pedidosEntregues: 0,
+          pedidosCancelados: 0,
+          pedidosNoShow: 0,
+          taxaSucessoPercent: 0,
+        },
         options,
       );
     },

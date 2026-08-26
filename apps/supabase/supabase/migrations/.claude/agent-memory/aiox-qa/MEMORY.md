@@ -1,0 +1,1 @@
+- [Bloco 09 — Operação Admin (Épico 8) QA gate](project_bloco09_admin_ops.md) — 8.1–8.9 Done; 8/9 PASS, 8.8 CONCERNS; 2 flags de stakeholder abertos

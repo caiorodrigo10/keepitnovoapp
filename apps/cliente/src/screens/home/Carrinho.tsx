@@ -18,6 +18,9 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'Carrinho'>;
  * vazio quando não há itens. O resumo financeiro completo (subtotal/taxa/
  * total) vive na tela Checkout (Task 2) — aqui só o subtotal parcial e o
  * botão de avanço, para não duplicar o cálculo final em 2 telas.
+ *
+ * **Story 6.1 (AC2):** botão "remover item" dedicado adicionado em cada
+ * `CartItemRow` (`onRemove`), além do stepper +/- já existente.
  */
 export default function Carrinho({ navigation }: Props) {
   const cart = useCart();
@@ -57,6 +60,7 @@ export default function Carrinho({ navigation }: Props) {
                 item={item}
                 onIncrement={() => cart.incrementItem(item.produtoId)}
                 onDecrement={() => cart.decrementItem(item.produtoId)}
+                onRemove={() => cart.removeItem(item.produtoId)}
               />
             ))}
           </View>

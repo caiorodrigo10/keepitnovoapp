@@ -35,7 +35,11 @@ describe('createDataClient', () => {
     expect(client.analytics).toBeDefined();
     expect(client.lojistaAuth).toBeDefined();
 
-    await expect(client.hub.listNearby()).rejects.toThrow(/implementar no Épico/);
+    // `hub.listNearby` era o sentinela histórico deste teste; `admin.refundQueue.list`
+    // (Épico 8) virou implementação real no Bloco 09 — `store.getCatalog`
+    // (método morto, sem consumidor real, ver `supabase-adapters.test.ts`)
+    // é o novo stub sentinela (mesmo papel de sonda genérica).
+    await expect(client.store.getCatalog(undefined as never)).rejects.toThrow(/implementar no Épico/);
   });
 
   it('creates isolated instances (no shared state between clients)', async () => {
@@ -87,7 +91,9 @@ describe('DATA_SOURCE env fallback (Story 1.9, AC4)', () => {
   it('reads DATA_SOURCE="supabase" from env as fallback when options.source is omitted', async () => {
     process.env.DATA_SOURCE = 'supabase';
     const client = createDataClient();
-    await expect(client.hub.listNearby()).rejects.toThrow(/implementar no Épico/);
+    // Ver comentário acima (Bloco 09) — `store.getCatalog` substitui
+    // `admin.refundQueue.list` como sonda genérica de stub.
+    await expect(client.store.getCatalog(undefined as never)).rejects.toThrow(/implementar no Épico/);
   });
 
   it('options.source explicit always wins over DATA_SOURCE env', async () => {
@@ -150,6 +156,8 @@ describe('createDataClient — supabaseClient injetado (Story 2.5.1, AC3)', () =
 
   it('supabaseClient omitido preserva o comportamento anterior (cada adapter cria/memoiza o próprio client)', async () => {
     const client = createDataClient({ source: 'supabase' });
-    await expect(client.hub.listNearby()).rejects.toThrow(/implementar no Épico/);
+    // Ver comentário acima (Bloco 09) — `store.getCatalog` substitui
+    // `admin.refundQueue.list` como sonda genérica de stub.
+    await expect(client.store.getCatalog(undefined as never)).rejects.toThrow(/implementar no Épico/);
   });
 });

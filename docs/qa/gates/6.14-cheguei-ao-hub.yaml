@@ -1,0 +1,20 @@
+schema: 1
+story: '6.14'
+gate: CONCERNS
+status_reason: 'Adapter real de markArrivedAtHub liga a RPC avancar_estado_pedido (no_hub) reusando o padrão da 6.12 — ownership/transição saindo_hub→no_hub guardadas server-side, 4 erros nomeados mapeados, releitura honesta; markClienteChegou continua deferido e nenhum código do cliente foi tocado. Falta apenas a verificação manual device/E2E contra o backend real.'
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-08-13T03:45:00Z'
+top_issues:
+  - id: 'TEST-001'
+    severity: low
+    finding: 'Teste manual/device com DATA_SOURCE=supabase não executado (Saindo pro hub 6.12 → Cheguei ao hub lojista → conferir status=no_hub no banco → tela de PIN do lojista 6.15 e do cliente via polling 6.13/6.7 disponíveis). Cobertura unitária completa (6 casos), mas o caminho real ainda não foi exercido em ambiente.'
+    suggested_action: 'Executar o teste manual em device/ambiente Supabase real antes de considerar o Bloco 07 fechado para piloto.'
+  - id: 'REQ-001'
+    severity: low
+    finding: 'Débito herdado (guard do @po): a tela órfã apps/cliente/src/screens/pedidos/ChegueiAoHub.tsx mantém botão que chama markClienteChegou (NotImplementedError → falha visível em modo real) + copy desatualizada. Fora do escopo da 6.14 por decisão de escopo do @po enquanto a tela não tiver navigate() vivo. Confirmado órfã nesta revisão: os únicos navigate(ChegueiAoHub) são das telas do LOJISTA.'
+    suggested_action: 'Resolver rota (a) implementar check-in real do cliente OU (b) remover/ocultar o botão + ajustar copy — OBRIGATORIAMENTE na mesma entrega que ligar qualquer CTA vivo do cliente para essa tela (guard bloqueante-antes-de-CTA).'
+  - id: 'MNT-001'
+    severity: low
+    finding: 'order.mock.ts#markArrivedAtHub grava pedido.lojista_chegou_em (campo mock-only; a coluna não existe no schema real, DEFERIDA LATER). Divergência mock↔real pré-existente, explicitamente fora do escopo da 6.14 (Data Mode manda o mock inalterado); não afeta o adapter real (que não referencia nenhuma coluna de chegada).'
+    suggested_action: 'Reconciliar o contrato do mock quando/se a decisão de produto (a)/(b) do débito da tela do cliente for tomada.'
+waiver: { active: false }

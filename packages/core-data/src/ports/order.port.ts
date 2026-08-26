@@ -66,6 +66,17 @@ export interface Pedido {
   taxa_deslocamento_reais: number;
   /** 12% de `subtotal_produtos_reais` — calculado via `businessConfig.taxaKeepitPercent`, nunca hard-coded. */
   taxa_keepit_reais: number;
+  /**
+   * Story 6.16 (AC1, AC3) — [IDS] ADAPT: campo que faltava neste tipo de
+   * domínio. `CreatePedidoInput.taxa_servico_comprador_reais` (Story 6.6) já
+   * existia e já era persistido pela RPC `criar_pedido`/pelo mock, mas o
+   * READ MODEL (`Pedido`) nunca expunha o valor de volta — gap real
+   * confirmado por leitura direta de `PEDIDO_COLUMNS`/`mapRowToPedido`
+   * (`order.supabase.ts`), necessário para `Recibo.tsx` corrigir o rótulo
+   * "Taxa de serviço" (hoje ligado erroneamente a `taxa_deslocamento_reais`,
+   * mesmo bug já corrigido em `Checkout.tsx`, Rodada 8).
+   */
+  taxa_servico_comprador_reais: number;
   total_pago_reais: number;
   motivo_recusa: string | null;
   motivo_cancelamento: string | null;
@@ -74,17 +85,47 @@ export interface Pedido {
   itens: PedidoItem[];
 }
 
+/**
+ * Story 6.6 (AC1, AC4) — estendido com `nome_snapshot`/`preco_unitario_reais`
+ * (antes só `{produto_id, quantidade}`). A RPC real `criar_pedido`
+ * (`20260813004934_rpc_criar_pedido.sql`) espera cada item de `p_itens` já
+ * com o snapshot do nome/preço — ela CONGELA o que recebe, não relê
+ * `produtos` para montar o snapshot. `preco_unitario_reais` é o preço
+ * CONGELADO no carrinho (`CartItem.precoSnapshotReais`, Story 6.1), não o
+ * preço atual do catálogo.
+ */
 export interface CreatePedidoItemInput {
   produto_id: string;
+  nome_snapshot: string;
+  preco_unitario_reais: number;
   quantidade: number;
 }
 
+/**
+ * Story 6.6 (AC1, AC4) — estendido com os 5 totais de cabeçalho +
+ * `nf_solicitada`. A RPC real `criar_pedido` os recebe como PARÂMETROS e os
+ * PERSISTE como snapshot (não os recalcula a partir de `produtos` — ver
+ * `docs/stories/6.6.story.md`, AC1, "LIMITAÇÃO DE PILOTO"). Quem chama
+ * `OrderPort.create` (`Pagamento.tsx`) é responsável por calcular esses
+ * valores com a MESMA fórmula usada no Checkout (`computeCheckoutTotals`,
+ * Story 6.2) + `taxa_keepit_reais` (nunca exibida ao cliente — Story 6.2
+ * AC3), garantindo paridade com o que o Checkout já mostrou antes de
+ * "Pagar" (nenhum valor novo inventado nesta camada).
+ */
 export interface CreatePedidoInput {
   cliente_id: string;
   estabelecimento_id: string;
   hub_id: string;
   itens: CreatePedidoItemInput[];
   forma_pagamento: FormaPagamento;
+  subtotal_produtos_reais: number;
+  taxa_deslocamento_reais: number;
+  /** 12%→10% de `subtotal_produtos_reais` (`businessConfig.taxaKeepitPercent`) — cobrada do LOJISTA, nunca exibida ao cliente. */
+  taxa_keepit_reais: number;
+  /** Taxa fixa do comprador (`businessConfig.taxaServicoCompradorReais`, hoje R$ 2,90, provisória). */
+  taxa_servico_comprador_reais: number;
+  total_pago_reais: number;
+  nf_solicitada: boolean;
 }
 
 /**
@@ -109,6 +150,37 @@ export class OrderTransitionError extends Error {
  */
 export type AdvanceableStatus = Extract<PedidoStatus, 'em_preparo' | 'saindo_hub' | 'no_hub'>;
 
+/**
+ * Story 6.15 (AC3, AC4, AC8) — [IDS] CREATE, mesmo padrão de erro tipado
+ * domínio-level já usado por `OrderTransitionError` acima (não vive em
+ * `order-errors.ts` porque não é um erro NOMEADO exclusivo da RPC real —
+ * `confirmar_pin_pedido` devolve o desfecho `'pin_incorreto'` como LINHA DE
+ * RESULTADO, não `RAISE`, e `order.mock.ts#confirmPin` precisa lançar o
+ * MESMO tipo para que `OrdersContext`/`DigitarPin.tsx` (lado lojista)
+ * diferenciem a mensagem de forma idêntica em `DATA_SOURCE=mock` e
+ * `DATA_SOURCE=supabase`). Carrega `tentativasRestantes` (derivado da RPC
+ * ou do contador local do mock) — nunca o PIN digitado nem o `pin_hash`.
+ */
+export class PinIncorretoError extends Error {
+  constructor(public readonly tentativasRestantes: number) {
+    super(`[core-data] confirmPin — PIN incorreto (tentativas restantes: ${tentativasRestantes}).`);
+    this.name = 'PinIncorretoError';
+  }
+}
+
+/**
+ * Story 6.15 (AC3, AC4, AC5, AC8) — par de `PinIncorretoError` acima, mesmo
+ * racional (tipo de domínio compartilhado entre mock e adapter real).
+ * Carrega `bloqueadoAte` (ISO timestamp) para a UI derivar o tempo restante
+ * de bloqueio (AC5) — nunca o PIN digitado nem o `pin_hash`.
+ */
+export class PinBloqueadoError extends Error {
+  constructor(public readonly bloqueadoAte: string) {
+    super(`[core-data] confirmPin — PIN bloqueado até ${bloqueadoAte}.`);
+    this.name = 'PinBloqueadoError';
+  }
+}
+
 export interface OrderPort {
   create(input: CreatePedidoInput, options?: AsyncCallOptions): Promise<Pedido>;
   listMine(clienteId: string, options?: AsyncCallOptions): Promise<Pedido[]>;
@@ -122,6 +194,23 @@ export interface OrderPort {
    * [Source: docs/PERGUNTAS_REGRAS_NEGOCIO.md — Rodada 6, "PIN — tentativas do lojista"]
    */
   confirmPin(pedidoId: string, pin: string, options?: AsyncCallOptions): Promise<Pedido>;
+  /**
+   * Story 6.7.1 (AC1, AC2, AC3, AC4, AC8) — confirma o pagamento simulado
+   * (PIX/cartão) chamado automaticamente pelas telas `ModalPagamentoPix`/
+   * `ModalProcessandoPagamento` após um atraso simulado de UX (~5s PIX/~2s
+   * cartão — NUNCA regra de negócio, ver `apps/cliente/src/lib/pagamentoSimulado.ts`).
+   * - **Mock**: transiciona `aguardando_pagamento` → `aguardando_aceite`
+   *   (mesmo padrão `assertStatus`/`OrderTransitionError` de
+   *   `accept`/`markReadyForHub`/`markArrivedAtHub`).
+   * - **Supabase**: no-op de releitura — o pedido já chega em
+   *   `aguardando_aceite` pela RPC `criar_pedido` (Story 6.6); nenhum
+   *   endpoint/RPC novo é criado aqui. Mantém a MESMA UX (telas de
+   *   PIX/processando) nos dois `DATA_SOURCE` sem inventar backend.
+   * Retomada futura (Bloco 08-PIX/Épico 7): quando o webhook real
+   * `PAYMENT_RECEIVED` existir (Story 7.5), ele chama este mesmo método —
+   * nenhum redesenho de UI necessário.
+   */
+  confirmarPagamento(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido>;
   /**
    * Cancelamento pelo Cliente. A % de reembolso (AC9) é derivada do status
    * ATUAL do pedido no momento da chamada (pré-aceite = 100%; pós-aceite,

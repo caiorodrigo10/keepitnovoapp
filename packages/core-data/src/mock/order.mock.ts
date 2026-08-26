@@ -8,7 +8,7 @@ import type {
   PedidoItem,
   PedidoStatus,
 } from '../ports/order.port';
-import { OrderTransitionError } from '../ports/order.port';
+import { OrderTransitionError, PinBloqueadoError, PinIncorretoError } from '../ports/order.port';
 import type { AsyncCallOptions } from '../types';
 import { generateMockId, generatePin, simulateAsync } from './async-helpers';
 import type { MockDb } from './db';
@@ -41,6 +41,38 @@ export function createOrderMock(db: MockDb): OrderPort {
   }
 
   return {
+    /**
+     * Story 6.6 (AC1, AC4, AC6) — [IDS] ADAPT. `CreatePedidoInput` agora
+     * carrega o snapshot dos itens (`nome_snapshot`/`preco_unitario_reais`)
+     * e os 5 totais de cabeçalho já calculados por quem chama (mesma
+     * fórmula do Checkout, Story 6.2). Este mock deixou de RE-DERIVAR esses
+     * valores a partir de `db.produtos`/`db.estabelecimentos` — passou a
+     * CONGELAR/PERSISTIR exatamente o que recebe, mesmo comportamento da
+     * RPC real `criar_pedido` (`20260813004934_rpc_criar_pedido.sql`, "os
+     * totais de cabeçalho são recebidos como parâmetros e persistidos como
+     * snapshot — a RPC não os recalcula"). Isso é a paridade mock↔real
+     * exigida pela AC7: os dois adapters têm o MESMO contrato (pass-through
+     * do snapshot), não duas implementações divergentes da mesma fórmula.
+     *
+     * **AC6 (Story 6.6) — decisão registrada:** o status inicial passou de
+     * `'aguardando_pagamento'` para `'aguardando_aceite'`, alinhando ao
+     * comportamento do piloto real (RPC sempre cria em `aguardando_aceite`
+     * — pagamento simulado em dev, sem estado intermediário). Corrige o gap
+     * pré-existente descrito no Data Mode da Story 6.6: antes daquela
+     * mudança, um pedido mock recém-criado não aparecia como "Novo" na tela
+     * `NovosPedidos` do Lojista (`isNovo` só é `true` para
+     * `aguardando_aceite`). Ver Change Log da Story 6.6 para o racional
+     * completo.
+     *
+     * **AC5/AC6 (Story 6.7.1) — REVERTIDO:** o status inicial volta a ser
+     * `'aguardando_pagamento'`. A Story 6.7.1 introduz o método
+     * `confirmarPagamento` (chamado automaticamente pelas novas telas de
+     * PIX/processando, ~5s/~2s de simulação de UX) que agora faz a
+     * transição `aguardando_pagamento` → `aguardando_aceite` — o pedido
+     * volta a aparecer como "Novo" na tela `NovosPedidos` do Lojista
+     * poucos segundos depois, mesma janela de latência que já existia
+     * (`DEFAULT_MOCK_DELAY_MS`), sem regressão perceptível.
+     */
     create(input: CreatePedidoInput, options?: AsyncCallOptions): Promise<Pedido> {
       return simulateAsync(
         () => {
@@ -49,29 +81,29 @@ export function createOrderMock(db: MockDb): OrderPort {
             throw new Error(`[mock] Estabelecimento não encontrado: ${input.estabelecimento_id}`);
           }
 
-          const pedidoId = generateMockId('pedido');
-          const itens: PedidoItem[] = input.itens.map((item, index) => {
-            const produto = db.produtos.find((p) => p.id === item.produto_id);
-            if (!produto) {
-              throw new Error(`[mock] Produto não encontrado: ${item.produto_id}`);
-            }
-            const subtotal = roundReais(produto.preco_reais * item.quantidade);
-            return {
-              id: `${pedidoId}-item-${index + 1}`,
-              pedido_id: pedidoId,
-              produto_id: produto.id,
-              nome_snapshot: produto.nome,
-              preco_unitario_reais: produto.preco_reais,
-              quantidade: item.quantidade,
-              subtotal_reais: subtotal,
-            };
-          });
+          // Story 8.5 (AC4) — paridade mock↔real: cliente bloqueado pelo admin
+          // (`admin.blockCliente`) não cria novos pedidos. Checado ANTES de
+          // qualquer efeito colateral (PIN, push em `db.pedidos`) — mesmo
+          // padrão de guarda-antes-de-mutar da RPC real
+          // (`20260813070003_rpc_criar_pedido_bloqueio_cliente.sql`). Erro
+          // genérico `[mock]`, mesmo estilo de "Estabelecimento não
+          // encontrado" acima — a classe dedicada `ClienteBloqueadoError`
+          // fica no adapter Supabase (`order-errors.ts`), não neste mock.
+          const cliente = db.clientes.find((c) => c.id === input.cliente_id);
+          if (cliente?.bloqueado) {
+            throw new Error('[mock] Cliente bloqueado pelo admin não pode criar pedidos (CLIENTE_BLOQUEADO)');
+          }
 
-          const subtotalProdutos = roundReais(itens.reduce((sum, item) => sum + item.subtotal_reais, 0));
-          // Taxa Keepit incide sobre subtotal_produtos_reais, NUNCA sobre a taxa de deslocamento.
-          const taxaKeepit = roundReais((subtotalProdutos * businessConfig.taxaKeepitPercent) / 100);
-          const taxaDeslocamento = estabelecimento.taxa_deslocamento_reais;
-          const totalPago = roundReais(subtotalProdutos + taxaDeslocamento);
+          const pedidoId = generateMockId('pedido');
+          const itens: PedidoItem[] = input.itens.map((item, index) => ({
+            id: `${pedidoId}-item-${index + 1}`,
+            pedido_id: pedidoId,
+            produto_id: item.produto_id,
+            nome_snapshot: item.nome_snapshot,
+            preco_unitario_reais: item.preco_unitario_reais,
+            quantidade: item.quantidade,
+            subtotal_reais: roundReais(item.preco_unitario_reais * item.quantidade),
+          }));
 
           const pedido: Pedido = {
             id: pedidoId,
@@ -91,10 +123,11 @@ export function createOrderMock(db: MockDb): OrderPort {
             lojista_chegou_em: null,
             entregue_em: null,
             cancelado_em: null,
-            subtotal_produtos_reais: subtotalProdutos,
-            taxa_deslocamento_reais: taxaDeslocamento,
-            taxa_keepit_reais: taxaKeepit,
-            total_pago_reais: totalPago,
+            subtotal_produtos_reais: roundReais(input.subtotal_produtos_reais),
+            taxa_deslocamento_reais: roundReais(input.taxa_deslocamento_reais),
+            taxa_keepit_reais: roundReais(input.taxa_keepit_reais),
+            taxa_servico_comprador_reais: roundReais(input.taxa_servico_comprador_reais),
+            total_pago_reais: roundReais(input.total_pago_reais),
             motivo_recusa: null,
             motivo_cancelamento: null,
             motivo_nao_retirado: null,
@@ -114,10 +147,18 @@ export function createOrderMock(db: MockDb): OrderPort {
       return simulateAsync(() => db.pedidos.filter((p) => p.cliente_id === clienteId), [], options);
     },
 
+    /**
+     * Story 6.9 — [IDS] ADAPT: passa a usar `assertStatus`, mesmo padrão já
+     * usado por `refuse`/`markReadyForHub`/`markArrivedAtHub` no próprio
+     * arquivo (gap pré-existente documentado no Dev Notes da Story 6.9).
+     * Paridade com a RPC real `aceitar_pedido`, que só transiciona a partir
+     * de `aguardando_aceite` (proteção contra dupla-aceitação).
+     */
     accept(pedidoId: string, tempoEstimadoMin: number, options?: AsyncCallOptions): Promise<Pedido> {
       return simulateAsync(
         () => {
           const pedido = findOrThrow(pedidoId);
+          assertStatus(pedido, 'accept', ['aguardando_aceite']);
           pedido.status = 'aceito';
           pedido.tempo_estimado_min = tempoEstimadoMin;
           pedido.aceito_em = new Date().toISOString();
@@ -142,27 +183,65 @@ export function createOrderMock(db: MockDb): OrderPort {
       );
     },
 
+    /**
+     * Story 6.15 (AC3, AC4, AC5, AC8) — [IDS] ADAPT: passa a lançar
+     * `PinIncorretoError`/`PinBloqueadoError` (tipos de domínio,
+     * `order.port.ts`) em vez de `Error` genérico, para que
+     * `OrdersContext.confirmPin` (lado lojista) diferencie "PIN incorreto"
+     * de "bloqueado" da MESMA forma em `DATA_SOURCE=mock` e
+     * `DATA_SOURCE=supabase` (paridade de tipo com `order.supabase.ts`).
+     * No 5º erro, zera `tentativas_pin` ao gravar o bloqueio — mesmo
+     * comportamento da RPC real `confirmar_pin_pedido` (a janela reinicia
+     * na próxima tentativa, ver header da migration
+     * `20260813022932_rpc_confirmar_pin_pedido.sql`, "LOCKOUT / RESET").
+     */
     confirmPin(pedidoId: string, pin: string, options?: AsyncCallOptions): Promise<Pedido> {
       return simulateAsync(
         () => {
           const pedido = findOrThrow(pedidoId);
 
           if (pedido.pin_bloqueado_ate && new Date(pedido.pin_bloqueado_ate) > new Date()) {
-            throw new Error('[mock] PIN bloqueado — aguarde o desbloqueio automático');
+            throw new PinBloqueadoError(pedido.pin_bloqueado_ate);
           }
 
           if (pin !== pedido.pin_texto) {
             pedido.tentativas_pin += 1;
             if (pedido.tentativas_pin >= businessConfig.pinTentativasMax) {
-              pedido.pin_bloqueado_ate = new Date(
-                Date.now() + businessConfig.pinBloqueioMin * 60 * 1000,
-              ).toISOString();
+              const bloqueadoAte = new Date(Date.now() + businessConfig.pinBloqueioMin * 60 * 1000).toISOString();
+              pedido.pin_bloqueado_ate = bloqueadoAte;
+              pedido.tentativas_pin = 0;
+              throw new PinBloqueadoError(bloqueadoAte);
             }
-            throw new Error('[mock] PIN incorreto');
+            throw new PinIncorretoError(businessConfig.pinTentativasMax - pedido.tentativas_pin);
           }
 
           pedido.status = 'entregue';
           pedido.entregue_em = new Date().toISOString();
+          pedido.tentativas_pin = 0;
+          pedido.pin_bloqueado_ate = null;
+          return pedido;
+        },
+        {} as Pedido,
+        options,
+      );
+    },
+
+    /**
+     * Story 6.7.1 (AC1, AC2, AC3, AC4, AC8) — [IDS] ADAPT: mesmo padrão
+     * `assertStatus`/`OrderTransitionError` já usado por
+     * `accept`/`markReadyForHub`/`markArrivedAtHub` neste arquivo. Chamado
+     * automaticamente por `ModalPagamentoPix`/`ModalProcessandoPagamento`
+     * (`apps/cliente`) após um atraso simulado de UX — nunca uma regra de
+     * negócio nova. Não altera `aceito_em` (quem seta esse campo continua
+     * sendo `accept`, Story 6.9) — `confirmarPagamento` só confirma que o
+     * PAGAMENTO foi recebido, não que a loja aceitou o pedido.
+     */
+    confirmarPagamento(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido> {
+      return simulateAsync(
+        () => {
+          const pedido = findOrThrow(pedidoId);
+          assertStatus(pedido, 'confirmarPagamento', ['aguardando_pagamento']);
+          pedido.status = 'aguardando_aceite';
           return pedido;
         },
         {} as Pedido,

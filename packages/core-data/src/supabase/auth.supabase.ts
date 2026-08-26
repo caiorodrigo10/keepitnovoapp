@@ -377,8 +377,63 @@ export function createAuthSupabase(
       throw new NotImplementedError(PORT, 'getById', EPIC);
     },
 
-    async updateCpf(_clienteId: string, _cpf: string, _options?: AsyncCallOptions): Promise<Cliente> {
-      throw new NotImplementedError(PORT, 'updateCpf', EPIC);
+    /**
+     * Story 6.5 (AC3). Mesmo padrão de autorização de `updateProfile`
+     * (Story 2.8): a sessão atual (`getUser()`) é a ÚNICA fonte de
+     * autorização — o `clienteId` recebido é rejeitado localmente se não
+     * bater com `user.id` (defesa redundante à RLS
+     * `cliente_atualiza_proprio`, não substitui). "Set once" real —
+     * `UPDATE ... WHERE id = auth.uid() AND cpf IS NULL` (`.is('cpf',
+     * null)`) — nunca sobrescreve um CPF já salvo; **sem migration/RLS
+     * nova**. `0` linhas afetadas tem dois significados possíveis: (a) o
+     * cliente já tinha CPF (a UI nunca deveria chamar de novo, mas se
+     * chamar, é um no-op honesto — relê e devolve o cliente ATUAL, nunca
+     * um eco do input); (b) o perfil realmente não existe (não deveria
+     * acontecer, o trigger de signup garante 1:1) — esse caso vira erro
+     * explícito, nunca um sucesso fictício.
+     */
+    async updateCpf(clienteId: string, cpf: string, _options?: AsyncCallOptions): Promise<Cliente> {
+      const supabase = resolveClient();
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (userError) {
+        throw userError;
+      }
+      const user = userData.user;
+      if (!user) {
+        throw new Error('[core-data/supabase] auth.updateCpf — sem sessão autenticada.');
+      }
+      if (user.id !== clienteId) {
+        throw new Error('[core-data/supabase] auth.updateCpf — clienteId não corresponde à sessão autenticada.');
+      }
+
+      const { data, error } = await supabase
+        .from('clientes')
+        .update({ cpf })
+        .eq('id', user.id)
+        .is('cpf', null)
+        .select('id, nome, telefone, cpf, criado_em')
+        .maybeSingle();
+      if (error) {
+        throw error;
+      }
+      if (data) {
+        return data;
+      }
+
+      // 0 linhas afetadas — relê a linha atual para distinguir "já tinha
+      // CPF" (no-op honesto) de "perfil não existe" (erro real).
+      const atual = await supabase
+        .from('clientes')
+        .select('id, nome, telefone, cpf, criado_em')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (atual.error) {
+        throw atual.error;
+      }
+      if (!atual.data) {
+        throw new Error('[core-data/supabase] auth.updateCpf — RLS bloqueou a escrita ou o perfil não existe.');
+      }
+      return atual.data;
     },
 
     /**

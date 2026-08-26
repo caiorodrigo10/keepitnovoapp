@@ -1,0 +1,34 @@
+schema: 1
+story: '5.8'
+gate: PASS
+status_reason: 'Confirmation-only (UI_ONLY), exatamente como o Draft antecipou: o comportamento pedido já existia desde a Story 0.5 (`RatingLabel.tsx` + `getRatingPlaceholder`). Único código de produção: alinhamento cosmético do comentário de `getRatingPlaceholder` ao texto literal do épico ("MVP-mock — implementar sistema de avaliação na v2"), sem tocar valores/comportamento. 3 testes novos em `discoveryDisplay.test.ts` travam a natureza decorativa: função síncrona (não retorna Promise, sem porta/adapter), valores FIXOS por loja preservados (4.8/4.6/4.5), fallback 4.5. `RatingLabel` é 100% presentacional (texto `★` + `value.toFixed(1)`, sem estado/backend). Verificado por grep que NÃO existe tabela/coluna/migration de rating no schema (`packages/shared-types`/migrations: NONE) e que os únicos 3 pontos de uso (`StoreCard`, `Loja`, `DetalheProduto`) leem sempre de `getRatingPlaceholder` — nenhum ponto de leitura real introduzido pelas Stories 5.1–5.7. Desvio consciente do texto literal do épico (AC1 pede constante `4.5` uniforme; implementação usa valor por loja): decisão de escopo do @po (`[AUTO-DECISION @po]`, Artigo IV — No Invention + fidelidade ao protótipo, que mostra 4.8/4.6) — o @po é dono do AC, o desvio é MAIS fiel ao protótipo, documentado e rastreável, NÃO uma invenção. Testes reexecutados fora do cache Turbo (vitest direto): cliente 48/48. Typecheck limpo. Nenhum issue.'
+reviewer: 'Quinn'
+updated: '2026-08-12T22:30:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: empirical
+    evidence: 'Cada loja exibe "★ {valor}" via `RatingLabel`/`getRatingPlaceholder`. Valor é FIXO por loja (`estab-farmacia-vida`→4.8, `estab-bem-vestir`→4.6, `estab-conveniencia-24h`→4.5), fallback 4.5 — não vem do banco. Desvio do literal `4.5` uniforme é decisão do @po (mais fiel ao protótipo). 3 testes travam os valores e a natureza síncrona/decorativa — verdes.'
+  AC2:
+    status: MET
+    method: static
+    evidence: 'Comentário de `getRatingPlaceholder` (discoveryDisplay.ts linhas 64-70) contém o texto literal "MVP-mock — implementar sistema de avaliação na v2", além do original ("não existe tabela de rating no schema"). Sem mudança de valor/comportamento.'
+  AC3:
+    status: MET
+    method: empirical
+    evidence: 'Grep confirma: nenhuma tela de escrever avaliação, nenhum sistema de agregação, nenhuma tabela/coluna/migration de rating. `RatingLabel` é puramente presentacional. Os 3 pontos de uso apenas exibem o placeholder.'
+
+security:
+  status: PASS
+  notes: |
+    - CRÍTICO atendido: NENHUM sistema de avaliações/backend inventado. Rating é 100% decorativo, valor estático em código (não persistido, idêntico em mock e supabase). Zero superfície de risco nova.
+    - Nenhuma coluna/tabela/query de rating no schema (verificado por grep em migrations e shared-types: NONE).
+    - Nenhuma dependência acidental de rating real introduzida pelas Stories 5.1–5.7 (grep: 3 pontos de uso, todos via `getRatingPlaceholder`).
+
+issues: []
+
+recommendations:
+  immediate: []
+  future:
+    - 'Sistema de avaliação real fica para v2 — nenhum FR/Story do MVP piloto cobre isso (coerente com §5.3 do doc de perguntas de regras de negócio, pendente do stakeholder).'

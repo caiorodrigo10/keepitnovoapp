@@ -11,6 +11,7 @@ import type {
   Pedido,
   PedidoStatus,
   ReembolsoPendente,
+  Saque,
 } from '@keepit/core-data';
 import { useAsyncResource, type AsyncResourceState } from '@keepit/core-data/hooks';
 
@@ -45,6 +46,15 @@ function useRefreshable<T>(
 export function useRefundQueue(options?: AsyncCallOptions): RefreshableAsyncResource<ReembolsoPendente[]> {
   return useRefreshable<ReembolsoPendente[]>(
     () => getAdminDataClient().admin.refundQueue.list(options),
+    [],
+    [options?.forceEmpty, options?.forceError, options?.delayMs],
+  );
+}
+
+/** Story 8.9 — fila administrativa de saques, mesmo padrão de `useRefundQueue`. */
+export function usePayoutQueue(options?: AsyncCallOptions): RefreshableAsyncResource<Saque[]> {
+  return useRefreshable<Saque[]>(
+    () => getAdminDataClient().admin.payoutQueue.list(options),
     [],
     [options?.forceEmpty, options?.forceError, options?.delayMs],
   );
@@ -91,11 +101,30 @@ export function useLojistaQuality(
   );
 }
 
+const EMPTY_LOJISTA_ORDER_COUNTS = { entregues: 0, cancelados: 0, noShow: 0 };
+
+/** Story 8.8 (AC1) — contagens entregues/cancelados/no-show por lojista. */
+export function useLojistaOrderCounts(
+  estabelecimentoId: string,
+  options?: AsyncCallOptions,
+): RefreshableAsyncResource<{ entregues: number; cancelados: number; noShow: number }> {
+  return useRefreshable<{ entregues: number; cancelados: number; noShow: number }>(
+    () => getAdminDataClient().admin.lojistaOrderCounts(estabelecimentoId, options),
+    EMPTY_LOJISTA_ORDER_COUNTS,
+    [estabelecimentoId, options?.forceEmpty, options?.forceError, options?.delayMs],
+  );
+}
+
 const EMPTY_FINANCIAL_DASHBOARD: FinancialDashboardResult = {
   periodoDias: 0,
   gmvReais: 0,
   receitaKeepitReais: 0,
   ranking: [],
+  pedidosTotais: 0,
+  pedidosEntregues: 0,
+  pedidosCancelados: 0,
+  pedidosNoShow: 0,
+  taxaSucessoPercent: 0,
 };
 
 export function useFinancialDashboard(

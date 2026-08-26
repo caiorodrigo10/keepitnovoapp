@@ -8,12 +8,15 @@ import type { EstabelecimentoFalha, ReembolsoPendente } from '../ports/admin.por
 import {
   clientesCredenciaisFixture,
   clientesFixture,
+  estabelecimentosCadastradosFixture,
   estabelecimentosFalhasFixture,
   estabelecimentosFixture,
   hubsFixture,
+  lojistaContasFixture,
   pedidosFixture,
   produtosFixture,
   reembolsosFixture,
+  saquesFixture,
 } from './fixtures';
 
 /**
@@ -53,9 +56,14 @@ export interface MockDb {
    * [IDS] ADAPT (Story 3.10) do antigo `lojistaEmailsCadastrados: string[]`
    * (só e-mail) — um array de strings não suportava localizar a conta por
    * e-mail no `signIn` nem devolver `nome_fantasia`/`cnpj`/`telefone`/
-   * `responsavel_nome` para o prefill (AC4). Nunca semeado por fixture (o
-   * piloto sempre começa vazio — nenhum lojista tem conta real por padrão);
-   * populado organicamente pelos `signUp`s da sessão mock atual.
+   * `responsavel_nome` para o prefill (AC4).
+   *
+   * Story 10.3 (Gap 1, 🔴 bloqueador) — deixou de nascer `[]`: agora é
+   * semeado com 1 entrada demo (`lojistaContasFixture`,
+   * `fixtures/lojista-contas.ts`), a credencial `lojista@keepit.com.br`, que
+   * destrava o login em modo mock (sem ela nenhum e-mail resolvia em
+   * `signIn`). `signUp`s da sessão mock continuam sendo adicionados
+   * organicamente por cima da fixture, como antes.
    */
   lojistaContas: {
     id: string;
@@ -84,8 +92,16 @@ export interface MockDb {
    * tocar `db.estabelecimentos` — esse array é o domínio de DESCOBERTA do
    * Cliente, `StorePort.Estabelecimento`, que não modela `cnpj`/
    * `dono_user_id`/`chave_pix`; ver JSDoc de `EstabelecimentoCadastroPort`).
-   * Nunca semeado por fixture (mesmo espírito de `lojistaEmailsCadastrados`
-   * — piloto sempre começa vazio).
+   *
+   * Story 10.3 (Gap 1, bloqueador) — deixou de nascer `[]`: agora é
+   * semeado com 1 entrada demo `'ativo'`
+   * (`estabelecimentosCadastradosFixture`, `fixtures/lojista-contas.ts`),
+   * `donoUserId` apontando para a conta demo semeada em `lojistaContas` e
+   * `id` igual a `'estab-farmacia-vida'` (mesmo id do domínio de Descoberta
+   * rico em `estabelecimentos`) — sem essa entrada,
+   * `getMeuEstabelecimento` nunca devolvia `'ativo'` e o login mock não
+   * alcançava `MainTabs`. Cadastros criados por `signUp`/`criarCadastro` da
+   * sessão mock continuam sendo adicionados organicamente por cima.
    */
   estabelecimentosCadastrados: {
     id: string;
@@ -130,7 +146,10 @@ export function createMockDb(): MockDb {
     estabelecimentos: structuredClone(estabelecimentosFixture),
     produtos: structuredClone(produtosFixture),
     pedidos: structuredClone(pedidosFixture),
-    saques: [],
+    // Modo Demo (`docs/architecture/09-modo-demo-mock.md` §3.3) — antes
+    // nascia `[]`; Extrato do Lojista e fila de Saques do Admin abriam
+    // vazios. Ver `fixtures/saques.ts` para o racional dos valores.
+    saques: structuredClone(saquesFixture),
     // Seedado (não vazio) — Story 1.10 (Task 4): preserva a experiência já
     // existente da tela "Fila de reembolsos" do Admin (Story 0.13), que
     // partia de fixtures locais nunca vazias. Novas entradas continuam
@@ -140,9 +159,14 @@ export function createMockDb(): MockDb {
     falhas: structuredClone(estabelecimentosFalhasFixture),
     sessionClienteId: null,
     clienteCredenciais: structuredClone(clientesCredenciaisFixture),
-    lojistaContas: [],
+    // Story 10.3 (Gap 1, bloqueador) — antes nasciam `[]`; nenhum e-mail
+    // resolvia em `lojista-auth.mock.ts#signIn` e o login mock nunca
+    // alcançava `MainTabs`. Ver JSDoc de `MockDb['lojistaContas']`/
+    // `MockDb['estabelecimentosCadastrados']` acima e
+    // `fixtures/lojista-contas.ts` para o racional completo.
+    lojistaContas: structuredClone(lojistaContasFixture),
     sessionLojistaUserId: null,
-    estabelecimentosCadastrados: [],
+    estabelecimentosCadastrados: structuredClone(estabelecimentosCadastradosFixture),
   };
 }
 

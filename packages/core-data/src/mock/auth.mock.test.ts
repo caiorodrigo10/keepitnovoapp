@@ -70,6 +70,12 @@ describe('auth.mock (contract)', () => {
     expect(cliente.cpf).toBe('12345678900');
   });
 
+  it('updateCpf não sobrescreve um CPF já salvo — "set once" (Story 6.5, AC3)', async () => {
+    await port.updateCpf('cliente-ana', '11144477735', { delayMs: 1 });
+    const atualizado = await port.updateCpf('cliente-ana', '52998224725', { delayMs: 1 });
+    expect(atualizado.cpf).toBe('11144477735');
+  });
+
   describe('perfil real (Story 2.8, AC1-AC6)', () => {
     it('currentEmail reflete a sessão mock atual e null sem sessão', async () => {
       expect(await port.currentEmail({ delayMs: 1 })).toBeNull();

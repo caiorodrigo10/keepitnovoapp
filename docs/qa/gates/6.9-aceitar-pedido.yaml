@@ -1,0 +1,27 @@
+schema: 1
+story: '6.9'
+gate: CONCERNS
+status_reason: 'accept real chama a RPC SECURITY DEFINER aceitar_pedido, que autoriza por ownership (estabelecimentos.dono_user_id = auth.uid()) OU is_admin() DENTRO da função — nunca confia em id cru do client. Dupla-aceitação bloqueada server-side na cláusula WHERE do UPDATE (status = aguardando_aceite) → ESTADO_INVALIDO, com paridade no mock (assertStatus). Os 5 erros nomeados mapeados para classes dedicadas; AceitarPedido.tsx trata o erro honestamente (setErro, sem navegar/mascarar sucesso). Pedido rebuscado via fetchPedidoPorId (RPC retorna só o uuid). Único débito: verificação manual/device pendente + shared-types não regenerados.'
+reviewer: 'Quinn'
+updated: '2026-08-13T02:05:00Z'
+top_issues:
+  - id: 'DEV-005'
+    severity: low
+    finding: 'Teste manual/device (DATA_SOURCE=supabase: aceitar pedido → pedidos.status=aceito, tempo_estimado_min e aceito_em persistidos) não executado — sem Expo/device no sandbox. Cobertura automatizada equivalente em order.supabase.test.ts#accept (sucesso + 5 mapeamentos de erro) + order.mock.test.ts.'
+    suggested_action: 'Verificar em device no piloto — AC2/AC3 confirmadas no banco após o aceite.'
+  - id: 'MNT-003'
+    severity: low
+    finding: 'RPC aceitar_pedido reconciliada manualmente em packages/shared-types/src/supabase.ts (tipos não regenerados por falta de SUPABASE_ACCESS_TOKEN). Débito compartilhado com a Story 6.8/o bloco.'
+    suggested_action: 'Regenerar shared-types via supabase gen types quando o token estiver disponível.'
+evidence:
+  tests_reviewed: 'core-data 387/387 (order.supabase.test.ts 21 — accept: sucesso + AUTENTICACAO_NECESSARIA/TEMPO_ESTIMADO_INVALIDO/PEDIDO_NAO_ENCONTRADO/ACESSO_NEGADO/ESTADO_INVALIDO + propagação de erro genérico; order.mock.test.ts 18 — sucesso + rejeição de dupla-aceitação) — reexecutados fresh no worktree. pnpm qa 27/27.'
+  acs_covered: [1, 2, 3, 4, 5]
+  security_confirmed:
+    - 'aceitar_pedido é SECURITY DEFINER SET search_path = ; autoriza por dono_user_id = auth.uid() OU is_admin() DENTRO da função — nunca confia em estabelecimento_id/id cru do client.'
+    - 'Aceite de pedido de outra loja rejeitado (ACESSO_NEGADO), distinto de PEDIDO_NAO_ENCONTRADO — sem vazar existência indevida além do necessário.'
+    - 'Dupla-aceitação bloqueada SERVER-SIDE: UPDATE ... WHERE status = aguardando_aceite (autorização + estado na mesma cláusula, race-safe) → ESTADO_INVALIDO, não sucesso silencioso. Mock com paridade via assertStatus.'
+    - 'REVOKE PUBLIC/anon; GRANT EXECUTE só a authenticated. Sem service_role no bundle.'
+    - 'tempo_estimado_min persistido com o valor confirmado, sem arredondamento/transformação silenciosa.'
+  robustness: 'acceptOrder do OrdersContext propaga o erro (não engole) até o try/catch de AceitarPedido.tsx, que exibe error.message e não navega em falha — o caso ESTADO_INVALIDO (dupla-aceitação) vira feedback honesto, não unhandled rejection.'
+  regression: 'AceitarPedido.tsx só ganhou tratamento de erro (não redesenho); NumericStepper/pré-preenchimento tempo_medio_entrega_min (Épico 4) inalterados; mock accept endurecido com assertStatus sem quebrar consumidores reais (aguardando_pagamento inatingível desde a Story 6.6). Nenhuma regressão nos 27 tasks.'
+waiver: { active: false }

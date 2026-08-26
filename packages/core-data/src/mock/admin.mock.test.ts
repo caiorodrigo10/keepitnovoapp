@@ -146,8 +146,46 @@ describe('admin.mock (contract)', () => {
     const fila = await port.refundQueue.list({ delayMs: 1 });
     expect(fila).toHaveLength(antes.length + 1);
 
-    const processado = await port.refundQueue.process('reembolso-teste', { delayMs: 1 });
+    const processado = await port.refundQueue.process('reembolso-teste', 'concluido', undefined, { delayMs: 1 });
     expect(processado.status).toBe('estornado');
+  });
+
+  it('refundQueue.process(resultado="erro") marca status erro — nenhum sucesso fictício (Story 8.2 AC2)', async () => {
+    db.reembolsos.push({
+      id: 'reembolso-teste-erro',
+      pedido_id: 'pedido-2050',
+      motivo: 'timeout_aceite',
+      valor_a_estornar_reais: 10,
+      valor_ao_lojista_reais: 0,
+      forma_pagamento: 'pix',
+      status: 'pendente_admin',
+      criado_em: new Date().toISOString(),
+    });
+
+    const processado = await port.refundQueue.process('reembolso-teste-erro', 'erro', 'PIX falhou', { delayMs: 1 });
+    expect(processado.status).toBe('erro');
+  });
+
+  it('payoutQueue.list/process managed saques pendentes (Story 8.9)', async () => {
+    db.saques.push({
+      id: 'saque-teste',
+      estabelecimento_id: 'estab-farmacia-vida',
+      valor_reais: 150,
+      status: 'solicitado',
+      solicitado_em: new Date().toISOString(),
+      processado_em: null,
+      concluido_em: null,
+    });
+
+    const fila = await port.payoutQueue.list({ delayMs: 1 });
+    expect(fila.some((s) => s.id === 'saque-teste')).toBe(true);
+
+    const processado = await port.payoutQueue.process('saque-teste', 'concluido', undefined, { delayMs: 1 });
+    expect(processado.status).toBe('concluido');
+    expect(processado.concluido_em).not.toBeNull();
+
+    const filaDepois = await port.payoutQueue.list({ delayMs: 1 });
+    expect(filaDepois.some((s) => s.id === 'saque-teste')).toBe(false);
   });
 
   it('is genuinely asynchronous — does not resolve on the same tick', () => {
@@ -199,9 +237,38 @@ describe('admin.mock (contract)', () => {
     await expect(port.suspendLojista('estab-farmacia-vida', 'motivo', { delayMs: 1 })).rejects.toThrow();
   });
 
+  it('reactivateLojista reverts suspenso -> ativo and clears motivo_suspensao (Story 8.6 AC4)', async () => {
+    const suspenso = await port.suspendLojista('estab-farmacia-vida', 'Reincidência de reclamações', {
+      delayMs: 1,
+    });
+    expect(suspenso.status).toBe('suspenso');
+
+    const reativado = await port.reactivateLojista('estab-farmacia-vida', { delayMs: 1 });
+    expect(reativado.status).toBe('ativo');
+    expect(reativado.motivo_suspensao).toBeNull();
+
+    // Guarda simétrica: não reativa quem já está ativo.
+    await expect(port.reactivateLojista('estab-farmacia-vida', { delayMs: 1 })).rejects.toThrow();
+  });
+
   it('lojistaQualityView resolves the falhas seeded for a suspended estabelecimento', async () => {
     const falhas = await port.lojistaQualityView('estab-mercadinho-noturno', { delayMs: 1 });
     expect(falhas.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('lojistaOrderCounts buckets pedidos by entregue/cancelado/no-show (Story 8.8 AC1)', async () => {
+    const counts = await port.lojistaOrderCounts('estab-farmacia-vida', { delayMs: 1 });
+    expect(counts).toEqual({
+      entregues: expect.any(Number),
+      cancelados: expect.any(Number),
+      noShow: expect.any(Number),
+    });
+    expect(counts.entregues).toBeGreaterThanOrEqual(0);
+  });
+
+  it('lojistaOrderCounts resolves zeros honestos for an estabelecimento with no pedidos', async () => {
+    const counts = await port.lojistaOrderCounts('estab-sem-pedidos-inexistente', { delayMs: 1 });
+    expect(counts).toEqual({ entregues: 0, cancelados: 0, noShow: 0 });
   });
 
   it('financialDashboard aggregates gmv/receita/ranking from real pedidos entregues', async () => {
@@ -209,6 +276,22 @@ describe('admin.mock (contract)', () => {
     expect(dashboard.gmvReais).toBeGreaterThan(0);
     expect(dashboard.receitaKeepitReais).toBeGreaterThan(0);
     expect(dashboard.ranking.length).toBeGreaterThan(0);
+  });
+
+  it('financialDashboard (Story 8.7 SHOULD) includes counts + taxa de sucesso derived from pedidos, never hardcoded', async () => {
+    const dashboard = await port.financialDashboard(400, { delayMs: 1 });
+    expect(dashboard.pedidosTotais).toBeGreaterThan(0);
+    expect(dashboard.pedidosTotais).toBeGreaterThanOrEqual(
+      dashboard.pedidosEntregues + dashboard.pedidosCancelados + dashboard.pedidosNoShow,
+    );
+    expect(dashboard.taxaSucessoPercent).toBeGreaterThanOrEqual(0);
+    expect(dashboard.taxaSucessoPercent).toBeLessThanOrEqual(100);
+  });
+
+  it('financialDashboard with a period with zero pedidos resolves honest zeros, never NaN/Infinity', async () => {
+    const dashboard = await port.financialDashboard(0, { delayMs: 1 });
+    expect(dashboard.taxaSucessoPercent).toBe(0);
+    expect(Number.isFinite(dashboard.taxaSucessoPercent)).toBe(true);
   });
 
   it('listAllOrders filters by status and forceCancelOrder populates a reembolso (motivo: cancelamento_admin)', async () => {

@@ -1,6 +1,12 @@
 import type { PedidoStatus } from '@keepit/core-data';
 import { darkColors } from '@keepit/ui-tokens';
 
+// Story 6.8 — reexportado por conveniência (consumidores que já importam
+// `statusMeta.ts` para `tempoRelativo`/`getStatusBadge` continuam achando a
+// função de tempo de aceite aqui). A implementação vive em `tempoAceite.ts`,
+// separada por não depender de `@keepit/ui-tokens` (ver JSDoc de lá).
+export { tempoAceiteStatus, tempoAceiteTexto, type TempoAceiteStatus } from './tempoAceite';
+
 /**
  * Metadados de exibição da máquina de estados do pedido (lado lojista) —
  * Story 0.10 (AC2/AC3). Cores SEMPRE de `@keepit/ui-tokens` (`darkColors`),

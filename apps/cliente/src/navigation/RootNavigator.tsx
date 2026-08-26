@@ -11,7 +11,9 @@ import { AuthStack } from './AuthStack';
 import { MainTabs } from './MainTabs';
 import ModalCPF from '../screens/modals/ModalCPF';
 import ModalConfirmarPin from '../screens/modals/ModalConfirmarPin';
+import ModalPagamentoPix from '../screens/modals/ModalPagamentoPix';
 import ModalPermissaoPush from '../screens/modals/ModalPermissaoPush';
+import ModalProcessandoPagamento from '../screens/modals/ModalProcessandoPagamento';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -84,9 +86,14 @@ export function RootNavigator() {
     }, SESSION_TIMEOUT_MS);
 
     function handleAuthStateChange(next: Cliente | null) {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeoutId);
+      // O primeiro evento cancela o timeout de fallback (Story 2.6, AC7).
+      // `settled` NÃO pode bloquear eventos seguintes: signUp/signIn/signOut
+      // emitem novas sessões depois do 1º estado e PRECISAM re-renderizar
+      // Auth<->Main (REL-008: o guard anterior engolia o SIGNED_IN pós-boot).
+      if (!settled) {
+        settled = true;
+        clearTimeout(timeoutId);
+      }
       setCliente(next);
     }
 
@@ -120,6 +127,9 @@ export function RootNavigator() {
       <Stack.Group screenOptions={{ presentation: 'modal' }}>
         <Stack.Screen name="ModalCPF" component={ModalCPF} />
         <Stack.Screen name="ModalConfirmarPin" component={ModalConfirmarPin} />
+        {/* Story 6.7.1 — feedback visual de pagamento (PIX/cartão), entre "Pagar" e ModalConfirmarPin. */}
+        <Stack.Screen name="ModalPagamentoPix" component={ModalPagamentoPix} />
+        <Stack.Screen name="ModalProcessandoPagamento" component={ModalProcessandoPagamento} />
         <Stack.Screen name="ModalPermissaoPush" component={ModalPermissaoPush} />
       </Stack.Group>
     </Stack.Navigator>

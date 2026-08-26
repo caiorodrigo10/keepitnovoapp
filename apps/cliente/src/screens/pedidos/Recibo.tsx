@@ -6,6 +6,7 @@ import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 import { AsyncStateBlock } from '../../components/discovery';
 import { Button, Screen } from '../../components/ui';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
+import { useHubDetail } from '../../hooks/useHubDetail';
 import { useStoreDetail } from '../../hooks/useStoreDetail';
 import { usePedidoDetail } from '../../hooks/usePedidoDetail';
 import { formatReais } from '../../lib/format';
@@ -24,11 +25,32 @@ type Props = NativeStackScreenProps<PedidosStackParamList, 'Recibo'>;
  * lojista não veio) reaproveitando o MESMO layout — só a faixa de status
  * muda de tom (verde para `entregue`, aviso para os demais terminais),
  * evitando uma tela dedicada a cada desfecho terminal.
+ *
+ * **Story 6.16 (AC1-AC4) — [IDS] ADAPT, dois gaps confirmados por leitura
+ * direta do código, corrigidos aqui:**
+ * 1. **Hub ausente** (AC2): esta tela nunca exibia hub, apesar do AC1 do
+ *    épico pedir "itens, valores, hub, data" — reaproveita o MESMO padrão
+ *    já validado em `ModalConfirmarPin.tsx`
+ *    (`useHubDetail(pedido?.hub_id ?? '', { forceEmpty: !pedido })`).
+ * 2. **Rótulo financeiro incorreto** (AC3): a seção de totais rotulava
+ *    "Taxa de serviço" mas mostrava o VALOR de `taxa_deslocamento_reais`, e
+ *    nunca exibia `taxa_servico_comprador_reais` — o MESMO bug que
+ *    `Checkout.tsx` já teve e corrigiu (Rodada 8,
+ *    `docs/PERGUNTAS_REGRAS_NEGOCIO.md` linha 561). Corrigido para o MESMO
+ *    padrão do Checkout: Subtotal / Taxa de deslocamento / Taxa de serviço
+ *    (tag "provisório", só quando `> 0`) / Total. `taxa_keepit_reais`
+ *    (cobrada do lojista) continua NUNCA exibida ao cliente — mesma regra
+ *    do Checkout.
+ *
+ * **Fronteira com o Épico 7 (AC4):** esta tela só EXIBE o recibo —
+ * nenhum lançamento de carteira/ledger nem contagem de D+7
+ * (`businessConfig.carteiraLiberacaoDias`) acontece aqui.
  */
 export default function Recibo({ route, navigation }: Props) {
   const { data: cliente } = useCurrentCliente();
   const { data: pedido, loading, error } = usePedidoDetail(cliente?.id ?? null, route.params?.pedidoId);
   const { data: estabelecimento } = useStoreDetail(pedido?.estabelecimento_id ?? '', { forceEmpty: !pedido });
+  const { data: hub } = useHubDetail(pedido?.hub_id ?? '', { forceEmpty: !pedido });
 
   const cancelado = pedido ? isPedidoCancelado(pedido.status) : false;
 
@@ -67,6 +89,13 @@ export default function Recibo({ route, navigation }: Props) {
             </View>
           )}
 
+          {hub && (
+            <View style={styles.hubRow}>
+              <Text style={styles.hubNome}>{hub.nome}</Text>
+              <Text style={styles.hubEndereco}>{hub.endereco}</Text>
+            </View>
+          )}
+
           <View style={styles.itens}>
             {pedido.itens.map((item) => (
               <View key={item.id} style={styles.itemRow}>
@@ -84,9 +113,18 @@ export default function Recibo({ route, navigation }: Props) {
             <Text style={styles.totaisValue}>{formatReais(pedido.subtotal_produtos_reais)}</Text>
           </View>
           <View style={styles.totaisRow}>
-            <Text style={styles.totaisLabel}>Taxa de serviço</Text>
+            <Text style={styles.totaisLabel}>Taxa de deslocamento</Text>
             <Text style={styles.totaisValue}>{formatReais(pedido.taxa_deslocamento_reais)}</Text>
           </View>
+          {pedido.taxa_servico_comprador_reais > 0 && (
+            <View style={styles.totaisRow}>
+              <View style={styles.taxaServicoLabelRow}>
+                <Text style={styles.totaisLabel}>Taxa de serviço</Text>
+                <Text style={styles.provisorioTag}>provisório</Text>
+              </View>
+              <Text style={styles.totaisValue}>{formatReais(pedido.taxa_servico_comprador_reais)}</Text>
+            </View>
+          )}
 
           <View style={styles.divider} />
 
@@ -192,6 +230,23 @@ const styles = StyleSheet.create({
     color: lightColors.text.secondary,
     marginTop: 2,
   },
+  hubRow: {
+    backgroundColor: lightColors.bg.surface,
+    borderRadius: radii.card,
+    padding: spacing['3'],
+    marginBottom: spacing['4'],
+  },
+  hubNome: {
+    fontFamily: 'HankenGrotesk-SemiBold',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.text.primary,
+  },
+  hubEndereco: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.xs.fontSize,
+    color: lightColors.text.secondary,
+    marginTop: 2,
+  },
   itens: {
     marginBottom: spacing['2'],
   },
@@ -236,6 +291,17 @@ const styles = StyleSheet.create({
     fontFamily: 'HankenGrotesk-Regular',
     fontSize: typography.sizes.md.fontSize,
     color: lightColors.text.primary,
+  },
+  taxaServicoLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing['2'],
+  },
+  provisorioTag: {
+    fontFamily: 'HankenGrotesk-SemiBold',
+    fontSize: typography.sizes.xs.fontSize,
+    color: lightColors.accent.warning,
+    textTransform: 'uppercase',
   },
   totalLabel: {
     fontFamily: 'HankenGrotesk-Bold',

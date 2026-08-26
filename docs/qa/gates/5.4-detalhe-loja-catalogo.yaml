@@ -1,0 +1,58 @@
+schema: 1
+story: '5.4'
+gate: CONCERNS
+status_reason: 'Catálogo real já entregue por 4.3 (`ProductPort.list` sob RLS `publico_ve_produtos`) e consumido por `Loja.tsx` via `useCatalogo` — sem adapter novo, sem caminho paralelo Cliente/Lojista (mesmo `createProductSupabase`). Esta Story adiciona 2 exibições com dado já real: "Pedido mínimo: R$ X" (AC4) via `resolveTicketMinimoReais` (COALESCE `ticket_minimo_reais ?? businessConfig.ticketMinimoReais`, reaproveitando a constante já usada por Checkout/cancelamentoPolicy — nenhum hard-code novo) e "Taxa de deslocamento" (AC5) via `formatReais(loja.taxa_deslocamento_reais)`. AC1/AC2 já fiéis ao protótipo. AC3 (botão WhatsApp/"Falar com o lojista") corretamente FORA — `telefone` NÃO exposto na projeção pública (verificado). Testes reexecutados fora do cache Turbo (vitest direto): discoveryDisplay 3/3 (valor da loja, null→global, 0 explícito), product.supabase 27/27 (inclui confirmação end-to-end do caminho Cliente). CONCERNS (não PASS) por débitos não-bloqueantes: (1) `publico_ve_produtos` servindo o app Cliente contra o keepit-dev real não exercitado ao vivo — testes usam client injetado que simula o efeito observável, não a policy; (2) sem harness de teste de componente RN em apps/cliente (AC4/AC5 renderizados em `.tsx` não têm teste de componente — só a lógica COALESCE extraída para `.ts` puro é testada; taxa é passthrough trivial); (3) AC3/telefone público = pergunta de privacidade §4.5, não decidida. Nenhum critical/high.'
+reviewer: 'Quinn'
+updated: '2026-08-12T22:20:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static
+    evidence: 'Tela "Loja · catálogo" (header foto+nome+categoria+badge, seções por categoria) já existe inteira em `Loja.tsx` (0.5). File List desta Story não altera a estrutura — só adiciona a `infoRow`.'
+  AC2:
+    status: MET
+    method: empirical
+    evidence: '`Loja.tsx` chama `useCatalogo` → `client.product.list(estabelecimentoId)`, o MESMO adapter real de 4.3 (sem branch Cliente/Lojista). product.supabase list filtra `estabelecimento_id`, `excluido_em IS NULL`, `ativo=true`. Teste "list de loja sem produtos publicados resolve [] honesto" simula o efeito de publico_ve_produtos. `ProductRow` exibe foto/nome/preço/descrição/CTA (já implementado).'
+  AC3:
+    status: DEFERRED
+    method: static
+    evidence: 'Botão WhatsApp NÃO implementado — a única ocorrência de "Falar com o lojista"/WhatsApp em Loja.tsx é um COMENTÁRIO documentando que está FORA (linha 47), não JSX. `telefone` ausente de `ESTABELECIMENTO_COLUMNS` e do tipo `Estabelecimento` público. Requer decisão de privacidade §4.5 — registrada, não presumida.'
+  AC4:
+    status: MET
+    method: empirical
+    evidence: 'Loja.tsx:106 `Pedido mínimo: {formatReais(resolveTicketMinimoReais(loja))}`. `resolveTicketMinimoReais` = `ticket_minimo_reais ?? businessConfig.ticketMinimoReais`. discoveryDisplay.test 3 casos: valor da loja (30→30), null→businessConfig, 0 explícito→0 (não confunde 0 com falsy). Constante reaproveitada, sem valor novo.'
+  AC5:
+    status: MET
+    method: static
+    evidence: 'Loja.tsx:107 `Taxa de deslocamento: {formatReais(loja.taxa_deslocamento_reais)}` — passthrough direto do campo já real (getById, 4.7/4.8), formatado com `formatReais` já existente (0.6). Sem lógica nova a testar isoladamente.'
+
+security:
+  status: PASS
+  notes: |
+    - `telefone` do lojista NÃO exposto publicamente: ausente de `ESTABELECIMENTO_COLUMNS` (SELECT) e do tipo `Estabelecimento` do domínio público. AC3 (WhatsApp) mantido fora justamente por isso — nenhuma nova superfície de dado sensível.
+    - Nenhum novo adapter/query — reaproveita `list`/`getById` já reais e gateados (4.3/4.5/4.7). Leitura via anon key (`createClient()`), nenhum service_role no bundle.
+    - Catálogo do Cliente só vê produto ativo/não-excluído de loja ativa/não-pausada via `publico_ve_produtos` (RLS pré-existente, 4.3) — mesmo adapter dos dois apps, a barreira é a policy no Postgres.
+
+issues:
+  - id: DEV-5.4-001
+    severity: medium
+    category: tests
+    description: 'A confirmação end-to-end de `publico_ve_produtos` servindo o app Cliente (anônimo, não Lojista) contra o keepit-dev real não foi executada ao vivo. Os testes usam client Supabase injetado que simula o efeito observável (loja sem produtos → []); a policy real não é exercitada por client fake — o próprio teste documenta isso.'
+    recommendation: 'Exercitar list a partir do app Cliente contra o keepit-dev (produto de loja pausada não vaza) na janela de validação em ambiente vivo.'
+  - id: DEV-5.4-002
+    severity: low
+    category: tests
+    description: 'apps/cliente não tem harness de teste de componente RN (vitest.config só cobre src/**/*.test.ts). AC4/AC5 renderizados em Loja.tsx (.tsx) não têm teste de componente — só a lógica COALESCE (resolveTicketMinimoReais) foi extraída para .ts puro e testada. Taxa de deslocamento é passthrough (formatReais), sem lógica isolável.'
+    recommendation: 'Gap de infraestrutura de teste RN registrado (não desta Story). Validar as 2 exibições visualmente em device.'
+  - id: BR-4.5-003
+    severity: low
+    category: requirements
+    description: 'AC3 (WhatsApp) depende de decisão de privacidade sobre expor `telefone` publicamente (§4.5), pendente do Caio/stakeholder. Não implementado, não presumido.'
+    recommendation: 'Levar §4.5 ao stakeholder; se aprovado, é story dedicada (adicionar telefone à projeção pública + botão + política anti-spam).'
+
+recommendations:
+  immediate: []
+  future:
+    - 'Validar catálogo + as 2 exibições contra keepit-dev/device.'
+    - 'Resolver §4.5 (telefone público / WhatsApp) antes de implementar AC3.'

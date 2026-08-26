@@ -1,0 +1,50 @@
+schema: 1
+story: '5.1'
+gate: PASS
+status_reason: 'Adapter Supabase real de `HubPort.listNearby`/`getById` (`hub.supabase.ts`), leitura pública read-only sobre `hubs`/`hubs_horarios` — tabelas e RLS (`publico_ve_hubs`/`publico_ve_hubs_horarios`) já provadas na Story 4.1. Todos os 5 ACs atendidos. `listNearby` filtra `ativo=true` + `ORDER BY nome ASC` (override SIMPLE, sem Haversine/geo/permissão de localização); `getById` devolve `null` honesto para hub inexistente/inativo, nunca lança. Réplica independente do padrão `admin.supabase.ts` (JSDoc apenas — sem import cross-app, verificado por grep). 6 testes novos escrutinados e reexecutados fora do cache Turbo (vitest direto: 344/344 core-data, hub.supabase 6/6). Sem invenção, sem simulação, propagação de erro real. Débito de validação em device/DATA_SOURCE=supabase é a retomada padrão do épico (sandbox sem simulador), risco baixo para adapter read-only sobre tabela já validada.'
+reviewer: 'Quinn'
+updated: '2026-08-12T22:05:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static
+    evidence: 'Tela EscolhaRetirada/Home já existe desde Stories 0.5/0.6, com o desvio "sem mapa" já documentado e aceito em EscolhaRetirada.tsx. Nenhuma alteração de UI nesta Story — confirmado: File List não inclui nenhum arquivo de apps/cliente.'
+  AC2:
+    status: MET
+    method: static
+    evidence: 'Override SIMPLE respeitado. `listNearby` faz apenas `SELECT` em `hubs` — nenhuma chamada Expo Location, nenhum geocoding de CEP, nenhum Haversine. Grep por Haversine/geo no adapter: ausente. Distância exibida continua o valor estático da Story 0.6 (`formatHubDistanciaKm`), não tocada.'
+  AC3:
+    status: MET
+    method: empirical
+    evidence: '`listNearby`: `.from(''hubs'').select(HUB_COLUMNS).eq(''ativo'', true).order(''nome'', {ascending:true})`. Teste "filtra ativo=true e ordena por nome ASC" verifica `eq(''ativo'',true)` e `order(''nome'',{ascending:true})` chamados e ordem de retorno [hub-b, hub-a]. Sem ORDER BY por distância. Filtro `ativo=true` client-side é defesa extra sobre a RLS `publico_ve_hubs`.'
+  AC4:
+    status: MET
+    method: empirical
+    evidence: '`hubs_horarios` lidos em batch (`fetchHorariosByHubIds`, `.in(''hub_id'', ids)` — sem N+1) e mapeados por hub, ordenados por `dia_semana`. `getById` relê os 7 horários e ordena por `dia_semana` (teste: `[0,1]`). "Aberto até Xh" derivado client-side em EscolhaRetirada.tsx#formatAbertoAte a partir desse dado agora real. Distância estática inalterada.'
+  AC5:
+    status: MET
+    method: static
+    evidence: 'Toque no card → tela do Hub (Story 5.2) já implementado nas Stories 0.5/0.6, não alterado. Nenhuma mudança de navegação nesta Story.'
+
+security:
+  status: PASS
+  notes: 'Leitura pública read-only via anon key (`createClient()` de @keepit/supabase-client — NÃO `createServiceRoleClient`, verificado por grep). RLS `publico_ve_hubs` (ativo=true OR is_admin()) é a barreira; filtro client `ativo=true` é defesa em profundidade. Mapeamento campo a campo (não spread) evita vazamento de coluna extra para o `Hub` do Cliente. Nenhum caminho de escrita criado. Sem service_role no caminho do bundle.'
+
+issues:
+  - id: DEV-5.1-001
+    severity: low
+    category: tests
+    description: 'Validação end-to-end em device/Expo com DATA_SOURCE=supabase não realizada (sandbox sem simulador RN; `pnpm qa` cobre apenas tsc nos apps). O elo UI→adapter é leitura estática; a camada de dados está provada por teste unitário.'
+    recommendation: 'Retomada padrão do épico (mesma limitação das Stories 2.x/4.8). Validar ao rodar o piloto com credenciais reais.'
+  - id: DEV-5.1-002
+    severity: low
+    category: code
+    description: 'Entrada `estabelecimentos_hubs` em `packages/shared-types/src/supabase.ts` foi reconciliada à mão (sem SUPABASE_ACCESS_TOKEN para `supabase gen types`). Espelha o DDL exatamente (estabelecimento_id, hub_id, criado_em; PK composta; Relationships []) — verificado contra a migration. Débito compartilhado com a Story 5.2 (a 5.1 não usa essa tabela).'
+    recommendation: 'Regenerar tipos via `supabase gen types` quando o token estiver disponível; a regeneração não deve alterar a forma.'
+
+recommendations:
+  immediate: []
+  future:
+    - 'Regenerar shared-types quando SUPABASE_ACCESS_TOKEN estiver disponível.'
+    - 'Validar listNearby/getById em device no piloto (DATA_SOURCE=supabase).'

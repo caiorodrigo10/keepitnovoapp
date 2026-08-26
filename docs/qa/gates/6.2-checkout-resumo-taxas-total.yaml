@@ -1,0 +1,62 @@
+schema: 1
+story: '6.2'
+gate: CONCERNS
+status_reason: 'Correção do débito herdado da Story 0.6 aplicada e verificada por código: a taxa Keepit NÃO aparece mais ao cliente nem entra no total (Checkout.tsx não lê `taxaKeepitPercent` — as únicas ocorrências no app cliente são comentários/JSDoc; o total vem de `computeCheckoutTotals`, que por assinatura só aceita subtotal/deslocamento/serviço). `taxaKeepitPercent` 12→10 e a nova `taxaServicoCompradorReais: 2.90` aplicadas em `@keepit/config` com testes (config 15/15 + checkoutTotals 4/4 verdes fora do cache Turbo; typecheck cliente/config exit 0). Taxa de serviço lida de businessConfig (nunca hard-coded) e exibida com tag visual "provisório". Fronteira pré-pagamento preservada: "Pagar" só navega para `Pagamento.tsx` (intocado; único `order.create` mock vive lá, pré-existente), nenhum pedido/PIN/cobrança criado, tabela `pedidos` inexistente. CONCERNS (não PASS) porque o render do Checkout.tsx não tem teste automatizado (só a lógica de total extraída), validação em device fica manual, e o VALOR R$ 2,90 é provisório pendente de ratificação do stakeholder (débito de negócio a fechar via Caio). Nenhum critical/high.'
+reviewer: 'Quinn'
+updated: '2026-08-12T23:25:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static
+    evidence: 'Checkout.tsx mantém itens somente-leitura, RETIRAR EM (hub via SummaryLinkRow), forma de pagamento; seção de totais renderiza na ordem Subtotal (l.119) / Taxa de deslocamento (l.123) / Taxa de serviço (l.126-134) / Total (l.136-139).'
+  AC2:
+    status: MET
+    method: static
+    evidence: '`taxaDeslocamentoReais = loja?.taxa_deslocamento_reais ?? 0` via `useStoreDetail(cart.estabelecimentoId ?? "")` (l.46/62) — leitura real de StorePort.getById, sem novo adapter.'
+  AC3:
+    status: MET
+    method: static
+    evidence: '`taxaKeepitPercent: 10` em packages/config/src/index.ts (era 12), com JSDoc citando Rodada 8. Grep no app cliente: nenhuma LEITURA de `taxaKeepitPercent` — só comentários/JSDoc em Checkout.tsx e checkoutTotals.ts explicando a exclusão. Reads reais restantes (order.mock.ts/order.port.ts) são repasse ao LOJISTA, fora do cliente.'
+  AC4:
+    status: MET
+    method: static
+    evidence: '`taxaServicoCompradorReais: 2.9` (constante nova) lida via businessConfig em Checkout.tsx l.70 — nunca hard-coded (o "R$ 2,90" no arquivo aparece só em JSDoc). Tag `styles.provisorioTag` "provisório" renderizada ao lado do label (l.130), visível, não é só comentário. JSDoc da config marca PROVISÓRIA/pendente ratificação.'
+  AC5:
+    status: MET
+    method: static
+    evidence: '`computeCheckoutTotals(subtotal, deslocamento, serviço)` retorna total = soma dos 3 (checkoutTotals.ts). Assinatura de 3 parâmetros impede por construção que a taxa Keepit entre na soma (teste dedicado: `computeCheckoutTotals.length === 3`).'
+  AC6:
+    status: MET
+    method: static
+    evidence: '`nfSolicitada`/`setNfSolicitada` adicionados ao CartContext (mesmo padrão de cpfCollected); Checkbox (REUSE de components/ui) em Checkout.tsx l.143 ligado a `cart.nfSolicitada`. Nenhuma escrita em pedidos/OrderPort — intenção fica no CartContext.'
+  AC7:
+    status: MET
+    method: static
+    evidence: '`handlePagar` (l.79-87) navega para `Pagamento` (com gate de ModalCPF quando cpf não coletado). Pagamento.tsx não modificado (git status limpo). Nenhum pedido/PIN/cobrança criado nesta Story.'
+
+security:
+  status: PASS
+  notes: |
+    - Honestidade/negócio (crítico): taxa Keepit do lojista nunca exposta ao cliente nem somada ao total; verificado por grep + leitura do JSX e da função de total.
+    - Nenhuma escrita de dados; só leitura de taxa_deslocamento_reais (RLS pública já aplicada, Story 4.5/5.4/5.5) e constantes de config.
+    - Fronteira pré-pagamento intacta — sem criação de pedido/PIN/cobrança.
+
+issues:
+  - id: TEST-6.2-001
+    severity: medium
+    category: tests
+    description: 'O render de Checkout.tsx (ordem das linhas, presença da tag "provisório", ausência da taxa Keepit no snapshot, checkbox NF) não tem teste automatizado — apps/cliente sem harness de componente RN. Apenas a lógica de total extraída (computeCheckoutTotals) e a config têm cobertura unitária.'
+    recommendation: 'Validar em device com DATA_SOURCE=supabase: checkout de loja com taxa_deslocamento_reais > 0, conferir linha/total e a tag "provisório". Mesmo débito de harness das demais Stories do bloco.'
+  - id: REQ-6.2-002
+    severity: low
+    category: requirements
+    description: 'O valor R$ 2,90 (taxaServicoCompradorReais) é recomendação do dev (Rodada 8) PENDENTE de ratificação do stakeholder — não é preço final. A implementação está correta (tag "provisório" + JSDoc), mas o débito de negócio permanece aberto.'
+    recommendation: 'Caio leva a R$ 2,90 ao stakeholder; só após ratificação registrada em docs/PERGUNTAS_REGRAS_NEGOCIO.md uma Story futura remove o indicador "provisório". Não bloqueia esta Story.'
+
+recommendations:
+  immediate: []
+  future:
+    - 'Ratificação do stakeholder para o valor R$ 2,90 da taxa de serviço ao comprador.'
+    - 'Validação em device do checkout com taxa de deslocamento real.'
+    - 'Harness de componente RN para travar o resumo do checkout contra regressão (garantir que a taxa Keepit nunca reapareça).'

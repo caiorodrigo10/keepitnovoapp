@@ -14,7 +14,13 @@ const PERIODO_OPTIONS = [7, 30, 90] as const;
  * Receita Keepit calculados 100% a partir de `pedidos.total_pago_reais` /
  * `pedidos.taxa_keepit_reais` de pedidos `entregue` no período selecionado
  * (mesmo padrão de seletor de período do Dashboard do Lojista, Story 0.11).
- * Ranking de lojas por GMV. Nenhum valor hardcoded — tudo vem do dado mock.
+ * Ranking de lojas por GMV. Nenhum valor hardcoded — tudo vem do dado real.
+ *
+ * Story 8.7: contagens (pedidos/entregues/cancelados/no-show) + taxa de
+ * sucesso adicionadas (SHOULD, decisão de @po — agregação barata sobre a
+ * MESMA leitura de `pedidos`). Ranking de hubs por nº de pedidos e o
+ * gráfico de linha (Recharts) ficam como DÉBITO NÃO-BLOQUEANTE (decisão de
+ * @po registrada na Story 8.7) — não implementados nesta tela.
  */
 export default function FinanceiroPage() {
   const searchParams = useSearchParams();
@@ -76,6 +82,30 @@ export default function FinanceiroPage() {
             <Card>
               <p className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Receita Keepit</p>
               <p className="mt-2 text-2xl font-bold text-accent-brand">{formatReais(dashboard.receitaKeepitReais)}</p>
+            </Card>
+          </div>
+
+          {/* Story 8.7 (SHOULD) — contagens/taxa de sucesso, derivadas 100% de `pedidos` do período, nunca hardcoded. */}
+          <div className="grid grid-cols-5 gap-4">
+            <Card>
+              <p className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Pedidos</p>
+              <p className="mt-2 text-xl font-bold text-text-primary">{dashboard.pedidosTotais}</p>
+            </Card>
+            <Card>
+              <p className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Entregues</p>
+              <p className="mt-2 text-xl font-bold text-text-primary">{dashboard.pedidosEntregues}</p>
+            </Card>
+            <Card>
+              <p className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Cancelados</p>
+              <p className="mt-2 text-xl font-bold text-text-primary">{dashboard.pedidosCancelados}</p>
+            </Card>
+            <Card>
+              <p className="text-xs font-semibold uppercase tracking-section text-text-tertiary">No-show</p>
+              <p className="mt-2 text-xl font-bold text-text-primary">{dashboard.pedidosNoShow}</p>
+            </Card>
+            <Card>
+              <p className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Taxa de sucesso</p>
+              <p className="mt-2 text-xl font-bold text-text-primary">{dashboard.taxaSucessoPercent.toFixed(1)}%</p>
             </Card>
           </div>
 

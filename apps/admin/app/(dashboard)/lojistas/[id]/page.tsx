@@ -96,6 +96,23 @@ export default function DetalheLojistaPage() {
       });
   }
 
+  /** Story 8.6 (AC4) — capacidade nova: reverte `status: 'suspenso' → 'ativo'`. */
+  function handleReativar() {
+    setActionPending(true);
+    setActionError(null);
+
+    getAdminDataClient()
+      .admin.reactivateLojista(params.id, { forceError: forceActionError })
+      .then((atualizado) => {
+        setActionPending(false);
+        setLojista(atualizado);
+      })
+      .catch((error: unknown) => {
+        setActionPending(false);
+        setActionError(error instanceof Error ? error : new Error(String(error)));
+      });
+  }
+
   if (loading) {
     return <p className="text-sm text-text-tertiary">Carregando lojista…</p>;
   }
@@ -157,6 +174,14 @@ export default function DetalheLojistaPage() {
         <div>
           <Button variant="danger" onClick={() => setShowForm(true)}>
             Suspender lojista
+          </Button>
+        </div>
+      )}
+
+      {lojista.status === 'suspenso' && (
+        <div>
+          <Button onClick={handleReativar} disabled={actionPending}>
+            {actionPending ? 'Reativando…' : 'Reativar lojista'}
           </Button>
         </div>
       )}

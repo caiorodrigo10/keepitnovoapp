@@ -1,0 +1,49 @@
+schema: 1
+story: '6.1'
+gate: CONCERNS
+status_reason: 'Os 3 gaps reais desta Story (persistência AsyncStorage fail-open, alerta de confirmação antes de trocar de loja, botão remover dedicado, botão flutuante "Ver carrinho") estão implementados e verificados por leitura de código. Lógica pura extraída e testada (cartRules 4 + cartStorage 9 + checkoutTotals 4 = testes verdes fora do cache Turbo; typecheck cliente exit 0). Fronteira pré-pagamento preservada: nenhum pedido/PIN/cobrança criado, `Pagamento.tsx` intocado (git). CONCERNS (não PASS) porque o comportamento REATIVO do CartProvider — hidratação no mount, escrita a cada mudança, fluxo completo do `Alert` de confirmação — não tem cobertura automatizada (apps/cliente sem harness de hook/componente RN, débito de infra já documentado nas Stories 2.1/5.4/5.6); validação em device/E2E fica manual e não pôde ser executada no sandbox. Nenhum critical/high.'
+reviewer: 'Quinn'
+updated: '2026-08-12T23:25:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static
+    evidence: '`FloatingCartButton.tsx` (novo) renderiza null quando `cart.items.length === 0`, mostra "{n} itens · R$ {subtotal}" e navega para `Carrinho`. Inserido como irmão de `<Screen>` em Loja.tsx (l.159), DetalheProduto.tsx (l.139) e BuscaProduto.tsx (l.150, só no ramo de render normal — o guard "escolha um hub" faz early-return antes).'
+  AC2:
+    status: MET
+    method: static
+    evidence: '`CartItemRow` ganhou prop opcional `onRemove` (l.15/47-56) renderizando botão "×" dedicado; ligado em `Carrinho.tsx` l.63 via `cart.removeItem`. Stepper +/-, foto (ImagePlaceholder), nome, subtotal e "Ir para o checkout" pré-existentes desde a Story 0.6 — sem regressão. `onRemove` nunca passado no Checkout (mantém a linha somente-leitura).'
+  AC3:
+    status: MET
+    method: static
+    evidence: 'Persistência client-side via `cartStorage.ts` (loadCartState/saveCartState, fail-open: erro/JSON corrompido/shape inesperado → null, tela nunca trava). Wired em CartProvider por 2 useEffect com `hydratedRef` para não sobrescrever storage com estado inicial vazio. Regra "1 loja por carrinho": `shouldConfirmStoreSwitch` (função pura) dispara `Alert.alert` ANTES de limpar quando troca de loja com carrinho não-vazio; "Continuar" limpa, "Cancelar" mantém. `onCommitted` só dispara no add efetivo.'
+  AC4:
+    status: MET
+    method: static
+    evidence: 'RLS N/A por construção — carrinho não é tabela. Isolamento por dispositivo: chave AsyncStorage `@keepit/cliente:carrinho` local, estado do Provider por processo. Nenhuma leitura/escrita Supabase em nenhum DATA_SOURCE.'
+
+security:
+  status: PASS
+  notes: |
+    - AsyncStorage guarda apenas itens/quantidades/preços-snapshot — dado não-sensível (sem token/senha), coerente com a escolha AsyncStorage vs secure-store da Story 2.1.
+    - Fail-open em leitura/escrita/remoção nunca lança para fora do módulo — sem tela branca por storage indisponível/corrompido.
+    - Nenhuma nova superfície de rede/multi-tenant; decisão client-side (Story 1.10, Task 8) não reaberta.
+
+issues:
+  - id: TEST-6.1-001
+    severity: medium
+    category: tests
+    description: 'O comportamento reativo do CartProvider (persistência entre "reloads" simulados, fluxo completo do Alert de troca de loja, efeito de hidratação/escrita) não é coberto por teste automatizado — apps/cliente não tem @testing-library/react-native / harness de hook RN. Apenas as funções puras (shouldConfirmStoreSwitch) e a camada de I/O (cartStorage com AsyncStorage mockado) têm cobertura unitária real.'
+    recommendation: 'Validar manualmente em device: adicionar item → fechar app → reabrir → item preservado; tentar adicionar de outra loja → alerta → cancelar mantém / confirmar limpa e troca; remover item pelo botão dedicado. Mesmo débito de harness das Stories 2.1/5.4/5.6.'
+  - id: REL-6.1-002
+    severity: low
+    category: reliability
+    description: '`clearCartState` é exportado e testado, mas não é chamado pelo CartProvider (a limpeza acontece via saveCartState de estado vazio em clearOrder/troca de loja). Não é bug — a escrita de estado vazio é equivalente e idempotente — mas é código sem consumidor atual.'
+    recommendation: 'Manter para uso futuro (logout/reset) ou remover se permanecer sem consumidor. Não bloqueia.'
+
+recommendations:
+  immediate: []
+  future:
+    - 'Validação em device dos fluxos reativos (persistência entre sessões e confirmação de troca de loja).'
+    - 'Harness de componente/hook RN em apps/cliente para travar os fluxos do Provider contra regressão.'

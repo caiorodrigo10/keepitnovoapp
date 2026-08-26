@@ -34,6 +34,8 @@ export default function ExecutarReembolsoPage() {
 
   const [actionPending, setActionPending] = useState(false);
   const [actionError, setActionError] = useState<Error | null>(null);
+  const [showErroForm, setShowErroForm] = useState(false);
+  const [detalheErro, setDetalheErro] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -65,16 +67,44 @@ export default function ExecutarReembolsoPage() {
     };
   }, [params.id]);
 
+  /**
+   * Story 8.2 (AC2) — "Confirmar estorno" registra a confirmação MANUAL
+   * auditável (`resultado: 'concluido'`) — **nenhuma chamada Asaas real**
+   * (seam honesta, ver Story 8.2 "Ajuste de piloto"). O admin confirma que
+   * já fez (ou vai fazer) o PIX/estorno de fato fora do sistema.
+   */
   function handleConfirmarEstorno() {
     setActionPending(true);
     setActionError(null);
 
     getAdminDataClient()
-      .admin.refundQueue.process(params.id, { forceError: forceActionError })
+      .admin.refundQueue.process(params.id, 'concluido', undefined, { forceError: forceActionError })
       .then((atualizado) => {
         setActionPending(false);
         setReembolso(atualizado);
         router.push('/reembolsos');
+      })
+      .catch((error: unknown) => {
+        setActionPending(false);
+        setActionError(error instanceof Error ? error : new Error(String(error)));
+      });
+  }
+
+  /**
+   * Story 8.2 (AC2) — caminho de falha: o PIX/estorno manual não deu certo
+   * (dados bancários incorretos, etc.). Registra `resultado: 'erro'` com
+   * `detalhe` — nenhum sucesso fictício é exibido.
+   */
+  function handleMarcarErro() {
+    setActionPending(true);
+    setActionError(null);
+
+    getAdminDataClient()
+      .admin.refundQueue.process(params.id, 'erro', detalheErro.trim() || undefined, { forceError: forceActionError })
+      .then((atualizado) => {
+        setActionPending(false);
+        setReembolso(atualizado);
+        setShowErroForm(false);
       })
       .catch((error: unknown) => {
         setActionPending(false);
@@ -128,12 +158,40 @@ export default function ExecutarReembolsoPage() {
         </Card>
       )}
 
-      {reembolso.status !== 'estornado' && (
-        <div>
+      {reembolso.status !== 'estornado' && reembolso.status !== 'erro' && !showErroForm && (
+        <div className="flex gap-3">
           <Button onClick={handleConfirmarEstorno} disabled={actionPending}>
             {actionPending ? 'Processando…' : 'Confirmar estorno'}
           </Button>
+          <Button variant="secondary" onClick={() => setShowErroForm(true)} disabled={actionPending}>
+            Marcar como erro
+          </Button>
         </div>
+      )}
+
+      {reembolso.status !== 'estornado' && reembolso.status !== 'erro' && showErroForm && (
+        <Card className="flex flex-col gap-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold uppercase tracking-section text-text-tertiary">
+              Detalhe do erro (opcional)
+            </span>
+            <textarea
+              value={detalheErro}
+              onChange={(event) => setDetalheErro(event.target.value)}
+              rows={2}
+              placeholder="Ex.: dados bancários incorretos, PIX manual falhou…"
+              className="rounded-sm border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary placeholder:text-text-placeholder focus:border-accent-brand focus:outline-none"
+            />
+          </label>
+          <div className="flex gap-3">
+            <Button variant="danger" onClick={handleMarcarErro} disabled={actionPending}>
+              {actionPending ? 'Registrando…' : 'Confirmar erro'}
+            </Button>
+            <Button variant="secondary" onClick={() => setShowErroForm(false)} disabled={actionPending}>
+              Cancelar
+            </Button>
+          </div>
+        </Card>
       )}
     </div>
   );

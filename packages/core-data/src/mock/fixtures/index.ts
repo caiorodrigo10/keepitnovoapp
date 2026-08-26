@@ -14,3 +14,5 @@ export * from './clientes';
 export * from './pedidos';
 export * from './falhas';
 export * from './reembolsos';
+export * from './saques';
+export * from './lojista-contas';

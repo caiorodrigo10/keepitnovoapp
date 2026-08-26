@@ -8,14 +8,16 @@ import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 import { Button, TextField } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
+import { apenasDigitosCpf, isCpfValido } from '../../lib/cpf';
 import type { RootStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ModalCPF'>;
 
 /**
- * Máscara visual `000.000.000-00` — apenas exibição, sem validação real de
- * CPF (BrasilAPI/dígito verificador ficam fora do Épico 0, ver Dev Notes da
- * Story 0.6).
+ * Máscara visual `000.000.000-00` — apenas formatação de exibição. A
+ * validação real (dígito verificador) é feita por `isCpfValido`
+ * (`apps/cliente/src/lib/cpf.ts`, Story 6.5); situação cadastral na Receita
+ * (BrasilAPI) continua fora do MVP.
  */
 function maskCpf(value: string): string {
   const digits = value.replace(/\D/g, '').slice(0, 11);
@@ -38,6 +40,10 @@ function maskCpf(value: string): string {
  *
  * Religado para `client.auth.updateCpf` (Story 1.10, Task 3) — antes o CPF
  * só marcava `cart.cpfCollected` local, sem persistir `clientes.cpf` real.
+ *
+ * Story 6.5 (AC2): "Confirmar" só habilita com CPF VÁLIDO (dígito
+ * verificador, `apps/cliente/src/lib/cpf.ts`) — antes só checava a
+ * contagem de 11 dígitos, sem validar de verdade.
  */
 export default function ModalCPF({ navigation, route }: Props) {
   const cart = useCart();
@@ -45,8 +51,8 @@ export default function ModalCPF({ navigation, route }: Props) {
   const [cpf, setCpf] = useState('');
   const [salvando, setSalvando] = useState(false);
 
-  const digits = cpf.replace(/\D/g, '');
-  const podeConfirmar = digits.length === 11 && !salvando;
+  const digits = apenasDigitosCpf(cpf);
+  const podeConfirmar = isCpfValido(digits) && !salvando;
 
   const handleConfirmar = async () => {
     setSalvando(true);

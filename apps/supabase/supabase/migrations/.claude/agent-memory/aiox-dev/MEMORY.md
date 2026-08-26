@@ -1,0 +1,3 @@
+- [Bloco 08 — Carteira (Stories 7.6-7.10, 7.12)](project_bloco08_carteira.md) — what shipped (wallet/analytics adapters) + open SEC-006 gap in 7.12
+- [shared-types manual reconciliation pattern](feedback_shared_types_manual_reconciliation.md) — no SUPABASE_ACCESS_TOKEN; hand-edit supabase.ts per new table/view/RPC before writing adapters
+- [App-only scope discipline](feedback_app_only_scope_discipline.md) — never write migrations when mission scopes @dev to app-side, even if an AC needs it; keep story status honest instead
