@@ -138,3 +138,49 @@ export class TransicaoInvalidaError extends Error {
     this.name = 'TransicaoInvalidaError';
   }
 }
+
+/**
+ * Story 6.11 (AC2) — erro NOMEADO da RPC `recusar_pedido`
+ * (`apps/supabase/supabase/migrations/20260814000000_rpc_recusar_pedido.sql`):
+ * `p_motivo` nulo/vazio (validação server-side, não só da UI — mesmo padrão de
+ * `MOTIVO_OBRIGATORIO` já usado por `forcar_cancelamento_pedido`, Story 8.4).
+ * `AUTENTICACAO_NECESSARIA`/`PEDIDO_NAO_ENCONTRADO`/`ACESSO_NEGADO`/
+ * `ESTADO_INVALIDO` são REUSE das classes já declaradas acima (mesma causa raiz
+ * de `aceitar_pedido`).
+ */
+export class MotivoObrigatorioError extends Error {
+  constructor() {
+    super('[core-data] motivo obrigatório para esta operação (MOTIVO_OBRIGATORIO)');
+    this.name = 'MotivoObrigatorioError';
+  }
+}
+
+/**
+ * Story 6.20 (AC2) — erro NOMEADO da RPC `reportar_lojista_nao_veio`
+ * (`apps/supabase/supabase/migrations/20260814000002_rpc_reportar_lojista_nao_veio.sql`):
+ * reforço SERVER-SIDE da condição de tempo do AC1 — rejeita se chamada antes de
+ * `cliente_chegou_em + max(tempo_estimado_min, businessConfig.esperaLojistaMaxMin)`
+ * (nunca confia só na visibilidade do botão na UI).
+ */
+export class TempoMinimoNaoAtingidoError extends Error {
+  constructor() {
+    super(
+      '[core-data] reportar_lojista_nao_veio — tempo mínimo de espera ainda não atingido (TEMPO_MINIMO_NAO_ATINGIDO)',
+    );
+    this.name = 'TempoMinimoNaoAtingidoError';
+  }
+}
+
+/**
+ * Story 6.21 (AC2) — erro NOMEADO da RPC `cancelar_pedido_atraso`
+ * (`apps/supabase/supabase/migrations/20260814000003_rpc_cancelar_pedido_atraso.sql`):
+ * reforço SERVER-SIDE da condição de atraso (`NOW() > aceito_em + 2 *
+ * tempo_estimado_min`) — mesma disciplina de `TempoMinimoNaoAtingidoError` acima
+ * (nunca confia só no client/prompt já ter aparecido).
+ */
+export class AtrasoNaoConfirmadoError extends Error {
+  constructor() {
+    super('[core-data] cancelar_pedido_atraso — atraso ainda não confirmado (ATRASO_NAO_CONFIRMADO)');
+    this.name = 'AtrasoNaoConfirmadoError';
+  }
+}

@@ -23,6 +23,7 @@ describe('businessConfig', () => {
       clienteNaoApareceuPercentLojista: 80,
       lojistaNaoVeioPercent: 100,
       pedidoPollingIntervalSeg: 15,
+      esperaLojistaMaxMin: 20,
     });
   });
 
@@ -49,6 +50,7 @@ describe('businessConfig', () => {
         'clienteNaoApareceuPercentLojista',
         'lojistaNaoVeioPercent',
         'pedidoPollingIntervalSeg',
+        'esperaLojistaMaxMin',
       ].sort(),
     );
   });
@@ -74,5 +76,9 @@ describe('businessConfig', () => {
 
   it('pedidoPollingIntervalSeg (Story 6.13, AC2) é 15s — decisão técnica de UX/custo, não regra de negócio', () => {
     expect(businessConfig.pedidoPollingIntervalSeg).toBe(15);
+  });
+
+  it('esperaLojistaMaxMin (Story 6.20, AC1) é 20min — valor literal do épico', () => {
+    expect(businessConfig.esperaLojistaMaxMin).toBe(20);
   });
 });
