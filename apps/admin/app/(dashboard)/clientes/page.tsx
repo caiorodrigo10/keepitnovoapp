@@ -80,7 +80,7 @@ export default function ClientesPage() {
         value={busca}
         onChange={(event) => setBusca(event.target.value)}
         placeholder="Buscar por nome ou telefone…"
-        className="max-w-sm rounded-sm border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary placeholder:text-text-placeholder focus:border-accent-brand focus:outline-none"
+        className="min-h-11 max-w-sm rounded-md border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary placeholder:text-text-placeholder transition-colors focus:border-accent-brand focus:outline-none"
       />
 
       {actionError && (
@@ -94,13 +94,9 @@ export default function ClientesPage() {
       {!loading && error && (
         <Card className="border-accent-warning/40">
           <p className="mb-3 text-sm text-accent-warning">Erro ao carregar clientes: {error.message}</p>
-          <button
-            type="button"
-            onClick={refresh}
-            className="text-sm font-semibold text-accent-brand underline underline-offset-2"
-          >
+          <Button variant="secondary" onClick={refresh}>
             Tentar novamente
-          </button>
+          </Button>
         </Card>
       )}
 
@@ -156,7 +152,7 @@ export default function ClientesPage() {
                       onBlur={() => setMotivoTocado(true)}
                       rows={2}
                       placeholder="Explique por que este cliente está sendo bloqueado…"
-                      className="rounded-sm border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary placeholder:text-text-placeholder focus:border-accent-brand focus:outline-none"
+                      className="rounded-md border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary placeholder:text-text-placeholder transition-colors focus:border-accent-brand focus:outline-none"
                     />
                     {motivoTocado && motivo.trim().length === 0 && (
                       <span className="text-xs text-accent-warning">Motivo é obrigatório para bloquear.</span>

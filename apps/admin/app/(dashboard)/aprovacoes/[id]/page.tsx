@@ -244,7 +244,7 @@ export default function AprovarRejeitarPage() {
               onBlur={() => setMotivoTocado(true)}
               rows={3}
               placeholder="Explique por que este cadastro está sendo rejeitado…"
-              className="rounded-sm border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary placeholder:text-text-placeholder focus:border-accent-brand focus:outline-none"
+              className="rounded-md border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary placeholder:text-text-placeholder transition-colors focus:border-accent-brand focus:outline-none"
             />
             {motivoTocado && motivo.trim().length === 0 && (
               <span className="text-xs text-accent-warning">Motivo é obrigatório para rejeitar.</span>

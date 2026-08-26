@@ -1,12 +1,12 @@
 'use client';
 
-import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 
 import { Badge } from '../../../src/components/Badge';
 import { Button } from '../../../src/components/Button';
 import { Card } from '../../../src/components/Card';
+import { LinkButton } from '../../../src/components/LinkButton';
 import { useAdminHubs } from '../../../src/hooks/useAdminHubs';
 import { getAdminDataClient } from '../../../src/lib/adminClient';
 
@@ -69,12 +69,9 @@ export default function HubsPage() {
           <h1 className="text-2xl font-bold text-text-primary">Hubs</h1>
           <p className="text-sm text-text-secondary">Pontos de retirada cadastrados.</p>
         </div>
-        <Link
-          href="/hubs/novo"
-          className="shrink-0 rounded-sm bg-accent-brand px-4 py-2 text-sm font-semibold text-bg-shell hover:opacity-90"
-        >
+        <LinkButton href="/hubs/novo" className="shrink-0">
           + Novo Hub
-        </Link>
+        </LinkButton>
       </div>
 
       {loading && <p className="text-sm text-text-tertiary">Carregando hubs…</p>}
@@ -82,13 +79,9 @@ export default function HubsPage() {
       {!loading && error && (
         <Card className="border-accent-warning/40">
           <p className="mb-3 text-sm text-accent-warning">Erro ao carregar hubs: {error.message}</p>
-          <button
-            type="button"
-            onClick={refresh}
-            className="text-sm font-semibold text-accent-brand underline underline-offset-2"
-          >
+          <Button variant="secondary" onClick={refresh}>
             Tentar novamente
-          </button>
+          </Button>
         </Card>
       )}
 
@@ -113,12 +106,9 @@ export default function HubsPage() {
                 )}
               </div>
               <div className="flex shrink-0 gap-2">
-                <Link
-                  href={`/hubs/${hub.id}`}
-                  className="rounded-sm bg-bg-elevated px-4 py-2 text-sm font-semibold text-text-primary hover:bg-bg-overlay"
-                >
+                <LinkButton href={`/hubs/${hub.id}`} variant="secondary">
                   Editar
-                </Link>
+                </LinkButton>
                 {hub.ativo ? (
                   <Button variant="danger" onClick={() => handleDesativar(hub.id)} disabled={desativandoId === hub.id}>
                     {desativandoId === hub.id ? 'Excluindo…' : 'Excluir'}

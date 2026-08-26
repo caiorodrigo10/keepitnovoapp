@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 
 import { Badge } from '../../../src/components/Badge';
+import { Button } from '../../../src/components/Button';
 import { Card } from '../../../src/components/Card';
 import { useAdminPendingStores } from '../../../src/hooks/useAdminPendingStores';
 
@@ -50,13 +51,9 @@ export default function AprovacoesPage() {
       {!loading && error && (
         <Card className="border-accent-warning/40">
           <p className="mb-3 text-sm text-accent-warning">Erro ao carregar lojistas pendentes: {error.message}</p>
-          <button
-            type="button"
-            onClick={refresh}
-            className="text-sm font-semibold text-accent-brand underline underline-offset-2"
-          >
+          <Button variant="secondary" onClick={refresh}>
             Tentar novamente
-          </button>
+          </Button>
         </Card>
       )}
 
