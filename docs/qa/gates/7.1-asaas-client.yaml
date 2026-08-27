@@ -1,0 +1,170 @@
+schema: 1
+story: '7.1'
+story_title: 'Cliente HTTP Asaas (`_shared/asaas.ts`) + configuração sandbox'
+gate: CONCERNS
+status_reason: >-
+  Client HTTP tipado e portável de alta qualidade: os 5 métodos ativos (criarCliente,
+  criarCobranca PIX, obterQrCodePix, estornarCobranca, criarTransferencia) fazem a chamada
+  real com header `access_token` correto e `AsaasResult<T>` uniforme que nunca lança; os 2
+  stubs (criarSubconta, tokenizarCartao) + o caminho CREDIT_CARD devolvem NOT_IMPLEMENTED_PILOT
+  sem tocar a rede (verificado por fetch que falha se chamado). Segurança limpa: apiKey nunca
+  vaza em message/details, nenhum segredo hardcoded, .env.asaas gitignored, nenhum `Deno.env`
+  real no arquivo (só menções em comentários). Shapes fiéis a asaas-api-reference.md. Gate do
+  repo reexecutado sem cache por @qa: 15/15 vitest PASS + typecheck exit 0. CONCERNS (não
+  bloqueia avanço → Done): AC2 literal (leitura de env + derivação safe da base URL, "nunca
+  produção por omissão") foi deliberadamente adiada para o entrypoint da Edge Function (7.2/7.5)
+  por decisão da missão — esse default de segurança hoje não vive em nenhuma story DONE e precisa
+  ser rastreado; shape de criarTransferencia é best-effort não verificado contra sandbox;
+  validação @po formal foi pulada (Draft → InReview).
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-08-27T00:00:00Z'
+
+waiver: { active: false }
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static+test
+    evidence: >-
+      `createAsaasClient(config)` (asaas.ts:213) retorna objeto com os 7 métodos exigidos
+      (interface AsaasClient :196-211). Os 5 ativos chamam `request<T>` (HTTP real); criarSubconta
+      (:256), tokenizarCartao (:260) e criarCobranca com billingType!=='PIX' (:227) chamam
+      `notImplementedPilot` (:270) devolvendo `{ ok:false, error:{ status:0, code:
+      'NOT_IMPLEMENTED_PILOT' } }` sem tocar o fetch. Testes asaas.test.ts:106-122/231-259 usam
+      `fetchThatFailsIfCalled` e asseguram `expect(fetchImpl).not.toHaveBeenCalled()`.
+  AC2:
+    status: PARTIAL
+    method: static
+    evidence: >-
+      A parte de injeção é MET — `createAsaasClient({ baseUrl, apiKey, fetchImpl? })` permite
+      teste 100% offline (todos os testes injetam `vi.fn()`). A parte de leitura de env
+      (`Deno.env.get` dentro da factory) e a derivação safe da base URL (sandbox por default,
+      produção só com `ASAAS_ENVIRONMENT==='production'`, override por `ASAAS_BASE_URL`) NÃO
+      foram implementadas — decisão explícita da missão ("client portável sem Deno.env, config
+      injetada"), delegada ao entrypoint da Edge Function das Stories 7.2/7.5. Divergência do AC2
+      literal mission-endorsed e documentada (Dev Agent Record + docstring asaas.ts:4-24). Ver
+      CARRY-001.
+  AC3:
+    status: MET
+    method: static+test
+    evidence: >-
+      Todo request usa `access_token: apiKey` + `Content-Type: application/json` (asaas.ts:295-298)
+      — nunca `Authorization: Bearer` (grep confirma ausência). `request<T>` captura rejeição de
+      fetch → `status:0` (:300-309) e resposta não-2xx → normaliza em AsaasError (:311-323); nenhum
+      `throw` escapa. `AsaasResult<T>`/`AsaasError` batem o contrato do AC3. Testes de erro HTTP
+      (400/404/422/500) e erro de rede (status:0) verdes.
+  AC4:
+    status: MET
+    method: test
+    evidence: >-
+      15 testes (acima do mínimo 12): cada método ativo tem feliz + erro HTTP; erro de rede
+      genérico coberto 1x (status:0); estornarCobranca cobre total e parcial; 1 teste extra
+      CREDIT_CARD reservado; 2 testes de stub. Fixtures em __fixtures__/asaas.fixtures.ts
+      (módulo .ts consolidado em vez de 3 .json — desvio mission-endorsed, conteúdo idêntico ao
+      reference). 39 asserções, não-vazias. Reexecutado sem cache: 15/15 PASS.
+  AC5:
+    status: MET
+    method: static
+    evidence: >-
+      README.md documenta: comando exato de teste offline (`pnpm --filter @keepit/supabase test`
+      / `pnpm vitest run`); roteiro manual por método (1-5) contra sandbox com nota de bloqueio
+      ASAAS-1/ASAAS-2; registro do webhook via POST /v3/webhooks (:69-72); nota explícita de que
+      criarSubconta/tokenizarCartao são stubs não-testáveis contra sandbox (:74-80). Seção de
+      segurança presente.
+  AC6:
+    status: MET
+    method: test
+    evidence: >-
+      apps/supabase/package.json: `test`=`vitest run`, `typecheck`=`tsc --noEmit` (eram
+      `echo skipped`). `lint` mantido `echo skipped` (sem eslint no workspace) — mission-authorized.
+      `pnpm qa` na raiz retornou FULL TURBO (27/27 cache); @qa reexecutou o pacote direto sem
+      cache: 15/15 vitest PASS + typecheck exit 0. Monorepo permanece verde.
+
+top_issues:
+  - id: 'CARRY-001'
+    severity: medium
+    category: security
+    finding: >-
+      A derivação da base URL do AC2 — default seguro para sandbox, produção SOMENTE com
+      `ASAAS_ENVIRONMENT==='production'`, override explícito por `ASAAS_BASE_URL` — foi adiada
+      para o entrypoint da Edge Function (7.2/7.5) e hoje NÃO existe em nenhuma story DONE. É um
+      requisito de segurança ("nunca cair em produção por omissão", ou seja, nunca mandar
+      dinheiro real por engano) que corre risco de se perder no handoff entre 7.1 e 7.2/7.5.
+    suggested_action: >-
+      Garantir que a Story 7.2 (ou um passo dedicado do PaymentPort/entrypoint) implemente e
+      teste explicitamente essa derivação safe ao montar o `AsaasClientConfig` a partir de
+      `Deno.env`. Rastrear como AC obrigatória da 7.2, não como detalhe implícito.
+  - id: 'CARRY-002'
+    severity: low
+    category: requirements
+    finding: >-
+      `criarTransferencia`/`AsaasCreateTransferInput`/`AsaasTransfer` e `transferFixture` são
+      best-effort (o reference marca POST /v3/transfers como "reservado", sem exemplo de payload).
+      Não verificados contra sandbox real. No piloto o repasse ao lojista é manual pelo admin
+      (Story 7.8), então este método não é chamado em produção agora — risco contido, mas o shape
+      pode divergir quando a automação for religada.
+    suggested_action: >-
+      Ao religar a automação de saque pós-piloto (ou quando ASAAS-1/ASAAS-2 destravarem),
+      confirmar o shape real de request/response de POST /v3/transfers contra o sandbox e ajustar
+      os tipos/fixture antes de qualquer chamada em produção.
+  - id: 'PROC-001'
+    severity: low
+    category: process
+    finding: >-
+      A story transicionou Draft → InProgress → InReview sem a validação formal `@po`
+      (`*validate-story-draft`) — a missão de implementação instruiu execução direta a partir do
+      Draft. @dev sinalizou para @qa confirmar. Nenhuma AC/escopo foi alterada por @dev (sem
+      autoridade para isso); a story está bem-formada e testável.
+    suggested_action: >-
+      Aceitável para esta story (escopo técnico bem delimitado, sem regra de negócio nova). Se o
+      processo exigir o carimbo @po retroativo, rodar `@po *validate-story-draft` antes do push.
+  - id: 'TEST-001'
+    severity: low
+    category: tests
+    finding: >-
+      O runtime de produção deste código é o Edge Runtime do Supabase (Deno 2), mas os testes
+      rodam sob Node/Vitest (decisão mission-endorsed: `deno` não instalado, gate do repo é
+      `pnpm qa`). O código usa apenas fetch/Response/JSON padrão (sem API exclusiva de Node ou
+      Deno), então a portabilidade é alta e o risco baixo — mas o runtime real não é exercido
+      pelos testes.
+    suggested_action: >-
+      Quando `deno` estiver disponível no ambiente de CI/execução, adicionar um `deno test` que
+      reaproveite as mesmas fixtures para exercer o runtime real. Não bloqueia esta story.
+
+evidence:
+  files_reviewed: 7
+  files:
+    - 'apps/supabase/supabase/functions/_shared/asaas.ts (client — 350 linhas)'
+    - 'apps/supabase/supabase/functions/_shared/asaas.test.ts (15 testes, 39 asserções)'
+    - 'apps/supabase/supabase/functions/_shared/__fixtures__/asaas.fixtures.ts'
+    - 'apps/supabase/supabase/functions/_shared/README.md'
+    - 'apps/supabase/vitest.config.ts'
+    - 'apps/supabase/package.json'
+    - 'apps/supabase/tsconfig.json'
+  tests_reviewed: >-
+    asaas.test.ts reexecutado por @qa sem cache (`cd apps/supabase && pnpm vitest run`): 15/15
+    PASS em 10ms. Typecheck direto (`pnpm typecheck`, tsc --noEmit): exit 0. `pnpm qa` na raiz:
+    27/27 FULL TURBO (cache) — por isso a reexecução direta do pacote foi feita para não confiar
+    na contagem cacheada.
+  security_review: >-
+    (1) apiKey só vive no header `access_token`; nunca em message/details de AsaasError — teste
+    asaas.test.ts:68 asserta `JSON.stringify(result.error)).not.toContain(API_KEY)`. (2) Nenhuma
+    chave hardcoded no código/fixtures (grep por aact_prod/Bearer/process.env: 0 matches reais).
+    (3) `.env.asaas` gitignored e não versionado (git check-ignore confirma). (4) Nenhum
+    `Deno.env`/`process.env` real no arquivo — só menções em comentários de arquitetura.
+  api_fidelity: >-
+    Shapes conferidos campo-a-campo contra asaas-api-reference.md: POST /v3/customers
+    (name/cpfCnpj + opcionais), POST /v3/payments PIX (customer/billingType/value/dueDate/
+    externalReference; res id/status/value/netValue/billingType/invoiceUrl/dateCreated),
+    GET /payments/{id}/pixQrCode (encodedImage/payload/expirationDate), POST /payments/{id}/refund
+    (body opcional). baseUrl já inclui `/v3` e paths são relativos (sem /v3 duplicado). transfers
+    best-effort (reference não detalha) — ver CARRY-002.
+  risk_summary: >-
+    Baixo. Arquivo único, sem schema/RPC/UI, sem chamada de rede real em teste. Contrato de erro
+    robusto (nunca throw). Único risco relevante é organizacional (CARRY-001: derivação safe de
+    base URL adiada e sem dono DONE) — mitigável rastreando na 7.2.
+
+recommendation: >-
+  Aprovar avanço da 7.1 para Done com os follow-ups acima registrados. CARRY-001 deve virar
+  AC explícita da Story 7.2 antes de qualquer cobrança PIX real, para não perder o default de
+  segurança "nunca produção por omissão".

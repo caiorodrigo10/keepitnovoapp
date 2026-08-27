@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "supabase/functions",
+    "lib": ["ES2022", "DOM"]
+  },
+  "include": ["supabase/functions"],
+  "exclude": ["node_modules", "dist", "supabase/.temp"]
+}
