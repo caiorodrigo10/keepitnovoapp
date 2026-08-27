@@ -39,10 +39,10 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'Checkout'>;
  * cliente. Esta tela não lê `taxaKeepitPercent` em nenhum lugar.
  *
  * "Taxa de serviço" agora é `businessConfig.taxaServicoCompradorReais`
- * (constante fixa NOVA, R$ 2,90) — [!] PROVISÓRIA, pendente de ratificação
- * do stakeholder (Rodada 8, linhas 562-563). O indicador visual de
- * "provisório" (`styles.provisorioTag`) só pode sair por uma Story futura,
- * DEPOIS dessa ratificação.
+ * (constante fixa, R$ 2,90) — segue provisória do ponto de vista de regra
+ * de negócio (Rodada 8, linhas 562-563), mas o selo visual "provisório" foi
+ * removido a pedido do Caio para o demo do Bloco 13: o valor cobrado NÃO
+ * mudou, só o rótulo visual saiu da tela.
  */
 export default function Checkout({ navigation }: Props) {
   const cart = useCart();
@@ -169,10 +169,7 @@ export default function Checkout({ navigation }: Props) {
         </View>
         {taxaServicoReais > 0 && (
           <View style={styles.totaisRow}>
-            <View style={styles.taxaServicoLabelRow}>
-              <Text style={styles.totaisLabel}>Taxa de serviço</Text>
-              <Text style={styles.provisorioTag}>provisório</Text>
-            </View>
+            <Text style={styles.totaisLabel}>Taxa de serviço</Text>
             <Text style={styles.totaisValue}>{formatReais(taxaServicoReais)}</Text>
           </View>
         )}
@@ -249,17 +246,6 @@ const styles = StyleSheet.create({
     fontFamily: 'HankenGrotesk-Regular',
     fontSize: typography.sizes.md.fontSize,
     color: lightColors.text.primary,
-  },
-  taxaServicoLabelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing['2'],
-  },
-  provisorioTag: {
-    fontFamily: 'HankenGrotesk-SemiBold',
-    fontSize: typography.sizes.xs.fontSize,
-    color: lightColors.accent.warning,
-    textTransform: 'uppercase',
   },
   nfRow: {
     marginBottom: spacing['5'],

@@ -135,7 +135,7 @@ export function HubForm({
             value={values.nome}
             onChange={(event) => setValues((previous) => ({ ...previous, nome: event.target.value }))}
             placeholder="Hub Centro"
-            className="rounded-sm border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary placeholder:text-text-placeholder focus:border-accent-brand focus:outline-none"
+            className="min-h-11 rounded-md border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary placeholder:text-text-placeholder transition-colors focus:border-accent-brand focus:outline-none"
           />
           {tocado && !nomeValido && <span className="text-xs text-accent-warning">Nome é obrigatório.</span>}
         </label>
@@ -145,7 +145,7 @@ export function HubForm({
             value={values.endereco}
             onChange={(event) => setValues((previous) => ({ ...previous, endereco: event.target.value }))}
             placeholder="Rua das Flores, 123 — Centro"
-            className="rounded-sm border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary placeholder:text-text-placeholder focus:border-accent-brand focus:outline-none"
+            className="min-h-11 rounded-md border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary placeholder:text-text-placeholder transition-colors focus:border-accent-brand focus:outline-none"
           />
           {tocado && !enderecoValido && <span className="text-xs text-accent-warning">Endereço é obrigatório.</span>}
         </label>
@@ -155,7 +155,7 @@ export function HubForm({
             value={values.ponto_referencia}
             onChange={(event) => setValues((previous) => ({ ...previous, ponto_referencia: event.target.value }))}
             placeholder="Em frente à praça central"
-            className="rounded-sm border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary placeholder:text-text-placeholder focus:border-accent-brand focus:outline-none"
+            className="min-h-11 rounded-md border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary placeholder:text-text-placeholder transition-colors focus:border-accent-brand focus:outline-none"
           />
         </label>
         <div className="flex gap-4">
@@ -168,7 +168,7 @@ export function HubForm({
               onChange={(event) =>
                 setValues((previous) => ({ ...previous, lat: Number(event.target.value) || 0 }))
               }
-              className="rounded-sm border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary focus:border-accent-brand focus:outline-none"
+              className="min-h-11 rounded-md border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary transition-colors focus:border-accent-brand focus:outline-none"
             />
           </label>
           <label className="flex flex-1 flex-col gap-1">
@@ -180,7 +180,7 @@ export function HubForm({
               onChange={(event) =>
                 setValues((previous) => ({ ...previous, lng: Number(event.target.value) || 0 }))
               }
-              className="rounded-sm border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary focus:border-accent-brand focus:outline-none"
+              className="min-h-11 rounded-md border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary transition-colors focus:border-accent-brand focus:outline-none"
             />
           </label>
         </div>
@@ -190,7 +190,7 @@ export function HubForm({
             type="file"
             accept={HUB_FOTO_MIME_TYPES.join(',')}
             onChange={handleFotoChange}
-            className="text-sm text-text-primary file:mr-3 file:rounded-sm file:border-0 file:bg-bg-elevated file:px-3 file:py-2 file:text-sm file:font-semibold file:text-text-primary"
+            className="text-sm text-text-primary file:mr-3 file:rounded-md file:border-0 file:bg-bg-elevated file:px-3 file:py-2 file:text-sm file:font-semibold file:text-text-primary"
           />
           <span className="text-xs text-text-tertiary">JPG, PNG ou WEBP — até 5MB.</span>
           {fotoError && <span className="text-xs text-accent-warning">{fotoError}</span>}
@@ -199,7 +199,7 @@ export function HubForm({
             <img
               src={fotoPreviewUrl}
               alt="Pré-visualização da foto do hub"
-              className="mt-2 h-32 w-32 rounded-sm border border-border-default object-cover"
+              className="mt-2 h-32 w-32 rounded-md border border-border-default object-cover"
             />
           )}
         </label>
@@ -232,14 +232,14 @@ export function HubForm({
                     type="time"
                     value={horario.hora_abre ?? ''}
                     onChange={(event) => updateHorario(horario.dia_semana, { hora_abre: event.target.value })}
-                    className="rounded-sm border border-border-default bg-bg-elevated px-2 py-1 text-text-primary"
+                    className="rounded-md border border-border-default bg-bg-elevated px-2 py-1 text-text-primary transition-colors focus:border-accent-brand focus:outline-none"
                   />
                   <span className="text-text-tertiary">até</span>
                   <input
                     type="time"
                     value={horario.hora_fecha ?? ''}
                     onChange={(event) => updateHorario(horario.dia_semana, { hora_fecha: event.target.value })}
-                    className="rounded-sm border border-border-default bg-bg-elevated px-2 py-1 text-text-primary"
+                    className="rounded-md border border-border-default bg-bg-elevated px-2 py-1 text-text-primary transition-colors focus:border-accent-brand focus:outline-none"
                   />
                 </>
               ) : (

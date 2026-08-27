@@ -9,6 +9,7 @@ import { darkColors, radii, spacing, typography } from '@keepit/ui-tokens';
 import { PedidoResumoCard } from '../../components/PedidoResumoCard';
 import { PrimaryButton } from '../../components/PrimaryButton';
 import { ScreenHeader } from '../../components/ScreenHeader';
+import { isSupabaseDataSource } from '../../lib/dataSource';
 import type { PedidosStackParamList } from '../../navigation/types';
 import { useOrdersContext } from './OrdersContext';
 
@@ -98,6 +99,12 @@ export default function DigitarPin({ navigation, route }: Props) {
 
         <Text style={[styles.instrucao, { color: darkColors.text.tertiary }]}>Peça o código de 4 dígitos ao cliente</Text>
 
+        {!isSupabaseDataSource() && (
+          <Text style={[styles.dicaDemo, { color: darkColors.text.tertiary }]}>
+            Demo — PIN esperado: {pedido.pin_texto}
+          </Text>
+        )}
+
         <View style={styles.digitosRow}>
           {Array.from({ length: PIN_LENGTH }).map((_, index) => {
             const preenchido = index < digitos.length;
@@ -177,6 +184,11 @@ const styles = StyleSheet.create({
   instrucao: {
     fontFamily: 'HankenGrotesk-Medium',
     fontSize: typography.sizes.md.fontSize,
+    textAlign: 'center',
+  },
+  dicaDemo: {
+    fontFamily: 'HankenGrotesk-Medium',
+    fontSize: typography.sizes.sm.fontSize,
     textAlign: 'center',
   },
   digitosRow: {

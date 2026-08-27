@@ -1,13 +1,14 @@
 'use client';
 
-import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 import type { Pedido } from '@keepit/core-data';
 
 import { Badge } from '../../../src/components/Badge';
+import { Button } from '../../../src/components/Button';
 import { Card } from '../../../src/components/Card';
+import { LinkButton } from '../../../src/components/LinkButton';
 import { useRefundQueue } from '../../../src/hooks/useAdminOps';
 import { getAdminDataClient } from '../../../src/lib/adminClient';
 import { formatReais, REEMBOLSO_MOTIVO_LABEL } from '../../../src/lib/adminLabels';
@@ -61,13 +62,9 @@ export default function ReembolsosPage() {
       {!loading && error && (
         <Card className="border-accent-warning/40">
           <p className="mb-3 text-sm text-accent-warning">Erro ao carregar reembolsos: {error.message}</p>
-          <button
-            type="button"
-            onClick={refresh}
-            className="text-sm font-semibold text-accent-brand underline underline-offset-2"
-          >
+          <Button variant="secondary" onClick={refresh}>
             Tentar novamente
-          </button>
+          </Button>
         </Card>
       )}
 
@@ -94,12 +91,9 @@ export default function ReembolsosPage() {
                     {formatReais(reembolso.valor_a_estornar_reais)} · {reembolso.forma_pagamento.toUpperCase()}
                   </p>
                 </div>
-                <Link
-                  href={`/reembolsos/${reembolso.id}`}
-                  className="shrink-0 rounded-sm bg-accent-brand px-4 py-2 text-sm font-semibold text-bg-shell hover:opacity-90"
-                >
+                <LinkButton href={`/reembolsos/${reembolso.id}`} className="shrink-0">
                   Processar
-                </Link>
+                </LinkButton>
               </Card>
             );
           })}

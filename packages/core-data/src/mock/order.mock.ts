@@ -12,6 +12,7 @@ import { OrderTransitionError, PinBloqueadoError, PinIncorretoError } from '../p
 import type { AsyncCallOptions } from '../types';
 import { generateMockId, generatePin, simulateAsync } from './async-helpers';
 import type { MockDb } from './db';
+import { registrarFalha } from './falha-helpers';
 import { registrarReembolso } from './refund-helpers';
 
 function roundReais(value: number): number {
@@ -54,15 +55,24 @@ export function createOrderMock(db: MockDb): OrderPort {
      * exigida pela AC7: os dois adapters têm o MESMO contrato (pass-through
      * do snapshot), não duas implementações divergentes da mesma fórmula.
      *
-     * **AC6 — decisão registrada:** o status inicial passa de
+     * **AC6 (Story 6.6) — decisão registrada:** o status inicial passou de
      * `'aguardando_pagamento'` para `'aguardando_aceite'`, alinhando ao
      * comportamento do piloto real (RPC sempre cria em `aguardando_aceite`
      * — pagamento simulado em dev, sem estado intermediário). Corrige o gap
-     * pré-existente descrito no Data Mode da Story 6.6: antes desta
+     * pré-existente descrito no Data Mode da Story 6.6: antes daquela
      * mudança, um pedido mock recém-criado não aparecia como "Novo" na tela
      * `NovosPedidos` do Lojista (`isNovo` só é `true` para
      * `aguardando_aceite`). Ver Change Log da Story 6.6 para o racional
      * completo.
+     *
+     * **AC5/AC6 (Story 6.7.1) — REVERTIDO:** o status inicial volta a ser
+     * `'aguardando_pagamento'`. A Story 6.7.1 introduz o método
+     * `confirmarPagamento` (chamado automaticamente pelas novas telas de
+     * PIX/processando, ~5s/~2s de simulação de UX) que agora faz a
+     * transição `aguardando_pagamento` → `aguardando_aceite` — o pedido
+     * volta a aparecer como "Novo" na tela `NovosPedidos` do Lojista
+     * poucos segundos depois, mesma janela de latência que já existia
+     * (`DEFAULT_MOCK_DELAY_MS`), sem regressão perceptível.
      */
     create(input: CreatePedidoInput, options?: AsyncCallOptions): Promise<Pedido> {
       return simulateAsync(
@@ -102,7 +112,7 @@ export function createOrderMock(db: MockDb): OrderPort {
             cliente_id: input.cliente_id,
             estabelecimento_id: input.estabelecimento_id,
             hub_id: input.hub_id,
-            status: 'aguardando_aceite',
+            status: 'aguardando_pagamento',
             pin_texto: generatePin(),
             tentativas_pin: 0,
             pin_bloqueado_ate: null,
@@ -160,10 +170,18 @@ export function createOrderMock(db: MockDb): OrderPort {
       );
     },
 
+    /**
+     * Story 6.11 (AC6) — [IDS] ADAPT: passa a usar `assertStatus`, mesmo
+     * padrão já usado por `accept`/`markReadyForHub`/`markArrivedAtHub` neste
+     * arquivo (reforço opcional/paridade com a RPC real `recusar_pedido`, que
+     * só transiciona a partir de `aguardando_aceite` — mesmo tratamento dado
+     * a esse gap pela Story 6.9 em `accept`).
+     */
     refuse(pedidoId: string, motivo: string, options?: AsyncCallOptions): Promise<Pedido> {
       return simulateAsync(
         () => {
           const pedido = findOrThrow(pedidoId);
+          assertStatus(pedido, 'refuse', ['aguardando_aceite']);
           pedido.status = 'recusado';
           pedido.motivo_recusa = motivo;
           registrarReembolso(db, pedido, 'recusa_lojista');
@@ -210,6 +228,29 @@ export function createOrderMock(db: MockDb): OrderPort {
           pedido.entregue_em = new Date().toISOString();
           pedido.tentativas_pin = 0;
           pedido.pin_bloqueado_ate = null;
+          return pedido;
+        },
+        {} as Pedido,
+        options,
+      );
+    },
+
+    /**
+     * Story 6.7.1 (AC1, AC2, AC3, AC4, AC8) — [IDS] ADAPT: mesmo padrão
+     * `assertStatus`/`OrderTransitionError` já usado por
+     * `accept`/`markReadyForHub`/`markArrivedAtHub` neste arquivo. Chamado
+     * automaticamente por `ModalPagamentoPix`/`ModalProcessandoPagamento`
+     * (`apps/cliente`) após um atraso simulado de UX — nunca uma regra de
+     * negócio nova. Não altera `aceito_em` (quem seta esse campo continua
+     * sendo `accept`, Story 6.9) — `confirmarPagamento` só confirma que o
+     * PAGAMENTO foi recebido, não que a loja aceitou o pedido.
+     */
+    confirmarPagamento(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido> {
+      return simulateAsync(
+        () => {
+          const pedido = findOrThrow(pedidoId);
+          assertStatus(pedido, 'confirmarPagamento', ['aguardando_pagamento']);
+          pedido.status = 'aguardando_aceite';
           return pedido;
         },
         {} as Pedido,
@@ -341,6 +382,97 @@ export function createOrderMock(db: MockDb): OrderPort {
           const pedido = findOrThrow(pedidoId);
           assertStatus(pedido, 'markClienteChegou', ['no_hub']);
           pedido.cliente_chegou_em = new Date().toISOString();
+          return pedido;
+        },
+        {} as Pedido,
+        options,
+      );
+    },
+
+    /**
+     * Story 6.20 (AC2, AC4) — mesma lógica que a RPC real
+     * `reportar_lojista_nao_veio` reforça server-side: status `no_hub` +
+     * `cliente_chegou_em` preenchido (via `assertStatus`/checagem explícita) e
+     * o tempo mínimo (`max(tempo_estimado_min, businessConfig.esperaLojistaMaxMin)`)
+     * já vencido — nunca confia só na UI ter escondido/mostrado o botão.
+     * Efeitos: `registrarReembolso(..., 'nao_entregue_lojista')` (já suporta
+     * esse motivo, 100% ao cliente) + `registrarFalha(...,
+     * 'lojista_nao_apareceu')` (novo helper, mesmo padrão de
+     * `refund-helpers.ts`).
+     */
+    reportLojistaNaoVeio(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido> {
+      return simulateAsync(
+        () => {
+          const pedido = findOrThrow(pedidoId);
+          assertStatus(pedido, 'reportLojistaNaoVeio', ['no_hub']);
+
+          if (!pedido.cliente_chegou_em) {
+            throw new Error(
+              '[mock] reportLojistaNaoVeio — pedido sem cliente_chegou_em registrado (ESTADO_INVALIDO)',
+            );
+          }
+
+          const esperaMin = Math.max(pedido.tempo_estimado_min ?? 0, businessConfig.esperaLojistaMaxMin);
+          const limiteMs = new Date(pedido.cliente_chegou_em).getTime() + esperaMin * 60_000;
+          if (Date.now() <= limiteMs) {
+            throw new Error(
+              '[mock] reportLojistaNaoVeio — tempo mínimo de espera pelo lojista ainda não atingido (TEMPO_MINIMO_NAO_ATINGIDO)',
+            );
+          }
+
+          pedido.status = 'nao_entregue_lojista';
+          registrarReembolso(db, pedido, 'nao_entregue_lojista');
+          registrarFalha(
+            db,
+            pedido,
+            'lojista_nao_apareceu',
+            `Pedido #${pedido.numero} — lojista não compareceu ao hub dentro do prazo.`,
+          );
+          return pedido;
+        },
+        {} as Pedido,
+        options,
+      );
+    },
+
+    /**
+     * Story 6.21 (AC2, AC3) — mesma lógica que a RPC real
+     * `cancelar_pedido_atraso` reforça server-side: status
+     * `aceito`/`em_preparo` (via `assertStatus`) e o atraso (`NOW() >
+     * aceito_em + 2 * tempo_estimado_min`) já confirmado — nunca confia só no
+     * client ter mostrado o prompt. Efeitos:
+     * `registrarReembolso(..., 'cancelamento_atraso')` (já suporta esse
+     * motivo, 100% ao cliente via `businessConfig.lojistaNaoVeioPercent`) +
+     * `registrarFalha(..., 'atraso_grave')`.
+     */
+    cancelPedidoAtraso(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido> {
+      return simulateAsync(
+        () => {
+          const pedido = findOrThrow(pedidoId);
+          assertStatus(pedido, 'cancelPedidoAtraso', ['aceito', 'em_preparo']);
+
+          if (!pedido.aceito_em || !pedido.tempo_estimado_min) {
+            throw new Error(
+              '[mock] cancelPedidoAtraso — pedido sem aceito_em/tempo_estimado_min para calcular o atraso (ATRASO_NAO_CONFIRMADO)',
+            );
+          }
+
+          const limiteMs = new Date(pedido.aceito_em).getTime() + 2 * pedido.tempo_estimado_min * 60_000;
+          if (Date.now() <= limiteMs) {
+            throw new Error(
+              '[mock] cancelPedidoAtraso — atraso (2x tempo_estimado_min) ainda não confirmado (ATRASO_NAO_CONFIRMADO)',
+            );
+          }
+
+          pedido.status = 'cancelado_atraso';
+          pedido.cancelado_em = new Date().toISOString();
+          registrarReembolso(db, pedido, 'cancelamento_atraso');
+          registrarFalha(
+            db,
+            pedido,
+            'atraso_grave',
+            `Pedido #${pedido.numero} — cancelado pelo cliente por atraso além de 2x o tempo estimado.`,
+          );
           return pedido;
         },
         {} as Pedido,

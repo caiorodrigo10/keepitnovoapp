@@ -1,13 +1,14 @@
 'use client';
 
-import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 import type { Estabelecimento } from '@keepit/core-data';
 
 import { Badge } from '../../../src/components/Badge';
+import { Button } from '../../../src/components/Button';
 import { Card } from '../../../src/components/Card';
+import { LinkButton } from '../../../src/components/LinkButton';
 import { usePayoutQueue } from '../../../src/hooks/useAdminOps';
 import { getAdminDataClient } from '../../../src/lib/adminClient';
 import { formatDateTime, formatReais, SAQUE_STATUS_LABEL } from '../../../src/lib/adminLabels';
@@ -57,13 +58,9 @@ export default function SaquesPage() {
       {!loading && error && (
         <Card className="border-accent-warning/40">
           <p className="mb-3 text-sm text-accent-warning">Erro ao carregar saques: {error.message}</p>
-          <button
-            type="button"
-            onClick={refresh}
-            className="text-sm font-semibold text-accent-brand underline underline-offset-2"
-          >
+          <Button variant="secondary" onClick={refresh}>
             Tentar novamente
-          </button>
+          </Button>
         </Card>
       )}
 
@@ -88,12 +85,9 @@ export default function SaquesPage() {
                   {formatReais(saque.valor_reais)} · Solicitado em {formatDateTime(saque.solicitado_em)}
                 </p>
               </div>
-              <Link
-                href={`/saques/${saque.id}`}
-                className="shrink-0 rounded-sm bg-accent-brand px-4 py-2 text-sm font-semibold text-bg-shell hover:opacity-90"
-              >
+              <LinkButton href={`/saques/${saque.id}`} className="shrink-0">
                 Processar
-              </Link>
+              </LinkButton>
             </Card>
           ))}
         </div>

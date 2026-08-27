@@ -15,6 +15,8 @@ export interface CartItem {
   nome: string;
   precoSnapshotReais: number;
   quantidade: number;
+  /** `produto.foto_url` no momento do add (Fix demo Bloco 13) — sem isso o CartItemRow não tem foto pra exibir e cai no placeholder cinza. */
+  fotoUrl?: string | null;
 }
 
 /**
@@ -39,6 +41,7 @@ interface AddItemInput {
   nome: string;
   precoReais: number;
   quantidade?: number;
+  fotoUrl?: string | null;
 }
 
 interface CartContextValue {
@@ -80,24 +83,6 @@ interface CartContextValue {
 const CartContext = createContext<CartContextValue | null>(null);
 
 /**
- * [TECH DEBT] Cartão mock inicial — reproduz o MESMO cartão salvo já usado
- * como referência visual no protótipo (`cliente-04-carrinho.png` e
- * `cliente-13-pagamento.png`: "Cartão •••• 4242"), não um dado inventado.
- * Não existe port `clientes_cartoes` em `packages/core-data` (Story 0.2 não
- * a expõe) — esta story está fora do escopo para criar a port (mission
- * restringe a `apps/cliente/`), então o estado de cartões salvos vive
- * apenas neste Context local (perdido ao reiniciar o app). Documentado
- * também no Dev Agent Record da Story 0.6.
- */
-const DEFAULT_CARD: SavedCard = {
-  id: 'card-default-4242',
-  ultimo4: '4242',
-  bandeira: 'Visa',
-  nomeNoCartao: 'Cliente Keepit',
-  padrao: true,
-};
-
-/**
  * [IDS] Decisão FINAL (Story 1.10, Task 8 — reavaliação formal do gap
  * registrado na Story 0.6): manter o carrinho + cartão salvo como estado
  * client-side LOCAL, sem criar `cart.port`.
@@ -127,13 +112,17 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [hubId, setHubIdState] = useState<string | null>(null);
   const [payment, setPaymentState] = useState<PaymentSelection | null>(null);
   const [cpfCollected, setCpfCollected] = useState(false);
-  const [cards, setCards] = useState<SavedCard[]>([DEFAULT_CARD]);
+  // Fix demo Bloco 13 (Caio): começar SEM cartão salvo — o cliente escolhe
+  // PIX ou adiciona um cartão do zero (`Pagamento.tsx`/`AdicionarCartao.tsx`
+  // já tratam lista vazia). Antes havia um cartão mock pré-cadastrado
+  // (`DEFAULT_CARD`, "•••• 4242") que impedia testar esse fluxo.
+  const [cards, setCards] = useState<SavedCard[]>([]);
   const [nfSolicitada, setNfSolicitadaState] = useState(false);
   const cardIdCounter = useRef(1);
 
   const addItem = useCallback(
     (
-      { estabelecimentoId: novoEstabelecimentoId, produtoId, nome, precoReais, quantidade = 1 }: AddItemInput,
+      { estabelecimentoId: novoEstabelecimentoId, produtoId, nome, precoReais, quantidade = 1, fotoUrl }: AddItemInput,
       onCommitted?: () => void,
     ) => {
       const commit = (limparCarrinhoAnterior: boolean) => {
@@ -149,7 +138,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
               item.produtoId === produtoId ? { ...item, quantidade: item.quantidade + quantidade } : item,
             );
           }
-          return [...base, { produtoId, nome, precoSnapshotReais: precoReais, quantidade }];
+          return [...base, { produtoId, nome, precoSnapshotReais: precoReais, quantidade, fotoUrl }];
         });
         onCommitted?.();
       };

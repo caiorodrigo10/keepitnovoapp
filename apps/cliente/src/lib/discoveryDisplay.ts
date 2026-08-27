@@ -48,6 +48,13 @@ const DISTANCIA_KM_POR_HUB: Record<string, number> = {
   'hub-vila-nova': 3.4,
 };
 
+/**
+ * @deprecated Story 5.1.1 — substituída por distância REAL calculada via
+ * Haversine (`apps/cliente/src/lib/distance.ts#formatDistanceKm`) a partir
+ * de GPS/CEP em `EscolhaRetirada.tsx`. Mantida (não removida) porque
+ * remover seria uma limpeza fora do escopo da Story 5.1.1 (evitar diff não
+ * relacionado ao pedido do PO) — sem outros consumidores hoje.
+ */
 export function formatHubDistanciaKm(hubId: string): string {
   const km = DISTANCIA_KM_POR_HUB[hubId] ?? DISTANCIA_KM_FALLBACK;
   return `${km.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} km`;

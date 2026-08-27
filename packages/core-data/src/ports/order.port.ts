@@ -195,6 +195,23 @@ export interface OrderPort {
    */
   confirmPin(pedidoId: string, pin: string, options?: AsyncCallOptions): Promise<Pedido>;
   /**
+   * Story 6.7.1 (AC1, AC2, AC3, AC4, AC8) — confirma o pagamento simulado
+   * (PIX/cartão) chamado automaticamente pelas telas `ModalPagamentoPix`/
+   * `ModalProcessandoPagamento` após um atraso simulado de UX (~5s PIX/~2s
+   * cartão — NUNCA regra de negócio, ver `apps/cliente/src/lib/pagamentoSimulado.ts`).
+   * - **Mock**: transiciona `aguardando_pagamento` → `aguardando_aceite`
+   *   (mesmo padrão `assertStatus`/`OrderTransitionError` de
+   *   `accept`/`markReadyForHub`/`markArrivedAtHub`).
+   * - **Supabase**: no-op de releitura — o pedido já chega em
+   *   `aguardando_aceite` pela RPC `criar_pedido` (Story 6.6); nenhum
+   *   endpoint/RPC novo é criado aqui. Mantém a MESMA UX (telas de
+   *   PIX/processando) nos dois `DATA_SOURCE` sem inventar backend.
+   * Retomada futura (Bloco 08-PIX/Épico 7): quando o webhook real
+   * `PAYMENT_RECEIVED` existir (Story 7.5), ele chama este mesmo método —
+   * nenhum redesenho de UI necessário.
+   */
+  confirmarPagamento(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido>;
+  /**
    * Cancelamento pelo Cliente. A % de reembolso (AC9) é derivada do status
    * ATUAL do pedido no momento da chamada (pré-aceite = 100%; pós-aceite,
    * antes de "Saindo para o hub" = 90/10) — rejeita com `OrderTransitionError`
@@ -235,4 +252,25 @@ export interface OrderPort {
   advanceStatus(pedidoId: string, nextStatus: AdvanceableStatus, options?: AsyncCallOptions): Promise<Pedido>;
   /** Marca `cliente_chegou_em` — metade do cliente na "janela de tolerância no hub". Exige status `no_hub`. */
   markClienteChegou(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido>;
+  /**
+   * Story 6.20 (AC2, AC4) — o cliente reporta que o lojista não apareceu no
+   * hub. Exige `status = 'no_hub'` E `cliente_chegou_em` preenchido; reforço
+   * SERVER-SIDE (mock e real) da condição de tempo do AC1
+   * (`cliente_chegou_em + max(tempo_estimado_min, businessConfig.esperaLojistaMaxMin)`)
+   * — nunca confia só na visibilidade do botão na UI. Em sucesso: `status ->
+   * 'nao_entregue_lojista'`, reembolso 100% pendente + falha de qualidade do
+   * lojista (`tipo='lojista_nao_apareceu'`), os 3 efeitos atômicos.
+   */
+  reportLojistaNaoVeio(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido>;
+  /**
+   * Story 6.21 (AC2, AC3) — o cliente cancela um pedido muito atrasado
+   * (avisado in-app via polling client-side, Story 6.13 — sem `pg_cron`/push,
+   * ver Classificação da Story). Exige `status IN ('aceito', 'em_preparo')`;
+   * reforço SERVER-SIDE (mock e real) da condição de atraso do AC1
+   * (`NOW() > aceito_em + 2 * tempo_estimado_min`) — nunca confia só no
+   * client ter mostrado o prompt. Em sucesso: `status -> 'cancelado_atraso'`,
+   * reembolso 100% pendente + falha de qualidade do lojista
+   * (`tipo='atraso_grave'`), os 3 efeitos atômicos.
+   */
+  cancelPedidoAtraso(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido>;
 }

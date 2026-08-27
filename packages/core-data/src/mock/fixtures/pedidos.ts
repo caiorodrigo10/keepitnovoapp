@@ -14,6 +14,23 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+/**
+ * Story 10.4 (AC4/AC6) — substitui o antigo default
+ * `String(1000 + Math.floor(Math.random() * 9000))` de `montarPedido` por um
+ * hash determinístico do `pedidoId`. Mesmo pedido → mesmo PIN em toda
+ * execução/boot do app (necessário para a dica gated por
+ * `!isSupabaseDataSource()` em `DigitarPin.tsx` mostrar um valor estável).
+ * Pedidos que já definem `pin_texto` explicitamente via `...input`
+ * continuam sobrescrevendo este default (inalterados por esta mudança).
+ */
+function pinDeterministico(pedidoId: string): string {
+  let hash = 0;
+  for (let indice = 0; indice < pedidoId.length; indice += 1) {
+    hash = (hash * 31 + pedidoId.charCodeAt(indice)) % 9000;
+  }
+  return String(1000 + hash);
+}
+
 const TAXA_KEEPIT_PERCENT = 12;
 
 function novoItem(pedidoId: string, index: number, nome: string, precoUnit: number, quantidade: number): PedidoItem {
@@ -37,7 +54,7 @@ function montarPedido(input: PedidoFixtureInput): Pedido {
   const taxaKeepit = round2((subtotal * TAXA_KEEPIT_PERCENT) / 100);
 
   return {
-    pin_texto: String(1000 + Math.floor(Math.random() * 9000)),
+    pin_texto: pinDeterministico(input.id),
     tentativas_pin: 0,
     pin_bloqueado_ate: null,
     tempo_estimado_min: null,

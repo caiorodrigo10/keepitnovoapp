@@ -23,11 +23,15 @@ type Props = NativeStackScreenProps<PedidosStackParamList, 'LojistaNaoVeio'>;
  * card/CTA de `CancelarPedido`/`ChegueiAoHub`) — sinalizado para @ux-expert
  * validar quando houver acesso a mais telas do protótipo/Figma.
  *
- * [TECH DEBT] `order.port.cancel()` só grava o status genérico `cancelado`
- * (não existe `nao_entregue_lojista` como parâmetro aceito pela port) — o
- * `motivo` textual registra a causa real no mock (`motivo_cancelamento`)
- * para auditoria, e o resultado (100% reembolso + registro de qualidade do
- * lojista) é só comunicado em copy, sem side-effect real (Épico 0 é mock).
+ * **Story 6.20 (AC2, AC4) — [IDS] ADAPT: fecha o `[TECH DEBT]` que este
+ * arquivo documentava desde a Story 0.7.** Antes, `handleReportar` chamava
+ * `order.cancel(...)`, que só grava o status genérico `cancelado` (sem
+ * `nao_entregue_lojista`, sem refund 100% real, sem registrar a falha de
+ * qualidade do lojista). Agora chama `order.reportLojistaNaoVeio(pedidoId)`
+ * — método dedicado que transiciona para `nao_entregue_lojista`, insere o
+ * refund 100% pendente e registra a falha (`tipo='lojista_nao_apareceu'`),
+ * os 3 efeitos atômicos (mock e real). Esta tela NÃO foi redesenhada — só a
+ * chamada de backend mudou.
  */
 export default function LojistaNaoVeio({ route, navigation }: Props) {
   const { data: cliente } = useCurrentCliente();
@@ -41,7 +45,7 @@ export default function LojistaNaoVeio({ route, navigation }: Props) {
     setEnviando(true);
     setErroAcao(null);
     try {
-      await getDataClient().order.cancel(pedido.id, 'Lojista não compareceu ao hub');
+      await getDataClient().order.reportLojistaNaoVeio(pedido.id);
       refresh();
       setConfirmado(true);
     } catch (e) {

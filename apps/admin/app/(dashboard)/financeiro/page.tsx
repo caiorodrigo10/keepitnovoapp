@@ -3,6 +3,7 @@
 import { useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 
+import { Button } from '../../../src/components/Button';
 import { Card } from '../../../src/components/Card';
 import { useFinancialDashboard } from '../../../src/hooks/useAdminOps';
 import { formatReais } from '../../../src/lib/adminLabels';
@@ -42,18 +43,13 @@ export default function FinanceiroPage() {
 
       <div className="flex gap-2">
         {PERIODO_OPTIONS.map((dias) => (
-          <button
+          <Button
             key={dias}
-            type="button"
+            variant={periodoDias === dias ? 'primary' : 'secondary'}
             onClick={() => setPeriodoDias(dias)}
-            className={`rounded-sm px-4 py-2 text-sm font-semibold transition-opacity ${
-              periodoDias === dias
-                ? 'bg-accent-brand text-bg-shell'
-                : 'bg-bg-elevated text-text-primary hover:bg-bg-overlay'
-            }`}
           >
             {dias} dias
-          </button>
+          </Button>
         ))}
       </div>
 
@@ -62,13 +58,9 @@ export default function FinanceiroPage() {
       {!loading && error && (
         <Card className="border-accent-warning/40">
           <p className="mb-3 text-sm text-accent-warning">Erro ao carregar dashboard: {error.message}</p>
-          <button
-            type="button"
-            onClick={refresh}
-            className="text-sm font-semibold text-accent-brand underline underline-offset-2"
-          >
+          <Button variant="secondary" onClick={refresh}>
             Tentar novamente
-          </button>
+          </Button>
         </Card>
       )}
 

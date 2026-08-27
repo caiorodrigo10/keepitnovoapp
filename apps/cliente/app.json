@@ -11,14 +11,14 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.keepithub.cliente",
-      "buildNumber": "1",
+      "buildNumber": "3",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "package": "com.keepithub.cliente",
-      "versionCode": 1,
+      "versionCode": 4,
       "permissions": [],
       "adaptiveIcon": {
         "backgroundColor": "#F6F7F3",
@@ -39,6 +39,12 @@
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#F6F7F3"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Usamos sua localização para mostrar o hub de retirada mais próximo."
         }
       ]
     ],

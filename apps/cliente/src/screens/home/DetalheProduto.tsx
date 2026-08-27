@@ -125,6 +125,7 @@ export default function DetalheProduto({ route, navigation }: Props) {
                     nome: produto.nome,
                     precoReais: produto.preco_reais,
                     quantidade,
+                    fotoUrl: produto.foto_url,
                   },
                   () => navigation.navigate('Carrinho'),
                 );

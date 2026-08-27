@@ -29,9 +29,9 @@ describe('hub.mock (contract)', () => {
     await expect(port.getById('does-not-exist', { delayMs: 1 })).resolves.toBeNull();
   });
 
-  it('getById returns the seeded "Hub Centro" fixture', async () => {
+  it('getById returns the seeded default hub fixture (id hub-centro)', async () => {
     const hub = await port.getById('hub-centro', { delayMs: 1 });
-    expect(hub?.nome).toBe('Hub Centro');
+    expect(hub?.nome).toBe('Posto Portal das Américas');
   });
 
   it('is genuinely asynchronous — does not resolve on the same tick', () => {

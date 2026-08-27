@@ -108,6 +108,19 @@ export type RootStackParamList = {
    */
   ModalConfirmarPin: { pedidoId?: string } | undefined;
   ModalPermissaoPush: undefined;
+  /**
+   * Story 6.7.1 (AC1, Task 6) — feedback visual de PIX (QR REAL do payload
+   * FAKE + copia-e-cola + "Aguardando pagamento" → "Pagamento confirmado"),
+   * navegada logo após `Pagamento.tsx#handlePagar` criar o pedido — `pedidoId`
+   * SEMPRE existe (diferente de `ModalConfirmarPin`, sem fallback aqui).
+   */
+  ModalPagamentoPix: { pedidoId: string };
+  /**
+   * Story 6.7.1 (AC3, Task 6) — mesmo papel de `ModalPagamentoPix` acima,
+   * para o fluxo de cartão salvo ("Processando pagamento…" → "Pagamento
+   * aprovado").
+   */
+  ModalProcessandoPagamento: { pedidoId: string };
 };
 
 declare global {

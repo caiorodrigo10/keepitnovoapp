@@ -24,7 +24,7 @@ interface CartItemRowProps {
 export function CartItemRow({ item, onIncrement, onDecrement, onRemove }: CartItemRowProps) {
   return (
     <View style={styles.row}>
-      <ImagePlaceholder uri={null} borderRadius={radii.md} />
+      <ImagePlaceholder uri={item.fotoUrl ?? null} borderRadius={radii.md} />
       <View style={styles.info}>
         <Text style={styles.nome} numberOfLines={1}>
           {item.nome}

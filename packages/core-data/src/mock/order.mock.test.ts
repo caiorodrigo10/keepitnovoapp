@@ -2,7 +2,7 @@ import { businessConfig } from '@keepit/config';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { OrderPort } from '../ports/order.port';
-import { PinBloqueadoError, PinIncorretoError } from '../ports/order.port';
+import { OrderTransitionError, PinBloqueadoError, PinIncorretoError } from '../ports/order.port';
 import { createMockDb, type MockDb } from './db';
 import { createOrderMock } from './order.mock';
 
@@ -48,8 +48,10 @@ describe('order.mock (contract)', () => {
     // aparecer no `Pedido` retornado por `create`, como o resto dos totais.
     expect(pedido.taxa_servico_comprador_reais).toBeCloseTo(taxaServico, 2);
     expect(pedido.total_pago_reais).toBeCloseTo(total, 2);
-    // AC6: status inicial alinhado ao piloto real (pagamento simulado em dev).
-    expect(pedido.status).toBe('aguardando_aceite');
+    // Story 6.7.1 (AC5): status inicial volta a ser `aguardando_pagamento` —
+    // a transição para `aguardando_aceite` passa a ser feita por
+    // `confirmarPagamento`, chamada automaticamente pela UI (ver testes abaixo).
+    expect(pedido.status).toBe('aguardando_pagamento');
     expect(pedido.pin_texto).toMatch(/^\d{4}$/);
     expect(pedido.itens).toHaveLength(1);
     expect(pedido.itens[0]).toMatchObject({
@@ -86,6 +88,38 @@ describe('order.mock (contract)', () => {
 
     // Nenhum efeito colateral — nenhum pedido novo criado para o cliente bloqueado.
     expect(db.pedidos.length).toBe(pedidosAntes);
+  });
+
+  it('confirmarPagamento transitions aguardando_pagamento -> aguardando_aceite, without touching aceito_em (Story 6.7.1, AC1-AC4)', async () => {
+    const criado = await port.create(
+      {
+        cliente_id: 'cliente-ana',
+        estabelecimento_id: 'estab-farmacia-vida',
+        hub_id: 'hub-centro',
+        itens: [{ produto_id: 'produto-dipirona', nome_snapshot: 'Dipirona', preco_unitario_reais: 14.9, quantidade: 1 }],
+        forma_pagamento: 'pix',
+        subtotal_produtos_reais: 14.9,
+        taxa_deslocamento_reais: 5,
+        taxa_keepit_reais: 1.5,
+        taxa_servico_comprador_reais: businessConfig.taxaServicoCompradorReais,
+        total_pago_reais: 14.9 + 5 + businessConfig.taxaServicoCompradorReais,
+        nf_solicitada: false,
+      },
+      { delayMs: 1 },
+    );
+    expect(criado.status).toBe('aguardando_pagamento');
+
+    const confirmado = await port.confirmarPagamento(criado.id, { delayMs: 1 });
+    expect(confirmado.status).toBe('aguardando_aceite');
+    // `aceito_em` continua exclusivo de `accept` (Story 6.9) — confirmarPagamento
+    // só confirma o PAGAMENTO, não o aceite da loja.
+    expect(confirmado.aceito_em).toBeNull();
+  });
+
+  it('confirmarPagamento rejects with OrderTransitionError from any other status (Story 6.7.1, AC4)', async () => {
+    // Fixture `pedido-2049` já nasce em `aguardando_aceite` (Story 0.10/6.6 fixtures).
+    await expect(port.confirmarPagamento('pedido-2049', { delayMs: 1 })).rejects.toThrow(/não permitida/i);
+    await expect(port.confirmarPagamento('pedido-2049', { delayMs: 1 })).rejects.toBeInstanceOf(OrderTransitionError);
   });
 
   it('listMine resolves with only the pedidos of the given cliente', async () => {
@@ -220,11 +254,54 @@ describe('order.mock (contract)', () => {
     await expect(port.markClienteChegou('lj-pedido-2049', { delayMs: 1 })).rejects.toThrow(/não permitida/i);
   });
 
+  it('reportLojistaNaoVeio (Story 6.20, AC2/AC4): sucesso quando no_hub + cliente_chegou_em vencido, popula refund 100% + falha', async () => {
+    // lj-pedido-2045: fixture status 'no_hub', tempo_estimado_min 15. Marca
+    // chegada "no passado" (além de max(15, esperaLojistaMaxMin)=20min) para
+    // exercitar o reforço de tempo sem depender de timers reais.
+    const pedido = db.pedidos.find((p) => p.id === 'lj-pedido-2045')!;
+    pedido.cliente_chegou_em = new Date(Date.now() - 25 * 60_000).toISOString();
+
+    const atualizado = await port.reportLojistaNaoVeio('lj-pedido-2045', { delayMs: 1 });
+    expect(atualizado.status).toBe('nao_entregue_lojista');
+
+    const reembolso = db.reembolsos.find((r) => r.pedido_id === atualizado.id);
+    expect(reembolso?.motivo).toBe('nao_entregue_lojista');
+    expect(reembolso?.valor_a_estornar_reais).toBeCloseTo(atualizado.total_pago_reais, 2);
+
+    const falha = db.falhas.find((f) => f.pedido_id === atualizado.id);
+    expect(falha?.tipo).toBe('lojista_nao_apareceu');
+    expect(falha?.estabelecimento_id).toBe(atualizado.estabelecimento_id);
+  });
+
+  it('reportLojistaNaoVeio rejects when the pedido is not in no_hub', async () => {
+    // lj-pedido-2048: fixture status 'em_preparo'.
+    await expect(port.reportLojistaNaoVeio('lj-pedido-2048', { delayMs: 1 })).rejects.toThrow(/não permitida/i);
+  });
+
+  it('reportLojistaNaoVeio rejects when cliente_chegou_em is not set (ESTADO_INVALIDO)', async () => {
+    // lj-pedido-2045: fixture status 'no_hub', cliente_chegou_em null.
+    await expect(port.reportLojistaNaoVeio('lj-pedido-2045', { delayMs: 1 })).rejects.toThrow(/ESTADO_INVALIDO/);
+  });
+
+  it('reportLojistaNaoVeio rejects before the minimum waiting time (TEMPO_MINIMO_NAO_ATINGIDO — server-side reinforcement)', async () => {
+    const pedido = db.pedidos.find((p) => p.id === 'lj-pedido-2045')!;
+    pedido.cliente_chegou_em = new Date().toISOString(); // acabou de chegar
+
+    await expect(port.reportLojistaNaoVeio('lj-pedido-2045', { delayMs: 1 })).rejects.toThrow(
+      /TEMPO_MINIMO_NAO_ATINGIDO/,
+    );
+  });
+
   it('refuse populates a reembolso (motivo: recusa_lojista, 100% cliente)', async () => {
     const pedido = await port.refuse('lj-pedido-2049', 'Sem estoque', { delayMs: 1 });
     const reembolso = db.reembolsos.find((r) => r.pedido_id === pedido.id);
     expect(reembolso?.motivo).toBe('recusa_lojista');
     expect(reembolso?.valor_a_estornar_reais).toBeCloseTo(pedido.total_pago_reais, 2);
+  });
+
+  it('refuse rejects when the pedido is no longer aguardando_aceite (Story 6.11, AC6 — parity with the real RPC)', async () => {
+    // lj-pedido-2048: fixture status 'em_preparo' (já aceito).
+    await expect(port.refuse('lj-pedido-2048', 'Sem estoque', { delayMs: 1 })).rejects.toThrow(/não permitida/i);
   });
 
   it('cancel derives the refund % from the pedido status (AC9: pre-aceite 100%, pós-aceite 90/10) and blocks after saindo_hub', async () => {
@@ -238,5 +315,37 @@ describe('order.mock (contract)', () => {
     expect(reembolsoPos?.valor_a_estornar_reais).toBeCloseTo(posAceite.total_pago_reais * 0.9, 2);
 
     await expect(port.cancel('lj-pedido-2045', 'Tarde demais', { delayMs: 1 })).rejects.toThrow(/não permitida/i);
+  });
+
+  it('cancelPedidoAtraso (Story 6.21, AC2/AC3): sucesso quando 2x tempo_estimado_min vencido, popula refund 100% + falha atraso_grave', async () => {
+    // lj-pedido-2048: fixture status 'em_preparo', tempo_estimado_min 20 →
+    // limiar de 2x = 40min. Empurra aceito_em para além disso.
+    const pedido = db.pedidos.find((p) => p.id === 'lj-pedido-2048')!;
+    pedido.aceito_em = new Date(Date.now() - 45 * 60_000).toISOString();
+
+    const atualizado = await port.cancelPedidoAtraso('lj-pedido-2048', { delayMs: 1 });
+    expect(atualizado.status).toBe('cancelado_atraso');
+    expect(atualizado.cancelado_em).not.toBeNull();
+
+    const reembolso = db.reembolsos.find((r) => r.pedido_id === atualizado.id);
+    expect(reembolso?.motivo).toBe('cancelamento_atraso');
+    expect(reembolso?.valor_a_estornar_reais).toBeCloseTo(atualizado.total_pago_reais, 2);
+
+    const falha = db.falhas.find((f) => f.pedido_id === atualizado.id);
+    expect(falha?.tipo).toBe('atraso_grave');
+    expect(falha?.estabelecimento_id).toBe(atualizado.estabelecimento_id);
+  });
+
+  it('cancelPedidoAtraso rejects when the pedido is not in aceito/em_preparo', async () => {
+    // lj-pedido-2045: fixture status 'no_hub'.
+    await expect(port.cancelPedidoAtraso('lj-pedido-2045', { delayMs: 1 })).rejects.toThrow(/não permitida/i);
+  });
+
+  it('cancelPedidoAtraso rejects before 2x tempo_estimado_min (ATRASO_NAO_CONFIRMADO — server-side reinforcement)', async () => {
+    // lj-pedido-2048: aceito_em minutosAtras(4) na fixture, tempo_estimado_min
+    // 20 → limiar de 40min ainda não vencido.
+    await expect(port.cancelPedidoAtraso('lj-pedido-2048', { delayMs: 1 })).rejects.toThrow(
+      /ATRASO_NAO_CONFIRMADO/,
+    );
   });
 });

@@ -1,8 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { SUPORTE_WHATSAPP_DISPONIVEL, SUPORTE_WHATSAPP_NUMERO } from '@keepit/config';
+import { getDataClient } from '@keepit/core-data';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { AsyncStateBlock } from '../../components/discovery';
@@ -10,9 +11,11 @@ import { OrderStatusDevAdvancer, PedidoTimeline } from '../../components/pedidos
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useHubDetail } from '../../hooks/useHubDetail';
 import { usePedidoDetail } from '../../hooks/usePedidoDetail';
-import { Screen } from '../../components/ui';
+import { Button, Screen } from '../../components/ui';
+import { isPedidoAtrasado } from '../../lib/atrasoPedido';
 import { comoChegarLabel, comoChegarUrl } from '../../lib/comoChegar';
 import { formatReais } from '../../lib/format';
+import { podeReportarLojistaNaoVeio } from '../../lib/lojistaNaoVeio';
 import { timelineStepIndex } from '../../lib/pedidoStatus';
 import type { RootStackParamList } from '../../navigation/types';
 
@@ -54,20 +57,33 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ModalConfirmarPin'>;
  * para `entregue`, esta tela navega automaticamente para `Recibo` — sem
  * exigir pull-to-refresh manual nem toque do cliente (nenhum push é
  * disparado, Épico 2.11 `LATER`).
+ *
+ * **Story 6.21 (AC1, AC2).** O MESMO polling reavalia, a cada ciclo, se o
+ * pedido está atrasado (`isPedidoAtrasado`, `NOW() > aceito_em + 2 *
+ * tempo_estimado_min`) e mostra um banner com "Aguardar mais" (dispensa
+ * local, sem chamada de backend — pode reaparecer no próximo poll enquanto a
+ * condição continuar verdadeira, mesmo racional de `06.21 AC1`) / "Cancelar
+ * com 100%" (chama `order.cancelPedidoAtraso`). Ao cancelar com sucesso, o
+ * MESMO efeito de navegação para `Recibo` acima passa a cobrir também
+ * `cancelado_atraso` (reembolso e falha já foram gravados atomicamente pela
+ * RPC/mock).
  */
 export default function ModalConfirmarPin({ route, navigation }: Props) {
   const { data: cliente } = useCurrentCliente();
   const { data: pedido, loading, error, refresh } = usePedidoDetail(cliente?.id ?? null, route.params?.pedidoId);
   const { data: hub } = useHubDetail(pedido?.hub_id ?? '', { forceEmpty: !pedido });
+  const [atrasoDispensado, setAtrasoDispensado] = useState(false);
+  const [cancelandoAtraso, setCancelandoAtraso] = useState(false);
+  const [erroAtraso, setErroAtraso] = useState<string | null>(null);
 
   const status = pedido?.status;
 
-  // Story 6.16 (AC5): dependência é o valor PRIMITIVO `status` (não o
-  // objeto `pedido`) — o efeito só reexecuta quando o status realmente
-  // muda, evitando navegações repetidas a cada releitura do polling que
-  // ainda resulte no mesmo `entregue`.
+  // Story 6.16 (AC5) + Story 6.21 (efeito colateral do cancelamento por
+  // atraso) — dependência é o valor PRIMITIVO `status` (não o objeto
+  // `pedido`) — o efeito só reexecuta quando o status realmente muda,
+  // evitando navegações repetidas a cada releitura do polling.
   useEffect(() => {
-    if (status === 'entregue' && pedido) {
+    if ((status === 'entregue' || status === 'cancelado_atraso') && pedido) {
       navigation.navigate('Main', {
         screen: 'PedidosTab',
         params: { screen: 'Recibo', params: { pedidoId: pedido.id } },
@@ -75,6 +91,23 @@ export default function ModalConfirmarPin({ route, navigation }: Props) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
+
+  const atrasado = pedido ? isPedidoAtrasado(pedido) : false;
+  const mostrarBannerAtraso = atrasado && !atrasoDispensado;
+
+  const handleCancelarPorAtraso = async () => {
+    if (!pedido) return;
+    setCancelandoAtraso(true);
+    setErroAtraso(null);
+    try {
+      await getDataClient().order.cancelPedidoAtraso(pedido.id);
+      refresh();
+    } catch (e) {
+      setErroAtraso(e instanceof Error ? e.message : 'Não foi possível cancelar. Tente novamente.');
+    } finally {
+      setCancelandoAtraso(false);
+    }
+  };
 
   return (
     <Screen>
@@ -124,6 +157,58 @@ export default function ModalConfirmarPin({ route, navigation }: Props) {
                   {comoChegarLabel(SUPORTE_WHATSAPP_DISPONIVEL)}
                 </Text>
               </Pressable>
+            </View>
+          )}
+
+          {/**
+           * Story 6.21 (AC1) — prompt/banner in-app com "Aguardar mais"
+           * (dispensa local) / "Cancelar com 100%" (chama backend), seguindo
+           * o MESMO padrão visual de `CancelarPedido.tsx` (card + CTA).
+           * Reforçado server-side pela RPC `cancelar_pedido_atraso` — nunca
+           * só a UI decide.
+           */}
+          {mostrarBannerAtraso && (
+            <View style={styles.atrasoCard}>
+              <Text style={styles.atrasoTitulo}>Seu pedido está atrasado</Text>
+              <Text style={styles.atrasoCopy}>
+                O lojista está demorando muito mais do que o combinado. Você pode aguardar mais um pouco ou cancelar
+                com reembolso integral (100%).
+              </Text>
+              {!!erroAtraso && <Text style={styles.atrasoErro}>{erroAtraso}</Text>}
+              <View style={styles.atrasoAcoes}>
+                <View style={styles.atrasoAcao}>
+                  <Button title="Aguardar mais" variant="outline" onPress={() => setAtrasoDispensado(true)} />
+                </View>
+                <View style={styles.atrasoAcao}>
+                  <Button title="Cancelar com 100%" onPress={handleCancelarPorAtraso} loading={cancelandoAtraso} />
+                </View>
+              </View>
+            </View>
+          )}
+
+          {/**
+           * Story 6.20 (AC1) — ponto de entrada que hoje não existe em
+           * nenhum lugar (`LojistaNaoVeio.tsx` só era alcançável
+           * programaticamente até esta Story). Só aparece quando a condição
+           * do AC1 é satisfeita — reforçada server-side pela RPC
+           * `reportar_lojista_nao_veio` (nunca só a UI decide).
+           */}
+          {podeReportarLojistaNaoVeio(pedido) && (
+            <View style={styles.lojistaNaoVeioCard}>
+              <Text style={styles.lojistaNaoVeioTitulo}>O lojista ainda não chegou?</Text>
+              <Text style={styles.lojistaNaoVeioCopy}>
+                Se você já esperou o tempo combinado, pode reportar e receber reembolso integral.
+              </Text>
+              <Button
+                title="Lojista não veio"
+                variant="outline"
+                onPress={() =>
+                  navigation.navigate('Main', {
+                    screen: 'PedidosTab',
+                    params: { screen: 'LojistaNaoVeio', params: { pedidoId: pedido.id } },
+                  })
+                }
+              />
             </View>
           )}
 
@@ -244,6 +329,56 @@ const styles = StyleSheet.create({
   },
   comoChegarDesabilitado: {
     color: lightColors.text.tertiary,
+  },
+  atrasoCard: {
+    backgroundColor: lightColors.bg.surface,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    borderColor: lightColors.accent.warning,
+    padding: spacing['4'],
+    marginBottom: spacing['4'],
+    gap: spacing['3'],
+  },
+  atrasoTitulo: {
+    fontFamily: 'HankenGrotesk-SemiBold',
+    fontSize: typography.sizes.md.fontSize,
+    color: lightColors.accent.warning,
+  },
+  atrasoCopy: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.text.secondary,
+    lineHeight: typography.sizes.sm.lineHeight,
+  },
+  atrasoErro: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.accent.warning,
+  },
+  atrasoAcoes: {
+    flexDirection: 'row',
+    gap: spacing['3'],
+  },
+  atrasoAcao: {
+    flex: 1,
+  },
+  lojistaNaoVeioCard: {
+    backgroundColor: lightColors.bg.surface,
+    borderRadius: radii.card,
+    padding: spacing['4'],
+    marginBottom: spacing['4'],
+    gap: spacing['3'],
+  },
+  lojistaNaoVeioTitulo: {
+    fontFamily: 'HankenGrotesk-SemiBold',
+    fontSize: typography.sizes.md.fontSize,
+    color: lightColors.text.primary,
+  },
+  lojistaNaoVeioCopy: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.text.secondary,
+    lineHeight: typography.sizes.sm.lineHeight,
   },
   footer: {
     fontFamily: 'HankenGrotesk-Regular',

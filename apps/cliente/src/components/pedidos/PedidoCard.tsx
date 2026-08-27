@@ -10,6 +10,15 @@ import { PedidoStatusBadge } from './PedidoStatusBadge';
 interface PedidoCardProps {
   pedido: Pedido;
   estabelecimentoNome: string;
+  /**
+   * Story 6.7.1 (AC6) — nome real do hub, resolvido por
+   * `MeusPedidosRow.tsx` via `useHubDetail` (mesmo padrão já usado para
+   * `estabelecimentoNome` via `useStoreDetail`). Substitui o hardcode
+   * `pedido.hub_id === 'hub-centro' ? 'Centro' : pedido.hub_id` — que
+   * mostrava o nome errado para `hub-centro` e o id cru para os outros 4
+   * hubs do fixture RJ.
+   */
+  hubNome: string;
   onPress: () => void;
 }
 
@@ -20,7 +29,7 @@ interface PedidoCardProps {
  * (`discovery`, Story 0.5) para o quadrado de imagem — mesmo padrão de
  * `StoreCard` — em vez de duplicar o placeholder cinza.
  */
-export function PedidoCard({ pedido, estabelecimentoNome, onPress }: PedidoCardProps) {
+export function PedidoCard({ pedido, estabelecimentoNome, hubNome, onPress }: PedidoCardProps) {
   const qtdItens = pedido.itens.length;
   const mostrarPin = pedido.status === 'no_hub';
 
@@ -31,7 +40,7 @@ export function PedidoCard({ pedido, estabelecimentoNome, onPress }: PedidoCardP
         <View style={styles.headerInfo}>
           <Text style={styles.nome}>{estabelecimentoNome}</Text>
           <Text style={styles.subtitulo}>
-            {qtdItens} {qtdItens === 1 ? 'item' : 'itens'} · Hub {pedido.hub_id === 'hub-centro' ? 'Centro' : pedido.hub_id}
+            {qtdItens} {qtdItens === 1 ? 'item' : 'itens'} · Hub {hubNome}
           </Text>
         </View>
         <PedidoStatusBadge status={pedido.status} />

@@ -1,10 +1,11 @@
 'use client';
 
-import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 
 import { Badge } from '../../../src/components/Badge';
+import { Button } from '../../../src/components/Button';
 import { Card } from '../../../src/components/Card';
+import { LinkButton } from '../../../src/components/LinkButton';
 import { useLojistasOps } from '../../../src/hooks/useAdminOps';
 import type { BadgeVariant } from '../../../src/components/Badge';
 
@@ -49,13 +50,9 @@ export default function LojistasPage() {
       {!loading && error && (
         <Card className="border-accent-warning/40">
           <p className="mb-3 text-sm text-accent-warning">Erro ao carregar lojistas: {error.message}</p>
-          <button
-            type="button"
-            onClick={refresh}
-            className="text-sm font-semibold text-accent-brand underline underline-offset-2"
-          >
+          <Button variant="secondary" onClick={refresh}>
             Tentar novamente
-          </button>
+          </Button>
         </Card>
       )}
 
@@ -78,12 +75,9 @@ export default function LojistasPage() {
                 </div>
                 <p className="text-xs uppercase tracking-section text-text-tertiary">{lojista.categoria}</p>
               </div>
-              <Link
-                href={`/lojistas/${lojista.id}`}
-                className="shrink-0 rounded-sm bg-bg-elevated px-4 py-2 text-sm font-semibold text-text-primary hover:bg-bg-overlay"
-              >
+              <LinkButton href={`/lojistas/${lojista.id}`} variant="secondary" className="shrink-0">
                 Ver detalhe
-              </Link>
+              </LinkButton>
             </Card>
           ))}
         </div>

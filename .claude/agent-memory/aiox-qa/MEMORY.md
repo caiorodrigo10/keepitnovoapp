@@ -6,4 +6,6 @@
 - [Verificar tipo gerado vs schema real](project_verificar_tipo_gerado_vs_schema.md) — tipo Database editado à mão: sonde PostgREST coluna a coluna (200 vs 400) com anon key quando MCP Supabase off
 - [Greps de não-regressão miram o JSX, não o arquivo](feedback_greps_nao_regressao.md) — comentário/JSDoc que cita o removido é DOC, nunca FAIL de AC
 - [pnpm qa volta cache FULL TURBO](feedback_pnpm_qa_cache_mascara.md) — em gate independente, reexecutar vitest direto por pacote; contagem do @dev não é autoridade
+- [Nota "migration pendente" do @dev vem stale no gate](project_migration_pendente_stale.md) — worktree tem .mcp.json vazio; @aiox-master aplica via MCP out-of-band; corrigir em QA Results, não é blocker
 - [createSignedUrl client-side exige RLS de SELECT p/ o role](project_signed_url_rls_admin.md) — Admin (authenticated) precisa de OR is_admin() em storage.objects do bucket privado; ausência = HIGH funcional (Story 3.7 FAIL)
+- [Branches órfãs 2.5.1/2.6/2.7 são redundantes](project_orphan_branches_redundant.md) — NOT-CONTAINED por ancestry mas trabalho já integrado via cadeia block-04; não deletar por -d, verificar equivalência e usar -D

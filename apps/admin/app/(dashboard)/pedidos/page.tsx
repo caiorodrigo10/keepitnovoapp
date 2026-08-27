@@ -1,13 +1,14 @@
 'use client';
 
-import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 import type { Cliente, Estabelecimento, PedidoStatus } from '@keepit/core-data';
 
 import { Badge } from '../../../src/components/Badge';
+import { Button } from '../../../src/components/Button';
 import { Card } from '../../../src/components/Card';
+import { LinkButton } from '../../../src/components/LinkButton';
 import { usePedidosAdmin } from '../../../src/hooks/useAdminOps';
 import { getAdminDataClient } from '../../../src/lib/adminClient';
 import { formatReais, PEDIDO_STATUS_LABEL } from '../../../src/lib/adminLabels';
@@ -82,7 +83,7 @@ export default function PedidosPage() {
             }
             window.location.href = url.toString();
           }}
-          className="rounded-sm border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary focus:border-accent-brand focus:outline-none"
+          className="min-h-11 rounded-md border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary transition-colors focus:border-accent-brand focus:outline-none"
         >
           <option value="">Todos os status</option>
           {STATUS_OPTIONS.map((status) => (
@@ -98,13 +99,9 @@ export default function PedidosPage() {
       {!loading && error && (
         <Card className="border-accent-warning/40">
           <p className="mb-3 text-sm text-accent-warning">Erro ao carregar pedidos: {error.message}</p>
-          <button
-            type="button"
-            onClick={refresh}
-            className="text-sm font-semibold text-accent-brand underline underline-offset-2"
-          >
+          <Button variant="secondary" onClick={refresh}>
             Tentar novamente
-          </button>
+          </Button>
         </Card>
       )}
 
@@ -131,12 +128,9 @@ export default function PedidosPage() {
                 </p>
                 <p className="text-xs text-text-tertiary">{formatReais(pedido.total_pago_reais)}</p>
               </div>
-              <Link
-                href={`/pedidos/${pedido.id}`}
-                className="shrink-0 rounded-sm bg-bg-elevated px-4 py-2 text-sm font-semibold text-text-primary hover:bg-bg-overlay"
-              >
+              <LinkButton href={`/pedidos/${pedido.id}`} variant="secondary" className="shrink-0">
                 Ver detalhe
-              </Link>
+              </LinkButton>
             </Card>
           ))}
         </div>
