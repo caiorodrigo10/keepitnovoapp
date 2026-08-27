@@ -762,6 +762,10 @@ export type Database = {
           tipo: string
         }[]
       }
+      confirmar_pagamento_pedido: {
+        Args: { p_asaas_payment_id: string; p_external_reference?: string | null }
+        Returns: { resultado: string; pedido_id: string | null }[]
+      }
       confirmar_pin_pedido: {
         Args: { p_pedido_id: string; p_pin: string }
         Returns: {
