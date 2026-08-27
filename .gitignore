@@ -59,3 +59,9 @@ apps/*/credentials/*service-account*.json
 
 # Asaas sandbox (local, NUNCA commitar)
 .env.asaas
+
+# Runtime local / orquestração — NUNCA commitar
+.worktrees/
+.vercel/
+.orca/
+.aiox/
