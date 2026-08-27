@@ -1,0 +1,212 @@
+schema: 1
+story: '7.11'
+story_title: 'Webhook PAYMENT_CHARGEBACK_REQUESTED (estende asaas-payment-webhook + RPC registrar_chargeback_pedido)'
+gate: CONCERNS
+status_reason: >-
+  Extensão limpa e conservadora da 7.5. Os 4 focos que movem dinheiro estão fechados no nível de
+  código e revistos: (1) NÃO-REGRESSÃO — os 11 testes originais do webhook de pagamento permanecem
+  com texto/asserts inalterados e verdes; auth fail-closed continua sendo a 1ª instrução do handler
+  para AMBOS os caminhos (a extensão até FORTALECE a prova: os fakes de pagamento agora carregam um
+  `registrarChargeback` que lança se chamado, e vice-versa); PAYMENT_RECEIVED/CONFIRMED intocados.
+  (2) SCHEMA — `merchant_credit`/`valor_centavos=-4000`/`disponivel_em=NULL`/`status='concluido'`
+  batem coluna-a-coluna e CHECK-a-CHECK com `lancamentos_financeiros` real; a view `carteira_lojista`
+  reflete o débito por construção (filtro `tipo='merchant_credit' AND valor_centavos<0` em
+  `total_debitado_reais` E no `saldo_disponivel_reais`); `estabelecimentos_falhas` recebe
+  `tipo='chargeback'` (1 dos 4 do CHECK) com as NOT NULL corretas (`estabelecimento_id`, `tipo`);
+  `pedidos.status='estornado_chargeback'` válido no enum de 15 valores; `estabelecimento_id` vem do
+  mesmo `SELECT ... FOR UPDATE`. (3) SEGURANÇA — `SECURITY DEFINER` + `search_path=''` + GRANT só
+  `service_role` (REVOKE PUBLIC/anon/authenticated); nenhuma SQL dinâmica (concatenação só para
+  VALUE de texto, sem EXECUTE); comparação de external_reference por `::text`, nunca `::uuid` no
+  parâmetro. (4) IDEMPOTÊNCIA — `FOR UPDATE` + checagem por exclusão de status na MESMA transação;
+  reentrega serializa e a 2ª vê `estornado_chargeback` → `ja_processado`, sem 2º débito nem 2ª falha;
+  teste de reentrância cobre. HTTP: 401 auth / 200 negócio (inclui PAYMENT_REFUNDED→evento_ignorado
+  no-op) / 502 erro real. 50/50 vitest verdes (handler.test.ts 20) + tsc limpo em `apps/supabase` e
+  `packages/shared-types`, reexecutados direto por @qa. Nenhuma tabela `debitos_lojista` criada;
+  migration 000005 (7.5) e RPCs existentes intocadas (git). CONCERNS (não bloqueia → Done) por
+  débitos LOW, todos herdados/diferidos da 7.5 (serialização SQL não exercitada por teste; sem UNIQUE
+  de deduplicação no ledger; migration não aplicada no keepit-dev; token não timing-safe; @po formal
+  pulado) + 1 nota semântica LOW nova sobre a checagem por exclusão (CB-001).
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-08-27T00:00:00Z'
+
+waiver: { active: false }
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static+test
+    evidence: >-
+      `handler.ts` ESTENDIDO (não Edge Function nova): `EVENTOS_CHARGEBACK=['PAYMENT_CHARGEBACK_REQUESTED']`
+      adicionado a par de `EVENTOS_PAGAMENTO`; `PagamentosRepo` ganhou `registrarChargeback` (mesma
+      forma de `confirmarPagamento`). Auth (`!deps.webhookToken || input.headerToken !== deps.webhookToken`
+      → 401) continua a PRIMEIRA instrução do handler (linha 123), ANTES do parse e de qualquer método
+      do repo, guardando os 2 caminhos. `handler.ts` NUNCA importa `Deno` (só JSDoc menciona);
+      `index.ts` segue o único ponto que lê `Deno.env`/monta client `service_role`/chama
+      `supabase.rpc(...)`. PAYMENT_REFUNDED cai no branch genérico → `evento_ignorado` (fora de escopo,
+      conforme decisão da Story). Nenhum `config.toml` novo (função já roda `verify_jwt=false` desde a
+      7.5). 4 testes de auth (2 herdados + 2 novos no caminho chargeback) provam com `repoThatFailsIfCalled`
+      que nenhum método do repo é chamado no 401.
+  AC2:
+    status: MET
+    method: static+test
+    evidence: >-
+      RPC `registrar_chargeback_pedido(p_asaas_payment_id text, p_external_reference text DEFAULT NULL)`
+      `SECURITY DEFINER` + `SET search_path=''` + `FOR UPDATE LIMIT 1`. Localiza por
+      `asaas_payment_id = p_asaas_payment_id OR (p_external_reference IS NOT NULL AND
+      p.id::text = p_external_reference)` (texto, nunca `::uuid`). NOT FOUND → `pedido_nao_encontrado`
+      sem UPDATE/INSERT. `estornado_chargeback` já → `ja_processado` sem UPDATE/INSERT. Outro status →
+      UPDATE pedidos (`estornado_chargeback` + backfill `asaas_payment_id=COALESCE(...)`) + INSERT
+      `lancamentos_financeiros` (`tipo='merchant_credit'`, `valor_centavos=-4000`, `status='concluido'`,
+      `disponivel_em=NULL`, `asaas_id_externo`, `detalhe`) + INSERT `estabelecimentos_falhas`
+      (`tipo='chargeback'`, `estabelecimento_id`, `pedido_id`, `detalhes`) → `confirmado`. Todas as
+      colunas/CHECKs conferidos contra as migrations reais (`20260813050000`, `20260813070005`,
+      `20260813004932`): `merchant_credit`/`concluido` válidos no CHECK; `-4000` cabe em `bigint`
+      assinado; `chargeback` é 1 dos 4 do CHECK; `estornado_chargeback` é 1 dos 15 de `pedidos.status`.
+      `REVOKE ALL FROM PUBLIC/anon/authenticated` + `GRANT EXECUTE TO service_role` (2ª RPC do projeto
+      restrita a service_role). Entrada em `shared-types/src/supabase.ts:877-880` casa a assinatura
+      (Args + Returns array), em ordem alfabética entre `recusar_pedido` e `rejeitar_lojista`.
+  AC3:
+    status: MET
+    method: static+test
+    evidence: >-
+      Idempotência por `SELECT ... FOR UPDATE` + `IF v_status = 'estornado_chargeback' THEN ja_processado`
+      na MESMA transação: sob READ COMMITTED, a 2ª entrega concorrente bloqueia no lock, re-lê a linha
+      commitada (já `estornado_chargeback`) e retorna `ja_processado` sem 2º débito de R$ 40 nem 2ª
+      linha em `estabelecimentos_falhas`. Como o débito e a falha nascem na MESMA transação da RPC, um
+      CHECK-fail em qualquer INSERT reverte tudo (nenhum estado parcial) e a Edge Function devolve 502.
+      Teste de reentrância exercita o handler 2x (mock: `confirmado` depois `ja_processado`) — ambas 200,
+      `registrarChargeback` chamado exatamente 2x, nenhuma lança. RESSALVA (CB-002/REL-001): o teste
+      prova o mapeamento do handler, NÃO a serialização SQL real (sem Postgres local); o lock é validado
+      só por revisão manual. O ledger não tem UNIQUE de deduplicação — a idempotência apoia-se só no
+      estado do pedido (mesma dívida LOW da 7.5).
+  AC4:
+    status: MET
+    method: test
+    evidence: >-
+      @qa reexecutou direto (sem cache Turbo): `pnpm --filter @keepit/supabase test` → 50/50 PASS
+      (asaas-payment-webhook/handler.test.ts 20 = 11 da 7.5 INALTERADOS + 9 novos de chargeback;
+      create-pix-payment 15; _shared/asaas 15). `tsc --noEmit` exit 0 em `apps/supabase` e
+      `packages/shared-types`. Novos casos cobrem: chargeback feliz (mapeia `confirmado`→200 e chama
+      `registrarChargeback` com o par correto), reentrância/idempotência (`confirmado`→`ja_processado`,
+      ambas 200, 2 chamadas), auth ausente/inválida no caminho chargeback (401, repo nunca chamado),
+      `pedido_nao_encontrado`→200, payload sem id/externalRef→`payload_invalido`, falha da RPC→502
+      (`CHARGEBACK_FALHOU`), `PAYMENT_REFUNDED`→`evento_ignorado` (fora de escopo), evento de pagamento
+      inalterado mesmo com o repo de chargeback presente. Todos 100% offline (mock de `PagamentosRepo`,
+      sem rede/Postgres).
+
+top_issues:
+  - id: 'CB-001'
+    severity: low
+    finding: >-
+      A idempotência é por EXCLUSÃO de status (`IF v_status = 'estornado_chargeback' THEN
+      ja_processado`), então o débito de R$ 40 + a falha são aplicados para QUALQUER outro status,
+      inclusive estados já terminais/estornados (`cancelado`, `recusado`, `cancelado_atraso`,
+      `nao_entregue_lojista`) ou até `aguardando_pagamento`. Um chargeback que chegue sobre um pedido
+      já cancelado/reembolsado sobrescreveria o status para `estornado_chargeback` e ainda cobraria a
+      taxa. No piloto isso é largamente teórico (nenhum fluxo hoje estorna de verdade via Asaas — o
+      Épico 6 cancela/reembolsa localmente sem chamar o gateway, e um chargeback pressupõe um pagamento
+      real, logo `asaas_payment_id` populado), e o próprio design da Story é intencional ("um chargeback
+      pode chegar em qualquer fase pós-pagamento"). Não é furo de idempotência (a reentrega É protegida
+      pelo lock + guarda de status); é uma abertura semântica na regra de negócio de QUANDO aplicar a
+      penalidade.
+    suggested_action: >-
+      Aceitável no piloto — documentar. Na story de religamento ponta-a-ponta (pós ASAAS-1/ASAAS-2),
+      confirmar com o stakeholder se um chargeback sobre pedido já cancelado/reembolsado deve mesmo
+      debitar R$ 40 ou se deve haver uma lista de estados-terminais que também curto-circuitam para
+      `ja_processado`/`ignorado`. Se sim, é uma cláusula localizada (`IF v_status IN (...terminais...)`)
+      antes do UPDATE.
+  - id: 'REL-001'
+    severity: low
+    finding: >-
+      A serialização que sustenta a idempotência (`SELECT ... FOR UPDATE` + checagem de status na mesma
+      transação) só existe no SQL da RPC, que NÃO é exercitado por nenhum teste — não há Postgres local
+      no ambiente. O teste de reentrância prova só que o handler mapeia `confirmado`/`ja_processado`→200.
+      Além disso o ledger não tem UNIQUE de deduplicação (ex.: `(pedido_id, tipo) WHERE tipo do débito`)
+      — a idempotência apoia-se exclusivamente no estado do pedido. Carry-forward idêntico ao REL-001
+      da 7.5.
+    suggested_action: >-
+      Aceitável no piloto (SQL revisto linha a linha; padrão espelha `confirmar_pagamento_pedido`). Ao
+      aplicar a migration no keepit-dev, rodar um teste de concorrência manual (2 chamadas simultâneas
+      ao mesmo chargeback) e conferir 1 único `merchant_credit -4000` no ledger + 1 única linha em
+      `estabelecimentos_falhas`.
+  - id: 'DEPLOY-001'
+    severity: low
+    finding: >-
+      A migration `20260814000006_rpc_registrar_chargeback_pedido.sql` ainda não foi aplicada no
+      keepit-dev (untracked no git; aplicação out-of-band via MCP por @devops/@aiox-master, pode
+      aparecer com timestamp divergente do arquivo versionado — débito de deploy conhecido do projeto,
+      não é blocker do gate de código). A fatia fica DORMANT até o webhook estar registrado no Asaas
+      com o evento `PAYMENT_CHARGEBACK_REQUESTED` assinado (ASAAS-1/ASAAS-2).
+    suggested_action: >-
+      Aplicar via MCP junto da story de religamento, com `get_advisors(type=security)` para confirmar o
+      GRANT restrito a service_role e ausência de RLS-gap na nova função. Confirmar que
+      `PAYMENT_CHARGEBACK_REQUESTED` está na lista de eventos assinados do webhook Asaas.
+  - id: 'SEC-001'
+    severity: low
+    finding: >-
+      Herdado da 7.5 (handler inalterado nesse ponto): a comparação do token
+      (`input.headerToken !== deps.webhookToken`) é string plain, não timing-safe. A missão registra
+      que timing-safe não é exigido no piloto.
+    suggested_action: >-
+      Aceitável no piloto. Antes de produção real, trocar por comparação constant-time
+      (`crypto.timingSafeEqual` sobre buffers de mesmo tamanho, com guarda de tamanho).
+  - id: 'PROC-001'
+    severity: low
+    finding: >-
+      Story transicionou Draft → InReview sem `@po *validate-story-draft` formal (execução YOLO direta).
+      @dev não alterou AC/escopo (sem autoridade). Story bem-formada, testável e exaustivamente
+      reconciliada com o épico (SQL da RPC e contrato TS já fechados pelo @sm). Mesmo padrão da 7.5.
+    suggested_action: >-
+      Aceitável (escopo técnico delimitado, "nenhuma pergunta de regra de negócio nova"). Rodar `@po`
+      retroativo se o processo de auditoria exigir.
+
+evidence:
+  files_reviewed: 9
+  files:
+    - 'apps/supabase/supabase/migrations/20260814000006_rpc_registrar_chargeback_pedido.sql (RPC nova)'
+    - 'apps/supabase/supabase/functions/asaas-payment-webhook/handler.ts (estendido, auth-first 2 caminhos)'
+    - 'apps/supabase/supabase/functions/asaas-payment-webhook/index.ts (repo registrarChargeback via rpc)'
+    - 'apps/supabase/supabase/functions/asaas-payment-webhook/handler.test.ts (20 testes: 11 da 7.5 inalterados + 9)'
+    - 'packages/shared-types/src/supabase.ts (entrada registrar_chargeback_pedido em Functions:)'
+    - 'apps/supabase/supabase/migrations/20260813050000_criar_lancamentos_financeiros.sql (schema/CHECK ledger, referência)'
+    - 'apps/supabase/supabase/migrations/20260813050001_criar_view_carteira_lojista.sql (agregação total_debitado/saldo, referência)'
+    - 'apps/supabase/supabase/migrations/20260813070005_criar_estabelecimentos_falhas.sql (CHECK tipo=chargeback, NOT NULL, referência)'
+    - 'apps/supabase/supabase/migrations/20260813004932_criar_pedidos.sql (status estornado_chargeback no CHECK, referência)'
+  tests_reviewed: >-
+    Reexecutados direto por @qa (não via cache Turbo): `pnpm --filter @keepit/supabase test` →
+    50/50 PASS (asaas-payment-webhook/handler.test.ts 20, create-pix-payment/config.test.ts 8,
+    create-pix-payment/handler.test.ts 7, _shared/asaas.test.ts 15). `tsc --noEmit` exit 0 em
+    apps/supabase e packages/shared-types. Todos 100% offline (mock de PagamentosRepo, sem rede/Postgres).
+  security_review: >-
+    (1) Auth é a 1ª instrução do handler, fail-closed, ANTES de qualquer método do repo, cobrindo os 2
+    caminhos — provado por 4 testes com repo que lança se chamado. (2) RPC `SECURITY DEFINER` +
+    `search_path=''` + REVOKE PUBLIC/anon/authenticated + GRANT service_role (2ª RPC do projeto assim);
+    nunca chamável por usuário logado. (3) Sem SQL injection: parâmetros bindados; a única concatenação
+    (`|| p_asaas_payment_id`) alimenta um VALUE de texto (detalhes), não SQL dinâmico (sem EXECUTE);
+    `p.id::text = p_external_reference` compara texto, nunca `::uuid` no parâmetro externo. (4)
+    `service_role` só no index.ts; handler.ts nunca importa Deno nem lê env. GAP residual: token não
+    timing-safe (SEC-001, herdado, low).
+  migration_safety: >-
+    RPC forward-only, `CREATE OR REPLACE`, sem tocar tabela/dados. Débito `merchant_credit -4000` +
+    falha `tipo='chargeback'` conferidos contra os CHECKs reais (válidos). A view carteira_lojista
+    reflete o débito por construção, sem alteração nela. Nenhuma tabela `debitos_lojista` criada
+    (grep confirma: o nome só aparece nos comentários da própria migration explicando por que NÃO é
+    criada). Migration 000005 (7.5) e todas as RPCs/migrations existentes INTOCADAS (git status). NÃO
+    aplicada ainda no keepit-dev (DEPLOY-001, esperado).
+  risk_summary: >-
+    Baixo. Extensão server-side pequena, conservadora, sem chamada de rede em teste, contrato de erro
+    robusto e não-regressão da 7.5 reforçada (fakes cruzados que lançam se o caminho errado for
+    acionado). Os 4 pontos que a missão exigiu (não-regressão + auth-first; schema real vs. RPC;
+    segurança da RPC; idempotência via lock) estão fechados e revistos. Riscos abertos: CB-001 (abertura
+    semântica da checagem por exclusão — não é furo de idempotência) e REL-001 (serialização SQL não
+    exercitada por teste), ambos LOW; demais LOW são herdados da 7.5.
+
+recommendation: >-
+  Aprovar avanço da 7.11 para Done. Todos os 4 ACs MET; os 4 focos de verificação da missão fechados no
+  nível de código e reexecutados por @qa (50/50 vitest + tsc limpo). Nenhuma tabela `debitos_lojista`
+  criada; débito via `merchant_credit -4000`/`disponivel_em=NULL` refletido automaticamente pela view;
+  falha `tipo='chargeback'` gravada; GRANT restrito a service_role; idempotência por `FOR UPDATE` +
+  guarda de status. Follow-ups LOW: (CB-001) confirmar com o stakeholder, na story de religamento, se o
+  chargeback deve debitar mesmo sobre pedidos já terminais/reembolsados; (REL-001) validar a serialização
+  contra Postgres real ao aplicar a migration; (DEPLOY-001) aplicar via MCP + get_advisors e registrar o
+  evento no webhook Asaas; (SEC-001) token constant-time antes de produção.

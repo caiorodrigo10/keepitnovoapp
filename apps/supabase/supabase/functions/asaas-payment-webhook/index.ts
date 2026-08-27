@@ -1,17 +1,19 @@
 /**
  * Entrypoint `Deno.serve` da Edge Function `asaas-payment-webhook` — Story 7.5
- * (AC1, AC3).
+ * (AC1, AC3), ESTENDIDO pela Story 7.11 (AC1, AC2) para o evento
+ * `PAYMENT_CHARGEBACK_REQUESTED`.
  *
  * Fino de propósito: lê o header `asaas-access-token` e o body JSON da
  * requisição, lê `ASAAS_WEBHOOK_TOKEN`/`SUPABASE_URL`/
  * `SUPABASE_SERVICE_ROLE_KEY` de `Deno.env`, monta um client Supabase real
- * com a `service_role` key, implementa o repositório injetado chamando a RPC
- * `confirmar_pagamento_pedido` via `supabase.rpc(...)`, chama o handler puro
- * (`handleAsaasWebhook`, testado via Vitest em `handler.test.ts`) e traduz o
- * resultado em uma resposta HTTP. Este arquivo usa `Deno.serve`/`Deno.env` e
- * por isso NÃO é exercitado por Vitest (ver `_shared/deno-globals.d.ts` para
- * a declaração ambiente mínima que permite `tsc --noEmit` typechecar este
- * arquivo sob Node).
+ * com a `service_role` key, implementa o repositório injetado chamando as RPCs
+ * `confirmar_pagamento_pedido` (7.5) e `registrar_chargeback_pedido` (7.11)
+ * via `supabase.rpc(...)`, chama o handler puro (`handleAsaasWebhook`,
+ * testado via Vitest em `handler.test.ts`) e traduz o resultado em uma
+ * resposta HTTP. Este arquivo usa `Deno.serve`/`Deno.env` e por isso NÃO é
+ * exercitado por Vitest (ver `_shared/deno-globals.d.ts` para a declaração
+ * ambiente mínima que permite `tsc --noEmit` typechecar este arquivo sob
+ * Node).
  *
  * Diferente da 7.2, não há `config.ts` dedicado nesta Story — não há lógica
  * condicional de derivação (só leituras diretas de env), então essas
@@ -26,7 +28,7 @@ import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@keepit/shared-types';
 
 import { handleAsaasWebhook } from './handler';
-import type { PagamentosRepo, ResultadoConfirmacao } from './handler';
+import type { PagamentosRepo, ResultadoChargeback, ResultadoConfirmacao } from './handler';
 
 function createPagamentosRepo(supabase: ReturnType<typeof createClient<Database>>): PagamentosRepo {
   return {
@@ -41,6 +43,22 @@ function createPagamentosRepo(supabase: ReturnType<typeof createClient<Database>
       const row = data?.[0];
       return {
         resultado: (row?.resultado ?? 'pedido_nao_encontrado') as ResultadoConfirmacao,
+        pedidoId: row?.pedido_id ?? null,
+      };
+    },
+
+    // NOVO — Story 7.11.
+    async registrarChargeback({ asaasPaymentId, externalReference }) {
+      const { data, error } = await supabase.rpc('registrar_chargeback_pedido', {
+        p_asaas_payment_id: asaasPaymentId,
+        p_external_reference: externalReference,
+      });
+      if (error) {
+        throw new Error(`[asaas-payment-webhook] RPC registrar_chargeback_pedido falhou: ${error.message}`);
+      }
+      const row = data?.[0];
+      return {
+        resultado: (row?.resultado ?? 'pedido_nao_encontrado') as ResultadoChargeback,
         pedidoId: row?.pedido_id ?? null,
       };
     },

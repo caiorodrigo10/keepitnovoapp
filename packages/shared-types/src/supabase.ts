@@ -870,6 +870,14 @@ export type Database = {
         Args: { p_motivo: string; p_pedido_id: string }
         Returns: string
       }
+      // Story 7.11 — RPC nova (20260814000006_rpc_registrar_chargeback_pedido.sql).
+      // Chamada só pela Edge Function asaas-payment-webhook (service_role),
+      // evento PAYMENT_CHARGEBACK_REQUESTED. Mesmo padrão de
+      // confirmar_pagamento_pedido (7.5).
+      registrar_chargeback_pedido: {
+        Args: { p_asaas_payment_id: string; p_external_reference?: string | null }
+        Returns: { resultado: string; pedido_id: string | null }[]
+      }
       rejeitar_lojista: {
         Args: { p_estab_id: string; p_motivo: string }
         Returns: string

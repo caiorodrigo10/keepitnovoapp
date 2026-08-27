@@ -1,9 +1,15 @@
 # `asaas-payment-webhook` — Edge Function
 
 Recebe e valida o webhook `PAYMENT_RECEIVED`/`PAYMENT_CONFIRMED` do Asaas,
-avançando o pedido para `aguardando_aceite` de forma segura e idempotente.
-Ver Story 7.5 (`docs/stories/7.5.story.md`) para o contexto completo — este
-README cobre só "como rodar/testar", não repete os Dev Notes.
+avançando o pedido para `aguardando_aceite` de forma segura e idempotente
+(Story 7.5). ESTENDIDA pela Story 7.11 para também tratar
+`PAYMENT_CHARGEBACK_REQUESTED`: marca o pedido `estornado_chargeback`,
+debita R$ 40 do lojista (`merchant_credit` negativo em
+`lancamentos_financeiros`) e registra a falha (`estabelecimentos_falhas`,
+`tipo='chargeback'`), de forma igualmente idempotente.
+Ver Story 7.5 (`docs/stories/7.5.story.md`) e Story 7.11
+(`docs/stories/7.11.story.md`) para o contexto completo — este README cobre
+só "como rodar/testar", não repete os Dev Notes.
 
 ## Fluxo
 
@@ -15,12 +21,16 @@ README cobre só "como rodar/testar", não repete os Dev Notes.
    um client Supabase real com a `service_role` key.
 3. `handler.ts#handleAsaasWebhook` (puro, testado via Vitest): valida o
    token (AUTHZ-001, ANTES de qualquer acesso ao repositório) → parse
-   defensivo do payload → filtra evento tratado → chama
-   `deps.pedidos.confirmarPagamento(...)`.
+   defensivo do payload → filtra o grupo de evento tratado → chama
+   `deps.pedidos.confirmarPagamento(...)` (`PAYMENT_RECEIVED`/
+   `PAYMENT_CONFIRMED`) ou `deps.pedidos.registrarChargeback(...)`
+   (`PAYMENT_CHARGEBACK_REQUESTED`, Story 7.11). `PAYMENT_REFUNDED` fica fora
+   de escopo (evento ignorado, 200).
 4. `index.ts` chama a RPC `confirmar_pagamento_pedido` (migration
    `20260814000005`, `SECURITY DEFINER`, `FOR UPDATE`, `GRANT` só a
-   `service_role`) via `supabase.rpc(...)` e traduz o resultado em `200`
-   (sempre, para os casos de negócio) ou `401`/`502`.
+   `service_role`) ou `registrar_chargeback_pedido` (migration
+   `20260814000006`, mesmo padrão) via `supabase.rpc(...)` e traduz o
+   resultado em `200` (sempre, para os casos de negócio) ou `401`/`502`.
 
 ## Decisão de arquitetura: testes em Vitest, não `deno test`
 
@@ -42,14 +52,18 @@ pnpm --filter @keepit/supabase test
 cd apps/supabase && pnpm vitest run
 ```
 
-Isso roda `handler.test.ts` (10 casos — auth ok/ausente/inválida/env vazio,
-`PAYMENT_RECEIVED`/`PAYMENT_CONFIRMED` felizes, reentrância/idempotência,
-pedido não encontrado, payload inválido/malformado, evento não tratado,
-falha da RPC → 502) — todos 100% offline (nenhuma chamada de rede real,
-`pedidos` sempre um fake injetado). A RPC em si (SQL) não é exercitada por
-Vitest (sem Postgres local no ambiente de execução) — fica coberta por
-revisão manual + o handler testado com o repositório mockado simulando os 3
-resultados possíveis da RPC.
+Isso roda `handler.test.ts` — 11 casos da Story 7.5 (auth ok/ausente/
+inválida/env vazio, `PAYMENT_RECEIVED`/`PAYMENT_CONFIRMED` felizes,
+reentrância/idempotência, pedido não encontrado, payload inválido/
+malformado, evento não tratado, falha da RPC → 502), inalterados, mais os
+casos novos da Story 7.11 (chargeback feliz, reentrância/idempotência sem
+2º débito, auth inválida cobrindo `registrarChargeback`, pedido não
+encontrado, payload inválido, falha da RPC → 502, `PAYMENT_REFUNDED`
+ignorado, evento de pagamento inalterado) — todos 100% offline (nenhuma
+chamada de rede real, `pedidos` sempre um fake injetado). As RPCs em si
+(SQL) não são exercitadas por Vitest (sem Postgres local no ambiente de
+execução) — ficam cobertas por revisão manual + o handler testado com o
+repositório mockado simulando os resultados possíveis de cada RPC.
 
 ## Como testar manualmente contra o sandbox real
 
