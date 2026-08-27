@@ -1,0 +1,221 @@
+schema: 1
+story: '7.2'
+story_title: 'Criar cobrança PIX ao criar pedido (Edge Function `create-pix-payment` + PaymentPort)'
+gate: CONCERNS
+status_reason: >-
+  Fatia de infraestrutura de cobrança PIX real bem executada e cirurgicamente isolada. CARRY-001
+  da Story 7.1 está FECHADO e provado por teste: `resolveAsaasConfig` cai em sandbox para
+  ausente/vazio/desconhecido, só vai a produção com `ASAAS_ENVIRONMENT==='production'` exato ou
+  `ASAAS_BASE_URL` explícito (8 casos verdes, incl. typo→sandbox). Migration correta: 3 colunas
+  nullable, `asaas_payment_id` UNIQUE + índice parcial, flip do DEFAULT de status documentado e
+  comprovadamente inócuo — TODAS as 4 versões da RPC de criar pedido (não só as 2 citadas pela
+  story) gravam 'aguardando_aceite' literal no INSERT, nenhuma depende do DEFAULT; nenhuma RPC foi
+  tocada (git confirma). Idempotência do handler verificada com `asaasClient` que falha se chamado.
+  Não-regressão do mock preservada (wiring gated por `isSupabaseDataSource()`; pagamentoSimulado
+  intacto). Segurança de segredos limpa: `service_role` só no `index.ts`; adapter do app usa anon
+  client; nenhum `console.*` vaza `apiKey`. Gate do repo reexecutado sem cache por @qa: 30/30
+  vitest apps/supabase + 526/526 core-data PASS; typecheck fresh exit 0 nos 4 workspaces tocados.
+  CONCERNS (não bloqueia → Done): a Edge Function não valida ownership do pedido — qualquer chamador
+  com a anon key pública + um `pedido_id` pode disparar cobrança e ler o PIX (MEDIUM, contido por
+  UUID/sandbox, endereçar antes do PIX real na 7.5+); idempotência não cobre falha parcial
+  (cobrança criada mas persistência falha → duplicata na 2ª chamada); flip do DEFAULT é latente sem
+  a 7.5; validação @po formal pulada (Draft → InReview).
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-08-27T00:00:00Z'
+
+waiver: { active: false }
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static+test
+    evidence: >-
+      Migration `20260814000004_pedidos_add_asaas_pix.sql`: 3 colunas nullable
+      (asaas_payment_id text UNIQUE, qr_code_pix, pix_copia_e_cola), índice parcial
+      `idx_pedidos_asaas ON pedidos(asaas_payment_id) WHERE asaas_payment_id IS NOT NULL`, flip do
+      DEFAULT de status para 'aguardando_pagamento'. Cabeçalho SQL (linhas 1-40) documenta por que
+      o flip é seguro e o que falta (7.5) para "valer". Sem RLS nova — escrita via service_role
+      (bypassa RLS), mesmo padrão das RPCs SECURITY DEFINER. @qa confirmou empiricamente a premissa
+      de segurança do flip: as 4 migrations de RPC de criação (004934, 050002, 060000 sec006,
+      070003 bloqueio_cliente) gravam 'aguardando_aceite' LITERAL no VALUES — nenhuma depende do
+      DEFAULT. Nenhum outro INSERT em pedidos no repo; sem seeds SQL de pedidos. Colunas espelhadas
+      em `shared-types/src/supabase.ts` (Row/Insert/Update, linhas 471-560).
+  AC2:
+    status: MET
+    method: test
+    evidence: >-
+      `create-pix-payment/config.ts#resolveAsaasConfig(env: EnvReader)` é função pura, sem `Deno`
+      (só `index.ts` faz a ponte `Deno.env.get`). `ASAAS_BASE_URL` (não-vazio após trim) sempre
+      vence, sem barra final; senão deriva de `ASAAS_ENVIRONMENT` — `=== 'production'` → base prod,
+      QUALQUER outro valor → sandbox (default seguro). config.test.ts: 8 casos verdes (ausente,
+      sandbox explícito, production, typo→sandbox, ASAAS_BASE_URL sobrepondo production, trim+barra
+      final, só-espaços→ignorada, API_KEY ausente→''). FECHA CARRY-001 da Story 7.1 — o default de
+      segurança "nunca produção por omissão" agora vive em código testado.
+  AC3:
+    status: MET
+    method: static+test
+    evidence: >-
+      `PaymentPort.criarCobrancaPix(pedidoId, options?)` → `PixChargeResult` (payment.port.ts).
+      Mock (payment.mock.ts): QR fake determinístico via FNV-1a local (não importa de apps/cliente
+      — direção de dependência respeitada), `Map` interno idempotente, lança `[mock]` para pedido
+      desconhecido (paridade com o 404 do handler; [AUTO-DECISION] desempata a redação contraditória
+      do AC — @qa concorda). Supabase (payment.supabase.ts): 1ª chamada a `functions.invoke` do
+      repo; trata `error` do SDK e `data:{error}` do corpo, sempre lançando Error legível (nunca o
+      objeto cru). 4 testes mock + 4 supabase verdes. Wire em index.ts nos 2 branches + `export *`.
+  AC4:
+    status: MET
+    method: static+test
+    evidence: >-
+      `handler.ts#handleCreatePixPayment(input, deps)` puro (nunca importa Deno); `PedidosRepo`
+      próprio do módulo (não SupabaseClient). Fluxo: 404 PEDIDO_NAO_ENCONTRADO → idempotência (3
+      colunas presentes retorna sem tocar asaasClient) → 422 CLIENTE_SEM_CPF → criarCliente →
+      criarCobranca (PIX, value=total_pago_reais, dueDate=now() YYYY-MM-DD, externalReference=id) →
+      obterQrCodePix → salvarCobrancaPix. Cada falha do Asaas propaga erro tipado sem seguir
+      adiante. handler.test.ts: 7 testes incl. idempotência com `asaasClientThatFailsIfCalled` e 1
+      teste por etapa falhando (asserta que as seguintes NÃO são chamadas). `index.ts` fino:
+      valida body.pedido_id (400 se ausente/não-string), monta resolveAsaasConfig+createAsaasClient
+      +client service_role, traduz resultado→HTTP. `deno-globals.d.ts` permite tsc sob Node.
+  AC5:
+    status: MET
+    method: static
+    evidence: >-
+      Pagamento.tsx#handlePagar: após `order.create` e SÓ com `isSupabaseDataSource()`, chama
+      `await client.payment.criarCobrancaPix(pedido.id)` em try/catch best-effort (console.warn),
+      FORA do try/catch de erro visível existente — não aciona setErro, não bloqueia a navegação
+      para ModalPagamentoPix/ModalProcessandoPagamento. Em modo mock a chamada não ocorre (gated);
+      nenhuma linha de comportamento observável muda. ModalPagamentoPix segue usando pixCopiaCola
+      fake (troca do QR real fora de escopo, deferida à 7.5).
+  AC6:
+    status: MET
+    method: test
+    evidence: >-
+      23 testes novos (8 config + 7 handler + 4 payment.mock + 4 payment.supabase). @qa reexecutou
+      sem cache: `pnpm --filter @keepit/supabase test` = 30/30 PASS (inclui os 15 novos + 15 da
+      7.1); `pnpm --filter @keepit/core-data test` = 526/526 PASS. Typecheck fresh (tsc --noEmit)
+      exit 0 em apps/supabase, packages/core-data, apps/cliente, packages/shared-types. `pnpm qa`
+      na raiz retornou FULL TURBO (27/27 cache) — por isso a reexecução direta por pacote foi feita.
+
+top_issues:
+  - id: 'AUTHZ-001'
+    severity: medium
+    category: security
+    finding: >-
+      A Edge Function `create-pix-payment` não verifica ownership do pedido nem lê o header
+      Authorization — não há bloco `[functions.create-pix-payment]` no config.toml (verify_jwt
+      default) e o README exemplifica invocação com a anon key pública. Consequência: qualquer
+      chamador com a anon key (embarcada no app) + um `pedido_id` pode disparar a criação de uma
+      cobrança Asaas para qualquer pedido e ler de volta `qr_code_pix`/`pix_copia_e_cola`. Impacto
+      contido no piloto (ids são UUID não-enumeráveis, sandbox, sem dinheiro real, chamada
+      best-effort não exibida ao usuário), mas é um endpoint de pagamento sem autorização própria.
+    suggested_action: >-
+      Antes de ligar PIX real (Story 7.5+): validar no `index.ts` que o `auth.uid()` do JWT é o
+      dono do pedido (join pedidos.cliente_id = auth cliente) OU restringir a invocação a
+      service_role/contexto server-side. Não bloqueia a 7.2 (infra em sandbox), mas deve virar AC
+      de segurança da 7.5.
+  - id: 'IDEMP-001'
+    severity: low
+    category: reliability
+    finding: >-
+      A idempotência do handler só dispara quando as 3 colunas já estão persistidas. Se
+      `criarCobranca` tiver sucesso mas `salvarCobrancaPix` falhar (ou o processo morrer antes de
+      persistir), uma 2ª chamada refaz criarCliente+criarCobranca, criando uma cobrança (e customer)
+      Asaas DUPLICADA — a 1ª fica órfã. A story documenta o tradeoff (múltiplos customers por
+      cliente aceitável no piloto), mas a duplicação por falha parcial de persistência não é citada.
+    suggested_action: >-
+      Na 7.5 (ou story de religamento), tornar a idempotência real: consultar o Asaas por
+      `externalReference = pedido.id` antes de recriar, ou reservar o asaas_payment_id antes de
+      chamar obterQrCodePix. Risco baixo no piloto (sandbox, baixo volume).
+  - id: 'SEQ-001'
+    severity: low
+    category: architecture
+    finding: >-
+      O flip do DEFAULT de status para 'aguardando_pagamento' é hoje um footgun latente: como a
+      7.5/webhook ainda não existe, qualquer NOVO caminho de INSERT em pedidos que venha a omitir
+      status (nenhum existe hoje — verificado) criaria pedidos presos sem caminho de confirmação.
+      Flipar agora não traz nenhum benefício funcional (nada lê o DEFAULT), só alinhamento ao §5.1.
+    suggested_action: >-
+      Aceitável dado o comentário SQL exaustivo no cabeçalho da migration. Alternativa mais segura
+      seria flipar o DEFAULT junto com a edição das RPCs na 7.5 (mudança atômica DEFAULT+RPC+webhook).
+      Sem ação obrigatória nesta story.
+  - id: 'TRACE-001'
+    severity: low
+    category: docs
+    finding: >-
+      O argumento de não-regressão da story cita só 2 das 4 migrations de RPC de criação de pedido
+      (004934, 050002). Existem duas versões mais recentes e provavelmente ativas (060000 sec006,
+      070003 bloqueio_cliente). @qa verificou: AS QUATRO gravam 'aguardando_aceite' literal — a
+      conclusão de segurança do flip permanece válida; é só incompletude de documentação.
+    suggested_action: >-
+      Nenhuma ação obrigatória. Se as RPCs forem editadas na 7.5, editar as 4 versões (ou consolidar
+      numa só) para não deixar uma variante ativa gravando o status antigo.
+  - id: 'PROC-001'
+    severity: low
+    category: process
+    finding: >-
+      Story transicionou Draft → InProgress → InReview sem `@po *validate-story-draft` formal
+      (missão instruiu execução direta do Draft). @dev não alterou AC/escopo (sem autoridade). Story
+      bem-formada e testável.
+    suggested_action: >-
+      Aceitável (escopo técnico delimitado, sem regra de negócio nova — a própria story declara
+      "Nenhuma pergunta de regra de negócio nova"). Rodar `@po` retroativo se o processo exigir.
+  - id: 'TEST-001'
+    severity: low
+    category: tests
+    finding: >-
+      Herdado da 7.1: o runtime de produção do `index.ts` é o Edge Runtime (Deno) mas os testes
+      rodam sob Node/Vitest. `index.ts` não é exercitado por teste (usa Deno.serve/Deno.env) — só
+      revisão manual + os testes do handler puro o cobrem indiretamente. Código usa fetch/Response
+      padrão; portabilidade alta.
+    suggested_action: >-
+      Quando `deno` estiver no CI, adicionar `deno test`/`deno check` sobre a Edge Function. Não
+      bloqueia. Verificação manual contra sandbox real permanece bloqueada por ASAAS-1/ASAAS-2.
+
+evidence:
+  files_reviewed: 13
+  files:
+    - 'apps/supabase/supabase/migrations/20260814000004_pedidos_add_asaas_pix.sql'
+    - 'apps/supabase/supabase/functions/_shared/deno-globals.d.ts'
+    - 'apps/supabase/supabase/functions/create-pix-payment/config.ts (+ config.test.ts, 8 testes)'
+    - 'apps/supabase/supabase/functions/create-pix-payment/handler.ts (+ handler.test.ts, 7 testes)'
+    - 'apps/supabase/supabase/functions/create-pix-payment/index.ts (entrypoint Deno.serve)'
+    - 'apps/supabase/supabase/functions/create-pix-payment/README.md'
+    - 'packages/core-data/src/ports/payment.port.ts'
+    - 'packages/core-data/src/mock/payment.mock.ts (+ payment.mock.test.ts, 4 testes)'
+    - 'packages/core-data/src/supabase/payment.supabase.ts (+ payment.supabase.test.ts, 4 testes)'
+    - 'packages/core-data/src/index.ts (wire de payment nos 2 branches + export)'
+    - 'apps/cliente/src/screens/home/Pagamento.tsx (wiring best-effort AC5)'
+    - 'packages/shared-types/src/supabase.ts (pedidos Row/Insert/Update + 3 colunas)'
+    - 'apps/supabase/package.json (deps @supabase/supabase-js + @keepit/shared-types)'
+  tests_reviewed: >-
+    Reexecutados sem cache por @qa: `pnpm --filter @keepit/supabase test` → 30/30 PASS (config 8 +
+    handler 7 + asaas 15); `pnpm --filter @keepit/core-data test` → 526/526 PASS (payment.mock 4 +
+    payment.supabase 4 entre eles). Typecheck fresh (tsc --noEmit): exit 0 em apps/supabase (com
+    index.ts Deno.serve/Deno.env via deno-globals.d.ts), packages/core-data, apps/cliente,
+    packages/shared-types. `pnpm qa` raiz = FULL TURBO (cache) — não usado como autoridade.
+  security_review: >-
+    (1) `service_role` só aparece em index.ts (linhas 102-103) e no README — nunca em handler.ts,
+    config.ts ou no adapter do app payment.supabase.ts (que usa createClient de
+    @keepit/supabase-client, anon, client-side). Nenhum service_role no bundle dos apps. (2) Nenhum
+    `console.*` loga apiKey/config — o único log (Pagamento.tsx:120) imprime o Error de mensagem
+    legível, sem segredo. handler asaasErrorToHandlerError só repassa status/code/message (o Asaas
+    nunca devolve apiKey no corpo de erro). (3) Input validado: index.ts rejeita body sem/inválido
+    pedido_id (400); handler valida existência do pedido e CPF presente. (4) GAP: sem verificação
+    de ownership do pedido na Edge Function — ver AUTHZ-001.
+  migration_safety: >-
+    Colunas nullable não quebram linhas existentes. UNIQUE em asaas_payment_id + índice parcial
+    (só indexa quem tem cobrança). Flip do DEFAULT PROVADO inócuo: 4/4 RPCs de criação gravam status
+    literal; 0 outros INSERT em pedidos no repo; 0 seeds SQL. Nenhuma RPC modificada (git status).
+    NOTA DE DEPLOY: aplicação da migration no keepit-dev é out-of-band (@devops/@aiox-master via
+    MCP) e pode aparecer com timestamp divergente do arquivo versionado — débito de deploy conhecido
+    do projeto, não é blocker do gate de código.
+  risk_summary: >-
+    Baixo-médio. Arquivos pequenos, bem isolados, sem chamada de rede real em teste, contrato de erro
+    robusto. CARRY-001 (o item de segurança financeira herdado) está fechado e testado. O risco
+    aberto mais relevante é AUTHZ-001 (endpoint de pagamento sem autorização própria) — contido no
+    piloto por UUID/sandbox/best-effort, mas MUST antes do PIX real na 7.5.
+
+recommendation: >-
+  Aprovar avanço da 7.2 para Done com os follow-ups registrados. AUTHZ-001 (ownership do pedido) e
+  IDEMP-001 (idempotência real por externalReference) devem virar ACs de segurança/confiabilidade
+  da Story 7.5 antes de qualquer cobrança PIX real ser exibida/confirmada. CARRY-001 da 7.1:
+  FECHADO nesta story.

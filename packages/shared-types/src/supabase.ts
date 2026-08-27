@@ -468,6 +468,7 @@ export type Database = {
       pedidos: {
         Row: {
           aceito_em: string | null
+          asaas_payment_id: string | null
           atualizado_em: string
           cancelado_em: string | null
           cliente_chegou_em: string | null
@@ -487,6 +488,8 @@ export type Database = {
           pin_bloqueado_ate: string | null
           pin_hash: string
           pin_texto: string
+          pix_copia_e_cola: string | null
+          qr_code_pix: string | null
           saiu_hub_em: string | null
           status: string
           subtotal_produtos_reais: number
@@ -499,6 +502,7 @@ export type Database = {
         }
         Insert: {
           aceito_em?: string | null
+          asaas_payment_id?: string | null
           atualizado_em?: string
           cancelado_em?: string | null
           cliente_chegou_em?: string | null
@@ -518,6 +522,8 @@ export type Database = {
           pin_bloqueado_ate?: string | null
           pin_hash: string
           pin_texto: string
+          pix_copia_e_cola?: string | null
+          qr_code_pix?: string | null
           saiu_hub_em?: string | null
           status?: string
           subtotal_produtos_reais: number
@@ -530,6 +536,7 @@ export type Database = {
         }
         Update: {
           aceito_em?: string | null
+          asaas_payment_id?: string | null
           atualizado_em?: string
           cancelado_em?: string | null
           cliente_chegou_em?: string | null
@@ -549,6 +556,8 @@ export type Database = {
           pin_bloqueado_ate?: string | null
           pin_hash?: string
           pin_texto?: string
+          pix_copia_e_cola?: string | null
+          qr_code_pix?: string | null
           saiu_hub_em?: string | null
           status?: string
           subtotal_produtos_reais?: number
