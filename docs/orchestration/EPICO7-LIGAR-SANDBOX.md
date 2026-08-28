@@ -57,6 +57,7 @@ A cadeia hoje está **dormente por design**: `criar_pedido` ainda grava `status=
   - **AUTHZ-001** — ownership/auth na `create-pix-payment` (hoje disparável com anon key).
   - **IDEMP-001** (parcial) — dedup por `externalReference` contra falha parcial de criação.
   - **CB-001** — confirmar com stakeholder quando aplicar a penalidade de chargeback (estados terminais).
+  - **QR-ASYNC-001** (achado do smoke test sandbox 2026-08-28) — logo após `criarCobranca`, o `GET /payments/{id}/pixQrCode` pode retornar `success:null` + campos `null` por um instante (QR gerado async). O handler `create-pix-payment` chama `obterQrCodePix` imediatamente → adicionar **retry/poll curto** (ex.: até 3 tentativas com backoff) antes de persistir/retornar. Sem isso, o primeiro pedido pode salvar `qr_code_pix`/`pix_copia_e_cola` nulos.
 
 ### 7. E2E sandbox (DoD do épico) — **@qa**
 PIX gera QR → paga no sandbox → webhook chega → pedido `aguardando_aceite` → PIN → carteira. Chargeback no sandbox → débito de R$40 reflete na `carteira_lojista`.
