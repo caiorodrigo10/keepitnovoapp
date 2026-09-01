@@ -383,6 +383,15 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# Story 7.5 — o Asaas chama este webhook SEM nenhum JWT do Supabase (só o
+# header próprio `asaas-access-token`, validado dentro do handler via
+# ASAAS_WEBHOOK_TOKEN — AC1/AC2). Sem `verify_jwt = false`, o gateway do
+# Supabase rejeitaria a chamada do Asaas com 401 ANTES do código desta
+# função rodar. Restrito a esta função — nenhuma outra Edge Function ganha
+# este bypass.
+[functions.asaas-payment-webhook]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

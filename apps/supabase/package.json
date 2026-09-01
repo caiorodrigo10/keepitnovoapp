@@ -6,7 +6,15 @@
     "dev": "echo \"supabase start (not yet configured)\"",
     "build": "echo skipped",
     "lint": "echo skipped",
-    "typecheck": "echo skipped",
-    "test": "echo skipped"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@keepit/shared-types": "workspace:*",
+    "@supabase/supabase-js": "^2.58.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vitest": "^1.2.0"
   }
 }

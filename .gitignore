@@ -37,6 +37,7 @@ Thumbs.db
 expo-env.d.ts
 
 # Supabase CLI local artifacts (Story 1.4)
+supabase/.temp/
 apps/supabase/supabase/.temp/
 apps/supabase/supabase/.branches/
 

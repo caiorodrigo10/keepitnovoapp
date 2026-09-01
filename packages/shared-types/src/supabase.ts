@@ -468,6 +468,7 @@ export type Database = {
       pedidos: {
         Row: {
           aceito_em: string | null
+          asaas_payment_id: string | null
           atualizado_em: string
           cancelado_em: string | null
           cliente_chegou_em: string | null
@@ -487,6 +488,8 @@ export type Database = {
           pin_bloqueado_ate: string | null
           pin_hash: string
           pin_texto: string
+          pix_copia_e_cola: string | null
+          qr_code_pix: string | null
           saiu_hub_em: string | null
           status: string
           subtotal_produtos_reais: number
@@ -499,6 +502,7 @@ export type Database = {
         }
         Insert: {
           aceito_em?: string | null
+          asaas_payment_id?: string | null
           atualizado_em?: string
           cancelado_em?: string | null
           cliente_chegou_em?: string | null
@@ -518,6 +522,8 @@ export type Database = {
           pin_bloqueado_ate?: string | null
           pin_hash: string
           pin_texto: string
+          pix_copia_e_cola?: string | null
+          qr_code_pix?: string | null
           saiu_hub_em?: string | null
           status?: string
           subtotal_produtos_reais: number
@@ -530,6 +536,7 @@ export type Database = {
         }
         Update: {
           aceito_em?: string | null
+          asaas_payment_id?: string | null
           atualizado_em?: string
           cancelado_em?: string | null
           cliente_chegou_em?: string | null
@@ -549,6 +556,8 @@ export type Database = {
           pin_bloqueado_ate?: string | null
           pin_hash?: string
           pin_texto?: string
+          pix_copia_e_cola?: string | null
+          qr_code_pix?: string | null
           saiu_hub_em?: string | null
           status?: string
           subtotal_produtos_reais?: number
@@ -753,6 +762,10 @@ export type Database = {
           tipo: string
         }[]
       }
+      confirmar_pagamento_pedido: {
+        Args: { p_asaas_payment_id: string; p_external_reference?: string | null }
+        Returns: { resultado: string; pedido_id: string | null }[]
+      }
       confirmar_pin_pedido: {
         Args: { p_pedido_id: string; p_pin: string }
         Returns: {
@@ -856,6 +869,14 @@ export type Database = {
       recusar_pedido: {
         Args: { p_motivo: string; p_pedido_id: string }
         Returns: string
+      }
+      // Story 7.11 — RPC nova (20260814000006_rpc_registrar_chargeback_pedido.sql).
+      // Chamada só pela Edge Function asaas-payment-webhook (service_role),
+      // evento PAYMENT_CHARGEBACK_REQUESTED. Mesmo padrão de
+      // confirmar_pagamento_pedido (7.5).
+      registrar_chargeback_pedido: {
+        Args: { p_asaas_payment_id: string; p_external_reference?: string | null }
+        Returns: { resultado: string; pedido_id: string | null }[]
       }
       rejeitar_lojista: {
         Args: { p_estab_id: string; p_motivo: string }

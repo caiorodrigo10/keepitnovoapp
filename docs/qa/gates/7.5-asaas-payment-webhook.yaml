@@ -1,0 +1,205 @@
+schema: 1
+story: '7.5'
+story_title: 'Webhook PAYMENT_RECEIVED (Edge Function asaas-payment-webhook + RPC confirmar_pagamento_pedido)'
+gate: CONCERNS
+status_reason: >-
+  Os dois carry-forwards do gate da 7.2 estão fechados e provados no nível de código: AUTHZ-001
+  (token `asaas-access-token` comparado fail-closed como PRIMEIRA instrução do handler, antes de
+  qualquer acesso ao repo — 3 testes com repo que lança se chamado) e IDEMP-001 (RPC com
+  `SELECT ... FOR UPDATE` + checagem de status na MESMA transação, `GRANT` só a `service_role`,
+  `verify_jwt=false` escopado só nesta função). `criar_pedido`/`confirmar_pin_pedido` intocadas
+  (git), `charge` no ledger idêntico ao padrão de `criar_pedido`. 41/41 vitest verdes + tsc limpo,
+  reexecutados direto por @qa. CONCERNS (não bloqueia → Done) por débitos LOW, todos herdados/
+  diferidos: a serialização SQL que sustenta IDEMP-001 nunca é exercitada por teste (sem Postgres
+  local — só revisão manual + handler com repo mockado); comparação de token não é timing-safe;
+  ledger sem guarda UNIQUE de deduplicação (idempotência apoia-se só no estado do pedido); migration
+  ainda não aplicada no keepit-dev (dormant + apply out-of-band); validação @po formal pulada.
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-08-27T00:00:00Z'
+
+waiver: { active: false }
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static+test
+    evidence: >-
+      `handler.ts` exporta `handleAsaasWebhook(input, deps)` puro — NUNCA importa `Deno` (as duas
+      ocorrências de "Deno" no arquivo são JSDoc, não código). `index.ts` é o entrypoint fino
+      `Deno.serve`: lê header `asaas-access-token` + body JSON, lê
+      `ASAAS_WEBHOOK_TOKEN`/`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` de `Deno.env`, monta client
+      `service_role` (autoRefreshToken:false/persistSession:false), implementa `PagamentosRepo` via
+      `supabase.rpc('confirmar_pagamento_pedido', ...)`, traduz resultado→HTTP. Reusa
+      `_shared/deno-globals.d.ts` (tsc --noEmit exit 0). `config.toml` tem um ÚNICO bloco
+      `[functions.*]` — `[functions.asaas-payment-webhook] verify_jwt = false` (linha 392) — com
+      comentário explicando o motivo; `create-pix-payment` permanece sem bloco (verify_jwt default,
+      coerente com o gate da 7.2). Sem `config.ts` dedicado (só leituras diretas de env — correto).
+  AC2:
+    status: MET
+    method: test
+    evidence: >-
+      AUTHZ-001 FECHADO no nível do webhook. `handler.ts:104` é a PRIMEIRA instrução:
+      `if (!deps.webhookToken || input.headerToken !== deps.webhookToken)` → 401
+      `{ok:false,error:{code:'TOKEN_INVALIDO'}}`, `deps.pedidos.confirmarPagamento` NUNCA chamado.
+      Fail-closed: `ASAAS_WEBHOOK_TOKEN` vazio nunca casa (o `!deps.webhookToken` curto-circuita
+      antes do `!==`, então header vazio + env vazio → 401). 3 testes provam com `repoThatFailsIfCalled`
+      (repo lança se invocado): token ausente (401), token errado (401), env vazio+header vazio
+      (401 fail-closed). Bate com `asaas-api-reference.md` §Webhooks linha 53 (comparar e rejeitar 401).
+  AC3:
+    status: MET
+    method: static+test
+    evidence: >-
+      RPC `confirmar_pagamento_pedido(p_asaas_payment_id text, p_external_reference text DEFAULT NULL)`
+      `SECURITY DEFINER` + `SET search_path=''` + `FOR UPDATE LIMIT 1`. Localiza por
+      `asaas_payment_id = p_asaas_payment_id OR (p_external_reference IS NOT NULL AND
+      p.id::text = p_external_reference)` — comparação de TEXTO (nunca `::uuid` no parâmetro), sem
+      risco de erro de cast por payload externo. Transição só de `aguardando_pagamento`; `UPDATE`
+      com backfill `asaas_payment_id = COALESCE(...)`. `INSERT` em `lancamentos_financeiros` de
+      `tipo='charge'`, `valor_centavos=(ROUND(COALESCE(v_total,0)*100))::bigint`, `status='concluido'`,
+      `asaas_id_externo=p_asaas_payment_id` — IDÊNTICO ao padrão de `charge` de `criar_pedido`
+      (070003 linhas 60-61); `disponivel_em` omitido → NULL (auditoria, Model B — correto, charge
+      não entra na carteira). `REVOKE ALL FROM PUBLIC/anon/authenticated` + `GRANT EXECUTE TO
+      service_role` (PRIMEIRA RPC do projeto restrita a service_role). Entrada em
+      `shared-types/src/supabase.ts:765-768` casa a assinatura (uuid→string). handler chama o repo
+      só após auth + parse + evento tratado + referência presente.
+  AC4:
+    status: MET
+    method: static+test
+    evidence: >-
+      IDEMP-001 FECHADO por construção. `SELECT ... FOR UPDATE` + `IF v_status <> 'aguardando_pagamento'
+      THEN ja_processado` na MESMA transação da RPC: sob READ COMMITTED, a 2ª entrega concorrente
+      bloqueia no lock, re-lê a linha commitada (já `aguardando_aceite`) e retorna `ja_processado`
+      sem 2º `UPDATE`/`INSERT` — sem duplicar charge nem transição. `asaas_payment_id` é UNIQUE (7.2)
+      e `externalReference=pedido.id` é único, logo `LIMIT 1` não colide na prática. Teste de
+      reentrância exercita o handler 2x (mock: `confirmado` depois `ja_processado`) — ambas 200,
+      nenhuma lança. RESSALVA (ver REL-001): o teste prova o mapeamento do handler, NÃO a serialização
+      SQL real (sem Postgres local); a garantia de lock é validada só por revisão manual.
+  AC5:
+    status: MET
+    method: test
+    evidence: >-
+      200 para confirmado/ja_processado/pedido_nao_encontrado/payload_invalido/evento_ignorado; 401
+      exclusivamente para auth; 502 quando o repo/RPC LANÇA (falha de infra — o Asaas deve re-tentar,
+      não mascarada como sucesso). Semântica coerente com `asaas-api-reference.md` linha 55 (não-2xx
+      → Asaas re-tenta): nenhum resultado de negócio resolve com retry, então todos são 2xx; só falha
+      transitória real devolve não-2xx. `pedido_nao_encontrado` gera `console.warn` sem vazar segredo.
+      Todos os 6 ramos cobertos por teste (payload sem id/externalRef e evento não tratado com
+      `repoThatFailsIfCalled`).
+  AC6:
+    status: MET
+    method: static
+    evidence: >-
+      `criar_pedido`/`confirmar_pin_pedido` NÃO foram tocadas — `git status` mostra apenas
+      `config.toml` + `shared-types/src/supabase.ts` modificados; a Edge Function nova, a migration
+      `20260814000005` e a story são untracked; nenhuma migration existente alterada. RPC dormant-safe:
+      como nenhum pedido nasce hoje em `aguardando_pagamento` (`criar_pedido` grava `aguardando_aceite`
+      literal + charge/platform_fee na criação), a cláusula `IF v_status <> 'aguardando_pagamento'`
+      garante `ja_processado` mesmo se a RPC for chamada por engano — nunca duplica o charge existente.
+      Modo mock nunca invoca esta função.
+  AC7:
+    status: MET
+    method: test
+    evidence: >-
+      @qa reexecutou direto (sem depender do cache Turbo): `pnpm --filter @keepit/supabase test` →
+      41/41 PASS (handler.test.ts 11 = os 9 casos do AC7 + body não-objeto + reentrância;
+      create-pix-payment 15; asaas 15). `tsc --noEmit` exit 0 em `apps/supabase` e
+      `packages/shared-types`. Todos os testes 100% offline (mock de `PagamentosRepo`, sem rede/Postgres).
+
+top_issues:
+  - id: 'REL-001'
+    severity: low
+    finding: >-
+      A serialização que sustenta IDEMP-001 (`SELECT ... FOR UPDATE` + checagem de status na mesma
+      transação) só existe no SQL da RPC, que NÃO é exercitado por nenhum teste — não há Postgres
+      local no ambiente. O teste de reentrância prova apenas que o handler mapeia corretamente os
+      resultados mockados da RPC para HTTP 200; a garantia real de lock/no-double-charge é validada
+      só por revisão manual. Além disso o ledger não tem restrição UNIQUE de deduplicação
+      (asaas_id_externo/pedido_id/tipo) — a idempotência apoia-se exclusivamente no estado do pedido.
+    suggested_action: >-
+      Aceitável no piloto (a lógica SQL foi revista linha a linha e o padrão espelha
+      `confirmar_pin_pedido`). Ao aplicar a migration no keepit-dev, rodar um teste de concorrência
+      manual (2 chamadas simultâneas ao mesmo evento) e conferir 1 único `charge` no ledger. Na story
+      de religamento, considerar um índice UNIQUE parcial em `lancamentos_financeiros(pedido_id, tipo)
+      WHERE tipo='charge'` como cinto-e-suspensório.
+  - id: 'SEC-001'
+    severity: low
+    finding: >-
+      A comparação do token (`input.headerToken !== deps.webhookToken`) é string plain, não
+      timing-safe (constant-time). Em tese permite um ataque de timing para inferir o segredo. A
+      própria missão registra que timing-safe não é exigido no piloto.
+    suggested_action: >-
+      Aceitável no piloto. Antes de produção real (pós ASAAS-1/ASAAS-2), trocar por comparação
+      constant-time (ex. `crypto.timingSafeEqual` sobre buffers de mesmo tamanho, com guarda de
+      tamanho para não vazar comprimento).
+  - id: 'DEPLOY-001'
+    severity: low
+    finding: >-
+      A migration `20260814000005` ainda não foi aplicada no keepit-dev (dormant por design — nenhum
+      pedido nasce em `aguardando_pagamento` até a story de religamento). Aplicação é out-of-band
+      (@devops/@aiox-master via MCP) e pode aparecer com timestamp divergente do arquivo versionado —
+      débito de deploy conhecido do projeto, não é blocker do gate de código.
+    suggested_action: >-
+      Aplicar via MCP quando a story de religamento for aberta, junto com `get_advisors(type=security)`
+      para confirmar o grant restrito a service_role e a ausência de RLS-gap na nova função.
+  - id: 'ARCH-001'
+    severity: low
+    finding: >-
+      A fatia inteira (Edge Function + RPC) fica DORMANT em produção até uma story futura editar
+      `criar_pedido` para nascer em `aguardando_pagamento` e parar de inserir charge na criação —
+      bloqueada por ASAAS-1/ASAAS-2 (sem sandbox aprovado não há teste ponta-a-ponta). Corretamente
+      documentado na story e no cabeçalho da migration; consistente com o racional SEQ-001 da 7.2.
+    suggested_action: >-
+      Nenhuma ação obrigatória. A story de religamento deve ser uma mudança atômica
+      (DEFAULT + edição de `criar_pedido` + registro do webhook no Asaas) e reexecutar este gate.
+  - id: 'PROC-001'
+    severity: low
+    finding: >-
+      Story transicionou Draft → InReview sem `@po *validate-story-draft` formal (missão instruiu
+      execução direta do Draft). @dev não alterou AC/escopo (sem autoridade). Story bem-formada,
+      testável e reconciliada com o épico. Mesmo padrão da 7.2 (PROC-001).
+    suggested_action: >-
+      Aceitável (escopo técnico delimitado, "nenhuma pergunta de regra de negócio nova"). Rodar
+      `@po` retroativo se o processo de auditoria exigir.
+
+evidence:
+  files_reviewed: 8
+  files:
+    - 'apps/supabase/supabase/migrations/20260814000005_rpc_confirmar_pagamento_pedido.sql'
+    - 'apps/supabase/supabase/functions/asaas-payment-webhook/handler.ts'
+    - 'apps/supabase/supabase/functions/asaas-payment-webhook/handler.test.ts (11 testes)'
+    - 'apps/supabase/supabase/functions/asaas-payment-webhook/index.ts (entrypoint Deno.serve)'
+    - 'apps/supabase/supabase/functions/asaas-payment-webhook/README.md'
+    - 'apps/supabase/supabase/config.toml (bloco [functions.asaas-payment-webhook] verify_jwt=false)'
+    - 'packages/shared-types/src/supabase.ts (entrada confirmar_pagamento_pedido em Functions:)'
+    - 'apps/supabase/supabase/migrations/20260813050000_criar_lancamentos_financeiros.sql (padrão do ledger, referência)'
+  tests_reviewed: >-
+    Reexecutados direto por @qa (não via cache Turbo): `pnpm --filter @keepit/supabase test` →
+    41/41 PASS (asaas-payment-webhook/handler.test.ts 11, create-pix-payment/config.test.ts 8,
+    create-pix-payment/handler.test.ts 7, _shared/asaas.test.ts 15). `tsc --noEmit` exit 0 em
+    apps/supabase e packages/shared-types.
+  security_review: >-
+    (1) AUTHZ-001 FECHADO: auth é a 1ª instrução do handler, fail-closed, antes de qualquer acesso a
+    dados — provado por 3 testes com repo que lança se chamado. (2) RPC restrita a service_role
+    (REVOKE ALL FROM PUBLIC/anon/authenticated + GRANT service_role) — PRIMEIRA do projeto assim;
+    nunca chamável por usuário logado. (3) `verify_jwt=false` restrito a esta função (único bloco
+    [functions.*] no config.toml); não abre `create-pix-payment` nem nenhuma outra — a auth própria
+    via token cobre o bypass. (4) `service_role` só no index.ts; handler.ts nunca importa Deno nem
+    lê env. (5) Sem SQL injection: parâmetros da RPC, cast `::text` seguro no external_reference,
+    `search_path=''`. GAP residual: comparação de token não timing-safe (SEC-001, low).
+  migration_safety: >-
+    RPC forward-only, `CREATE OR REPLACE`, sem tocar tabela/dados. `charge` no ledger idêntico ao de
+    `criar_pedido` (tipo/status/cast válidos no CHECK; disponivel_em NULL = auditoria). Nenhuma
+    migration existente alterada; nenhuma RPC existente modificada (git). Dormant-safe por
+    `IF v_status <> 'aguardando_pagamento'`. NÃO aplicada ainda no keepit-dev (DEPLOY-001, esperado).
+  risk_summary: >-
+    Baixo. Fatia server-side pequena, isolada, sem chamada de rede em teste, contrato de erro robusto.
+    Os dois itens críticos da missão (auth-antes-de-tudo AUTHZ-001; idempotência via lock IDEMP-001)
+    estão fechados e revistos. O risco aberto mais relevante é REL-001 (a serialização SQL não é
+    exercitada por teste — validação real diferida até aplicar a migration com Postgres), todos LOW.
+
+recommendation: >-
+  Aprovar avanço da 7.5 para Done. AUTHZ-001 e IDEMP-001 (carry-forwards da 7.2) estão FECHADOS no
+  nível de código e revistos. Follow-ups LOW registrados: validar a serialização da RPC contra um
+  Postgres real (REL-001) e registrar o webhook no Asaas (ARCH-001/DEPLOY-001) na story de
+  religamento, bloqueada por ASAAS-1/ASAAS-2; trocar a comparação de token por constant-time
+  (SEC-001) antes de produção real.
