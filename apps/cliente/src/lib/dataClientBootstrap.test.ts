@@ -20,10 +20,10 @@ vi.mock('@keepit/supabase-client', () => ({
 }));
 
 const initializeDataClientMock = vi.fn();
-const legacyGetDataClientMock = vi.fn();
+const getDataClientMock = vi.fn();
 vi.mock('@keepit/core-data', () => ({
   initializeDataClient: (...args: unknown[]) => initializeDataClientMock(...args),
-  getDataClient: (...args: unknown[]) => legacyGetDataClientMock(...args),
+  getDataClient: (...args: unknown[]) => getDataClientMock(...args),
 }));
 
 describe('dataClientBootstrap', () => {
@@ -34,13 +34,15 @@ describe('dataClientBootstrap', () => {
     createClientMock.mockReset();
     initializeDataClientMock.mockReset();
     initializeDataClientMock.mockResolvedValue('mock-client');
-    legacyGetDataClientMock.mockReset();
+    getDataClientMock.mockReset();
+    getDataClientMock.mockReturnValue('volatile-mock-client');
     asyncStorageMock.getItem.mockReset();
     asyncStorageMock.setItem.mockReset();
     asyncStorageMock.removeItem.mockReset();
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     if (originalDataSource === undefined) {
       delete process.env.EXPO_PUBLIC_DATA_SOURCE;
     } else {
@@ -63,7 +65,7 @@ describe('dataClientBootstrap', () => {
         removeItem: expect.any(Function),
       }),
     });
-    expect(legacyGetDataClientMock).not.toHaveBeenCalled();
+    expect(getDataClientMock).not.toHaveBeenCalled();
   });
 
   it('EXPO_PUBLIC_DATA_SOURCE com valor diferente de "supabase" também hidrata o mock persistente', async () => {
@@ -139,8 +141,82 @@ describe('dataClientBootstrap', () => {
       source: 'mock',
       clienteMockStorage: expect.any(Object),
     });
-    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[dataClientBootstrap] inicialização indisponível; usando fallback mock.',
+    );
 
     warnSpy.mockRestore();
+  });
+
+  it('throw síncrono na hidratação mock resolve pelo fallback volátil sem criar client Supabase', async () => {
+    delete process.env.EXPO_PUBLIC_DATA_SOURCE;
+    initializeDataClientMock.mockImplementation(() => {
+      throw new Error('storage indisponível');
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const module = await import('./dataClientBootstrap');
+
+    await expect(module.dataClientReady).resolves.toBe('volatile-mock-client');
+    expect(createClientMock).not.toHaveBeenCalled();
+    expect(initializeDataClientMock).toHaveBeenCalledTimes(2);
+    expect(getDataClientMock).toHaveBeenCalledWith({ source: 'mock' });
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[dataClientBootstrap] inicialização indisponível; usando fallback mock.',
+    );
+
+    warnSpy.mockRestore();
+  });
+
+  it('rejeição assíncrona na hidratação mock resolve pelo fallback volátil sem criar client Supabase', async () => {
+    delete process.env.EXPO_PUBLIC_DATA_SOURCE;
+    initializeDataClientMock.mockRejectedValue(new Error('storage indisponível'));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const module = await import('./dataClientBootstrap');
+
+    await expect(module.dataClientReady).resolves.toBe('volatile-mock-client');
+    expect(createClientMock).not.toHaveBeenCalled();
+    expect(initializeDataClientMock).toHaveBeenCalledTimes(2);
+    expect(getDataClientMock).toHaveBeenCalledWith({ source: 'mock' });
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[dataClientBootstrap] inicialização indisponível; usando fallback mock.',
+    );
+
+    warnSpy.mockRestore();
+  });
+
+  it('notifica o gate somente depois que o fallback de hidratação libera dataClientReady', async () => {
+    delete process.env.EXPO_PUBLIC_DATA_SOURCE;
+    initializeDataClientMock.mockRejectedValue(new Error('storage indisponível'));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const onReady = vi.fn();
+    const module = await import('./dataClientBootstrap');
+
+    const unsubscribe = module.subscribeToDataClientReady(module.dataClientReady, onReady);
+
+    expect(onReady).not.toHaveBeenCalled();
+    await module.dataClientReady;
+    await Promise.resolve();
+    expect(onReady).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+  });
+
+  it('cleanup do gate impede notificação depois do unmount', async () => {
+    let resolveReady!: (value: string) => void;
+    const pendingReady = new Promise<string>((resolve) => {
+      resolveReady = resolve;
+    });
+    const onReady = vi.fn();
+    const module = await import('./dataClientBootstrap');
+
+    const unsubscribe = module.subscribeToDataClientReady(pendingReady, onReady);
+    unsubscribe();
+    resolveReady('mock-client');
+    await pendingReady;
+    await Promise.resolve();
+
+    expect(onReady).not.toHaveBeenCalled();
   });
 });

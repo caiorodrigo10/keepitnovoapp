@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@keepit/supabase-client';
-import { initializeDataClient, type DataClient } from '@keepit/core-data';
+import { useEffect, useState } from 'react';
+import { getDataClient, initializeDataClient, type DataClient } from '@keepit/core-data';
 
 import { clienteMockStorage } from './clienteMockStorage';
 
@@ -54,34 +55,65 @@ const passwordRecoveryState = {
  * permanece 100% mock — o default seguro não muda para quem não configurou
  * nada, mesmo comportamento de todo o Épico 0-2.
  *
- * **Falha ao criar o client Supabase não pode travar o boot numa tela
- * branca** (CodeRabbit Focus Areas da story). Se `createClient()` lançar
- * (ex.: `EXPO_PUBLIC_SUPABASE_URL`/`ANON_KEY` ausentes), este módulo
- * degrada para mock com um `console.warn` — mesmo espírito do guard de AC7
- * em `RootNavigator.tsx` (Story 2.3.1), sem retry/backoff (princípio nº2 do
- * `CLAUDE.md`).
+ * **Falha de configuração ou hidratação não pode travar o boot numa tela
+ * branca.** O handler é instalado antes de executar qualquer inicialização:
+ * primeiro tenta mock persistente e, se esse fallback também falhar, usa o
+ * singleton mock volátil já criado. O aviso nunca inclui o erro original,
+ * pois mensagens do SDK podem carregar URL ou outros dados sensíveis.
  */
 function bootstrapDataClient(): Promise<DataClient> {
-  const dataSource = process.env.EXPO_PUBLIC_DATA_SOURCE?.trim() === 'supabase' ? 'supabase' : 'mock';
+  return Promise.resolve()
+    .then(() => {
+      const dataSource =
+        process.env.EXPO_PUBLIC_DATA_SOURCE?.trim() === 'supabase' ? 'supabase' : 'mock';
 
-  if (dataSource !== 'supabase') {
-    return initializeDataClient({ source: 'mock', clienteMockStorage });
-  }
+      if (dataSource !== 'supabase') {
+        return initializeDataClient({ source: 'mock', clienteMockStorage });
+      }
 
-  try {
-    const supabaseClient = createClient({
-      storage: AsyncStorage,
-      persistSession: true,
-      autoRefreshToken: true,
+      const supabaseClient = createClient({
+        storage: AsyncStorage,
+        persistSession: true,
+        autoRefreshToken: true,
+      });
+      return initializeDataClient({ source: 'supabase', supabaseClient, passwordRecoveryState });
+    })
+    .catch(() => {
+      console.warn('[dataClientBootstrap] inicialização indisponível; usando fallback mock.');
+      return Promise.resolve()
+        .then(() => initializeDataClient({ source: 'mock', clienteMockStorage }))
+        .catch(() => getDataClient({ source: 'mock' }));
     });
-    return initializeDataClient({ source: 'supabase', supabaseClient, passwordRecoveryState });
-  } catch (error) {
-    console.warn(
-      '[dataClientBootstrap] falha ao inicializar o client Supabase — caindo para mock:',
-      error,
-    );
-    return initializeDataClient({ source: 'mock', clienteMockStorage });
-  }
 }
 
 export const dataClientReady: Promise<DataClient> = bootstrapDataClient();
+
+/** Notifica readiness enquanto o consumidor estiver montado. */
+export function subscribeToDataClientReady(
+  readiness: Promise<unknown>,
+  onReady: () => void,
+): () => void {
+  let mounted = true;
+  const notifyWhenMounted = () => {
+    if (mounted) {
+      onReady();
+    }
+  };
+  void readiness.then(notifyWhenMounted, notifyWhenMounted).catch(() => undefined);
+
+  return () => {
+    mounted = false;
+  };
+}
+
+/** Expõe o estado de conclusão do bootstrap para o root React. */
+export function useDataClientReady(): boolean {
+  const [dataReady, setDataReady] = useState(false);
+
+  useEffect(
+    () => subscribeToDataClientReady(dataClientReady, () => setDataReady(true)),
+    [],
+  );
+
+  return dataReady;
+}

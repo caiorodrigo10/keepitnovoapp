@@ -1,8 +1,8 @@
 // PRIMEIRO import do arquivo, deliberadamente: inicia a hidratação antes que
 // qualquer consumidor de `getDataClient()` seja montado.
-import { dataClientReady } from './src/lib/dataClientBootstrap';
+import { useDataClientReady } from './src/lib/dataClientBootstrap';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Linking } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
@@ -14,6 +14,7 @@ import { getDataClient } from '@keepit/core-data';
 import { fonts } from '@keepit/ui-tokens';
 
 import { CartProvider } from './src/context/CartContext';
+import { canMountReadyApp } from './src/lib/appReadiness';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { createPasswordRecoveryLinking } from './src/navigation/passwordRecoveryLinking';
 
@@ -35,27 +36,13 @@ import { createPasswordRecoveryLinking } from './src/navigation/passwordRecovery
  * comportamento, só evitaria uma alocação desnecessária.
  */
 export default function App() {
-  const [dataReady, setDataReady] = useState(false);
+  const dataReady = useDataClientReady();
   const [fontsLoaded, fontError] = useFonts(fonts);
-
-  useEffect(() => {
-    let mounted = true;
-    const markDataReady = () => {
-      if (mounted) {
-        setDataReady(true);
-      }
-    };
-    void dataClientReady.then(markDataReady, markDataReady);
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   // Espera as fontes carregarem no nativo; se o carregamento falhar (ex.: alvo
   // web onde o .ttf não decodifica), renderiza mesmo assim com fonte fallback
   // em vez de travar em tela branca.
-  if (!dataReady || (!fontsLoaded && !fontError)) {
+  if (!canMountReadyApp(dataReady, fontsLoaded, Boolean(fontError))) {
     return null;
   }
 
