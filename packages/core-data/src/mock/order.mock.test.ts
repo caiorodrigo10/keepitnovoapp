@@ -183,6 +183,18 @@ describe('order.mock (contract)', () => {
     await expect(port.confirmPin(pedidoId, '7734', { delayMs: 1 })).rejects.toBeInstanceOf(PinBloqueadoError);
   });
 
+  it('confirmPin incorreto rejeita, mas notifica persistência porque incrementa tentativas', async () => {
+    let mutationCount = 0;
+    db.onClienteMutation = () => {
+      mutationCount += 1;
+    };
+
+    await expect(port.confirmPin('pedido-2049', '0000', { delayMs: 1 })).rejects.toBeInstanceOf(PinIncorretoError);
+
+    expect(db.pedidos.find((pedido) => pedido.id === 'pedido-2049')?.tentativas_pin).toBe(1);
+    expect(mutationCount).toBe(1);
+  });
+
   it('confirmPin with the correct PIN transitions status to "entregue" and zeroes tentativas_pin/pin_bloqueado_ate', async () => {
     const pedido = await port.confirmPin('pedido-2049', '7734', { delayMs: 1 });
     expect(pedido.status).toBe('entregue');

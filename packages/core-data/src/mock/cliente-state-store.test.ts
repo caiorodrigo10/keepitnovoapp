@@ -69,7 +69,8 @@ describe('ClienteMockStateStore', () => {
   it('persiste senha redefinida e passa a exigir a nova senha no próximo login', async () => {
     const storage = memoryStorage();
     const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
-    await client.auth.establishPasswordRecoverySession('keepit://reset', { delayMs: 0 });
+    await client.auth.requestPasswordReset('ana.souza@example.com', { delayMs: 0 });
+    await client.auth.establishPasswordRecoverySession('com.keepithub.cliente://auth/reset', { delayMs: 0 });
     await client.auth.updatePassword('novaSenha9', { delayMs: 0 });
     await client.auth.signOut({ delayMs: 0 });
     await client.demoScenario!.flush();

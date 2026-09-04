@@ -11,6 +11,8 @@ import { generateMockId, simulateAsync } from './async-helpers';
 import { CLIENTE_DEMO_INITIAL_PASSWORD } from './cliente-state';
 import type { MockDb } from './db';
 
+const PASSWORD_RECOVERY_CALLBACK = 'com.keepithub.cliente://auth/reset';
+
 export function createAuthMock(db: MockDb): AuthPort {
   /**
    * Story 2.3.1 (Task 2, AC1): pub/sub mínimo fechado sobre `db`, sem
@@ -18,7 +20,8 @@ export function createAuthMock(db: MockDb): AuthPort {
    * `db.sessionClienteId` (`signUp`, `signIn`, `signOut`) logo abaixo.
    */
   const listeners = new Set<(cliente: Cliente | null) => void>();
-  /** Story 2.7 — identifica a conta da sessão de recuperação mock ativa. */
+  /** Story 2.7 — separa a conta solicitada da sessão de recuperação mock ativa. */
+  let requestedPasswordRecoveryClienteId: string | null = null;
   let passwordRecoveryClienteId: string | null = null;
 
   function currentSessionCliente(): Cliente | null {
@@ -28,6 +31,24 @@ export function createAuthMock(db: MockDb): AuthPort {
   function notifyAuthStateChange(): void {
     const cliente = currentSessionCliente();
     listeners.forEach((listener) => listener(cliente));
+  }
+
+  function assertPasswordRecoveryCallback(callbackUrl: string): void {
+    let url: URL;
+    try {
+      url = new URL(callbackUrl);
+    } catch {
+      throw new Error('[mock] auth.establishPasswordRecoverySession — callback inválido.');
+    }
+
+    if (`${url.protocol}//${url.host}${url.pathname}` !== PASSWORD_RECOVERY_CALLBACK) {
+      throw new Error('[mock] auth.establishPasswordRecoverySession — callback de outra rota.');
+    }
+
+    const hash = new URLSearchParams(url.hash.startsWith('#') ? url.hash.slice(1) : url.hash);
+    if (url.searchParams.has('error') || hash.has('error')) {
+      throw new Error('[mock] auth.establishPasswordRecoverySession — link inválido ou expirado.');
+    }
   }
 
   return {
@@ -82,15 +103,29 @@ export function createAuthMock(db: MockDb): AuthPort {
      * independente do e-mail existir (mesma anti-enumeração do adapter
      * Supabase, AC7).
      */
-    requestPasswordReset(_email: string, options?: AsyncCallOptions): Promise<void> {
-      return simulateAsync(() => undefined, undefined, options);
-    },
-
-    /** Story 2.7 (AC6) — não lê a URL; habilita a recuperação da conta mock atual/demo. */
-    establishPasswordRecoverySession(_callbackUrl: string, options?: AsyncCallOptions): Promise<void> {
+    requestPasswordReset(email: string, options?: AsyncCallOptions): Promise<void> {
       return simulateAsync(
         () => {
-          passwordRecoveryClienteId = db.sessionClienteId ?? db.clienteCredenciais[0]?.clienteId ?? null;
+          requestedPasswordRecoveryClienteId =
+            db.clienteCredenciais.find((credential) => credential.email === email)?.clienteId ?? null;
+          passwordRecoveryClienteId = null;
+        },
+        undefined,
+        options,
+      );
+    },
+
+    /** Story 2.7 (AC6) — valida a rota e ativa somente a conta solicitada sem expor enumeração. */
+    establishPasswordRecoverySession(callbackUrl: string, options?: AsyncCallOptions): Promise<void> {
+      return simulateAsync(
+        () => {
+          passwordRecoveryClienteId = null;
+          assertPasswordRecoveryCallback(callbackUrl);
+          if (!requestedPasswordRecoveryClienteId) {
+            throw new Error('[mock] auth.establishPasswordRecoverySession — callback sem sessão válida.');
+          }
+          passwordRecoveryClienteId = requestedPasswordRecoveryClienteId;
+          requestedPasswordRecoveryClienteId = null;
         },
         undefined,
         options,
@@ -162,17 +197,27 @@ export function createAuthMock(db: MockDb): AuthPort {
           if (!cliente) {
             throw new Error(`[mock] Cliente não encontrado: ${clienteId}`);
           }
+          let changed = false;
           if (input.nome !== undefined) {
             const nome = input.nome.trim();
             if (!nome) {
               throw new Error('[mock] updateProfile — nome não pode ser vazio.');
             }
-            cliente.nome = nome;
+            if (cliente.nome !== nome) {
+              cliente.nome = nome;
+              changed = true;
+            }
           }
           if (input.telefone !== undefined) {
-            cliente.telefone = input.telefone?.trim() || null;
+            const telefone = input.telefone?.trim() || null;
+            if (cliente.telefone !== telefone) {
+              cliente.telefone = telefone;
+              changed = true;
+            }
           }
-          db.onClienteMutation();
+          if (changed) {
+            db.onClienteMutation();
+          }
           return cliente;
         },
         {} as Cliente,
@@ -264,8 +309,8 @@ export function createAuthMock(db: MockDb): AuthPort {
           }
           if (cliente.cpf == null) {
             cliente.cpf = cpf;
+            db.onClienteMutation();
           }
-          db.onClienteMutation();
           return cliente;
         },
         {} as Cliente,

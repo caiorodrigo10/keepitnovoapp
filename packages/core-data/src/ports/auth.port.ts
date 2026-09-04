@@ -107,9 +107,8 @@ export type UpdateEmailResult = { status: 'confirmation_required' } | { status: 
  * Story 2.3 (decisão 10.4): auth é por e-mail/senha via Supabase Auth, não
  * mais telefone + confirmação SMS (`ConfirmacaoSMS.tsx` é stub inativo,
  * fora do fluxo de navegação — não reativar). O mock (`auth.mock.ts`)
- * também não valida a senha de fato — mantém o comportamento permissivo já
- * existente antes desta story, só troca a chave de busca de `telefone` para
- * `email`.
+ * mantém credenciais internas e valida a senha sem expô-la no perfil
+ * `Cliente` nem em mensagens de erro.
  */
 export interface AuthPort {
   signUp(input: SignUpInput, options?: AsyncCallOptions): Promise<Cliente>;

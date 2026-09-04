@@ -117,9 +117,16 @@ describe('auth.mock (contract)', () => {
   });
 
   it('updateCpf não sobrescreve um CPF já salvo — "set once" (Story 6.5, AC3)', async () => {
+    let mutationCount = 0;
+    db.onClienteMutation = () => {
+      mutationCount += 1;
+    };
+
     await port.updateCpf('cliente-ana', '11144477735', { delayMs: 1 });
     const atualizado = await port.updateCpf('cliente-ana', '52998224725', { delayMs: 1 });
+
     expect(atualizado.cpf).toBe('11144477735');
+    expect(mutationCount).toBe(1);
   });
 
   describe('perfil real (Story 2.8, AC1-AC6)', () => {
@@ -146,6 +153,28 @@ describe('auth.mock (contract)', () => {
       await port.signIn('ana.souza@example.com', 'keepit123', { delayMs: 1 });
       const atualizado = await port.updateProfile('cliente-ana', { telefone: null }, { delayMs: 1 });
       expect(atualizado.telefone).toBeNull();
+    });
+
+    it('updateProfile não persiste input vazio nem valores que normalizam para o estado atual', async () => {
+      await port.signIn('ana.souza@example.com', 'keepit123', { delayMs: 1 });
+      let mutationCount = 0;
+      db.onClienteMutation = () => {
+        mutationCount += 1;
+      };
+
+      await expect(port.updateProfile('cliente-ana', {}, { delayMs: 1 })).resolves.toMatchObject({
+        nome: 'Ana Souza',
+        telefone: '+5511987654321',
+      });
+      await expect(
+        port.updateProfile(
+          'cliente-ana',
+          { nome: '  Ana Souza  ', telefone: '  +5511987654321  ' },
+          { delayMs: 1 },
+        ),
+      ).resolves.toMatchObject({ nome: 'Ana Souza', telefone: '+5511987654321' });
+
+      expect(mutationCount).toBe(0);
     });
 
     it('updateProfile rejeita nome vazio sem persistir (AC3)', async () => {
@@ -177,22 +206,37 @@ describe('auth.mock (contract)', () => {
   });
 
   describe('recuperação de senha (Story 2.7, AC6)', () => {
-    it('updatePassword persiste a nova senha da sessão de recuperação', async () => {
-      const clientesAntes = structuredClone(db.clientes);
+    it('updatePassword altera exclusivamente a conta solicitada e mantém a senha demo da Ana', async () => {
+      const segunda = await port.signUp(
+        { nome: 'Beatriz', email: 'beatriz@example.com', senha: 'senhaSegunda1', telefone: null },
+        { delayMs: 1 },
+      );
+      await port.signOut({ delayMs: 1 });
+      await port.requestPasswordReset('beatriz@example.com', { delayMs: 1 });
+      await port.establishPasswordRecoverySession('com.keepithub.cliente://auth/reset', { delayMs: 1 });
+      await port.updatePassword('novaSegunda2', { delayMs: 1 });
 
-      await expect(port.requestPasswordReset('ana.souza@example.com', { delayMs: 1 })).resolves.toBeUndefined();
-      await expect(
-        port.establishPasswordRecoverySession('com.keepithub.cliente://auth/reset', { delayMs: 1 }),
-      ).resolves.toBeUndefined();
-      await expect(port.updatePassword('nova-senha', { delayMs: 1 })).resolves.toBeUndefined();
-
-      expect(db.clientes).toEqual(clientesAntes);
-      await expect(port.signIn('ana.souza@example.com', 'keepit123', { delayMs: 1 })).rejects.toThrow(
+      await expect(port.signIn('beatriz@example.com', 'senhaSegunda1', { delayMs: 1 })).rejects.toThrow(
         /credenciais inválidas/i,
       );
-      await expect(port.signIn('ana.souza@example.com', 'nova-senha', { delayMs: 1 })).resolves.toMatchObject({
+      await expect(port.signIn('beatriz@example.com', 'novaSegunda2', { delayMs: 1 })).resolves.toMatchObject({
+        id: segunda.id,
+      });
+      await port.signOut({ delayMs: 1 });
+      await expect(port.signIn('ana.souza@example.com', 'keepit123', { delayMs: 1 })).resolves.toMatchObject({
         id: 'cliente-ana',
       });
+    });
+
+    it('establishPasswordRecoverySession rejeita callback de outra rota e não ativa recuperação', async () => {
+      await port.requestPasswordReset('ana.souza@example.com', { delayMs: 1 });
+
+      await expect(
+        port.establishPasswordRecoverySession('com.keepithub.cliente://auth/other', { delayMs: 1 }),
+      ).rejects.toThrow(/callback de outra rota/i);
+      await expect(port.updatePassword('nova-senha', { delayMs: 1 })).rejects.toThrow(
+        /nenhuma sessão de recuperação ativa/i,
+      );
     });
 
     it('requestPasswordReset resolve igualmente para e-mail cadastrado ou não — anti-enumeração (AC7)', async () => {
@@ -207,6 +251,7 @@ describe('auth.mock (contract)', () => {
     });
 
     it('updatePassword consome a sessão de recuperação — uma 2ª chamada exige novo establishPasswordRecoverySession', async () => {
+      await port.requestPasswordReset('ana.souza@example.com', { delayMs: 1 });
       await port.establishPasswordRecoverySession('com.keepithub.cliente://auth/reset', { delayMs: 1 });
       await expect(port.updatePassword('nova-senha', { delayMs: 1 })).resolves.toBeUndefined();
       await expect(port.updatePassword('outra-senha', { delayMs: 1 })).rejects.toThrow(
