@@ -567,7 +567,7 @@ Expected: PASS.
 
 - [ ] **Step 5: Atualizar a story com evidências e status**
 
-Em `docs/stories/12.1.story.md`, marcar os subtasks concluídos, mudar `Status` de `Draft` para `Ready for Review` e registrar em `QA Results` os quatro comandos acima com resultado e a limitação explícita: teste manual em APK release ainda pendente até existir build QA instalável.
+Em `docs/stories/12.1.story.md`, marcar apenas os subtasks técnicos concluídos e registrar em `QA Results` os quatro comandos acima. Manter `Status: Draft` e registrar duas pendências explícitas: a confirmação/copy visual será entregue pelo Painel QA da Story 12.2; o teste manual em APK release depende de existir build QA instalável. A story só passa a `Ready for Review` quando essas duas evidências existirem.
 
 - [ ] **Step 6: Commit**
 
