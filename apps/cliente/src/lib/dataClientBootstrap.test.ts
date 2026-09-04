@@ -19,9 +19,11 @@ vi.mock('@keepit/supabase-client', () => ({
   createClient: (...args: unknown[]) => createClientMock(...args),
 }));
 
-const getDataClientMock = vi.fn();
+const initializeDataClientMock = vi.fn();
+const legacyGetDataClientMock = vi.fn();
 vi.mock('@keepit/core-data', () => ({
-  getDataClient: (...args: unknown[]) => getDataClientMock(...args),
+  initializeDataClient: (...args: unknown[]) => initializeDataClientMock(...args),
+  getDataClient: (...args: unknown[]) => legacyGetDataClientMock(...args),
 }));
 
 describe('dataClientBootstrap', () => {
@@ -30,7 +32,9 @@ describe('dataClientBootstrap', () => {
   beforeEach(() => {
     vi.resetModules();
     createClientMock.mockReset();
-    getDataClientMock.mockReset();
+    initializeDataClientMock.mockReset();
+    initializeDataClientMock.mockResolvedValue('mock-client');
+    legacyGetDataClientMock.mockReset();
     asyncStorageMock.getItem.mockReset();
     asyncStorageMock.setItem.mockReset();
     asyncStorageMock.removeItem.mockReset();
@@ -44,30 +48,45 @@ describe('dataClientBootstrap', () => {
     }
   });
 
-  it('modo mock (default seguro): não cria client Supabase nem chama getDataClient', async () => {
+  it('modo mock injeta AsyncStorage e expõe uma promessa de hidratação', async () => {
     delete process.env.EXPO_PUBLIC_DATA_SOURCE;
 
-    await import('./dataClientBootstrap');
+    const module = await import('./dataClientBootstrap');
 
+    await expect(module.dataClientReady).resolves.toBe('mock-client');
     expect(createClientMock).not.toHaveBeenCalled();
-    expect(getDataClientMock).not.toHaveBeenCalled();
+    expect(initializeDataClientMock).toHaveBeenCalledWith({
+      source: 'mock',
+      clienteMockStorage: expect.objectContaining({
+        getItem: expect.any(Function),
+        setItem: expect.any(Function),
+        removeItem: expect.any(Function),
+      }),
+    });
+    expect(legacyGetDataClientMock).not.toHaveBeenCalled();
   });
 
-  it('EXPO_PUBLIC_DATA_SOURCE com valor diferente de "supabase" também continua em modo mock', async () => {
+  it('EXPO_PUBLIC_DATA_SOURCE com valor diferente de "supabase" também hidrata o mock persistente', async () => {
     process.env.EXPO_PUBLIC_DATA_SOURCE = 'mock';
 
-    await import('./dataClientBootstrap');
+    const module = await import('./dataClientBootstrap');
 
+    await module.dataClientReady;
     expect(createClientMock).not.toHaveBeenCalled();
-    expect(getDataClientMock).not.toHaveBeenCalled();
+    expect(initializeDataClientMock).toHaveBeenCalledWith({
+      source: 'mock',
+      clienteMockStorage: expect.any(Object),
+    });
   });
 
-  it('EXPO_PUBLIC_DATA_SOURCE=supabase: cria o client com AsyncStorage/persistSession/autoRefreshToken e injeta em getDataClient', async () => {
+  it('EXPO_PUBLIC_DATA_SOURCE=supabase: cria o client com AsyncStorage/persistSession/autoRefreshToken e aguarda sua inicialização', async () => {
     process.env.EXPO_PUBLIC_DATA_SOURCE = 'supabase';
     createClientMock.mockReturnValue('fake-supabase-client');
+    initializeDataClientMock.mockResolvedValue('supabase-client');
 
-    await import('./dataClientBootstrap');
+    const module = await import('./dataClientBootstrap');
 
+    await expect(module.dataClientReady).resolves.toBe('supabase-client');
     expect(createClientMock).toHaveBeenCalledTimes(1);
     const [options] = createClientMock.mock.calls[0] as [
       { storage: unknown; persistSession: boolean; autoRefreshToken: boolean },
@@ -76,7 +95,7 @@ describe('dataClientBootstrap', () => {
     expect(options.persistSession).toBe(true);
     expect(options.autoRefreshToken).toBe(true);
 
-    expect(getDataClientMock).toHaveBeenCalledWith(
+    expect(initializeDataClientMock).toHaveBeenCalledWith(
       expect.objectContaining({
         source: 'supabase',
         supabaseClient: 'fake-supabase-client',
@@ -91,7 +110,7 @@ describe('dataClientBootstrap', () => {
 
     await import('./dataClientBootstrap');
 
-    const [options] = getDataClientMock.mock.calls[0] as [
+    const [options] = initializeDataClientMock.mock.calls[0] as [
       { passwordRecoveryState: { isActive(): Promise<boolean>; activate(): Promise<void>; clear(): Promise<void> } },
     ];
     const { passwordRecoveryState } = options;
@@ -106,16 +125,20 @@ describe('dataClientBootstrap', () => {
     expect(asyncStorageMock.removeItem).toHaveBeenCalledWith('@keepit/auth/password-recovery-active');
   });
 
-  it('falha ao criar o client Supabase degrada para mock sem lançar (sem tela branca no boot)', async () => {
+  it('falha no Supabase degrada pela mesma inicialização para mock persistente', async () => {
     process.env.EXPO_PUBLIC_DATA_SOURCE = 'supabase';
     createClientMock.mockImplementation(() => {
       throw new Error('EXPO_PUBLIC_SUPABASE_URL ausente');
     });
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    await expect(import('./dataClientBootstrap')).resolves.toBeDefined();
+    const module = await import('./dataClientBootstrap');
 
-    expect(getDataClientMock).toHaveBeenCalledWith({ source: 'mock' });
+    await expect(module.dataClientReady).resolves.toBe('mock-client');
+    expect(initializeDataClientMock).toHaveBeenLastCalledWith({
+      source: 'mock',
+      clienteMockStorage: expect.any(Object),
+    });
     expect(warnSpy).toHaveBeenCalledTimes(1);
 
     warnSpy.mockRestore();

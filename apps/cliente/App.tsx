@@ -1,12 +1,8 @@
-// Story 2.5.1 (AC4) — PRIMEIRO import do arquivo, deliberadamente. Roda seu
-// efeito colateral (bootstrap do `DataClient`, com AsyncStorage quando
-// `EXPO_PUBLIC_DATA_SOURCE=supabase`) na avaliação do módulo, antes de
-// qualquer outro import — inclusive antes de `RootNavigator`, cujo
-// `useEffect` chama `getDataClient()` pela primeira vez. Ver Dev Notes
-// "Sequência obrigatória" da story e o JSDoc do próprio módulo.
-import './src/lib/dataClientBootstrap';
+// PRIMEIRO import do arquivo, deliberadamente: inicia a hidratação antes que
+// qualquer consumidor de `getDataClient()` seja montado.
+import { dataClientReady } from './src/lib/dataClientBootstrap';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Linking } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
@@ -39,15 +35,35 @@ import { createPasswordRecoveryLinking } from './src/navigation/passwordRecovery
  * comportamento, só evitaria uma alocação desnecessária.
  */
 export default function App() {
+  const [dataReady, setDataReady] = useState(false);
   const [fontsLoaded, fontError] = useFonts(fonts);
-  const linking = useMemo(() => createPasswordRecoveryLinking(getDataClient().auth, Linking), []);
+
+  useEffect(() => {
+    let mounted = true;
+    const markDataReady = () => {
+      if (mounted) {
+        setDataReady(true);
+      }
+    };
+    void dataClientReady.then(markDataReady, markDataReady);
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // Espera as fontes carregarem no nativo; se o carregamento falhar (ex.: alvo
   // web onde o .ttf não decodifica), renderiza mesmo assim com fonte fallback
   // em vez de travar em tela branca.
-  if (!fontsLoaded && !fontError) {
+  if (!dataReady || (!fontsLoaded && !fontError)) {
     return null;
   }
+
+  return <ReadyApp />;
+}
+
+function ReadyApp() {
+  const linking = useMemo(() => createPasswordRecoveryLinking(getDataClient().auth, Linking), []);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

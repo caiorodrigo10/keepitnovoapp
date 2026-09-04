@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@keepit/supabase-client';
-import { getDataClient } from '@keepit/core-data';
+import { initializeDataClient, type DataClient } from '@keepit/core-data';
+
+import { clienteMockStorage } from './clienteMockStorage';
 
 /**
  * Story 2.7 (AC5) — chave dedicada em `AsyncStorage`, mesmo storage já
@@ -34,15 +36,15 @@ const passwordRecoveryState = {
  * app hoje (`docs/architecture/06-session-persistence.md` §1.2 confirma:
  * zero import de `@keepit/supabase-client` em `apps/`). Este é
  * deliberadamente o ÚNICO lugar do app Cliente que importa
- * `@keepit/supabase-client` e `AsyncStorage` — telas e hooks continuam
- * importando só `@keepit/core-data` (fronteira do Épico 0 preservada, ver
- * §3.3 do documento acima).
+ * `@keepit/supabase-client`; o adapter de storage fica isolado em
+ * `clienteMockStorage.ts`. Telas e hooks continuam importando só
+ * `@keepit/core-data` (fronteira do Épico 0 preservada, ver §3.3 do
+ * documento acima).
  *
- * **Efeito colateral no import.** Este módulo roda seu corpo top-level na
- * avaliação do módulo (antes de qualquer render/`useEffect`). Precisa ser o
- * PRIMEIRO import de `App.tsx` — antes do import de `RootNavigator` — porque
- * `getDataClient()` memoiza a configuração da primeira chamada (Story 2.5.1,
- * "Sequência obrigatória" #1); um `useEffect` chegaria tarde demais.
+ * **Efeito colateral no import.** Este módulo cria `dataClientReady` na
+ * avaliação (antes de qualquer render). Precisa ser o PRIMEIRO import de
+ * `App.tsx` — antes do import de `RootNavigator` — para iniciar a hidratação
+ * antes que qualquer consumidor de `getDataClient()` seja montado.
  *
  * **`EXPO_PUBLIC_DATA_SOURCE`** segue o mesmo padrão de prefixo Expo que
  * `@keepit/supabase-client` adota para URL/anon key nesta story (AC1) — é o
@@ -59,21 +61,27 @@ const passwordRecoveryState = {
  * em `RootNavigator.tsx` (Story 2.3.1), sem retry/backoff (princípio nº2 do
  * `CLAUDE.md`).
  */
-const dataSource = process.env.EXPO_PUBLIC_DATA_SOURCE?.trim() === 'supabase' ? 'supabase' : 'mock';
+function bootstrapDataClient(): Promise<DataClient> {
+  const dataSource = process.env.EXPO_PUBLIC_DATA_SOURCE?.trim() === 'supabase' ? 'supabase' : 'mock';
 
-if (dataSource === 'supabase') {
+  if (dataSource !== 'supabase') {
+    return initializeDataClient({ source: 'mock', clienteMockStorage });
+  }
+
   try {
     const supabaseClient = createClient({
       storage: AsyncStorage,
       persistSession: true,
       autoRefreshToken: true,
     });
-    getDataClient({ source: 'supabase', supabaseClient, passwordRecoveryState });
+    return initializeDataClient({ source: 'supabase', supabaseClient, passwordRecoveryState });
   } catch (error) {
     console.warn(
       '[dataClientBootstrap] falha ao inicializar o client Supabase — caindo para mock:',
       error,
     );
-    getDataClient({ source: 'mock' });
+    return initializeDataClient({ source: 'mock', clienteMockStorage });
   }
 }
+
+export const dataClientReady: Promise<DataClient> = bootstrapDataClient();
