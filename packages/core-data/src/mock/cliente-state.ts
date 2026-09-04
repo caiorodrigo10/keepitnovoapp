@@ -1,5 +1,5 @@
 import type { Cliente } from '../ports/auth.port';
-import type { Pedido, PedidoItem } from '../ports/order.port';
+import type { Pedido, PedidoItem, PedidoStatus } from '../ports/order.port';
 import { clientesCredenciaisFixture, clientesFixture } from './fixtures';
 import type { MockDb } from './db';
 
@@ -44,6 +44,28 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }
 
+const pedidoStatuses = new Set<PedidoStatus>([
+  'aguardando_pagamento',
+  'aguardando_aceite',
+  'aceito',
+  'em_preparo',
+  'saindo_hub',
+  'no_hub',
+  'entregue',
+  'cancelado',
+  'cancelado_timeout',
+  'cancelado_atraso',
+  'cancelado_admin',
+  'recusado',
+  'nao_retirado',
+  'nao_entregue_lojista',
+  'estornado_chargeback',
+]);
+
+function isPedidoStatus(value: unknown): value is PedidoStatus {
+  return typeof value === 'string' && pedidoStatuses.has(value as PedidoStatus);
+}
+
 function isCliente(value: unknown): value is Cliente {
   return (
     isRecord(value) &&
@@ -78,7 +100,7 @@ function isPedido(value: unknown): value is Pedido {
     typeof value.cliente_id === 'string' &&
     typeof value.estabelecimento_id === 'string' &&
     typeof value.hub_id === 'string' &&
-    typeof value.status === 'string' &&
+    isPedidoStatus(value.status) &&
     typeof value.pin_texto === 'string' &&
     typeof value.tentativas_pin === 'number' &&
     isNullableString(value.pin_bloqueado_ate) &&
