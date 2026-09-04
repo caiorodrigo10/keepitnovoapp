@@ -45,7 +45,7 @@ export interface MockDb {
    * `auth.mock.ts#signIn`/`signUp`. Não faz parte de nenhuma port
    * (`Cliente` não tem `email`) — ver `clientesCredenciaisFixture`.
    */
-  clienteCredenciais: { clienteId: string; email: string }[];
+  clienteCredenciais: { clienteId: string; email: string; password?: string }[];
   /**
    * Story 3.2 (AC4, AC7) — índice mock-only de contas de lojista já
    * cadastradas, usado por `lojista-auth.mock.ts` para simular a rejeição de
