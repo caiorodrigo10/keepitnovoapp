@@ -66,6 +66,62 @@ describe('ClienteMockStateStore', () => {
     await expect(reopened.auth.currentUser({ delayMs: 0 })).resolves.toMatchObject({ id: 'cliente-ana' });
   });
 
+  it('persiste senha redefinida e passa a exigir a nova senha no próximo login', async () => {
+    const storage = memoryStorage();
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await client.auth.establishPasswordRecoverySession('keepit://reset', { delayMs: 0 });
+    await client.auth.updatePassword('novaSenha9', { delayMs: 0 });
+    await client.auth.signOut({ delayMs: 0 });
+    await client.demoScenario!.flush();
+
+    __resetDataClientForTests();
+    const reopened = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await expect(reopened.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 })).rejects.toThrow();
+    await expect(
+      reopened.auth.signIn('ana.souza@example.com', 'novaSenha9', { delayMs: 0 }),
+    ).resolves.toMatchObject({ id: 'cliente-ana' });
+  });
+
+  it('persiste perfil e pedido criado após reabertura', async () => {
+    const storage = memoryStorage();
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await client.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
+    await client.auth.updateProfile('cliente-ana', { nome: 'Ana Persistida' }, { delayMs: 0 });
+    const created = await client.order.create(
+      {
+        cliente_id: 'cliente-ana',
+        estabelecimento_id: 'estab-farmacia-vida',
+        hub_id: 'hub-centro',
+        itens: [
+          {
+            produto_id: 'produto-dipirona',
+            nome_snapshot: 'Dipirona Monoidratada 500mg',
+            preco_unitario_reais: 14.9,
+            quantidade: 2,
+          },
+        ],
+        forma_pagamento: 'pix',
+        subtotal_produtos_reais: 29.8,
+        taxa_deslocamento_reais: 5,
+        taxa_keepit_reais: 3.58,
+        taxa_servico_comprador_reais: 1.99,
+        total_pago_reais: 40.37,
+        nf_solicitada: false,
+      },
+      { delayMs: 0 },
+    );
+    await client.demoScenario!.flush();
+
+    __resetDataClientForTests();
+    const reopened = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await expect(reopened.auth.getById('cliente-ana', { delayMs: 0 })).resolves.toMatchObject({
+      nome: 'Ana Persistida',
+    });
+    await expect(reopened.order.listMine('cliente-ana', { delayMs: 0 })).resolves.toEqual([
+      expect.objectContaining({ id: created.id, total_pago_reais: 40.37 }),
+    ]);
+  });
+
   it('reset restaura baseline e publica status sem propagar falha de storage', async () => {
     const storage = memoryStorage({ setItemError: new Error('disk full') });
     const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
@@ -86,13 +142,13 @@ describe('ClienteMockStateStore', () => {
 
     const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
 
-    await expect(client.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 })).resolves.toMatchObject({
-      id: 'cliente-ana',
-    });
     expect(client.demoScenario!.getStatus()).toEqual({
       hydrated: true,
       persistence: 'degraded',
       lastError: 'read',
+    });
+    await expect(client.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 })).resolves.toMatchObject({
+      id: 'cliente-ana',
     });
   });
 
@@ -148,6 +204,8 @@ describe('ClienteMockStateStore', () => {
 
     const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
 
+    await client.demoScenario!.flush();
+
     expect(client.demoScenario!.getStatus()).toEqual({
       hydrated: true,
       persistence: 'ready',
@@ -169,10 +227,14 @@ describe('ClienteMockStateStore', () => {
     const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
     expect(client.demoScenario!.getStatus()).toMatchObject({ persistence: 'degraded', lastError: 'write' });
 
+    await client.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
     await client.demoScenario!.flush();
 
     expect(client.demoScenario!.getStatus()).toMatchObject({ persistence: 'ready', lastError: null });
-    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!)).toEqual(createClienteBaseline());
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!)).toEqual({
+      ...createClienteBaseline(),
+      sessionClienteId: 'cliente-ana',
+    });
   });
 
   it('não oferece cenário mock no datasource supabase', () => {

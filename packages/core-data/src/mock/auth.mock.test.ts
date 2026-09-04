@@ -28,14 +28,60 @@ describe('auth.mock (contract)', () => {
     expect(typeof cliente.id).toBe('string');
   });
 
+  it('signUp persiste a senha informada e signIn passa a validá-la', async () => {
+    const cliente = await port.signUp(
+      { nome: 'Nova Cliente', email: 'nova@example.com', senha: 'senha1234', telefone: null },
+      { delayMs: 1 },
+    );
+    await port.signOut({ delayMs: 1 });
+
+    await expect(port.signIn('nova@example.com', 'senha-errada', { delayMs: 1 })).rejects.toThrow(
+      /credenciais inválidas/i,
+    );
+    await expect(port.signIn('nova@example.com', 'senha1234', { delayMs: 1 })).resolves.toMatchObject({
+      id: cliente.id,
+    });
+  });
+
   it('signIn finds a seeded fixture by email (Story 2.3 — decisão 10.4)', async () => {
-    const cliente = await port.signIn('ana.souza@example.com', 'senha-qualquer', { delayMs: 1 });
+    const cliente = await port.signIn('ana.souza@example.com', 'keepit123', { delayMs: 1 });
     expect(cliente.nome).toBe('Ana Souza');
+  });
+
+  it('signIn rejeita senha incorreta com erro genérico sem expor credenciais', async () => {
+    const email = 'ana.souza@example.com';
+    const password = 'segredo-incorreto';
+
+    const error = await port.signIn(email, password, { delayMs: 1 }).catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toMatch(/credenciais inválidas/i);
+    expect((error as Error).message).not.toContain(email);
+    expect((error as Error).message).not.toContain(password);
+  });
+
+  it('notifica persistência somente depois de mutações de autenticação bem-sucedidas', async () => {
+    let mutationCount = 0;
+    db.onClienteMutation = () => {
+      mutationCount += 1;
+    };
+
+    await expect(port.signIn('ana.souza@example.com', 'senha-incorreta', { delayMs: 1 })).rejects.toThrow();
+    expect(mutationCount).toBe(0);
+
+    await port.signIn('ana.souza@example.com', 'keepit123', { delayMs: 1 });
+    expect(mutationCount).toBe(1);
+
+    await expect(port.updateProfile('cliente-ana', { nome: '   ' }, { delayMs: 1 })).rejects.toThrow();
+    expect(mutationCount).toBe(1);
+
+    await port.updateProfile('cliente-ana', { nome: 'Ana Persistente' }, { delayMs: 1 });
+    expect(mutationCount).toBe(2);
   });
 
   it('currentUser reflects the mock session after signIn/signOut', async () => {
     expect(await port.currentUser({ delayMs: 1 })).toBeNull();
-    await port.signIn('ana.souza@example.com', 'senha-qualquer', { delayMs: 1 });
+    await port.signIn('ana.souza@example.com', 'keepit123', { delayMs: 1 });
     expect((await port.currentUser({ delayMs: 1 }))?.nome).toBe('Ana Souza');
     await port.signOut({ delayMs: 1 });
     expect(await port.currentUser({ delayMs: 1 })).toBeNull();
@@ -79,14 +125,14 @@ describe('auth.mock (contract)', () => {
   describe('perfil real (Story 2.8, AC1-AC6)', () => {
     it('currentEmail reflete a sessão mock atual e null sem sessão', async () => {
       expect(await port.currentEmail({ delayMs: 1 })).toBeNull();
-      await port.signIn('ana.souza@example.com', 'senha-qualquer', { delayMs: 1 });
+      await port.signIn('ana.souza@example.com', 'keepit123', { delayMs: 1 });
       expect(await port.currentEmail({ delayMs: 1 })).toBe('ana.souza@example.com');
       await port.signOut({ delayMs: 1 });
       expect(await port.currentEmail({ delayMs: 1 })).toBeNull();
     });
 
     it('updateProfile atualiza nome e telefone do próprio cliente (AC3, AC4)', async () => {
-      await port.signIn('ana.souza@example.com', 'senha-qualquer', { delayMs: 1 });
+      await port.signIn('ana.souza@example.com', 'keepit123', { delayMs: 1 });
       const atualizado = await port.updateProfile(
         'cliente-ana',
         { nome: 'Ana Souza Silva', telefone: '(11) 91234-5678' },
@@ -97,13 +143,13 @@ describe('auth.mock (contract)', () => {
     });
 
     it('updateProfile limpa telefone com null, sem disparar SMS/verificação (AC4, decisão 10.4)', async () => {
-      await port.signIn('ana.souza@example.com', 'senha-qualquer', { delayMs: 1 });
+      await port.signIn('ana.souza@example.com', 'keepit123', { delayMs: 1 });
       const atualizado = await port.updateProfile('cliente-ana', { telefone: null }, { delayMs: 1 });
       expect(atualizado.telefone).toBeNull();
     });
 
     it('updateProfile rejeita nome vazio sem persistir (AC3)', async () => {
-      await port.signIn('ana.souza@example.com', 'senha-qualquer', { delayMs: 1 });
+      await port.signIn('ana.souza@example.com', 'keepit123', { delayMs: 1 });
       await expect(port.updateProfile('cliente-ana', { nome: '   ' }, { delayMs: 1 })).rejects.toThrow(
         /nome não pode ser vazio/,
       );
@@ -111,14 +157,14 @@ describe('auth.mock (contract)', () => {
     });
 
     it('updateProfile rejeita clienteId que não corresponde à sessão autenticada — autorização negativa (AC6)', async () => {
-      await port.signIn('ana.souza@example.com', 'senha-qualquer', { delayMs: 1 });
+      await port.signIn('ana.souza@example.com', 'keepit123', { delayMs: 1 });
       await expect(
         port.updateProfile('lj-cliente-thiago', { nome: 'Invasor' }, { delayMs: 1 }),
       ).rejects.toThrow(/não corresponde à sessão autenticada/);
     });
 
     it('updateEmail atualiza clienteCredenciais e devolve status updated (AC5, parity mock)', async () => {
-      await port.signIn('ana.souza@example.com', 'senha-qualquer', { delayMs: 1 });
+      await port.signIn('ana.souza@example.com', 'keepit123', { delayMs: 1 });
       await expect(port.updateEmail('nova.ana@example.com', { delayMs: 1 })).resolves.toEqual({
         status: 'updated',
       });
@@ -131,9 +177,8 @@ describe('auth.mock (contract)', () => {
   });
 
   describe('recuperação de senha (Story 2.7, AC6)', () => {
-    it('requestPasswordReset/establishPasswordRecoverySession/updatePassword não chamam serviço externo nem alteram fixtures', async () => {
+    it('updatePassword persiste a nova senha da sessão de recuperação', async () => {
       const clientesAntes = structuredClone(db.clientes);
-      const credenciaisAntes = structuredClone(db.clienteCredenciais);
 
       await expect(port.requestPasswordReset('ana.souza@example.com', { delayMs: 1 })).resolves.toBeUndefined();
       await expect(
@@ -142,7 +187,12 @@ describe('auth.mock (contract)', () => {
       await expect(port.updatePassword('nova-senha', { delayMs: 1 })).resolves.toBeUndefined();
 
       expect(db.clientes).toEqual(clientesAntes);
-      expect(db.clienteCredenciais).toEqual(credenciaisAntes);
+      await expect(port.signIn('ana.souza@example.com', 'keepit123', { delayMs: 1 })).rejects.toThrow(
+        /credenciais inválidas/i,
+      );
+      await expect(port.signIn('ana.souza@example.com', 'nova-senha', { delayMs: 1 })).resolves.toMatchObject({
+        id: 'cliente-ana',
+      });
     });
 
     it('requestPasswordReset resolve igualmente para e-mail cadastrado ou não — anti-enumeração (AC7)', async () => {
@@ -188,13 +238,13 @@ describe('auth.mock (contract)', () => {
       expect(received.at(-1)?.id).toBe(cliente.id);
 
       await port.signOut({ delayMs: 1 });
-      const outro = await port.signIn('ana.souza@example.com', 'senha-qualquer', { delayMs: 1 });
+      const outro = await port.signIn('ana.souza@example.com', 'keepit123', { delayMs: 1 });
 
       expect(received.at(-1)?.nome).toBe(outro.nome);
     });
 
     it('signOut dispara o callback com null', async () => {
-      await port.signIn('ana.souza@example.com', 'senha-qualquer', { delayMs: 1 });
+      await port.signIn('ana.souza@example.com', 'keepit123', { delayMs: 1 });
 
       const received: (Cliente | null)[] = [];
       port.onAuthStateChange((cliente) => received.push(cliente));
@@ -211,7 +261,7 @@ describe('auth.mock (contract)', () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
 
       unsubscribe();
-      await port.signIn('ana.souza@example.com', 'senha-qualquer', { delayMs: 1 });
+      await port.signIn('ana.souza@example.com', 'keepit123', { delayMs: 1 });
 
       expect(received).toEqual([null]);
     });

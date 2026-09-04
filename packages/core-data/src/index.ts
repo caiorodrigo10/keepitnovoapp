@@ -202,7 +202,7 @@ export function createDataClient(options: CreateDataClientOptions = {}): DataCli
   mockStateStores.set(client, stateStore);
   client.demoScenario = {
     reset: () => stateStore.reset(),
-    flush: () => stateStore.persist(),
+    flush: () => stateStore.flush(),
     getStatus: () => stateStore.getStatus(),
   };
   return client;

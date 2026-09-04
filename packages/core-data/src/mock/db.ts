@@ -18,6 +18,7 @@ import {
   reembolsosFixture,
   saquesFixture,
 } from './fixtures';
+import { CLIENTE_DEMO_INITIAL_PASSWORD } from './cliente-state';
 
 /**
  * "Banco" in-memory compartilhado por todas as implementações mock.
@@ -29,6 +30,7 @@ import {
  * mutar as fixtures originais (import re-usável entre testes).
  */
 export interface MockDb {
+  onClienteMutation: () => void;
   clientes: Cliente[];
   hubs: Hub[];
   estabelecimentos: Estabelecimento[];
@@ -45,7 +47,7 @@ export interface MockDb {
    * `auth.mock.ts#signIn`/`signUp`. Não faz parte de nenhuma port
    * (`Cliente` não tem `email`) — ver `clientesCredenciaisFixture`.
    */
-  clienteCredenciais: { clienteId: string; email: string; password?: string }[];
+  clienteCredenciais: { clienteId: string; email: string; password: string }[];
   /**
    * Story 3.2 (AC4, AC7) — índice mock-only de contas de lojista já
    * cadastradas, usado por `lojista-auth.mock.ts` para simular a rejeição de
@@ -141,6 +143,7 @@ export interface MockDb {
 
 export function createMockDb(): MockDb {
   return {
+    onClienteMutation: () => undefined,
     clientes: structuredClone(clientesFixture),
     hubs: structuredClone(hubsFixture),
     estabelecimentos: structuredClone(estabelecimentosFixture),
@@ -158,7 +161,12 @@ export function createMockDb(): MockDb {
     reembolsos: structuredClone(reembolsosFixture),
     falhas: structuredClone(estabelecimentosFalhasFixture),
     sessionClienteId: null,
-    clienteCredenciais: structuredClone(clientesCredenciaisFixture),
+    clienteCredenciais: structuredClone(
+      clientesCredenciaisFixture.map((credential) => ({
+        ...credential,
+        password: CLIENTE_DEMO_INITIAL_PASSWORD,
+      })),
+    ),
     // Story 10.3 (Gap 1, bloqueador) — antes nasciam `[]`; nenhum e-mail
     // resolvia em `lojista-auth.mock.ts#signIn` e o login mock nunca
     // alcançava `MainTabs`. Ver JSDoc de `MockDb['lojistaContas']`/

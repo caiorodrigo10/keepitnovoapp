@@ -8,6 +8,7 @@ import type {
 } from '../ports/auth.port';
 import type { AsyncCallOptions } from '../types';
 import { generateMockId, simulateAsync } from './async-helpers';
+import { CLIENTE_DEMO_INITIAL_PASSWORD } from './cliente-state';
 import type { MockDb } from './db';
 
 export function createAuthMock(db: MockDb): AuthPort {
@@ -17,8 +18,8 @@ export function createAuthMock(db: MockDb): AuthPort {
    * `db.sessionClienteId` (`signUp`, `signIn`, `signOut`) logo abaixo.
    */
   const listeners = new Set<(cliente: Cliente | null) => void>();
-  /** Story 2.7 — só controla se `updatePassword` aceita a chamada; nunca persiste token/senha. */
-  let passwordRecoverySessionActive = false;
+  /** Story 2.7 — identifica a conta da sessão de recuperação mock ativa. */
+  let passwordRecoveryClienteId: string | null = null;
 
   function currentSessionCliente(): Cliente | null {
     return db.clientes.find((c) => c.id === db.sessionClienteId) ?? null;
@@ -43,8 +44,9 @@ export function createAuthMock(db: MockDb): AuthPort {
             criado_em: new Date().toISOString(),
           };
           db.clientes.push(cliente);
-          db.clienteCredenciais.push({ clienteId: cliente.id, email: input.email });
+          db.clienteCredenciais.push({ clienteId: cliente.id, email: input.email, password: input.senha });
           db.sessionClienteId = cliente.id;
+          db.onClienteMutation();
           notifyAuthStateChange();
           return cliente;
         },
@@ -53,18 +55,19 @@ export function createAuthMock(db: MockDb): AuthPort {
       );
     },
 
-    signIn(email: string, _senha: string, options?: AsyncCallOptions): Promise<Cliente> {
+    signIn(email: string, senha: string, options?: AsyncCallOptions): Promise<Cliente> {
       return simulateAsync(
         () => {
           const credencial = db.clienteCredenciais.find((c) => c.email === email);
           const cliente = credencial ? db.clientes.find((c) => c.id === credencial.clienteId) : undefined;
-          if (!cliente) {
-            throw new Error(`[mock] Cliente não encontrado para e-mail ${email}`);
+          if (!cliente || credencial?.password !== senha) {
+            throw new Error('[mock] Credenciais inválidas.');
           }
           if (cliente.bloqueado) {
             throw new Error(`[mock] Cliente bloqueado: ${cliente.motivo_bloqueio ?? 'sem motivo informado'}`);
           }
           db.sessionClienteId = cliente.id;
+          db.onClienteMutation();
           notifyAuthStateChange();
           return cliente;
         },
@@ -83,25 +86,32 @@ export function createAuthMock(db: MockDb): AuthPort {
       return simulateAsync(() => undefined, undefined, options);
     },
 
-    /** Story 2.7 (AC6) — não lê a URL; só habilita `updatePassword` no mock. */
+    /** Story 2.7 (AC6) — não lê a URL; habilita a recuperação da conta mock atual/demo. */
     establishPasswordRecoverySession(_callbackUrl: string, options?: AsyncCallOptions): Promise<void> {
       return simulateAsync(
         () => {
-          passwordRecoverySessionActive = true;
+          passwordRecoveryClienteId = db.sessionClienteId ?? db.clienteCredenciais[0]?.clienteId ?? null;
         },
         undefined,
         options,
       );
     },
 
-    /** Story 2.7 (AC6) — exige `establishPasswordRecoverySession` prévio; não grava a senha em `db`. */
-    updatePassword(_password: string, options?: AsyncCallOptions): Promise<void> {
+    /** Story 2.7 (AC6) — exige sessão de recuperação e troca somente a senha dessa conta. */
+    updatePassword(password: string, options?: AsyncCallOptions): Promise<void> {
       return simulateAsync(
         () => {
-          if (!passwordRecoverySessionActive) {
+          if (!passwordRecoveryClienteId) {
             throw new Error('[mock] Nenhuma sessão de recuperação ativa.');
           }
-          passwordRecoverySessionActive = false;
+          const credencial = db.clienteCredenciais.find((item) => item.clienteId === passwordRecoveryClienteId);
+          if (!credencial) {
+            passwordRecoveryClienteId = null;
+            throw new Error('[mock] Nenhuma sessão de recuperação ativa.');
+          }
+          credencial.password = password;
+          passwordRecoveryClienteId = null;
+          db.onClienteMutation();
         },
         undefined,
         options,
@@ -120,6 +130,7 @@ export function createAuthMock(db: MockDb): AuthPort {
       return simulateAsync(
         () => {
           db.sessionClienteId = null;
+          db.onClienteMutation();
           notifyAuthStateChange();
         },
         undefined,
@@ -161,6 +172,7 @@ export function createAuthMock(db: MockDb): AuthPort {
           if (input.telefone !== undefined) {
             cliente.telefone = input.telefone?.trim() || null;
           }
+          db.onClienteMutation();
           return cliente;
         },
         {} as Cliente,
@@ -189,8 +201,13 @@ export function createAuthMock(db: MockDb): AuthPort {
           if (credencial) {
             credencial.email = email;
           } else {
-            db.clienteCredenciais.push({ clienteId: db.sessionClienteId, email });
+            db.clienteCredenciais.push({
+              clienteId: db.sessionClienteId,
+              email,
+              password: CLIENTE_DEMO_INITIAL_PASSWORD,
+            });
           }
+          db.onClienteMutation();
           return { status: 'updated' as const };
         },
         { status: 'updated' as const },
@@ -248,6 +265,7 @@ export function createAuthMock(db: MockDb): AuthPort {
           if (cliente.cpf == null) {
             cliente.cpf = cpf;
           }
+          db.onClienteMutation();
           return cliente;
         },
         {} as Cliente,

@@ -46,6 +46,7 @@ export class ClienteMockStateStore {
       if (decoded.status === 'recovered') {
         await this.enqueueSnapshot(snapshot, 'write');
       }
+      this.connectMutationPersistence();
     } catch {
       const baseline = createClienteBaseline();
       this.rememberSnapshotClienteIds(baseline);
@@ -54,6 +55,7 @@ export class ClienteMockStateStore {
       applyClienteSnapshot(this.db, baseline);
       this.hydrated = true;
       this.status = { hydrated: true, persistence: 'degraded', lastError: 'read' };
+      this.connectMutationPersistence();
     }
   }
 
@@ -61,6 +63,10 @@ export class ClienteMockStateStore {
     const snapshot = this.captureSnapshot();
     this.lastSnapshot = structuredClone(snapshot);
     return this.enqueueSnapshot(snapshot, 'write');
+  }
+
+  flush(): Promise<void> {
+    return this.writeQueue;
   }
 
   async reset(): Promise<void> {
@@ -82,7 +88,7 @@ export class ClienteMockStateStore {
     this.rememberCurrentClienteIds();
     const accounts = this.db.clienteCredenciais.flatMap((credential) => {
       const profile = this.db.clientes.find((cliente) => cliente.id === credential.clienteId);
-      if (!profile || credential.password === undefined) return [];
+      if (!profile) return [];
       return [{ id: profile.id, email: credential.email, password: credential.password, profile }];
     });
     const clienteIds = new Set(accounts.map((account) => account.id));
@@ -106,6 +112,12 @@ export class ClienteMockStateStore {
       }
     });
     return this.writeQueue;
+  }
+
+  private connectMutationPersistence(): void {
+    this.db.onClienteMutation = () => {
+      void this.persist();
+    };
   }
 
   private rememberCurrentClienteIds(): void {

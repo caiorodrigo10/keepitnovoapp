@@ -90,6 +90,41 @@ describe('order.mock (contract)', () => {
     expect(db.pedidos.length).toBe(pedidosAntes);
   });
 
+  it('notifica persistência somente depois de uma mutação de pedido bem-sucedida', async () => {
+    let mutationCount = 0;
+    db.onClienteMutation = () => {
+      mutationCount += 1;
+    };
+
+    await expect(port.confirmarPagamento('pedido-2049', { delayMs: 1 })).rejects.toThrow();
+    expect(mutationCount).toBe(0);
+
+    await port.create(
+      {
+        cliente_id: 'cliente-ana',
+        estabelecimento_id: 'estab-farmacia-vida',
+        hub_id: 'hub-centro',
+        itens: [
+          {
+            produto_id: 'produto-dipirona',
+            nome_snapshot: 'Dipirona Monoidratada 500mg',
+            preco_unitario_reais: 14.9,
+            quantidade: 2,
+          },
+        ],
+        forma_pagamento: 'pix',
+        subtotal_produtos_reais: 29.8,
+        taxa_deslocamento_reais: 5,
+        taxa_keepit_reais: 3.58,
+        taxa_servico_comprador_reais: 1.99,
+        total_pago_reais: 40.37,
+        nf_solicitada: false,
+      },
+      { delayMs: 1 },
+    );
+    expect(mutationCount).toBe(1);
+  });
+
   it('confirmarPagamento transitions aguardando_pagamento -> aguardando_aceite, without touching aceito_em (Story 6.7.1, AC1-AC4)', async () => {
     const criado = await port.create(
       {
