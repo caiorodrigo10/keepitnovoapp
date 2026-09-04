@@ -4,6 +4,7 @@ import type { Database } from '@keepit/shared-types';
 import type { AdminPort } from './ports/admin.port';
 import type { AnalyticsPort } from './ports/analytics.port';
 import type { AuthPort, PasswordRecoveryState } from './ports/auth.port';
+import type { DemoScenarioPort } from './ports/demo-scenario.port';
 import type { EstabelecimentoCadastroPort } from './ports/estabelecimento-cadastro.port';
 import type { HubPort } from './ports/hub.port';
 import type { LojistaAuthPort } from './ports/lojista-auth.port';
@@ -16,6 +17,8 @@ import type { WalletPort } from './ports/wallet.port';
 import { createAdminMock } from './mock/admin.mock';
 import { createAnalyticsMock } from './mock/analytics.mock';
 import { createAuthMock } from './mock/auth.mock';
+import type { ClienteMockStorage } from './mock/cliente-state';
+import { ClienteMockStateStore } from './mock/cliente-state-store';
 import { createMockDb } from './mock/db';
 import { createEstabelecimentoCadastroMock } from './mock/estabelecimento-cadastro.mock';
 import { createHubMock } from './mock/hub.mock';
@@ -61,6 +64,8 @@ export interface CreateDataClientOptions {
    * ver `apps/cliente/src/lib/dataClientBootstrap.ts`).
    */
   passwordRecoveryState?: PasswordRecoveryState;
+  /** Storage persistente exclusivo do cenário mock do app Cliente. */
+  clienteMockStorage?: ClienteMockStorage;
 }
 
 /**
@@ -100,6 +105,27 @@ export interface DataClient {
    * (tipado no domínio público de Descoberta do Cliente).
    */
   estabelecimentoCadastro: EstabelecimentoCadastroPort;
+  /** Disponível somente no datasource mock. */
+  demoScenario?: DemoScenarioPort;
+}
+
+const mockStateStores = new WeakMap<DataClient, ClienteMockStateStore>();
+
+function createVolatileClienteMockStorage(): ClienteMockStorage {
+  const values = new Map<string, string>();
+  return {
+    getItem: async (key) => values.get(key) ?? null,
+    setItem: async (key, value) => {
+      values.set(key, value);
+    },
+    removeItem: async (key) => {
+      values.delete(key);
+    },
+  };
+}
+
+function mockStateStoreFor(client: DataClient): ClienteMockStateStore | undefined {
+  return mockStateStores.get(client);
 }
 
 /**
@@ -158,7 +184,7 @@ export function createDataClient(options: CreateDataClientOptions = {}): DataCli
 
   const db = createMockDb();
 
-  return {
+  const client: DataClient = {
     auth: createAuthMock(db),
     hub: createHubMock(db),
     store: createStoreMock(db),
@@ -171,9 +197,19 @@ export function createDataClient(options: CreateDataClientOptions = {}): DataCli
     lojistaAuth: createLojistaAuthMock(db),
     estabelecimentoCadastro: createEstabelecimentoCadastroMock(db),
   };
+
+  const stateStore = new ClienteMockStateStore(db, options.clienteMockStorage ?? createVolatileClienteMockStorage());
+  mockStateStores.set(client, stateStore);
+  client.demoScenario = {
+    reset: () => stateStore.reset(),
+    flush: () => stateStore.persist(),
+    getStatus: () => stateStore.getStatus(),
+  };
+  return client;
 }
 
 let sharedClient: DataClient | null = null;
+let sharedInitialization: Promise<DataClient> | null = null;
 
 /**
  * Singleton do `DataClient` para o processo/sessão atual — usado pelos hooks
@@ -187,14 +223,28 @@ export function getDataClient(options?: CreateDataClientOptions): DataClient {
   return sharedClient;
 }
 
+/** Devolve o singleton somente depois que o cenário mock foi hidratado. */
+export function initializeDataClient(options: CreateDataClientOptions = {}): Promise<DataClient> {
+  if (!sharedInitialization) {
+    const client = getDataClient(options);
+    sharedInitialization = (async () => {
+      await mockStateStoreFor(client)?.hydrate();
+      return client;
+    })();
+  }
+  return sharedInitialization;
+}
+
 /** Reseta o singleton — uso exclusivo de testes. */
 export function __resetDataClientForTests(): void {
   sharedClient = null;
+  sharedInitialization = null;
 }
 
 export * from './ports/admin.port';
 export * from './ports/analytics.port';
 export * from './ports/auth.port';
+export * from './ports/demo-scenario.port';
 export * from './ports/estabelecimento-cadastro.port';
 export * from './ports/hub.port';
 export * from './ports/lojista-auth.port';
@@ -204,6 +254,7 @@ export * from './ports/product.port';
 export * from './ports/store.port';
 export * from './ports/wallet.port';
 export * from './types';
+export type { ClienteMockStorage } from './mock/cliente-state';
 /** Story 2.3 (Task 6/7) — `EmailJaExisteError`, consumido por `CriarConta.tsx` (AC4). */
 export * from './supabase/auth-errors';
 /** Story 3.5 (AC3, AC4) — 4 erros nomeados da RPC, consumidos por `CadastroPasso3.tsx`. */
