@@ -84,7 +84,7 @@ describe('cartStorage (Story 6.1, AC3)', () => {
 
       await clearCartState();
 
-      expect(mockedStorage.removeItem).toHaveBeenCalledWith(expect.any(String));
+      expect(mockedStorage.removeItem).toHaveBeenCalledWith('@keepit/cliente:carrinho');
     });
 
     it('fail-open: erro na remoção não propaga exceção', async () => {
