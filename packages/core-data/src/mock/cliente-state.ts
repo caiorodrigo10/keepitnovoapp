@@ -131,7 +131,7 @@ function isPedido(value: unknown): value is Pedido {
 }
 
 function isClienteMockSnapshotV1(value: unknown): value is ClienteMockSnapshotV1 {
-  return (
+  const hasValidShape =
     isRecord(value) &&
     value.schemaVersion === CLIENTE_MOCK_SCHEMA_VERSION &&
     Array.isArray(value.accounts) &&
@@ -154,7 +154,24 @@ function isClienteMockSnapshotV1(value: unknown): value is ClienteMockSnapshotV1
       (isRecord(value.accountDeletion) && typeof value.accountDeletion.requestedAt === 'string')) &&
     isRecord(value.qa) &&
     typeof value.qa.clockOffsetMs === 'number' &&
-    typeof value.qa.autoProgressOrders === 'boolean'
+    typeof value.qa.autoProgressOrders === 'boolean';
+
+  if (!hasValidShape) {
+    return false;
+  }
+
+  const snapshot = value as unknown as ClienteMockSnapshotV1;
+  const accountIds = snapshot.accounts.map((account) => account.id);
+  const uniqueAccountIds = new Set(accountIds);
+
+  return (
+    uniqueAccountIds.size === accountIds.length &&
+    accountIds.every((id) => !id.startsWith('lj-cliente-')) &&
+    (snapshot.sessionClienteId === null || uniqueAccountIds.has(snapshot.sessionClienteId)) &&
+    snapshot.orders.every(
+      (order) =>
+        uniqueAccountIds.has(order.cliente_id) && order.itens.every((item) => item.pedido_id === order.id),
+    )
   );
 }
 

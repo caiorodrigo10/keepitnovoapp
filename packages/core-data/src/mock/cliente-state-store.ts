@@ -1,4 +1,4 @@
-import type { DemoScenarioStatus } from '../ports/demo-scenario.port';
+import type { DemoScenarioResetResult, DemoScenarioStatus } from '../ports/demo-scenario.port';
 import {
   CLIENTE_MOCK_STATE_KEY,
   applyClienteSnapshot,
@@ -62,14 +62,14 @@ export class ClienteMockStateStore {
   persist(): Promise<void> {
     const snapshot = this.captureSnapshot();
     this.lastSnapshot = structuredClone(snapshot);
-    return this.enqueueSnapshot(snapshot, 'write');
+    return this.enqueueSnapshot(snapshot, 'write').then(() => undefined);
   }
 
   flush(): Promise<void> {
     return this.writeQueue;
   }
 
-  async reset(): Promise<void> {
+  async reset(): Promise<DemoScenarioResetResult> {
     const baseline = createClienteBaseline();
     this.rememberCurrentClienteIds();
     this.removeManagedClienteDomain();
@@ -77,7 +77,9 @@ export class ClienteMockStateStore {
     applyClienteSnapshot(this.db, baseline);
     this.managedClienteIds.clear();
     this.rememberSnapshotClienteIds(baseline);
-    await this.enqueueSnapshot(baseline, 'reset');
+    const persisted = await this.enqueueSnapshot(baseline, 'reset');
+    await this.db.onClienteStateReset();
+    return persisted ? { status: 'reset' } : { status: 'degraded' };
   }
 
   getStatus(): DemoScenarioStatus {
@@ -101,23 +103,24 @@ export class ClienteMockStateStore {
     });
   }
 
-  private enqueueSnapshot(snapshot: ClienteMockSnapshotV1, error: PersistenceError): Promise<void> {
+  private enqueueSnapshot(snapshot: ClienteMockSnapshotV1, error: PersistenceError): Promise<boolean> {
     const payload = JSON.stringify(structuredClone(snapshot));
-    this.writeQueue = this.writeQueue.then(async () => {
+    const writeResult = this.writeQueue.then(async () => {
       try {
         await this.storage.setItem(CLIENTE_MOCK_STATE_KEY, payload);
         this.status = { hydrated: this.hydrated, persistence: 'ready', lastError: null };
+        return true;
       } catch {
         this.status = { hydrated: this.hydrated, persistence: 'degraded', lastError: error };
+        return false;
       }
     });
-    return this.writeQueue;
+    this.writeQueue = writeResult.then(() => undefined);
+    return writeResult;
   }
 
   private connectMutationPersistence(): void {
-    this.db.onClienteMutation = () => {
-      void this.persist();
-    };
+    this.db.onClienteMutation = () => this.persist();
   }
 
   private rememberCurrentClienteIds(): void {

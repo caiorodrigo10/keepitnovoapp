@@ -30,7 +30,8 @@ import { CLIENTE_DEMO_INITIAL_PASSWORD } from './cliente-state';
  * mutar as fixtures originais (import re-usável entre testes).
  */
 export interface MockDb {
-  onClienteMutation: () => void;
+  onClienteMutation: () => void | Promise<void>;
+  onClienteStateReset: () => void | Promise<void>;
   clientes: Cliente[];
   hubs: Hub[];
   estabelecimentos: Estabelecimento[];
@@ -144,6 +145,7 @@ export interface MockDb {
 export function createMockDb(): MockDb {
   return {
     onClienteMutation: () => undefined,
+    onClienteStateReset: () => undefined,
     clientes: structuredClone(clientesFixture),
     hubs: structuredClone(hubsFixture),
     estabelecimentos: structuredClone(estabelecimentosFixture),

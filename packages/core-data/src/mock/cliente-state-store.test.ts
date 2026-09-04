@@ -50,6 +50,14 @@ function memoryStorage(options: MemoryStorageOptions = {}): MemoryStorage {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+  return { promise, resolve };
+}
+
 describe('ClienteMockStateStore', () => {
   beforeEach(() => {
     __resetDataClientForTests();
@@ -123,12 +131,86 @@ describe('ClienteMockStateStore', () => {
     ]);
   });
 
+  it('mantém operações de auth e pedido pendentes até a escrita correspondente terminar', async () => {
+    const values = new Map([[CLIENTE_MOCK_STATE_KEY, JSON.stringify(createClienteBaseline())]]);
+    let writeStarted = deferred<void>();
+    let releaseWrite = deferred<void>();
+    const storage: ClienteMockStorage = {
+      async getItem(key) {
+        return values.get(key) ?? null;
+      },
+      async setItem(key, value) {
+        writeStarted.resolve(undefined);
+        await releaseWrite.promise;
+        values.set(key, value);
+      },
+      async removeItem(key) {
+        values.delete(key);
+      },
+    };
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+
+    let authSettled = false;
+    const signIn = client.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
+    void signIn.then(
+      () => {
+        authSettled = true;
+      },
+      () => {
+        authSettled = true;
+      },
+    );
+    await writeStarted.promise;
+    expect(authSettled).toBe(false);
+    releaseWrite.resolve(undefined);
+    await signIn;
+
+    writeStarted = deferred<void>();
+    releaseWrite = deferred<void>();
+    let orderSettled = false;
+    const createOrder = client.order.create(
+      {
+        cliente_id: 'cliente-ana',
+        estabelecimento_id: 'estab-farmacia-vida',
+        hub_id: 'hub-centro',
+        itens: [
+          {
+            produto_id: 'produto-dipirona',
+            nome_snapshot: 'Dipirona Monoidratada 500mg',
+            preco_unitario_reais: 14.9,
+            quantidade: 2,
+          },
+        ],
+        forma_pagamento: 'pix',
+        subtotal_produtos_reais: 29.8,
+        taxa_deslocamento_reais: 5,
+        taxa_keepit_reais: 3.58,
+        taxa_servico_comprador_reais: 1.99,
+        total_pago_reais: 40.37,
+        nf_solicitada: false,
+      },
+      { delayMs: 0 },
+    );
+    void createOrder.then(
+      () => {
+        orderSettled = true;
+      },
+      () => {
+        orderSettled = true;
+      },
+    );
+    await writeStarted.promise;
+    expect(orderSettled).toBe(false);
+    releaseWrite.resolve(undefined);
+    await createOrder;
+  });
+
   it('reset restaura baseline e publica status sem propagar falha de storage', async () => {
     const storage = memoryStorage({ setItemError: new Error('disk full') });
     const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
 
     await client.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
-    await expect(client.demoScenario!.reset()).resolves.toBeUndefined();
+    await expect(client.demoScenario!.reset()).resolves.toEqual({ status: 'degraded' });
 
     await expect(client.auth.currentUser({ delayMs: 0 })).resolves.toBeNull();
     expect(client.demoScenario!.getStatus()).toMatchObject({
@@ -136,6 +218,35 @@ describe('ClienteMockStateStore', () => {
       persistence: 'degraded',
       lastError: 'reset',
     });
+  });
+
+  it('reset emite logout aos listeners e invalida a recuperação de senha ativa', async () => {
+    const storage = memoryStorage({ initialValue: JSON.stringify(createClienteBaseline()) });
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await client.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
+    await client.auth.requestPasswordReset('ana.souza@example.com', { delayMs: 0 });
+    await client.auth.establishPasswordRecoverySession('com.keepithub.cliente://auth/reset', { delayMs: 0 });
+
+    const authEvents: Array<string | null> = [];
+    let resolveInitialAuth!: () => void;
+    const initialAuth = new Promise<void>((resolve) => {
+      resolveInitialAuth = resolve;
+    });
+    const unsubscribe = client.auth.onAuthStateChange((cliente) => {
+      authEvents.push(cliente?.id ?? null);
+      resolveInitialAuth();
+    });
+    await initialAuth;
+    expect(authEvents).toEqual(['cliente-ana']);
+    authEvents.length = 0;
+
+    await client.demoScenario!.reset();
+
+    expect(authEvents).toEqual([null]);
+    await expect(client.auth.updatePassword('senha-invalida', { delayMs: 0 })).rejects.toThrow(
+      'Nenhuma sessão de recuperação ativa',
+    );
+    unsubscribe();
   });
 
   it('mantém o baseline utilizável e expõe falha de leitura', async () => {

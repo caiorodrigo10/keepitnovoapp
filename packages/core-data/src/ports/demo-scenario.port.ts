@@ -4,8 +4,10 @@ export interface DemoScenarioStatus {
   lastError: 'read' | 'write' | 'reset' | null;
 }
 
+export type DemoScenarioResetResult = { status: 'reset' } | { status: 'degraded' };
+
 export interface DemoScenarioPort {
-  reset(): Promise<void>;
+  reset(): Promise<DemoScenarioResetResult>;
   flush(): Promise<void>;
   getStatus(): DemoScenarioStatus;
 }

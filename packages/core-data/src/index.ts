@@ -227,12 +227,29 @@ export function getDataClient(options?: CreateDataClientOptions): DataClient {
 export function initializeDataClient(options: CreateDataClientOptions = {}): Promise<DataClient> {
   if (!sharedInitialization) {
     const client = getDataClient(options);
-    sharedInitialization = (async () => {
+    const hydration = (async () => {
       await mockStateStoreFor(client)?.hydrate();
       return client;
     })();
+    const guardedInitialization = hydration.catch((error: unknown) => {
+      if (sharedInitialization === guardedInitialization) {
+        sharedInitialization = null;
+        if (sharedClient === client) {
+          sharedClient = null;
+        }
+      }
+      throw error;
+    });
+    sharedInitialization = guardedInitialization;
   }
   return sharedInitialization;
+}
+
+/** Descarta uma inicialização incompleta e tenta novamente com um singleton novo. */
+export function recoverDataClient(options: CreateDataClientOptions = {}): Promise<DataClient> {
+  sharedClient = null;
+  sharedInitialization = null;
+  return initializeDataClient(options);
 }
 
 /** Reseta o singleton — uso exclusivo de testes. */

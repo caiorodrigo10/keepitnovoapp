@@ -13,7 +13,7 @@ export const DEFAULT_MOCK_DELAY_MS = 350;
  * - `options.delayMs` → sobrepõe `DEFAULT_MOCK_DELAY_MS`.
  */
 export function simulateAsync<T>(
-  resultFactory: () => T,
+  resultFactory: () => T | Promise<T>,
   emptyValue: T,
   options?: AsyncCallOptions,
 ): Promise<T> {
@@ -29,11 +29,11 @@ export function simulateAsync<T>(
         resolve(emptyValue);
         return;
       }
-      try {
-        resolve(resultFactory());
-      } catch (error) {
-        reject(error instanceof Error ? error : new Error(String(error)));
-      }
+      Promise.resolve()
+        .then(resultFactory)
+        .then(resolve, (error: unknown) => {
+          reject(error instanceof Error ? error : new Error(String(error)));
+        });
     }, delayMs);
   });
 }

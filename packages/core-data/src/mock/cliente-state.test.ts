@@ -40,6 +40,51 @@ describe('cliente-state', () => {
     expect(parseClienteSnapshot(JSON.stringify(snapshot))).toEqual(createClienteBaseline());
   });
 
+  it.each([
+    {
+      invariant: 'sessão pertence a uma conta',
+      corrupt(snapshot: ReturnType<typeof createClienteBaseline>) {
+        snapshot.sessionClienteId = 'cliente-inexistente';
+      },
+    },
+    {
+      invariant: 'IDs de conta são únicos',
+      corrupt(snapshot: ReturnType<typeof createClienteBaseline>) {
+        snapshot.accounts.push(structuredClone(snapshot.accounts[0]!));
+      },
+    },
+    {
+      invariant: 'IDs reservados ao domínio Lojista não são aceitos',
+      corrupt(snapshot: ReturnType<typeof createClienteBaseline>) {
+        snapshot.accounts[0]!.id = 'lj-cliente-thiago';
+        snapshot.accounts[0]!.profile.id = 'lj-cliente-thiago';
+      },
+    },
+    {
+      invariant: 'pedidos pertencem a uma conta do snapshot',
+      corrupt(snapshot: ReturnType<typeof createClienteBaseline>) {
+        const db = createMockDb();
+        const pedido = structuredClone(db.pedidos.find((item) => item.cliente_id === 'cliente-ana')!);
+        pedido.cliente_id = 'cliente-inexistente';
+        snapshot.orders = [pedido];
+      },
+    },
+    {
+      invariant: 'itens apontam para o próprio pedido',
+      corrupt(snapshot: ReturnType<typeof createClienteBaseline>) {
+        const db = createMockDb();
+        const pedido = structuredClone(db.pedidos.find((item) => item.cliente_id === 'cliente-ana')!);
+        pedido.itens[0]!.pedido_id = 'pedido-inexistente';
+        snapshot.orders = [pedido];
+      },
+    },
+  ])('rejeita snapshot quando $invariant', ({ corrupt }) => {
+    const snapshot = createClienteBaseline();
+    corrupt(snapshot);
+
+    expect(parseClienteSnapshot(JSON.stringify(snapshot))).toEqual(createClienteBaseline());
+  });
+
   it('aplica somente o domínio Cliente e preserva dados do Lojista', () => {
     const db = createMockDb();
     const lojistaContas = structuredClone(db.lojistaContas);

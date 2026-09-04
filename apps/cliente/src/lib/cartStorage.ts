@@ -70,10 +70,13 @@ export async function saveCartState(state: PersistedCartState): Promise<void> {
  * Apaga o carrinho salvo. Fail-open: erro na remoção não propaga para que o
  * reset do cenário mock em core-data não fique bloqueado pelo storage do app.
  */
-export async function clearCartState(): Promise<void> {
+export type ClearCartStateResult = { status: 'cleared' } | { status: 'degraded' };
+
+export async function clearCartState(): Promise<ClearCartStateResult> {
   try {
     await AsyncStorage.removeItem(CARRINHO_KEY);
+    return { status: 'cleared' };
   } catch {
-    // Fail-open — ver JSDoc do módulo.
+    return { status: 'degraded' };
   }
 }

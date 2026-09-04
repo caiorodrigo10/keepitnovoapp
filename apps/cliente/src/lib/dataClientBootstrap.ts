@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@keepit/supabase-client';
 import { useEffect, useState } from 'react';
-import { getDataClient, initializeDataClient, type DataClient } from '@keepit/core-data';
+import { initializeDataClient, recoverDataClient, type DataClient } from '@keepit/core-data';
 
 import { clienteMockStorage } from './clienteMockStorage';
 
@@ -56,34 +56,70 @@ const passwordRecoveryState = {
  * nada, mesmo comportamento de todo o Épico 0-2.
  *
  * **Falha de configuração ou hidratação não pode travar o boot numa tela
- * branca.** O handler é instalado antes de executar qualquer inicialização:
- * primeiro tenta mock persistente e, se esse fallback também falhar, usa o
- * singleton mock volátil já criado. O aviso nunca inclui o erro original,
- * pois mensagens do SDK podem carregar URL ou outros dados sensíveis.
+ * branca.** Cada tentativa principal é limitada a 5 s. Uma falha no modo
+ * Supabase recupera com um singleton mock persistente novo; uma falha no
+ * próprio mock persistente recupera com um singleton volátil novo. O aviso
+ * nunca inclui o erro original, pois mensagens do SDK podem carregar URL ou
+ * outros dados sensíveis.
  */
-function bootstrapDataClient(): Promise<DataClient> {
-  return Promise.resolve()
-    .then(() => {
-      const dataSource =
-        process.env.EXPO_PUBLIC_DATA_SOURCE?.trim() === 'supabase' ? 'supabase' : 'mock';
+const DATA_CLIENT_BOOTSTRAP_TIMEOUT_MS = 5_000;
 
-      if (dataSource !== 'supabase') {
-        return initializeDataClient({ source: 'mock', clienteMockStorage });
-      }
+export interface BootstrapDataClientOptions {
+  timeoutMs?: number;
+}
 
-      const supabaseClient = createClient({
-        storage: AsyncStorage,
-        persistSession: true,
-        autoRefreshToken: true,
-      });
-      return initializeDataClient({ source: 'supabase', supabaseClient, passwordRecoveryState });
-    })
-    .catch(() => {
-      console.warn('[dataClientBootstrap] inicialização indisponível; usando fallback mock.');
-      return Promise.resolve()
-        .then(() => initializeDataClient({ source: 'mock', clienteMockStorage }))
-        .catch(() => getDataClient({ source: 'mock' }));
+function settleWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('DataClient bootstrap timeout')), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
+}
+
+export async function bootstrapDataClient(
+  options: BootstrapDataClientOptions = {},
+): Promise<DataClient> {
+  const timeoutMs = options.timeoutMs ?? DATA_CLIENT_BOOTSTRAP_TIMEOUT_MS;
+  const dataSource =
+    process.env.EXPO_PUBLIC_DATA_SOURCE?.trim() === 'supabase' ? 'supabase' : 'mock';
+
+  try {
+    if (dataSource === 'mock') {
+      return await settleWithin(
+        initializeDataClient({ source: 'mock', clienteMockStorage }),
+        timeoutMs,
+      );
+    }
+
+    const supabaseClient = createClient({
+      storage: AsyncStorage,
+      persistSession: true,
+      autoRefreshToken: true,
     });
+    return await settleWithin(
+      initializeDataClient({ source: 'supabase', supabaseClient, passwordRecoveryState }),
+      timeoutMs,
+    );
+  } catch {
+    console.warn('[dataClientBootstrap] inicialização indisponível; usando fallback mock.');
+    const fallbackOptions =
+      dataSource === 'supabase'
+        ? { source: 'mock' as const, clienteMockStorage }
+        : { source: 'mock' as const };
+    try {
+      return await settleWithin(recoverDataClient(fallbackOptions), timeoutMs);
+    } catch {
+      return recoverDataClient({ source: 'mock' });
+    }
+  }
 }
 
 export const dataClientReady: Promise<DataClient> = bootstrapDataClient();

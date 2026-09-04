@@ -20,10 +20,10 @@ vi.mock('@keepit/supabase-client', () => ({
 }));
 
 const initializeDataClientMock = vi.fn();
-const getDataClientMock = vi.fn();
+const recoverDataClientMock = vi.fn();
 vi.mock('@keepit/core-data', () => ({
   initializeDataClient: (...args: unknown[]) => initializeDataClientMock(...args),
-  getDataClient: (...args: unknown[]) => getDataClientMock(...args),
+  recoverDataClient: (...args: unknown[]) => recoverDataClientMock(...args),
 }));
 
 describe('dataClientBootstrap', () => {
@@ -34,14 +34,15 @@ describe('dataClientBootstrap', () => {
     createClientMock.mockReset();
     initializeDataClientMock.mockReset();
     initializeDataClientMock.mockResolvedValue('mock-client');
-    getDataClientMock.mockReset();
-    getDataClientMock.mockReturnValue('volatile-mock-client');
+    recoverDataClientMock.mockReset();
+    recoverDataClientMock.mockResolvedValue('recovered-mock-client');
     asyncStorageMock.getItem.mockReset();
     asyncStorageMock.setItem.mockReset();
     asyncStorageMock.removeItem.mockReset();
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     if (originalDataSource === undefined) {
       delete process.env.EXPO_PUBLIC_DATA_SOURCE;
@@ -65,7 +66,6 @@ describe('dataClientBootstrap', () => {
         removeItem: expect.any(Function),
       }),
     });
-    expect(getDataClientMock).not.toHaveBeenCalled();
   });
 
   it('EXPO_PUBLIC_DATA_SOURCE com valor diferente de "supabase" também hidrata o mock persistente', async () => {
@@ -136,8 +136,8 @@ describe('dataClientBootstrap', () => {
 
     const module = await import('./dataClientBootstrap');
 
-    await expect(module.dataClientReady).resolves.toBe('mock-client');
-    expect(initializeDataClientMock).toHaveBeenLastCalledWith({
+    await expect(module.dataClientReady).resolves.toBe('recovered-mock-client');
+    expect(recoverDataClientMock).toHaveBeenCalledWith({
       source: 'mock',
       clienteMockStorage: expect.any(Object),
     });
@@ -153,14 +153,15 @@ describe('dataClientBootstrap', () => {
     initializeDataClientMock.mockImplementation(() => {
       throw new Error('storage indisponível');
     });
+    recoverDataClientMock.mockResolvedValue('volatile-mock-client');
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     const module = await import('./dataClientBootstrap');
 
     await expect(module.dataClientReady).resolves.toBe('volatile-mock-client');
     expect(createClientMock).not.toHaveBeenCalled();
-    expect(initializeDataClientMock).toHaveBeenCalledTimes(2);
-    expect(getDataClientMock).toHaveBeenCalledWith({ source: 'mock' });
+    expect(initializeDataClientMock).toHaveBeenCalledOnce();
+    expect(recoverDataClientMock).toHaveBeenCalledWith({ source: 'mock' });
     expect(warnSpy).toHaveBeenCalledWith(
       '[dataClientBootstrap] inicialização indisponível; usando fallback mock.',
     );
@@ -171,14 +172,15 @@ describe('dataClientBootstrap', () => {
   it('rejeição assíncrona na hidratação mock resolve pelo fallback volátil sem criar client Supabase', async () => {
     delete process.env.EXPO_PUBLIC_DATA_SOURCE;
     initializeDataClientMock.mockRejectedValue(new Error('storage indisponível'));
+    recoverDataClientMock.mockResolvedValue('volatile-mock-client');
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     const module = await import('./dataClientBootstrap');
 
     await expect(module.dataClientReady).resolves.toBe('volatile-mock-client');
     expect(createClientMock).not.toHaveBeenCalled();
-    expect(initializeDataClientMock).toHaveBeenCalledTimes(2);
-    expect(getDataClientMock).toHaveBeenCalledWith({ source: 'mock' });
+    expect(initializeDataClientMock).toHaveBeenCalledOnce();
+    expect(recoverDataClientMock).toHaveBeenCalledWith({ source: 'mock' });
     expect(warnSpy).toHaveBeenCalledWith(
       '[dataClientBootstrap] inicialização indisponível; usando fallback mock.',
     );
@@ -201,6 +203,30 @@ describe('dataClientBootstrap', () => {
     expect(onReady).toHaveBeenCalledTimes(1);
 
     unsubscribe();
+  });
+
+  it('limita uma hidratação pendente pelo timeout configurado e libera o boot com singleton novo', async () => {
+    delete process.env.EXPO_PUBLIC_DATA_SOURCE;
+    const module = await import('./dataClientBootstrap');
+    await module.dataClientReady;
+    initializeDataClientMock.mockReset();
+    initializeDataClientMock.mockReturnValue(new Promise(() => {}));
+    recoverDataClientMock.mockReset();
+    recoverDataClientMock.mockResolvedValue('volatile-mock-client');
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.useFakeTimers();
+
+    let settled = false;
+    const readiness = module.bootstrapDataClient({ timeoutMs: 25 });
+    void readiness.then(() => {
+      settled = true;
+    });
+
+    await vi.advanceTimersByTimeAsync(24);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(readiness).resolves.toBe('volatile-mock-client');
+    expect(recoverDataClientMock).toHaveBeenCalledWith({ source: 'mock' });
   });
 
   it('cleanup do gate impede notificação depois do unmount', async () => {

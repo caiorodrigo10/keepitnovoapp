@@ -82,15 +82,15 @@ describe('cartStorage (Story 6.1, AC3)', () => {
     it('remove a chave do carrinho', async () => {
       mockedStorage.removeItem.mockResolvedValue(undefined);
 
-      await clearCartState();
+      await expect(clearCartState()).resolves.toEqual({ status: 'cleared' });
 
       expect(mockedStorage.removeItem).toHaveBeenCalledWith('@keepit/cliente:carrinho');
     });
 
-    it('fail-open: erro na remoção não propaga exceção', async () => {
+    it('fail-open: erro na remoção retorna degradação observável', async () => {
       mockedStorage.removeItem.mockRejectedValue(new Error('storage indisponível'));
 
-      await expect(clearCartState()).resolves.toBeUndefined();
+      await expect(clearCartState()).resolves.toEqual({ status: 'degraded' });
     });
   });
 });
