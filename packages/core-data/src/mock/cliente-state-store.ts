@@ -1,10 +1,15 @@
-import type { DemoScenarioResetResult, DemoScenarioStatus } from '../ports/demo-scenario.port';
+import type {
+  DemoScenarioMutationResult,
+  DemoScenarioResetResult,
+  DemoScenarioStatus,
+  QaScenarioState,
+} from '../ports/demo-scenario.port';
 import {
   CLIENTE_MOCK_STATE_KEY,
   applyClienteSnapshot,
   createClienteBaseline,
   decodeClienteSnapshot,
-  type ClienteMockSnapshotV1,
+  type ClienteMockSnapshotV2,
   type ClienteMockStorage,
 } from './cliente-state';
 import type { MockDb } from './db';
@@ -43,7 +48,7 @@ export class ClienteMockStateStore {
       this.hydrated = true;
       this.status = { hydrated: true, persistence: 'ready', lastError: null };
 
-      if (decoded.status === 'recovered') {
+      if (decoded.status !== 'valid') {
         await this.enqueueSnapshot(snapshot, 'write');
       }
       this.connectMutationPersistence();
@@ -59,10 +64,10 @@ export class ClienteMockStateStore {
     }
   }
 
-  persist(): Promise<void> {
+  persist(): Promise<boolean> {
     const snapshot = this.captureSnapshot();
     this.lastSnapshot = structuredClone(snapshot);
-    return this.enqueueSnapshot(snapshot, 'write').then(() => undefined);
+    return this.enqueueSnapshot(snapshot, 'write');
   }
 
   flush(): Promise<void> {
@@ -86,7 +91,17 @@ export class ClienteMockStateStore {
     return { ...this.status };
   }
 
-  private captureSnapshot(): ClienteMockSnapshotV1 {
+  getQaState(): QaScenarioState {
+    return structuredClone(this.lastSnapshot.qa);
+  }
+
+  async setQaState(next: QaScenarioState): Promise<DemoScenarioMutationResult> {
+    this.lastSnapshot = { ...this.lastSnapshot, qa: structuredClone(next) };
+    const persisted = await this.persist();
+    return persisted ? { status: 'updated' } : { status: 'degraded' };
+  }
+
+  private captureSnapshot(): ClienteMockSnapshotV2 {
     this.rememberCurrentClienteIds();
     const accounts = this.db.clienteCredenciais.flatMap((credential) => {
       const profile = this.db.clientes.find((cliente) => cliente.id === credential.clienteId);
@@ -103,7 +118,7 @@ export class ClienteMockStateStore {
     });
   }
 
-  private enqueueSnapshot(snapshot: ClienteMockSnapshotV1, error: PersistenceError): Promise<boolean> {
+  private enqueueSnapshot(snapshot: ClienteMockSnapshotV2, error: PersistenceError): Promise<boolean> {
     const payload = JSON.stringify(structuredClone(snapshot));
     const writeResult = this.writeQueue.then(async () => {
       try {
@@ -120,14 +135,14 @@ export class ClienteMockStateStore {
   }
 
   private connectMutationPersistence(): void {
-    this.db.onClienteMutation = () => this.persist();
+    this.db.onClienteMutation = () => this.persist().then(() => undefined);
   }
 
   private rememberCurrentClienteIds(): void {
     this.db.clienteCredenciais.forEach((credential) => this.managedClienteIds.add(credential.clienteId));
   }
 
-  private rememberSnapshotClienteIds(snapshot: ClienteMockSnapshotV1): void {
+  private rememberSnapshotClienteIds(snapshot: ClienteMockSnapshotV2): void {
     snapshot.accounts.forEach((account) => this.managedClienteIds.add(account.id));
   }
 

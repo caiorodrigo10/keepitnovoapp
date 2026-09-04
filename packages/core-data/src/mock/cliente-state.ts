@@ -1,11 +1,18 @@
 import type { Cliente } from '../ports/auth.port';
+import {
+  QA_SIMULATION_DOMAINS,
+  type QaScenarioState,
+  type QaSimulationState,
+} from '../ports/demo-scenario.port';
 import type { Pedido, PedidoItem, PedidoStatus } from '../ports/order.port';
 import { clientesCredenciaisFixture, clientesFixture } from './fixtures';
 import type { MockDb } from './db';
 
-export const CLIENTE_MOCK_SCHEMA_VERSION = 1 as const;
+export const CLIENTE_MOCK_SCHEMA_VERSION = 2 as const;
 export const CLIENTE_MOCK_STATE_KEY = '@keepit/cliente:mock-state';
 export const CLIENTE_DEMO_INITIAL_PASSWORD = 'keepit123';
+
+const RESERVED_AUXILIARY_CLIENTE_IDS = new Set(['cliente-bruno', 'cliente-carla', 'cliente-diego']);
 
 export interface ClienteMockStorage {
   getItem(key: string): Promise<string | null>;
@@ -20,7 +27,7 @@ export interface ClienteMockAccount {
   profile: Cliente;
 }
 
-export interface ClienteMockSnapshotV1 {
+interface ClienteMockSnapshotV1 {
   schemaVersion: 1;
   accounts: ClienteMockAccount[];
   sessionClienteId: string | null;
@@ -32,9 +39,22 @@ export interface ClienteMockSnapshotV1 {
   qa: { clockOffsetMs: number; autoProgressOrders: boolean };
 }
 
+export interface ClienteMockSnapshotV2 {
+  schemaVersion: 2;
+  accounts: ClienteMockAccount[];
+  sessionClienteId: string | null;
+  orders: Pedido[];
+  favoriteHubIds: string[];
+  favoriteStoreIds: string[];
+  selectedHubId: string | null;
+  accountDeletion: { requestedAt: string } | null;
+  qa: QaScenarioState;
+}
+
 export type ClienteMockSnapshotDecodeResult =
-  | { status: 'valid'; snapshot: ClienteMockSnapshotV1 }
-  | { status: 'recovered'; reason: 'missing' | 'invalid'; snapshot: ClienteMockSnapshotV1 };
+  | { status: 'valid'; snapshot: ClienteMockSnapshotV2 }
+  | { status: 'migrated'; snapshot: ClienteMockSnapshotV2 }
+  | { status: 'recovered'; reason: 'missing' | 'invalid'; snapshot: ClienteMockSnapshotV2 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -46,6 +66,26 @@ function isNullableString(value: unknown): value is string | null {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
+function hasUniqueValues(values: readonly string[]): boolean {
+  return new Set(values).size === values.length;
+}
+
+const qaSimulationStates = new Set<QaSimulationState>(['normal', 'loading', 'empty', 'error']);
+
+function isQaScenarioState(value: unknown): value is QaScenarioState {
+  if (
+    !isRecord(value) ||
+    typeof value.clockOffsetMs !== 'number' ||
+    typeof value.autoProgressOrders !== 'boolean' ||
+    !isRecord(value.simulations)
+  ) {
+    return false;
+  }
+
+  const simulations = value.simulations;
+  return QA_SIMULATION_DOMAINS.every((domain) => qaSimulationStates.has(simulations[domain] as QaSimulationState));
 }
 
 const pedidoStatuses = new Set<PedidoStatus>([
@@ -130,10 +170,12 @@ function isPedido(value: unknown): value is Pedido {
   );
 }
 
-function isClienteMockSnapshotV1(value: unknown): value is ClienteMockSnapshotV1 {
-  const hasValidShape =
+function hasValidSnapshotShape(value: unknown): value is Omit<ClienteMockSnapshotV1, 'schemaVersion' | 'qa'> & {
+  schemaVersion: number;
+  qa: Record<string, unknown>;
+} {
+  return (
     isRecord(value) &&
-    value.schemaVersion === CLIENTE_MOCK_SCHEMA_VERSION &&
     Array.isArray(value.accounts) &&
     value.accounts.every(
       (account) =>
@@ -152,30 +194,78 @@ function isClienteMockSnapshotV1(value: unknown): value is ClienteMockSnapshotV1
     isNullableString(value.selectedHubId) &&
     (value.accountDeletion === null ||
       (isRecord(value.accountDeletion) && typeof value.accountDeletion.requestedAt === 'string')) &&
-    isRecord(value.qa) &&
-    typeof value.qa.clockOffsetMs === 'number' &&
-    typeof value.qa.autoProgressOrders === 'boolean';
+    isRecord(value.qa)
+  );
+}
 
-  if (!hasValidShape) {
-    return false;
-  }
-
-  const snapshot = value as unknown as ClienteMockSnapshotV1;
+function hasValidClienteIdentity(snapshot: ClienteMockSnapshotV1 | ClienteMockSnapshotV2): boolean {
   const accountIds = snapshot.accounts.map((account) => account.id);
-  const uniqueAccountIds = new Set(accountIds);
+  const accountEmails = snapshot.accounts.map((account) => account.email.trim().toLowerCase());
+  const orderIds = snapshot.orders.map((order) => order.id);
+  const itemIds = snapshot.orders.flatMap((order) => order.itens.map((item) => item.id));
+  const accountIdSet = new Set(accountIds);
 
   return (
-    uniqueAccountIds.size === accountIds.length &&
-    accountIds.every((id) => !id.startsWith('lj-cliente-')) &&
-    (snapshot.sessionClienteId === null || uniqueAccountIds.has(snapshot.sessionClienteId)) &&
+    accountIds.includes('cliente-ana') &&
+    accountIds.every((id) => !id.startsWith('lj-cliente-') && !RESERVED_AUXILIARY_CLIENTE_IDS.has(id)) &&
+    hasUniqueValues(accountIds) &&
+    hasUniqueValues(accountEmails) &&
+    hasUniqueValues(orderIds) &&
+    hasUniqueValues(itemIds) &&
+    (snapshot.sessionClienteId === null || accountIdSet.has(snapshot.sessionClienteId)) &&
     snapshot.orders.every(
       (order) =>
-        uniqueAccountIds.has(order.cliente_id) && order.itens.every((item) => item.pedido_id === order.id),
+        accountIdSet.has(order.cliente_id) && order.itens.every((item) => item.pedido_id === order.id),
     )
   );
 }
 
-export function createClienteBaseline(): ClienteMockSnapshotV1 {
+function isClienteMockSnapshotV1(value: unknown): value is ClienteMockSnapshotV1 {
+  const hasValidShape =
+    hasValidSnapshotShape(value) &&
+    value.schemaVersion === 1 &&
+    typeof value.qa.clockOffsetMs === 'number' &&
+    typeof value.qa.autoProgressOrders === 'boolean';
+
+  return hasValidShape && hasValidClienteIdentity(value as ClienteMockSnapshotV1);
+}
+
+function isClienteMockSnapshotV2(value: unknown): value is ClienteMockSnapshotV2 {
+  const hasValidShape =
+    hasValidSnapshotShape(value) &&
+    value.schemaVersion === CLIENTE_MOCK_SCHEMA_VERSION &&
+    isQaScenarioState(value.qa);
+
+  return hasValidShape && hasValidClienteIdentity(value as unknown as ClienteMockSnapshotV2);
+}
+
+export function createDefaultQaScenarioState(): QaScenarioState {
+  return {
+    clockOffsetMs: 0,
+    autoProgressOrders: true,
+    simulations: {
+      orders: 'normal',
+      stores: 'normal',
+      hubs: 'normal',
+      favorites: 'normal',
+      profile: 'normal',
+      search: 'normal',
+    },
+  };
+}
+
+function migrateClienteSnapshotV1(snapshot: ClienteMockSnapshotV1): ClienteMockSnapshotV2 {
+  return {
+    ...structuredClone(snapshot),
+    schemaVersion: CLIENTE_MOCK_SCHEMA_VERSION,
+    qa: {
+      ...snapshot.qa,
+      simulations: createDefaultQaScenarioState().simulations,
+    },
+  };
+}
+
+export function createClienteBaseline(): ClienteMockSnapshotV2 {
   const profile = clientesFixture.find((cliente) => cliente.id === 'cliente-ana');
   const credential = clientesCredenciaisFixture.find((item) => item.clienteId === 'cliente-ana');
 
@@ -199,7 +289,7 @@ export function createClienteBaseline(): ClienteMockSnapshotV1 {
     favoriteStoreIds: [],
     selectedHubId: null,
     accountDeletion: null,
-    qa: { clockOffsetMs: 0, autoProgressOrders: true },
+    qa: createDefaultQaScenarioState(),
   };
 }
 
@@ -210,19 +300,23 @@ export function decodeClienteSnapshot(raw: string | null): ClienteMockSnapshotDe
 
   try {
     const value: unknown = JSON.parse(raw);
-    return isClienteMockSnapshotV1(value)
-      ? { status: 'valid', snapshot: structuredClone(value) }
-      : { status: 'recovered', reason: 'invalid', snapshot: createClienteBaseline() };
+    if (isClienteMockSnapshotV2(value)) {
+      return { status: 'valid', snapshot: structuredClone(value) };
+    }
+    if (isClienteMockSnapshotV1(value)) {
+      return { status: 'migrated', snapshot: migrateClienteSnapshotV1(value) };
+    }
+    return { status: 'recovered', reason: 'invalid', snapshot: createClienteBaseline() };
   } catch {
     return { status: 'recovered', reason: 'invalid', snapshot: createClienteBaseline() };
   }
 }
 
-export function parseClienteSnapshot(raw: string | null): ClienteMockSnapshotV1 {
+export function parseClienteSnapshot(raw: string | null): ClienteMockSnapshotV2 {
   return decodeClienteSnapshot(raw).snapshot;
 }
 
-export function applyClienteSnapshot(db: MockDb, snapshot: ClienteMockSnapshotV1): void {
+export function applyClienteSnapshot(db: MockDb, snapshot: ClienteMockSnapshotV2): void {
   const clienteIds = new Set(snapshot.accounts.map((account) => account.id));
   db.clientes = db.clientes.filter((cliente) => !clienteIds.has(cliente.id));
   db.clienteCredenciais = db.clienteCredenciais.filter((credential) => !clienteIds.has(credential.clienteId));

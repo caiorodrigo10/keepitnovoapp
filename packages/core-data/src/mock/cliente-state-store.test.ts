@@ -74,6 +74,31 @@ describe('ClienteMockStateStore', () => {
     await expect(reopened.auth.currentUser({ delayMs: 0 })).resolves.toMatchObject({ id: 'cliente-ana' });
   });
 
+  it('persiste simulação por port e restaura após reabertura', async () => {
+    const storage = memoryStorage();
+    const first = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    const next = first.demoScenario!.getQaState();
+    next.simulations.orders = 'error';
+    await expect(first.demoScenario!.setQaState(next)).resolves.toEqual({ status: 'updated' });
+
+    __resetDataClientForTests();
+    const reopened = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    expect(reopened.demoScenario!.getQaState().simulations.orders).toBe('error');
+  });
+
+  it('degrada honestamente quando a persistência do estado QA falha', async () => {
+    const storage = memoryStorage({
+      initialValue: JSON.stringify(createClienteBaseline()),
+      setItemError: new Error('disk full'),
+    });
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    const next = client.demoScenario!.getQaState();
+    next.simulations.stores = 'loading';
+
+    await expect(client.demoScenario!.setQaState(next)).resolves.toEqual({ status: 'degraded' });
+    expect(client.demoScenario!.getQaState().simulations.stores).toBe('loading');
+  });
+
   it('persiste senha redefinida e passa a exigir a nova senha no próximo login', async () => {
     const storage = memoryStorage();
     const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
@@ -210,9 +235,20 @@ describe('ClienteMockStateStore', () => {
     const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
 
     await client.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
+    const qa = client.demoScenario!.getQaState();
+    qa.simulations.search = 'error';
+    await client.demoScenario!.setQaState(qa);
     await expect(client.demoScenario!.reset()).resolves.toEqual({ status: 'degraded' });
 
     await expect(client.auth.currentUser({ delayMs: 0 })).resolves.toBeNull();
+    expect(client.demoScenario!.getQaState().simulations).toEqual({
+      orders: 'normal',
+      stores: 'normal',
+      hubs: 'normal',
+      favorites: 'normal',
+      profile: 'normal',
+      search: 'normal',
+    });
     expect(client.demoScenario!.getStatus()).toMatchObject({
       hydrated: true,
       persistence: 'degraded',

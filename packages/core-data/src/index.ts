@@ -204,6 +204,8 @@ export function createDataClient(options: CreateDataClientOptions = {}): DataCli
     reset: () => stateStore.reset(),
     flush: () => stateStore.flush(),
     getStatus: () => stateStore.getStatus(),
+    getQaState: () => stateStore.getQaState(),
+    setQaState: (next) => stateStore.setQaState(next),
   };
   return client;
 }

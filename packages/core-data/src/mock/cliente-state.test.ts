@@ -30,12 +30,57 @@ describe('cliente-state', () => {
     (raw) => expect(parseClienteSnapshot(raw)).toEqual(createClienteBaseline()),
   );
 
+  it('migra V1 para V2 preservando dados e normalizando simulações', () => {
+    const current = createClienteBaseline();
+    const legacy = {
+      ...current,
+      schemaVersion: 1,
+      sessionClienteId: 'cliente-ana',
+      qa: { clockOffsetMs: 3_600_000, autoProgressOrders: false },
+    };
+
+    expect(parseClienteSnapshot(JSON.stringify(legacy))).toMatchObject({
+      schemaVersion: 2,
+      sessionClienteId: 'cliente-ana',
+      qa: {
+        clockOffsetMs: 3_600_000,
+        autoProgressOrders: false,
+        simulations: {
+          orders: 'normal',
+          stores: 'normal',
+          hubs: 'normal',
+          favorites: 'normal',
+          profile: 'normal',
+          search: 'normal',
+        },
+      },
+    });
+  });
+
   it('substitui snapshot com status de pedido inválido integralmente pelo baseline', () => {
     const db = createMockDb();
     const snapshot = createClienteBaseline();
     const pedido = structuredClone(db.pedidos.find((item) => item.cliente_id === 'cliente-ana')!);
     pedido.status = 'inexistente' as typeof pedido.status;
     snapshot.orders = [pedido];
+
+    expect(parseClienteSnapshot(JSON.stringify(snapshot))).toEqual(createClienteBaseline());
+  });
+
+  it.each(['cliente-bruno', 'cliente-carla', 'cliente-diego'])(
+    'rejeita o ID auxiliar real %s no snapshot Cliente',
+    (reservedId) => {
+      const snapshot = createClienteBaseline();
+      snapshot.accounts[0]!.id = reservedId;
+      snapshot.accounts[0]!.profile.id = reservedId;
+
+      expect(parseClienteSnapshot(JSON.stringify(snapshot))).toEqual(createClienteBaseline());
+    },
+  );
+
+  it('rejeita snapshot sem a conta demo cliente-ana', () => {
+    const snapshot = createClienteBaseline();
+    snapshot.accounts = [];
 
     expect(parseClienteSnapshot(JSON.stringify(snapshot))).toEqual(createClienteBaseline());
   });
@@ -51,6 +96,41 @@ describe('cliente-state', () => {
       invariant: 'IDs de conta são únicos',
       corrupt(snapshot: ReturnType<typeof createClienteBaseline>) {
         snapshot.accounts.push(structuredClone(snapshot.accounts[0]!));
+      },
+    },
+    {
+      invariant: 'e-mails de conta normalizados são únicos',
+      corrupt(snapshot: ReturnType<typeof createClienteBaseline>) {
+        const duplicate = structuredClone(snapshot.accounts[0]!);
+        duplicate.id = 'cliente-nova';
+        duplicate.profile.id = duplicate.id;
+        duplicate.email = ` ${duplicate.email.toUpperCase()} `;
+        snapshot.accounts.push(duplicate);
+      },
+    },
+    {
+      invariant: 'IDs de pedido são únicos',
+      corrupt(snapshot: ReturnType<typeof createClienteBaseline>) {
+        const db = createMockDb();
+        const orders = structuredClone(db.pedidos.filter((item) => item.cliente_id === 'cliente-ana').slice(0, 2));
+        orders[1]!.id = orders[0]!.id;
+        orders[1]!.itens.forEach((item) => {
+          item.pedido_id = orders[0]!.id;
+        });
+        snapshot.orders = orders;
+      },
+    },
+    {
+      invariant: 'IDs de item são únicos globalmente',
+      corrupt(snapshot: ReturnType<typeof createClienteBaseline>) {
+        const db = createMockDb();
+        const first = structuredClone(db.pedidos.find((item) => item.cliente_id === 'cliente-ana')!);
+        const second = structuredClone(first);
+        second.id = `${first.id}-outro`;
+        second.itens.forEach((item) => {
+          item.pedido_id = second.id;
+        });
+        snapshot.orders = [first, second];
       },
     },
     {
