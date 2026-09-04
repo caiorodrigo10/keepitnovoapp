@@ -3,7 +3,7 @@ import {
   CLIENTE_MOCK_STATE_KEY,
   applyClienteSnapshot,
   createClienteBaseline,
-  parseClienteSnapshot,
+  decodeClienteSnapshot,
   type ClienteMockSnapshotV1,
   type ClienteMockStorage,
 } from './cliente-state';
@@ -14,6 +14,7 @@ type PersistenceError = Exclude<DemoScenarioStatus['lastError'], 'read' | null>;
 export class ClienteMockStateStore {
   private hydrated = false;
   private lastSnapshot = createClienteBaseline();
+  private readonly managedClienteIds = new Set<string>();
   private status: DemoScenarioStatus = {
     hydrated: false,
     persistence: 'ready',
@@ -24,24 +25,31 @@ export class ClienteMockStateStore {
   constructor(
     private readonly db: MockDb,
     private readonly storage: ClienteMockStorage,
-  ) {}
+  ) {
+    this.rememberCurrentClienteIds();
+  }
 
   async hydrate(): Promise<void> {
     if (this.hydrated) return;
 
     try {
       const raw = await this.storage.getItem(CLIENTE_MOCK_STATE_KEY);
-      const snapshot = parseClienteSnapshot(raw);
+      const decoded = decodeClienteSnapshot(raw);
+      const snapshot = decoded.snapshot;
+      this.rememberSnapshotClienteIds(snapshot);
+      this.removeManagedClienteDomain();
       this.lastSnapshot = structuredClone(snapshot);
       applyClienteSnapshot(this.db, snapshot);
       this.hydrated = true;
       this.status = { hydrated: true, persistence: 'ready', lastError: null };
 
-      if (!this.isValidStoredSnapshot(raw, snapshot)) {
+      if (decoded.status === 'recovered') {
         await this.enqueueSnapshot(snapshot, 'write');
       }
     } catch {
       const baseline = createClienteBaseline();
+      this.rememberSnapshotClienteIds(baseline);
+      this.removeManagedClienteDomain();
       this.lastSnapshot = structuredClone(baseline);
       applyClienteSnapshot(this.db, baseline);
       this.hydrated = true;
@@ -57,8 +65,12 @@ export class ClienteMockStateStore {
 
   async reset(): Promise<void> {
     const baseline = createClienteBaseline();
+    this.rememberCurrentClienteIds();
+    this.removeManagedClienteDomain();
     this.lastSnapshot = structuredClone(baseline);
     applyClienteSnapshot(this.db, baseline);
+    this.managedClienteIds.clear();
+    this.rememberSnapshotClienteIds(baseline);
     await this.enqueueSnapshot(baseline, 'reset');
   }
 
@@ -67,6 +79,7 @@ export class ClienteMockStateStore {
   }
 
   private captureSnapshot(): ClienteMockSnapshotV1 {
+    this.rememberCurrentClienteIds();
     const accounts = this.db.clienteCredenciais.flatMap((credential) => {
       const profile = this.db.clientes.find((cliente) => cliente.id === credential.clienteId);
       if (!profile || credential.password === undefined) return [];
@@ -95,12 +108,19 @@ export class ClienteMockStateStore {
     return this.writeQueue;
   }
 
-  private isValidStoredSnapshot(raw: string | null, snapshot: ClienteMockSnapshotV1): boolean {
-    if (raw === null) return false;
-    try {
-      return JSON.stringify(JSON.parse(raw)) === JSON.stringify(snapshot);
-    } catch {
-      return false;
-    }
+  private rememberCurrentClienteIds(): void {
+    this.db.clienteCredenciais.forEach((credential) => this.managedClienteIds.add(credential.clienteId));
+  }
+
+  private rememberSnapshotClienteIds(snapshot: ClienteMockSnapshotV1): void {
+    snapshot.accounts.forEach((account) => this.managedClienteIds.add(account.id));
+  }
+
+  private removeManagedClienteDomain(): void {
+    this.db.clientes = this.db.clientes.filter((cliente) => !this.managedClienteIds.has(cliente.id));
+    this.db.clienteCredenciais = this.db.clienteCredenciais.filter(
+      (credential) => !this.managedClienteIds.has(credential.clienteId),
+    );
+    this.db.pedidos = this.db.pedidos.filter((pedido) => !this.managedClienteIds.has(pedido.cliente_id));
   }
 }

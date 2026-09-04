@@ -32,6 +32,10 @@ export interface ClienteMockSnapshotV1 {
   qa: { clockOffsetMs: number; autoProgressOrders: boolean };
 }
 
+export type ClienteMockSnapshotDecodeResult =
+  | { status: 'valid'; snapshot: ClienteMockSnapshotV1 }
+  | { status: 'recovered'; reason: 'missing' | 'invalid'; snapshot: ClienteMockSnapshotV1 };
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -182,17 +186,23 @@ export function createClienteBaseline(): ClienteMockSnapshotV1 {
   };
 }
 
-export function parseClienteSnapshot(raw: string | null): ClienteMockSnapshotV1 {
-  if (!raw) {
-    return createClienteBaseline();
+export function decodeClienteSnapshot(raw: string | null): ClienteMockSnapshotDecodeResult {
+  if (raw === null) {
+    return { status: 'recovered', reason: 'missing', snapshot: createClienteBaseline() };
   }
 
   try {
     const value: unknown = JSON.parse(raw);
-    return isClienteMockSnapshotV1(value) ? structuredClone(value) : createClienteBaseline();
+    return isClienteMockSnapshotV1(value)
+      ? { status: 'valid', snapshot: structuredClone(value) }
+      : { status: 'recovered', reason: 'invalid', snapshot: createClienteBaseline() };
   } catch {
-    return createClienteBaseline();
+    return { status: 'recovered', reason: 'invalid', snapshot: createClienteBaseline() };
   }
+}
+
+export function parseClienteSnapshot(raw: string | null): ClienteMockSnapshotV1 {
+  return decodeClienteSnapshot(raw).snapshot;
 }
 
 export function applyClienteSnapshot(db: MockDb, snapshot: ClienteMockSnapshotV1): void {
