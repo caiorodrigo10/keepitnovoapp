@@ -18,6 +18,7 @@ import { QA_BUILD_ENABLED } from './src/config/buildInfo';
 import { CartProvider } from './src/context/CartContext';
 import { QaScenarioProvider } from './src/context/QaScenarioContext';
 import { canMountReadyApp } from './src/lib/appReadiness';
+import { isQaRuntimeEnabled } from './src/lib/qaAccess';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { createPasswordRecoveryLinking } from './src/navigation/passwordRecoveryLinking';
 
@@ -53,7 +54,9 @@ export default function App() {
 }
 
 function ReadyApp() {
-  const linking = useMemo(() => createPasswordRecoveryLinking(getDataClient().auth, Linking), []);
+  const client = getDataClient();
+  const linking = useMemo(() => createPasswordRecoveryLinking(client.auth, Linking), [client]);
+  const qaEnabled = isQaRuntimeEnabled(QA_BUILD_ENABLED, client.demoScenario);
   const navigation = (
     <NavigationContainer linking={linking}>
       <RootNavigator />
@@ -64,7 +67,7 @@ function ReadyApp() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <CartProvider>
-          {QA_BUILD_ENABLED ? (
+          {qaEnabled ? (
             <QaScenarioProvider>
               <SimulatedStateBanner />
               {navigation}

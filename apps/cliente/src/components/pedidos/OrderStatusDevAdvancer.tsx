@@ -1,8 +1,10 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { getDataClient } from '@keepit/core-data';
-import type { AdvanceableStatus, Pedido } from '@keepit/core-data';
+import type { Pedido } from '@keepit/core-data';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
+
+import { advanceOrderForQa, getNextQaOrderAction } from '../../lib/qaOrderActions';
 
 interface OrderStatusDevAdvancerProps {
   pedido: Pedido;
@@ -22,23 +24,13 @@ export function OrderStatusDevAdvancer({ pedido, onChanged }: OrderStatusDevAdva
     return null;
   }
 
-  const nextAction = getNextAction(pedido);
+  const nextAction = getNextQaOrderAction(pedido);
   if (!nextAction) {
     return null;
   }
 
   const handlePress = async () => {
-    if (nextAction.kind === 'accept') {
-      await getDataClient().order.accept(pedido.id, 15);
-      onChanged();
-      return;
-    }
-    if (nextAction.kind === 'confirm-pin') {
-      await getDataClient().order.confirmPin(pedido.id, pedido.pin_texto);
-      onChanged();
-      return;
-    }
-    await getDataClient().order.advanceStatus(pedido.id, nextAction.status);
+    await advanceOrderForQa(getDataClient(), pedido);
     onChanged();
   };
 
@@ -50,29 +42,6 @@ export function OrderStatusDevAdvancer({ pedido, onChanged }: OrderStatusDevAdva
       </Pressable>
     </View>
   );
-}
-
-type NextAction =
-  | { kind: 'accept'; label: string }
-  | { kind: 'confirm-pin'; label: string }
-  | { kind: 'override'; status: AdvanceableStatus; label: string };
-
-function getNextAction(pedido: Pedido): NextAction | null {
-  switch (pedido.status) {
-    case 'aguardando_pagamento':
-    case 'aguardando_aceite':
-      return { kind: 'accept', label: 'Aceitar pedido' };
-    case 'aceito':
-      return { kind: 'override', status: 'em_preparo', label: 'Em preparo' };
-    case 'em_preparo':
-      return { kind: 'override', status: 'saindo_hub', label: 'Saindo para o hub' };
-    case 'saindo_hub':
-      return { kind: 'override', status: 'no_hub', label: 'Pronto no hub' };
-    case 'no_hub':
-      return { kind: 'confirm-pin', label: 'Confirmar entrega' };
-    default:
-      return null;
-  }
 }
 
 const styles = StyleSheet.create({

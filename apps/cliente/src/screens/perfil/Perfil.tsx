@@ -8,9 +8,12 @@ import { getDataClient } from '@keepit/core-data';
 import { useOrders } from '@keepit/core-data/hooks';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
+import { BuildMetadata } from '../../components/qa/BuildMetadata';
 import { Button, Screen, TextField } from '../../components/ui';
+import { QA_BUILD_ENABLED } from '../../config/buildInfo';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useCurrentEmail } from '../../hooks/useCurrentEmail';
+import { isQaRuntimeEnabled, registerVersionTap } from '../../lib/qaAccess';
 import { isTelefoneBRValido, maskTelefoneBR } from '../../lib/telefoneMask';
 import type { MainTabParamList, PerfilStackParamList } from '../../navigation/types';
 
@@ -91,6 +94,8 @@ const MSG_ERRO_SAIR = 'Não foi possível sair agora. Tente novamente em instant
  * explicitamente.
  */
 export default function Perfil({ navigation }: Props) {
+  const client = getDataClient();
+  const qaEnabled = isQaRuntimeEnabled(QA_BUILD_ENABLED, client.demoScenario);
   const { data: cliente, loading: clienteLoading, error: clienteError } = useCurrentCliente();
   const { data: email, loading: emailLoading, error: emailError } = useCurrentEmail();
   const { data: pedidos, error: pedidosError } = useOrders(cliente?.id ?? '');
@@ -121,6 +126,16 @@ export default function Perfil({ navigation }: Props) {
   const [emailNotice, setEmailNotice] = useState<string | null>(null);
 
   const [signingOut, setSigningOut] = useState(false);
+  const [versionTapCount, setVersionTapCount] = useState(0);
+
+  function handleVersionPress() {
+    if (!qaEnabled) return;
+    const result = registerVersionTap(versionTapCount);
+    setVersionTapCount(result.nextCount);
+    if (result.shouldOpen) {
+      navigation.navigate('PainelQA');
+    }
+  }
 
   function startEditingProfile() {
     if (!clienteAtual) return;
@@ -240,6 +255,7 @@ export default function Perfil({ navigation }: Props) {
     return (
       <Screen>
         <Text style={styles.title}>Perfil</Text>
+        <BuildMetadata onVersionPress={qaEnabled ? handleVersionPress : undefined} />
         <Text style={styles.stateText}>Carregando seu perfil…</Text>
       </Screen>
     );
@@ -249,6 +265,7 @@ export default function Perfil({ navigation }: Props) {
     return (
       <Screen>
         <Text style={styles.title}>Perfil</Text>
+        <BuildMetadata onVersionPress={qaEnabled ? handleVersionPress : undefined} />
         <Text style={styles.stateText}>{MSG_ERRO_PERFIL}</Text>
       </Screen>
     );
@@ -258,6 +275,7 @@ export default function Perfil({ navigation }: Props) {
     return (
       <Screen>
         <Text style={styles.title}>Perfil</Text>
+        <BuildMetadata onVersionPress={qaEnabled ? handleVersionPress : undefined} />
         <Text style={styles.stateText}>{MSG_SEM_SESSAO}</Text>
       </Screen>
     );
@@ -269,6 +287,7 @@ export default function Perfil({ navigation }: Props) {
   return (
     <Screen>
       <Text style={styles.title}>Perfil</Text>
+      <BuildMetadata onVersionPress={qaEnabled ? handleVersionPress : undefined} />
 
       <View style={styles.profileRow}>
         <View style={styles.avatar}>

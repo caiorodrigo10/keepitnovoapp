@@ -80,6 +80,7 @@ export type PedidosStackParamList = {
 export type PerfilStackParamList = {
   Perfil: undefined;
   ExcluirConta: undefined;
+  PainelQA: undefined;
 };
 
 export type MainTabParamList = {
