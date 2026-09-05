@@ -65,15 +65,13 @@ interface CartContextValue {
   decrementItem: (produtoId: string) => Promise<CartMutationResult>;
   removeItem: (produtoId: string) => Promise<CartMutationResult>;
   selectHub: (hub: Pick<Hub, 'id' | 'ativo'>, confirmed?: boolean) => Promise<CartMutationResult>;
-  /** Compatibilidade temporária para telas migradas na próxima task. */
-  setHubId: (hubId: string) => Promise<CartMutationResult>;
   setPayment: (selection: PaymentSelection) => Promise<CartMutationResult>;
   markCpfCollected: () => void;
   addCard: (card: Omit<SavedCard, 'id' | 'padrao'>) => SavedCard;
   /** Limpa carrinho/hub/pagamento após um pedido mock ser "pago" (Task 5/AC3) — mantém `cpfCollected`/`cards` (perfil do cliente, não do pedido). */
   clearOrder: () => Promise<CartMutationResult>;
   /** Restaura todo o estado efêmero do carrinho para o baseline do cenário demo. */
-  resetDemoCart: () => Promise<void>;
+  resetDemoCart: () => Promise<CartMutationResult>;
 }
 
 const CartContext = createContext<CartContextValue | null>(null);
@@ -201,12 +199,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
     [applyTransition],
   );
 
-  const setHubId = useCallback(
-    (id: string) =>
-      applyTransition((current) => ({ kind: 'ready', next: { ...current, hubId: id } })),
-    [applyTransition],
-  );
-
   const setPayment = useCallback(
     (selection: PaymentSelection) =>
       applyTransition((current) => ({ kind: 'ready', next: { ...current, payment: selection } })),
@@ -231,7 +223,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setCards([]);
     setNfSolicitadaState(false);
     cardIdCounter.current = 1;
-    await applyTransition(() => ({ kind: 'ready', next: EMPTY_ORDER_STATE }));
+    return applyTransition(() => ({ kind: 'ready', next: EMPTY_ORDER_STATE }));
   }, [applyTransition]);
 
   const subtotalReais = useMemo(
@@ -281,7 +273,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
       decrementItem,
       removeItem,
       selectHub,
-      setHubId,
       setPayment,
       markCpfCollected,
       addCard,
@@ -300,7 +291,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
       decrementItem,
       removeItem,
       selectHub,
-      setHubId,
       setPayment,
       markCpfCollected,
       addCard,

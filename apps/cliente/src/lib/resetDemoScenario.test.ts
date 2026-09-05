@@ -80,6 +80,25 @@ describe('resetDemoScenario', () => {
     ).resolves.toEqual({ status: 'degraded', failures: ['cart-live-state'] });
   });
 
+  it('informa degradação quando o CartProvider preserva o snapshot após falha de persistência', async () => {
+    const { client } = createFakeClient();
+    asyncStorageMock.removeItem.mockResolvedValue(undefined);
+
+    await expect(
+      resetDemoScenario(client, true, {
+        clearLiveCart: vi.fn().mockResolvedValue({
+          status: 'persistence_error',
+          state: {
+            estabelecimentoId: 'loja-a',
+            hubId: 'hub-a',
+            payment: { type: 'pix' },
+            items: [{ produtoId: 'p-a', nome: 'Item A', precoSnapshotReais: 10, quantidade: 1 }],
+          },
+        }),
+      }),
+    ).resolves.toEqual({ status: 'degraded', failures: ['cart-live-state'] });
+  });
+
   it('aguarda o reset do cenário antes de limpar carrinho persistido e estado vivo', async () => {
     let resolveReset!: (value: { status: 'reset' }) => void;
     const resetPending = new Promise<{ status: 'reset' }>((resolve) => {

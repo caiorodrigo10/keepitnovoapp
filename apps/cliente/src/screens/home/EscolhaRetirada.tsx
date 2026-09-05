@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
@@ -12,6 +12,7 @@ import { useCart } from '../../context/CartContext';
 import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useHubsList } from '../../hooks/useHubsList';
 import { formatDistanceKm, haversineKm, type LatLng } from '../../lib/distance';
+import { createActionInterlock } from '../../lib/actionInterlock';
 import { geocodeCep } from '../../lib/geocodeCep';
 import { getCurrentCoords } from '../../lib/geolocation';
 import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
@@ -89,6 +90,8 @@ export default function EscolhaRetirada({ navigation }: Props) {
   const [cepInput, setCepInput] = useState('');
   const [cepMensagem, setCepMensagem] = useState<string | undefined>(undefined);
   const [geocodificandoCep, setGeocodificandoCep] = useState(false);
+  const [selectionPending, setSelectionPending] = useState(false);
+  const selectionInterlockRef = useRef(createActionInterlock());
 
   // AC2/AC3: tenta GPS ao abrir; sem sucesso, cai no fallback de CEP — nunca trava.
   useEffect(() => {
@@ -128,26 +131,34 @@ export default function EscolhaRetirada({ navigation }: Props) {
     }
   };
 
+  const finishSelection = () => {
+    selectionInterlockRef.current.release();
+    setSelectionPending(false);
+  };
+
   const selectHub = async (hub: Hub, confirmed = false) => {
     const result = await cart.selectHub(hub, confirmed);
 
     if (result.status === 'committed' || result.status === 'unchanged') {
+      finishSelection();
       navigation.goBack();
       return;
     }
 
     if (result.status === 'persistence_error') {
+      finishSelection();
       Alert.alert('Não foi possível salvar sua seleção. Tente novamente.');
       return;
     }
 
     if (result.status === 'blocked') {
+      finishSelection();
       Alert.alert('Este hub não está disponível para novos pedidos.');
       return;
     }
 
     Alert.alert('Limpar carrinho?', 'Ao trocar de hub ou loja, os itens atuais serão removidos.', [
-      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Cancelar', style: 'cancel', onPress: finishSelection },
       {
         text: 'Continuar',
         style: 'destructive',
@@ -155,7 +166,15 @@ export default function EscolhaRetirada({ navigation }: Props) {
           void selectHub(hub, true);
         },
       },
-    ]);
+    ], { cancelable: true, onDismiss: finishSelection });
+  };
+
+  const beginHubSelection = (hub: Hub) => {
+    if (!selectionInterlockRef.current.acquire()) {
+      return;
+    }
+    setSelectionPending(true);
+    void selectHub(hub);
   };
 
   return (
@@ -196,14 +215,18 @@ export default function EscolhaRetirada({ navigation }: Props) {
 
           <View style={styles.list}>
             {hubsComDistancia.map(({ hub, distanciaKm }) => (
-              <View key={hub.id} pointerEvents={hub.ativo ? 'auto' : 'none'} style={!hub.ativo && styles.hubDisabled}>
+              <View
+                key={hub.id}
+                pointerEvents={hub.ativo && !selectionPending ? 'auto' : 'none'}
+                style={(!hub.ativo || selectionPending) && styles.hubDisabled}
+              >
                 <SelectableRow
                   selected={hub.id === cart.hubId}
                   title={hub.nome}
                   subtitle={distanciaKm != null ? `${hub.endereco} · ${formatDistanceKm(distanciaKm)}` : hub.endereco}
                   highlight={formatAbertoAte(hub)}
                   onPress={() => {
-                    void selectHub(hub);
+                    beginHubSelection(hub);
                   }}
                 />
               </View>

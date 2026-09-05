@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
@@ -12,6 +12,7 @@ import { useCart } from '../../context/CartContext';
 import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useProductDetail } from '../../hooks/useProductDetail';
 import { useStoreDetail } from '../../hooks/useStoreDetail';
+import { createActionInterlock } from '../../lib/actionInterlock';
 import { getRatingPlaceholder } from '../../lib/discoveryDisplay';
 import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
 import type { HomeStackParamList } from '../../navigation/types';
@@ -40,6 +41,8 @@ export default function DetalheProduto({ route, navigation }: Props) {
   const { produtoId } = route.params;
   const storesSimulation = useQaSimulation('stores');
   const [quantidade, setQuantidade] = useState(1);
+  const [addPending, setAddPending] = useState(false);
+  const addInterlockRef = useRef(createActionInterlock());
   const cart = useCart();
 
   const { data: produto, loading: productLoading, error: errorProduto } = useProductDetail(
@@ -56,8 +59,14 @@ export default function DetalheProduto({ route, navigation }: Props) {
     );
   };
 
-  const handleAddItem = async () => {
+  const finishAddIntent = () => {
+    addInterlockRef.current.release();
+    setAddPending(false);
+  };
+
+  const handleAddItem = async (confirmed = false) => {
     if (!produto) {
+      finishAddIntent();
       return;
     }
 
@@ -69,36 +78,43 @@ export default function DetalheProduto({ route, navigation }: Props) {
       quantidade,
       fotoUrl: produto.foto_url,
     };
-    const result = await cart.addItem(input);
+    const result = await cart.addItem(input, confirmed);
 
     if (result.status === 'committed') {
+      finishAddIntent();
       navigation.navigate('Carrinho');
       return;
     }
 
     if (result.status === 'persistence_error') {
+      finishAddIntent();
       showPersistenceError();
       return;
     }
 
     if (result.status === 'confirmation_required') {
       Alert.alert('Trocar de loja?', 'Isso vai limpar seu carrinho atual. Continuar?', [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Cancelar', style: 'cancel', onPress: finishAddIntent },
         {
           text: 'Continuar',
           style: 'destructive',
           onPress: () => {
-            void cart.addItem(input, true).then((confirmedResult) => {
-              if (confirmedResult.status === 'committed') {
-                navigation.navigate('Carrinho');
-              } else if (confirmedResult.status === 'persistence_error') {
-                showPersistenceError();
-              }
-            });
+            void handleAddItem(true);
           },
         },
-      ]);
+      ], { cancelable: true, onDismiss: finishAddIntent });
+      return;
     }
+
+    finishAddIntent();
+  };
+
+  const beginAddItem = () => {
+    if (!addInterlockRef.current.acquire()) {
+      return;
+    }
+    setAddPending(true);
+    void handleAddItem();
   };
 
   return (
@@ -165,10 +181,9 @@ export default function DetalheProduto({ route, navigation }: Props) {
             </View>
 
             <Pressable
-              style={styles.addButton}
-              onPress={() => {
-                void handleAddItem();
-              }}
+              disabled={addPending}
+              style={[styles.addButton, addPending && styles.addButtonDisabled]}
+              onPress={beginAddItem}
             >
               <Text style={styles.addButtonLabel}>Adicionar ao carrinho</Text>
               <Text style={styles.addButtonPreco}>{formatPreco(produto.preco_reais * quantidade)}</Text>
@@ -308,6 +323,9 @@ const styles = StyleSheet.create({
     fontFamily: 'HankenGrotesk-SemiBold',
     fontSize: typography.sizes.lg.fontSize,
     color: lightColors.text.primary,
+  },
+  addButtonDisabled: {
+    opacity: 0.55,
   },
   addButtonPreco: {
     fontFamily: 'HankenGrotesk-Bold',

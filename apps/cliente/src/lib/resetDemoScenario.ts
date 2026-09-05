@@ -1,6 +1,7 @@
 import type { DataClient } from '@keepit/core-data';
 
 import { clearCartState } from './cartStorage';
+import type { CartMutationResult } from './cartTransaction';
 
 export type ResetDemoScenarioResult =
   | { status: 'cancelled' }
@@ -13,7 +14,7 @@ export type ResetDemoScenarioResult =
 
 export interface ResetDemoScenarioOptions {
   /** Limpa o estado do CartProvider sem acoplar este coordenador ao React. */
-  clearLiveCart?: () => void | Promise<void>;
+  clearLiveCart?: () => void | CartMutationResult | Promise<void | CartMutationResult>;
   /** Limpa snapshots compartilhados de pedidos após restaurar o cenário. */
   clearOrders?: () => void;
 }
@@ -47,7 +48,10 @@ export async function resetDemoScenario(
     failures.push('cart-persistence');
   }
   try {
-    await options.clearLiveCart?.();
+    const liveCartResult = await options.clearLiveCart?.();
+    if (liveCartResult?.status === 'persistence_error') {
+      failures.push('cart-live-state');
+    }
   } catch {
     failures.push('cart-live-state');
   }
