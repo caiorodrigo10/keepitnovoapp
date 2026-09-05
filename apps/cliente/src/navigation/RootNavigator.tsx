@@ -2,13 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, View } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
-import type { Cliente } from '@keepit/core-data';
+import type { AccountDeletionRecord, Cliente } from '@keepit/core-data';
 import { getDataClient } from '@keepit/core-data';
 import { darkColors } from '@keepit/ui-tokens';
 
 import { FavoritesProvider } from '../context/FavoritesContext';
 import {
+  createAccountDeletionLookupCoordinator,
+  isAccountDeletionGuardSessionCurrent,
   resolveAccountRoute,
+  setAccountDeletionGuardSession,
   subscribeAccountDeletionPersisted,
   type AccountDeletionLookup,
 } from '../lib/accountDeletionRoute';
@@ -81,22 +84,26 @@ const SESSION_TIMEOUT_MS = 5000;
 export function RootNavigator() {
   const [cliente, setCliente] = useState<Cliente | null | undefined>(undefined);
   const [deletionLookup, setDeletionLookup] = useState<AccountDeletionLookup>({ status: 'loading' });
-  const deletionRequestRef = useRef(0);
+  const deletionLookupCoordinatorRef = useRef(createAccountDeletionLookupCoordinator());
   const activeClienteIdRef = useRef<string | null>(null);
 
+  const commitAccountDeletion = useCallback((deletion: AccountDeletionRecord | null) => {
+    setDeletionLookup(deletionLookupCoordinatorRef.current.commit(deletion));
+  }, []);
+
   const loadAccountDeletion = useCallback(async () => {
-    const requestId = deletionRequestRef.current + 1;
-    deletionRequestRef.current = requestId;
-    setDeletionLookup({ status: 'loading' });
+    const { requestId, lookup } = deletionLookupCoordinatorRef.current.begin();
+    setDeletionLookup(lookup);
     try {
       const deletion = await getDataClient().accountDeletion.status();
-      if (deletionRequestRef.current === requestId) {
-        setDeletionLookup({ status: 'resolved', deletion });
-      }
+      const nextLookup = deletionLookupCoordinatorRef.current.complete(requestId, {
+        status: 'resolved',
+        deletion,
+      });
+      if (nextLookup) setDeletionLookup(nextLookup);
     } catch {
-      if (deletionRequestRef.current === requestId) {
-        setDeletionLookup({ status: 'failed' });
-      }
+      const nextLookup = deletionLookupCoordinatorRef.current.complete(requestId, { status: 'failed' });
+      if (nextLookup) setDeletionLookup(nextLookup);
     }
   }, []);
 
@@ -104,12 +111,14 @@ export function RootNavigator() {
     let unsubscribe: (() => void) | undefined;
     let settled = false;
 
-    const unsubscribeDeletion = subscribeAccountDeletionPersisted((deletion) => {
-      if (!activeClienteIdRef.current) return;
+    const unsubscribeDeletion = subscribeAccountDeletionPersisted(({ deletion, session }) => {
+      if (
+        activeClienteIdRef.current !== session.clienteId
+        || !isAccountDeletionGuardSessionCurrent(session)
+      ) return;
       // A mutação já foi persistida. Invalida qualquer status anterior antes
       // de desmontar Main, inclusive enquanto o sign-out ainda está pendente.
-      deletionRequestRef.current += 1;
-      setDeletionLookup({ status: 'resolved', deletion });
+      commitAccountDeletion(deletion);
     });
 
     const appStateSubscription = AppState.addEventListener('change', (status) => {
@@ -126,7 +135,8 @@ export function RootNavigator() {
     const timeoutId = setTimeout(() => {
       if (settled) return;
       settled = true;
-      deletionRequestRef.current += 1;
+      setAccountDeletionGuardSession(null);
+      deletionLookupCoordinatorRef.current.commit(null);
       setDeletionLookup({ status: 'loading' });
       console.warn('[RootNavigator] onAuthStateChange não emitiu o primeiro estado em ~5s — assumindo sem sessão.');
       setCliente(null);
@@ -142,6 +152,7 @@ export function RootNavigator() {
         clearTimeout(timeoutId);
       }
       activeClienteIdRef.current = next?.id ?? null;
+      setAccountDeletionGuardSession(next?.id ?? null);
       setCliente(next);
       if (next) {
         // O adapter também encaminha TOKEN_REFRESHED/USER_UPDATED. Revalidar
@@ -149,7 +160,7 @@ export function RootNavigator() {
         // a consulta não altera auth, portanto não forma loop.
         void loadAccountDeletion();
       } else {
-        deletionRequestRef.current += 1;
+        deletionLookupCoordinatorRef.current.commit(null);
         setDeletionLookup({ status: 'loading' });
       }
     }
@@ -161,19 +172,21 @@ export function RootNavigator() {
       console.warn('[RootNavigator] falha ao assinar onAuthStateChange:', error);
       settled = true;
       clearTimeout(timeoutId);
-      deletionRequestRef.current += 1;
+      setAccountDeletionGuardSession(null);
+      deletionLookupCoordinatorRef.current.commit(null);
       setDeletionLookup({ status: 'loading' });
       setCliente(null);
     }
 
     return () => {
       clearTimeout(timeoutId);
-      deletionRequestRef.current += 1;
+      setAccountDeletionGuardSession(null);
+      deletionLookupCoordinatorRef.current.commit(null);
       appStateSubscription.remove();
       unsubscribeDeletion();
       unsubscribe?.();
     };
-  }, [loadAccountDeletion]);
+  }, [commitAccountDeletion, loadAccountDeletion]);
 
   if (cliente === undefined) {
     return <View style={{ flex: 1, backgroundColor: darkColors.bg.primary }} />;
@@ -197,7 +210,7 @@ export function RootNavigator() {
             <ExclusaoAgendada
               {...props}
               lookup={deletionLookup}
-              onDeletionChange={(deletion) => setDeletionLookup({ status: 'resolved', deletion })}
+              onDeletionChange={commitAccountDeletion}
               onRetry={() => void loadAccountDeletion()}
             />
           )}

@@ -162,3 +162,24 @@ Task 4: complete (commit: enclosing Task 4 commit)
 - Gate focado: teste e typecheck do app Cliente PASS; diff-check PASS.
 
 Task 4 fix: complete (commit: enclosing Task 4 fix commit)
+
+### Task 4 review fix 2
+
+- Rereview: o HIGH foi fechado; restou um MEDIUM em dois interleavings. Um
+  `status()` antigo podia sobrescrever cancelamento confirmado, e a notificação
+  de schedule não identificava a sessão que iniciou a operação.
+- A geração de lookup foi encapsulada num coordenador puro. `begin/complete`
+  aceita somente a carga corrente e todo `commit` autoritativo avança a
+  geração. Schedule e cancelamento usam o mesmo commit; resposta anterior não
+  pode re-restringir `Main`.
+- Schedule agora captura `{ clienteId, epoch }`. O Root mantém o epoch estável
+  em refresh da mesma identidade e troca-o em logout/troca de conta. Evento,
+  callback local e sign-out são descartados quando o token fica obsoleto.
+- Antes de sair, a identidade corrente também é confirmada por `currentUser()`;
+  isso cobre a janela em que o provider já trocou a sessão mas o callback do
+  Root ainda não chegou, sem encerrar a conta nova.
+- TDD RED: falhas focadas provaram coordenador ausente, evento ainda não
+  associado e ausência da checagem de identidade. GREEN: 1 arquivo / 15 testes
+  PASS. Typecheck Cliente e diff-check PASS.
+
+Task 4 fix 2: complete (commit: enclosing Task 4 fix 2 commit)
