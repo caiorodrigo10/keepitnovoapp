@@ -13,6 +13,8 @@ import type { RootStackParamList } from './types';
  * evita acoplar a UI ao pacote de dados por um valor.
  */
 export const PASSWORD_RECOVERY_CALLBACK = 'com.keepithub.cliente://auth/reset';
+const SAFE_PASSWORD_RECOVERY_READY_URL = `${PASSWORD_RECOVERY_CALLBACK}?recovery=ready`;
+const SAFE_PASSWORD_RECOVERY_INVALID_URL = `${PASSWORD_RECOVERY_CALLBACK}?recovery=invalid`;
 
 /** Formato mínimo de `Linking` do React Native — permite injetar um fake nos testes. */
 interface LinkingGateway {
@@ -22,8 +24,9 @@ interface LinkingGateway {
 
 /**
  * Story 2.7 (AC3, AC5). Converte a URL bruta do callback (que pode carregar
- * `access_token`/`refresh_token`/`code`) numa URL interna SEM nenhum dado
- * sensível, antes de ela alcançar o estado de navegação/deep-linking do
+ * `access_token`/`refresh_token`/`code`, ou o `requestId` opaco do mock)
+ * numa URL interna SEM nenhum desses dados, antes de ela alcançar o estado
+ * de navegação/deep-linking do
  * `react-navigation` — que registraria a URL completa (com o token) em
  * `NavigationContainer`'s state, potencialmente visível em devtools/logs.
  * A URL original só é repassada, uma única vez, para
@@ -46,9 +49,9 @@ export async function consumePasswordRecoveryUrl(
 
   try {
     await auth.establishPasswordRecoverySession(url);
-    return `${PASSWORD_RECOVERY_CALLBACK}?recovery=ready`;
+    return SAFE_PASSWORD_RECOVERY_READY_URL;
   } catch {
-    return `${PASSWORD_RECOVERY_CALLBACK}?recovery=invalid`;
+    return SAFE_PASSWORD_RECOVERY_INVALID_URL;
   }
 }
 
@@ -92,7 +95,11 @@ export function createPasswordRecoveryLinking(
 function isPasswordRecoveryCallback(value: string): boolean {
   try {
     const url = new URL(value);
-    return `${url.protocol}//${url.host}${url.pathname}` === PASSWORD_RECOVERY_CALLBACK;
+    return (
+      !url.username &&
+      !url.password &&
+      `${url.protocol}//${url.host}${url.pathname}` === PASSWORD_RECOVERY_CALLBACK
+    );
   } catch {
     return false;
   }
