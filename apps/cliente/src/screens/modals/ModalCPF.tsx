@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
@@ -6,9 +6,11 @@ import { getDataClient } from '@keepit/core-data';
 import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 
 import { Button, FormSheet, TextField } from '../../components/ui';
+import { QA_BUILD_ENABLED } from '../../config/buildInfo';
 import { useCart } from '../../context/CartContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { apenasDigitosCpf, isCpfValido, maskCpf } from '../../lib/cpf';
+import { createCpfDiagnostics } from '../../lib/cpfDiagnostics';
 import { createCpfSubmissionController, type CpfSubmitResult } from '../../lib/cpfSubmission';
 import type { RootStackParamList } from '../../navigation/types';
 
@@ -37,9 +39,14 @@ export default function ModalCPF({ navigation, route }: Props) {
   const cart = useCart();
   const { data: cliente } = useCurrentCliente();
   const controllerRef = useRef(createCpfSubmissionController());
+  const diagnosticsRef = useRef(
+    createCpfDiagnostics(QA_BUILD_ENABLED, (event) => console.info('[cpf-performance]', JSON.stringify(event))),
+  );
   const [cpf, setCpf] = useState('');
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | undefined>();
+
+  useEffect(() => diagnosticsRef.current.recordRender(cpf.length));
 
   const digits = apenasDigitosCpf(cpf);
   const invalidCpfError = digits.length === 11 && !isCpfValido(digits) ? CPF_INVALIDO : undefined;
@@ -94,7 +101,7 @@ export default function ModalCPF({ navigation, route }: Props) {
         value={cpf}
         onChangeText={(value) => {
           setErro(undefined);
-          setCpf(maskCpf(value));
+          setCpf(diagnosticsRef.current.measureOnChangeText(value, maskCpf));
         }}
         placeholder="000.000.000-00"
         keyboardType="number-pad"
