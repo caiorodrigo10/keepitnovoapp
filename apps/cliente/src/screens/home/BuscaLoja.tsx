@@ -17,10 +17,14 @@ import { useSearchLojas } from '../../hooks/useSearchLojas';
 import { CATEGORIAS_BUSCA } from '../../lib/discoveryDisplay';
 import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
 import {
+  createCategoryRecentSearch,
   GENERAL_SEARCH_SUGGESTIONS,
-  recordRecentQuery,
+  getRecentSearchLabel,
+  recordRecentSearch,
+  resolveRecentSearchSelection,
   resolveSearchSuggestionSelection,
   resolveSearchViewState,
+  type SearchRecentEntry,
 } from '../../lib/searchViewState';
 import type { HomeStackParamList } from '../../navigation/types';
 
@@ -38,7 +42,7 @@ export default function BuscaLoja({ route, navigation }: Props) {
 
   const [query, setQuery] = useState(route.params?.query ?? '');
   const [categoria, setCategoria] = useState(route.params?.categoria ?? 'todos');
-  const [recentQueries, setRecentQueries] = useState<string[]>([]);
+  const [recentQueries, setRecentQueries] = useState<SearchRecentEntry[]>([]);
 
   // Story 5.6 (AC5) — mesma correção de escopo de hub (`cart.hubId`, não
   // `DEFAULT_HUB_ID`) e guard de hub ausente, herdados aqui sem duplicar a
@@ -65,9 +69,11 @@ export default function BuscaLoja({ route, navigation }: Props) {
     suggestions: GENERAL_SEARCH_SUGGESTIONS,
   });
 
-  const selectQuery = (selectedQuery: string) => {
-    setQuery(selectedQuery);
-    setRecentQueries((current) => recordRecentQuery(current, selectedQuery));
+  const selectRecent = (recent: SearchRecentEntry) => {
+    const selection = resolveRecentSearchSelection(recent);
+    setQuery(selection.query);
+    setCategoria(selection.category);
+    setRecentQueries((current) => recordRecentSearch(current, recent));
   };
 
   if (hubId === null) {
@@ -111,11 +117,14 @@ export default function BuscaLoja({ route, navigation }: Props) {
           {viewState.recent.length > 0 && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>BUSCAS RECENTES</Text>
-              {viewState.recent.map((recentQuery) => (
-                <Pressable key={recentQuery} style={styles.suggestionRow} onPress={() => selectQuery(recentQuery)}>
-                  <Text style={styles.suggestionLabel}>{recentQuery}</Text>
-                </Pressable>
-              ))}
+              {viewState.recent.map((recent) => {
+                const label = getRecentSearchLabel(recent);
+                return (
+                  <Pressable key={label} style={styles.suggestionRow} onPress={() => selectRecent(recent)}>
+                    <Text style={styles.suggestionLabel}>{label}</Text>
+                  </Pressable>
+                );
+              })}
             </View>
           )}
 
@@ -129,7 +138,9 @@ export default function BuscaLoja({ route, navigation }: Props) {
                   const selection = resolveSearchSuggestionSelection(suggestion);
                   setCategoria(selection.category);
                   setQuery(selection.query);
-                  setRecentQueries((current) => recordRecentQuery(current, selection.recentQuery));
+                  setRecentQueries((current) =>
+                    recordRecentSearch(current, createCategoryRecentSearch(suggestion)),
+                  );
                 }}
               >
                 <Text style={styles.suggestionLabel}>{suggestion.label}</Text>
@@ -155,7 +166,7 @@ export default function BuscaLoja({ route, navigation }: Props) {
               loja={loja}
               disponibilidade={disponibilidade}
               onPress={() => {
-                setRecentQueries((current) => recordRecentQuery(current, query));
+                setRecentQueries((current) => recordRecentSearch(current, query));
                 navigation.navigate('Loja', { estabelecimentoId: loja.id });
               }}
             />

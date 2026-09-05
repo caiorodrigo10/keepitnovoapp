@@ -2,8 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import type { ProdutoComLoja } from '../hooks/useSearchProdutos';
 import {
+  createCategoryRecentSearch,
   GENERAL_SEARCH_SUGGESTIONS,
+  getRecentSearchLabel,
   recordRecentQuery,
+  recordRecentSearch,
+  resolveRecentSearchSelection,
   resolveSearchSuggestionSelection,
   resolveSearchViewState,
   type SearchViewInput,
@@ -98,5 +102,25 @@ describe('recordRecentQuery', () => {
 
   it('mantém somente o limite mais recente solicitado', () => {
     expect(recordRecentQuery(['a', 'b', 'c'], 'd', 3)).toEqual(['d', 'a', 'b']);
+  });
+});
+
+describe('replay de buscas recentes', () => {
+  it('preserva a categoria canônica da sugestão ao registrar e reabrir o recente', () => {
+    const farmacia = GENERAL_SEARCH_SUGGESTIONS[0];
+    const recent = createCategoryRecentSearch(farmacia);
+    const recorded = recordRecentSearch(['Farmácias', 'arroz'], recent);
+
+    expect(recorded).toEqual([
+      { kind: 'category', label: 'Farmácias', category: 'farmacia' },
+      'arroz',
+    ]);
+    expect(getRecentSearchLabel(recorded[0])).toBe('Farmácias');
+    expect(resolveRecentSearchSelection(recorded[0])).toEqual({ query: '', category: 'farmacia' });
+  });
+
+  it('migra labels legados conhecidos e mantém termos comuns como busca textual', () => {
+    expect(resolveRecentSearchSelection('Roupas')).toEqual({ query: '', category: 'vestuario' });
+    expect(resolveRecentSearchSelection('arroz')).toEqual({ query: 'arroz', category: 'todos' });
   });
 });
