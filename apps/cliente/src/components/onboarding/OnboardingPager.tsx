@@ -109,7 +109,9 @@ export function OnboardingPager({ onComplete }: OnboardingPagerProps) {
         <>
           <Button title="Criar conta" onPress={() => onComplete('create-account')} />
           <Pressable onPress={() => onComplete('login')} hitSlop={8} style={styles.secondaryAction}>
-            <Text style={styles.secondaryText}>Já tenho conta · Entrar</Text>
+            <Text style={styles.secondaryText}>
+              Já tenho conta · <Text style={styles.secondaryTextBold}>Entrar</Text>
+            </Text>
           </Pressable>
         </>
       )}
@@ -189,5 +191,9 @@ const styles = StyleSheet.create({
     fontFamily: 'HankenGrotesk-Medium',
     fontSize: typography.sizes.md.fontSize,
     color: darkColors.text.secondary,
+  },
+  secondaryTextBold: {
+    fontFamily: 'HankenGrotesk-Bold',
+    color: darkColors.text.primary,
   },
 });
