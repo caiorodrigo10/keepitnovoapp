@@ -230,6 +230,55 @@ describe('order.mock (contract)', () => {
     expect(event.mock.calls.filter(([value]) => value.reason === 'auto-progress')).toHaveLength(4);
   });
 
+  it('serializa listMine e getById sobrepostos sem repetir transições', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-09-05T10:00:00.000Z');
+    db.clienteQaState = qaComAtrasosDeUmSegundo();
+    const created = await settleMock(port.create(validInput, { delayMs: 0 }));
+    await settleMock(port.confirmarPagamento(created.id, { delayMs: 0 }));
+
+    const persistedStatuses: string[] = [];
+    const eventStatuses: string[] = [];
+    let releaseFirstPersistence!: () => void;
+    let markFirstPersistenceStarted!: () => void;
+    let shouldBlock = true;
+    const firstPersistenceStarted = new Promise<void>((resolve) => {
+      markFirstPersistenceStarted = resolve;
+    });
+    const firstPersistenceGate = new Promise<void>((resolve) => {
+      releaseFirstPersistence = resolve;
+    });
+    db.onClienteMutation = async () => {
+      persistedStatuses.push(db.pedidos.find((pedido) => pedido.id === created.id)!.status);
+      if (shouldBlock) {
+        shouldBlock = false;
+        markFirstPersistenceStarted();
+        await firstPersistenceGate;
+      }
+    };
+    port.subscribeChanges!((event) => {
+      if (event.reason === 'auto-progress') {
+        eventStatuses.push(db.pedidos.find((pedido) => pedido.id === created.id)!.status);
+      }
+    });
+
+    vi.setSystemTime('2026-09-05T10:00:05.000Z');
+    const listing = port.listMine('cliente-ana', { delayMs: 0 });
+    await vi.advanceTimersByTimeAsync(0);
+    await firstPersistenceStarted;
+
+    const detail = port.getById(created.id, { delayMs: 0 });
+    await vi.advanceTimersByTimeAsync(0);
+    releaseFirstPersistence();
+
+    const [orders, current] = await Promise.all([listing, detail]);
+    expect(orders.find((pedido) => pedido.id === created.id)?.status).toBe('no_hub');
+    expect(current?.status).toBe('no_hub');
+    expect(persistedStatuses).toEqual(['aceito', 'em_preparo', 'saindo_hub', 'no_hub']);
+    expect(eventStatuses).toEqual(['aceito', 'em_preparo', 'saindo_hub', 'no_hub']);
+    expect(db.clienteOrderAutomation[created.id]).toBeUndefined();
+  });
+
   it('não agenda antes do pagamento e mantém o pedido aguardando pagamento', async () => {
     vi.useFakeTimers();
     vi.setSystemTime('2026-09-05T10:00:00.000Z');

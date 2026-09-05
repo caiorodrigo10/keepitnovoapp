@@ -29,6 +29,8 @@ const ADVANCE_ALLOWED_FROM: Record<AdvanceableStatus, PedidoStatus[]> = {
 };
 
 export function createOrderMock(db: MockDb): OrderPort {
+  let reconciliationQueue: Promise<void> = Promise.resolve();
+
   function findOrThrow(pedidoId: string): Pedido {
     const pedido = db.pedidos.find((p) => p.id === pedidoId);
     if (!pedido) {
@@ -87,7 +89,7 @@ export function createOrderMock(db: MockDb): OrderPort {
     return nextPedido;
   }
 
-  async function reconcileEligibleOrders(): Promise<void> {
+  async function runEligibleOrderReconciliation(): Promise<void> {
     const nowMs = Date.now() + db.clienteQaState.clockOffsetMs;
 
     for (const [pedidoId, runtime] of Object.entries(db.clienteOrderAutomation)) {
@@ -119,6 +121,12 @@ export function createOrderMock(db: MockDb): OrderPort {
         });
       }
     }
+  }
+
+  function reconcileEligibleOrders(): Promise<void> {
+    const reconciliation = reconciliationQueue.then(() => runEligibleOrderReconciliation());
+    reconciliationQueue = reconciliation.catch(() => undefined);
+    return reconciliation;
   }
 
   return {
