@@ -10,6 +10,12 @@ export interface SelectionAccessibility {
   accessibilityState: { selected: boolean } | { checked: boolean };
 }
 
+export interface FavoriteButtonAccessibility {
+  accessibilityRole: 'button';
+  accessibilityLabel: string;
+  accessibilityState: { selected: boolean; disabled: boolean; busy: boolean };
+}
+
 export function getButtonAccessibility(
   label: string,
   disabled: boolean,
@@ -31,5 +37,19 @@ export function getSelectionAccessibility(
     accessibilityRole: role,
     accessibilityLabel: label,
     accessibilityState: role === 'tab' ? { selected } : { checked: selected },
+  };
+}
+
+export function getFavoriteButtonAccessibility(
+  resourceLabel: 'hub' | 'loja',
+  resourceName: string,
+  selected: boolean,
+  disabled: boolean,
+  busy: boolean,
+): FavoriteButtonAccessibility {
+  return {
+    accessibilityRole: 'button',
+    accessibilityLabel: `${selected ? 'Desfavoritar' : 'Favoritar'} ${resourceLabel} ${resourceName}`,
+    accessibilityState: { selected, disabled, busy },
   };
 }

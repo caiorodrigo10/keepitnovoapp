@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { getButtonAccessibility, getSelectionAccessibility } from './interactionAccessibility';
+import {
+  getButtonAccessibility,
+  getFavoriteButtonAccessibility,
+  getSelectionAccessibility,
+} from './interactionAccessibility';
 
 describe('interactionAccessibility', () => {
   it('expõe botão ocupado como ocupado e desabilitado', () => {
@@ -21,6 +25,19 @@ describe('interactionAccessibility', () => {
       accessibilityRole: 'radio',
       accessibilityLabel: 'PIX, Aprovação na hora',
       accessibilityState: { checked: false },
+    });
+  });
+
+  it('expõe label e estados completos ao favoritar e desfavoritar', () => {
+    expect(getFavoriteButtonAccessibility('loja', 'Mercado Central', false, false, false)).toEqual({
+      accessibilityRole: 'button',
+      accessibilityLabel: 'Favoritar loja Mercado Central',
+      accessibilityState: { selected: false, disabled: false, busy: false },
+    });
+    expect(getFavoriteButtonAccessibility('hub', 'Praça Norte', true, true, false)).toEqual({
+      accessibilityRole: 'button',
+      accessibilityLabel: 'Desfavoritar hub Praça Norte',
+      accessibilityState: { selected: true, disabled: true, busy: false },
     });
   });
 });

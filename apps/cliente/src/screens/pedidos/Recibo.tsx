@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
+import { CUSTOMER_LABELS } from '@keepit/config';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { AsyncStateBlock } from '../../components/discovery';
@@ -124,7 +125,7 @@ export default function Recibo({ route, navigation }: Props) {
             <Text style={styles.totaisValue}>{formatReais(pedido.subtotal_produtos_reais)}</Text>
           </View>
           <View style={styles.totaisRow}>
-            <Text style={styles.totaisLabel}>Taxa de deslocamento</Text>
+            <Text style={styles.totaisLabel}>{CUSTOMER_LABELS.freight}</Text>
             <Text style={styles.totaisValue}>{formatReais(pedido.taxa_deslocamento_reais)}</Text>
           </View>
           {pedido.taxa_servico_comprador_reais > 0 && (

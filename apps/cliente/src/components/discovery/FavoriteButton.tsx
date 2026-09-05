@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { lightColors, radii, spacing } from '@keepit/ui-tokens';
 
 import { useFavorites } from '../../context/FavoritesContext';
+import { getFavoriteButtonAccessibility } from '../ui/interactionAccessibility';
 
 interface FavoriteButtonProps {
   kind: 'hub' | 'store';
@@ -35,7 +36,6 @@ export function FavoriteButton({
     ? favoriteHubIds.has(resourceId)
     : favoriteStoreIds.has(resourceId);
   const resourceLabel = kind === 'hub' ? 'hub' : 'loja';
-  const accessibilityLabel = `${selected ? 'Desfavoritar' : 'Favoritar'} ${resourceLabel} ${resourceName}`;
   const interactionDisabled = disabled || pending;
 
   async function handlePress(event: GestureResponderEvent) {
@@ -51,9 +51,7 @@ export function FavoriteButton({
 
   return (
     <Pressable
-      accessibilityLabel={accessibilityLabel}
-      accessibilityRole="button"
-      accessibilityState={{ selected, disabled: interactionDisabled }}
+      {...getFavoriteButtonAccessibility(resourceLabel, resourceName, selected, interactionDisabled, pending)}
       disabled={interactionDisabled}
       hitSlop={8}
       onPress={(event) => void handlePress(event)}
@@ -75,8 +73,8 @@ export function FavoriteButton({
 
 const styles = StyleSheet.create({
   button: {
-    width: 36,
-    height: 36,
+    width: 48,
+    height: 48,
     borderRadius: radii.full,
     backgroundColor: lightColors.bg.surface,
     alignItems: 'center',

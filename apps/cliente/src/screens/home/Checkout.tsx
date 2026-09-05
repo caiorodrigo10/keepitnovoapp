@@ -3,7 +3,7 @@ import { Alert, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { businessConfig } from '@keepit/config';
+import { businessConfig, CUSTOMER_LABELS } from '@keepit/config';
 import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 
 import { CartItemRow, SummaryLinkRow } from '../../components/checkout';
@@ -179,7 +179,7 @@ export default function Checkout({ navigation }: Props) {
           <Text style={styles.totaisValue}>{formatReais(cart.subtotalReais)}</Text>
         </View>
         <View style={styles.totaisRow}>
-          <Text style={styles.totaisLabel}>Taxa de deslocamento</Text>
+          <Text style={styles.totaisLabel}>{CUSTOMER_LABELS.freight}</Text>
           <Text style={styles.totaisValue}>{formatReais(taxaDeslocamentoReais)}</Text>
         </View>
         {taxaServicoReais > 0 && (

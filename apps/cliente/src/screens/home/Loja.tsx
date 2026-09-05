@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
+import { CUSTOMER_LABELS } from '@keepit/config';
 import { resolveLojaDisponibilidade } from '@keepit/core-data';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
@@ -119,7 +120,7 @@ export default function Loja({ route, navigation }: Props) {
 
             <View style={styles.infoRow}>
               <Text style={styles.infoRowText}>Pedido mínimo: {formatReais(resolveTicketMinimoReais(loja))}</Text>
-              <Text style={styles.infoRowText}>Taxa de deslocamento: {formatReais(loja.taxa_deslocamento_reais)}</Text>
+              <Text style={styles.infoRowText}>{CUSTOMER_LABELS.freight}: {formatReais(loja.taxa_deslocamento_reais)}</Text>
             </View>
 
             {compraIndisponivel && (
