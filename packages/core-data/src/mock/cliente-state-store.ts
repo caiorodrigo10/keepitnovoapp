@@ -7,7 +7,7 @@ import type {
 import {
   CLIENTE_MOCK_STATE_KEY,
   applyClienteSnapshot,
-  connectMockPasswordRecoveryPersistence,
+  connectMockPasswordRecoveryMutation,
   createClienteBaseline,
   decodeClienteSnapshot,
   readMockPasswordRecovery,
@@ -29,6 +29,7 @@ export class ClienteMockStateStore {
     lastError: null,
   };
   private writeQueue: Promise<void> = Promise.resolve();
+  private passwordRecoveryMutationBarrier: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly db: MockDb,
@@ -72,13 +73,17 @@ export class ClienteMockStateStore {
   }
 
   persist(): Promise<boolean> {
+    return this.passwordRecoveryMutationBarrier.then(() => this.persistNow());
+  }
+
+  private persistNow(): Promise<boolean> {
     const snapshot = this.captureSnapshot();
     this.lastSnapshot = structuredClone(snapshot);
     return this.enqueueSnapshot(snapshot, 'write');
   }
 
   flush(): Promise<void> {
-    return this.writeQueue;
+    return this.passwordRecoveryMutationBarrier.then(() => this.writeQueue);
   }
 
   async reset(): Promise<DemoScenarioResetResult> {
@@ -160,7 +165,26 @@ export class ClienteMockStateStore {
 
   private connectMutationPersistence(): void {
     this.db.onClienteMutation = () => this.persist().then(() => undefined);
-    connectMockPasswordRecoveryPersistence(this.db, () => this.persist());
+    connectMockPasswordRecoveryMutation(this.db, (mutate) => this.runPasswordRecoveryMutation(mutate));
+  }
+
+  private runPasswordRecoveryMutation(mutate: () => () => void): Promise<boolean> {
+    const result = this.passwordRecoveryMutationBarrier.then(async () => {
+      const rollback = mutate();
+      try {
+        const persisted = await this.persistNow();
+        if (!persisted) rollback();
+        return persisted;
+      } catch {
+        rollback();
+        return false;
+      }
+    });
+    this.passwordRecoveryMutationBarrier = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   private rememberCurrentClienteIds(): void {

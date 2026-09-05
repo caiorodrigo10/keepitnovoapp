@@ -105,7 +105,11 @@ export type ClienteMockSnapshotDecodeResult =
   | { status: 'recovered'; reason: 'missing' | 'invalid'; snapshot: ClienteMockSnapshotV5 };
 
 const passwordRecoveryByDb = new WeakMap<MockDb, NonNullable<MockPasswordRecovery>>();
-const passwordRecoveryPersistenceByDb = new WeakMap<MockDb, () => Promise<boolean>>();
+type MockPasswordRecoveryMutation = () => () => void;
+const passwordRecoveryMutationByDb = new WeakMap<
+  MockDb,
+  (mutate: MockPasswordRecoveryMutation) => Promise<boolean>
+>();
 
 export function readMockPasswordRecovery(db: MockDb): MockPasswordRecovery {
   const recovery = passwordRecoveryByDb.get(db);
@@ -120,19 +124,28 @@ export function writeMockPasswordRecovery(db: MockDb, recovery: MockPasswordReco
   passwordRecoveryByDb.set(db, structuredClone(recovery));
 }
 
-export function connectMockPasswordRecoveryPersistence(
+export function connectMockPasswordRecoveryMutation(
   db: MockDb,
-  persist: () => Promise<boolean>,
+  run: (mutate: MockPasswordRecoveryMutation) => Promise<boolean>,
 ): void {
-  passwordRecoveryPersistenceByDb.set(db, persist);
+  passwordRecoveryMutationByDb.set(db, run);
 }
 
-export async function persistMockPasswordRecovery(db: MockDb): Promise<boolean> {
-  const persist = passwordRecoveryPersistenceByDb.get(db);
-  if (persist) return persist();
+export async function runMockPasswordRecoveryMutation(
+  db: MockDb,
+  mutate: MockPasswordRecoveryMutation,
+): Promise<boolean> {
+  const run = passwordRecoveryMutationByDb.get(db);
+  if (run) return run(mutate);
 
-  await db.onClienteMutation();
-  return true;
+  const rollback = mutate();
+  try {
+    await db.onClienteMutation();
+    return true;
+  } catch {
+    rollback();
+    return false;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

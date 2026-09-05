@@ -445,6 +445,63 @@ describe('ClienteMockStateStore', () => {
     ).resolves.toMatchObject({ id: 'cliente-ana' });
   });
 
+  it('isola rollback de updatePassword de uma persistência concorrente de signOut', async () => {
+    const snapshot = createClienteBaseline();
+    snapshot.sessionClienteId = 'cliente-ana';
+    snapshot.passwordRecovery = {
+      requestId: 'recovery-opaque123',
+      clienteId: 'cliente-ana',
+      state: 'ready',
+    };
+    const values = new Map([[CLIENTE_MOCK_STATE_KEY, JSON.stringify(snapshot)]]);
+    const firstWriteStarted = deferred<void>();
+    const releaseFirstWrite = deferred<void>();
+    let writeCount = 0;
+    const storage: ClienteMockStorage = {
+      async getItem(key) {
+        return values.get(key) ?? null;
+      },
+      async setItem(key, value) {
+        writeCount += 1;
+        if (writeCount === 1) {
+          firstWriteStarted.resolve(undefined);
+          await releaseFirstWrite.promise;
+          throw new Error('disk full');
+        }
+        values.set(key, value);
+      },
+      async removeItem(key) {
+        values.delete(key);
+      },
+    };
+    const db = createMockDb();
+    const stateStore = new ClienteMockStateStore(db, storage);
+    const auth = createAuthMock(db);
+    await stateStore.hydrate();
+
+    const updatePassword = auth.updatePassword('senha-transiente', { delayMs: 0 });
+    await firstWriteStarted.promise;
+    const signOut = auth.signOut({ delayMs: 0 });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(db.sessionClienteId).toBeNull();
+
+    releaseFirstWrite.resolve(undefined);
+    await expect(updatePassword).rejects.toThrow(/persist/i);
+    await signOut;
+    await stateStore.flush();
+
+    const persisted = JSON.parse(values.get(CLIENTE_MOCK_STATE_KEY)!);
+    expect(persisted.accounts[0].password).toBe('keepit123');
+    expect(persisted.passwordRecovery.state).toBe('ready');
+    expect(persisted.sessionClienteId).toBeNull();
+
+    const reopenedDb = createMockDb();
+    const reopenedStore = new ClienteMockStateStore(reopenedDb, storage);
+    const reopenedAuth = createAuthMock(reopenedDb);
+    await reopenedStore.hydrate();
+    await expect(reopenedAuth.updatePassword('senha-final', { delayMs: 0 })).resolves.toBeUndefined();
+  });
+
   it.each(['expired', 'consumed'] as const)(
     'rejeita callback %s persistido sem alterar a credencial',
     async (state) => {

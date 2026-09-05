@@ -11,8 +11,8 @@ import type { AsyncCallOptions } from '../types';
 import { generateMockId, simulateAsync } from './async-helpers';
 import {
   CLIENTE_DEMO_INITIAL_PASSWORD,
-  persistMockPasswordRecovery,
   readMockPasswordRecovery,
+  runMockPasswordRecoveryMutation,
   writeMockPasswordRecovery,
 } from './cliente-state';
 import type { MockDb } from './db';
@@ -52,14 +52,8 @@ export function createAuthMock(db: MockDb): AuthPort {
     listeners.forEach((listener) => listener(cliente));
   }
 
-  async function persistPasswordRecoveryOrRollback(rollback: () => void): Promise<void> {
-    try {
-      if (await persistMockPasswordRecovery(db)) return;
-    } catch {
-      // A fronteira mock não expõe detalhes do storage ao chamador.
-    }
-
-    rollback();
+  async function persistPasswordRecoveryMutation(mutate: () => () => void): Promise<void> {
+    if (await runMockPasswordRecoveryMutation(db, mutate)) return;
     throw new Error(PASSWORD_RECOVERY_PERSISTENCE_ERROR);
   }
 
@@ -155,13 +149,15 @@ export function createAuthMock(db: MockDb): AuthPort {
       return simulateAsync(
         async () => {
           const requestId = createPasswordRecoveryRequestId();
-          const clienteId = db.clienteCredenciais.find((credential) => credential.email === email)?.clienteId;
-          const previousRecovery = readMockPasswordRecovery(db);
-          writeMockPasswordRecovery(
-            db,
-            clienteId ? { requestId, clienteId, state: 'requested' } : null,
-          );
-          await persistPasswordRecoveryOrRollback(() => writeMockPasswordRecovery(db, previousRecovery));
+          await persistPasswordRecoveryMutation(() => {
+            const clienteId = db.clienteCredenciais.find((credential) => credential.email === email)?.clienteId;
+            const previousRecovery = readMockPasswordRecovery(db);
+            writeMockPasswordRecovery(
+              db,
+              clienteId ? { requestId, clienteId, state: 'requested' } : null,
+            );
+            return () => writeMockPasswordRecovery(db, previousRecovery);
+          });
           return { delivery: 'demo' as const, callbackUrl: createPasswordRecoveryCallback(requestId) };
         },
         emptyResult,
@@ -174,12 +170,14 @@ export function createAuthMock(db: MockDb): AuthPort {
       return simulateAsync(
         async () => {
           const requestId = parsePasswordRecoveryRequestId(callbackUrl);
-          const recovery = readMockPasswordRecovery(db);
-          if (!recovery || recovery.requestId !== requestId || recovery.state !== 'requested') {
-            throw new Error(INVALID_PASSWORD_RECOVERY_CALLBACK_ERROR);
-          }
-          writeMockPasswordRecovery(db, { ...recovery, state: 'ready' });
-          await persistPasswordRecoveryOrRollback(() => writeMockPasswordRecovery(db, recovery));
+          await persistPasswordRecoveryMutation(() => {
+            const recovery = readMockPasswordRecovery(db);
+            if (!recovery || recovery.requestId !== requestId || recovery.state !== 'requested') {
+              throw new Error(INVALID_PASSWORD_RECOVERY_CALLBACK_ERROR);
+            }
+            writeMockPasswordRecovery(db, { ...recovery, state: 'ready' });
+            return () => writeMockPasswordRecovery(db, recovery);
+          });
         },
         undefined,
         options,
@@ -190,20 +188,22 @@ export function createAuthMock(db: MockDb): AuthPort {
     updatePassword(password: string, options?: AsyncCallOptions): Promise<void> {
       return simulateAsync(
         async () => {
-          const recovery = readMockPasswordRecovery(db);
-          if (!recovery || recovery.state !== 'ready') {
-            throw new Error(NO_ACTIVE_PASSWORD_RECOVERY_ERROR);
-          }
-          const credencial = db.clienteCredenciais.find((item) => item.clienteId === recovery.clienteId);
-          if (!credencial) {
-            throw new Error(NO_ACTIVE_PASSWORD_RECOVERY_ERROR);
-          }
-          const previousPassword = credencial.password;
-          credencial.password = password;
-          writeMockPasswordRecovery(db, { ...recovery, state: 'consumed' });
-          await persistPasswordRecoveryOrRollback(() => {
-            credencial.password = previousPassword;
-            writeMockPasswordRecovery(db, recovery);
+          await persistPasswordRecoveryMutation(() => {
+            const recovery = readMockPasswordRecovery(db);
+            if (!recovery || recovery.state !== 'ready') {
+              throw new Error(NO_ACTIVE_PASSWORD_RECOVERY_ERROR);
+            }
+            const credencial = db.clienteCredenciais.find((item) => item.clienteId === recovery.clienteId);
+            if (!credencial) {
+              throw new Error(NO_ACTIVE_PASSWORD_RECOVERY_ERROR);
+            }
+            const previousPassword = credencial.password;
+            credencial.password = password;
+            writeMockPasswordRecovery(db, { ...recovery, state: 'consumed' });
+            return () => {
+              credencial.password = previousPassword;
+              writeMockPasswordRecovery(db, recovery);
+            };
           });
         },
         undefined,

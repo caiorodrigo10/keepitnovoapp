@@ -121,3 +121,51 @@ Exit 0
 Os testes de falha usam o storage real em memória do arquivo de integração,
 com uma rejeição controlada de `setItem`, e provam retry no mesmo processo e
 consumo durável após restart.
+
+## Correção após re-review de concorrência
+
+O re-review encontrou uma janela entre a mutação otimista e o rollback: uma
+operação concorrente como `signOut` podia capturar senha nova + recovery
+`consumed` enquanto a gravação de `updatePassword` ainda estava pendente e,
+depois da falha, persistir esse snapshot especulativo na fila.
+
+A unidade inteira de recovery — validação, mutação, captura, gravação e
+commit/rollback — agora passa por uma barreira serializada do state store.
+Persistências comuns aguardam essa barreira antes de capturar o snapshot;
+assim, após uma falha, observam somente o estado já restaurado. As validações
+também rodam dentro da unidade serializada, impedindo que duas transições de
+recovery validem o mesmo estado em paralelo.
+
+### RED do re-review
+
+```text
+pnpm --filter @keepit/core-data test -- src/mock/cliente-state-store.test.ts
+
+Test Files  1 failed (1)
+Tests       1 failed | 29 passed (30)
+Exit 1
+```
+
+O único teste novo bloqueou e fez falhar a primeira gravação de
+`updatePassword`, disparou `signOut` em paralelo e reabriu o storage. Antes da
+correção, encontrou `senha-transiente` persistida em vez de `keepit123`.
+
+### GREEN após re-review
+
+```text
+pnpm --filter @keepit/core-data test -- src/mock/auth.mock.test.ts src/mock/cliente-state.test.ts src/mock/cliente-state-store.test.ts
+
+Test Files  3 passed (3)
+Tests       98 passed (98)
+Exit 0
+
+pnpm --filter @keepit/core-data test
+
+Test Files  32 passed (32)
+Tests       642 passed (642)
+Exit 0
+```
+
+O typecheck permanece com somente a falha já registrada e pertencente à Task
+2 em `src/supabase/auth.supabase.ts:160`; a correção de concorrência não criou
+outros erros de tipo.
