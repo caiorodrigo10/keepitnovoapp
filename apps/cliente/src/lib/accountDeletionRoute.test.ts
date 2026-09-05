@@ -5,6 +5,7 @@ import type { AccountDeletionRecord, Cliente } from '@keepit/core-data';
 import {
   resolveAccountRoute,
   scheduleAccountDeletionAndSignOut,
+  subscribeAccountDeletionPersisted,
   type AccountDeletionLookup,
 } from './accountDeletionRoute';
 
@@ -50,6 +51,44 @@ describe('resolveAccountRoute', () => {
 });
 
 describe('scheduleAccountDeletionAndSignOut', () => {
+  it('fecha o guard raiz antes do sign-out e permanece fechado se a saída falhar', async () => {
+    const events: string[] = [];
+    let lookup: AccountDeletionLookup = { status: 'resolved', deletion: null };
+    let rejectSignOut!: (error: Error) => void;
+    const signOutPending = new Promise<void>((_resolve, reject) => {
+      rejectSignOut = reject;
+    });
+    const unsubscribe = subscribeAccountDeletionPersisted((deletion) => {
+      events.push('guard:scheduled');
+      lookup = { status: 'resolved', deletion };
+    });
+
+    try {
+      const result = scheduleAccountDeletionAndSignOut(
+        { schedule: async () => SCHEDULED },
+        {
+          signOut: async () => {
+            events.push('signout:start');
+            return signOutPending;
+          },
+        },
+        'senha-atual',
+      );
+
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(events).toEqual(['guard:scheduled', 'signout:start']);
+      expect(resolveAccountRoute(SESSION, lookup)).toBe('ScheduledDeletion');
+
+      rejectSignOut(new Error('signout indisponível'));
+      await expect(result).rejects.toThrow('signout indisponível');
+      expect(resolveAccountRoute(SESSION, lookup)).toBe('ScheduledDeletion');
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it('encerra a sessão somente depois que o agendamento resolve', async () => {
     const events: string[] = [];
     let finishSchedule!: (record: AccountDeletionRecord) => void;

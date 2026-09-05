@@ -141,3 +141,24 @@ Task 3 fix: complete (commit: enclosing Task 3 fix commit)
   cron, conforme escopo MVP.
 
 Task 4: complete (commit: enclosing Task 4 commit)
+
+### Task 4 review fix
+
+- Review: FAIL com um HIGH — após `schedule()` persistir, somente a tela
+  aninhada era atualizada; o lookup raiz continuava liberando `MainTabs`
+  durante uma saída lenta ou falha.
+- `scheduleAccountDeletionAndSignOut` agora publica uma notificação local
+  imediatamente após a port resolver e antes de iniciar o sign-out. O
+  `RootNavigator` assina a seam, invalida consultas antigas e promove o
+  registro persistido para o lookup raiz, desmontando `Main` sem depender da
+  navegação da tela de Perfil.
+- Mudanças externas da mesma conta são revalidadas ao retornar ao foreground e
+  em eventos de auth (incluindo refresh de token). A chamada de status não
+  muda auth e o request id existente descarta respostas sobrepostas/antigas,
+  evitando loop e regressão de corrida entre sessões.
+- TDD RED: 1 falha / 11 passes mostrou a seam ainda ausente. GREEN: 1 arquivo
+  / 12 testes, incluindo `schedule resolvido -> guard restrito -> sign-out
+  pendente/rejeitado`.
+- Gate focado: teste e typecheck do app Cliente PASS; diff-check PASS.
+
+Task 4 fix: complete (commit: enclosing Task 4 fix commit)

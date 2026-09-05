@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { View } from 'react-native';
+import { AppState, View } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import type { Cliente } from '@keepit/core-data';
@@ -7,7 +7,11 @@ import { getDataClient } from '@keepit/core-data';
 import { darkColors } from '@keepit/ui-tokens';
 
 import { FavoritesProvider } from '../context/FavoritesContext';
-import { resolveAccountRoute, type AccountDeletionLookup } from '../lib/accountDeletionRoute';
+import {
+  resolveAccountRoute,
+  subscribeAccountDeletionPersisted,
+  type AccountDeletionLookup,
+} from '../lib/accountDeletionRoute';
 import type { RootStackParamList } from './types';
 import { AuthStack } from './AuthStack';
 import { MainTabs } from './MainTabs';
@@ -100,6 +104,23 @@ export function RootNavigator() {
     let unsubscribe: (() => void) | undefined;
     let settled = false;
 
+    const unsubscribeDeletion = subscribeAccountDeletionPersisted((deletion) => {
+      if (!activeClienteIdRef.current) return;
+      // A mutação já foi persistida. Invalida qualquer status anterior antes
+      // de desmontar Main, inclusive enquanto o sign-out ainda está pendente.
+      deletionRequestRef.current += 1;
+      setDeletionLookup({ status: 'resolved', deletion });
+    });
+
+    const appStateSubscription = AppState.addEventListener('change', (status) => {
+      if (status === 'active' && activeClienteIdRef.current) {
+        // Mudanças feitas em outra sessão/dispositivo são revalidadas ao
+        // retornar ao app. `loadAccountDeletion` incrementa o request id, por
+        // isso respostas sobrepostas/antigas nunca substituem a mais recente.
+        void loadAccountDeletion();
+      }
+    });
+
     // Story 2.6 (AC7): degrada para "sem sessão" se o 1º estado não chegar
     // em ~5s — cancelado ao receber sessão/sem sessão e no unmount.
     const timeoutId = setTimeout(() => {
@@ -120,17 +141,13 @@ export function RootNavigator() {
         settled = true;
         clearTimeout(timeoutId);
       }
-      const previousClienteId = activeClienteIdRef.current;
       activeClienteIdRef.current = next?.id ?? null;
       setCliente(next);
       if (next) {
-        // O adapter também encaminha TOKEN_REFRESHED/USER_UPDATED. A mesma
-        // sessão já foi autorizada; não remonte a tela restrita nem repita a
-        // Edge Function a cada refresh do token. Login/relogin sempre passa
-        // por `null` (signOut) ou por outro id e revalida antes de montar Main.
-        if (previousClienteId !== next.id) {
-          void loadAccountDeletion();
-        }
+        // O adapter também encaminha TOKEN_REFRESHED/USER_UPDATED. Revalidar
+        // nesses eventos detecta mudança externa da mesma sessão sem polling;
+        // a consulta não altera auth, portanto não forma loop.
+        void loadAccountDeletion();
       } else {
         deletionRequestRef.current += 1;
         setDeletionLookup({ status: 'loading' });
@@ -152,6 +169,8 @@ export function RootNavigator() {
     return () => {
       clearTimeout(timeoutId);
       deletionRequestRef.current += 1;
+      appStateSubscription.remove();
+      unsubscribeDeletion();
       unsubscribe?.();
     };
   }, [loadAccountDeletion]);
