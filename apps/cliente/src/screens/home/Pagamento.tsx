@@ -5,10 +5,10 @@ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-n
 
 import { businessConfig } from '@keepit/config';
 import { getDataClient } from '@keepit/core-data';
-import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
+import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 
 import { SelectableRow } from '../../components/checkout';
-import { Button, Screen } from '../../components/ui';
+import { AppHeader, Button, Screen } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useStoreDetail } from '../../hooks/useStoreDetail';
@@ -140,13 +140,7 @@ export default function Pagamento({ navigation }: Props) {
 
   return (
     <Screen>
-      <View style={styles.topBar}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={8} style={styles.roundButton}>
-          <Text style={styles.roundButtonIcon}>‹</Text>
-        </Pressable>
-        <Text style={styles.title}>Pagamento</Text>
-        <View style={styles.roundButton} />
-      </View>
+      <AppHeader title="Pagamento" back={{ navigation, fallback: () => navigation.navigate('Home') }} />
 
       <Text style={styles.sectionTitle}>FORMAS SALVAS</Text>
 
@@ -186,29 +180,6 @@ export default function Pagamento({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing['5'],
-  },
-  roundButton: {
-    width: 36,
-    height: 36,
-    borderRadius: radii.full,
-    backgroundColor: lightColors.bg.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  roundButtonIcon: {
-    fontSize: typography.sizes.lg.fontSize,
-    color: lightColors.text.primary,
-  },
-  title: {
-    fontFamily: 'HankenGrotesk-Bold',
-    fontSize: typography.sizes.xl.fontSize,
-    color: lightColors.text.primary,
-  },
   sectionTitle: {
     fontFamily: 'HankenGrotesk-Medium',
     fontSize: typography.sizes.xs.fontSize,

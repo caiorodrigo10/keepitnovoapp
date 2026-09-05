@@ -11,7 +11,7 @@ import { PedidoTimeline } from '../../components/pedidos';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useHubDetail } from '../../hooks/useHubDetail';
 import { usePedidoDetail } from '../../hooks/usePedidoDetail';
-import { Button, Screen } from '../../components/ui';
+import { AppHeader, Button, Screen } from '../../components/ui';
 import { isPedidoAtrasado } from '../../lib/atrasoPedido';
 import { comoChegarLabel, comoChegarUrl } from '../../lib/comoChegar';
 import { formatReais } from '../../lib/format';
@@ -111,13 +111,14 @@ export default function ModalConfirmarPin({ route, navigation }: Props) {
 
   return (
     <Screen>
-      <View style={styles.topBar}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={8} style={styles.roundButton}>
-          <Text style={styles.roundButtonIcon}>‹</Text>
-        </Pressable>
-        <Text style={styles.title}>Seu pedido</Text>
-        <View style={styles.roundButton} />
-      </View>
+      <AppHeader
+        title="Seu pedido"
+        back={{
+          navigation,
+          fallback: () =>
+            navigation.navigate('Main', { screen: 'PedidosTab', params: { screen: 'MeusPedidos' } }),
+        }}
+      />
 
       {loading && <AsyncStateBlock kind="loading" />}
       {!loading && !!error && <AsyncStateBlock kind="error" />}
@@ -222,29 +223,6 @@ export default function ModalConfirmarPin({ route, navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing['5'],
-  },
-  roundButton: {
-    width: 36,
-    height: 36,
-    borderRadius: radii.full,
-    backgroundColor: lightColors.bg.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  roundButtonIcon: {
-    fontSize: typography.sizes.lg.fontSize,
-    color: lightColors.text.primary,
-  },
-  title: {
-    fontFamily: 'HankenGrotesk-Bold',
-    fontSize: typography.sizes.xl.fontSize,
-    color: lightColors.text.primary,
-  },
   pinCard: {
     backgroundColor: lightColors.text.primary,
     borderRadius: radii.card,

@@ -10,7 +10,7 @@ import {
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { BuildMetadata } from '../../components/qa/BuildMetadata';
-import { Button, Screen } from '../../components/ui';
+import { AppHeader, Button, Screen } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
 import { useQaScenario } from '../../context/QaScenarioContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
@@ -141,12 +141,7 @@ export default function PainelQA({ navigation }: Props) {
 
   return (
     <Screen>
-      <View style={styles.header}>
-        <Text style={styles.title}>Painel QA</Text>
-        <Pressable accessibilityRole="button" hitSlop={8} onPress={() => navigation.goBack()}>
-          <Text style={styles.backLabel}>Voltar</Text>
-        </Pressable>
-      </View>
+      <AppHeader title="Painel QA" back={{ navigation, fallback: () => navigation.navigate('Perfil') }} />
 
       <Section title="Build">
         <BuildMetadata />
@@ -249,22 +244,6 @@ function Section({ children, title }: { children: ReactNode; title: string }) {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: spacing['6'],
-  },
-  title: {
-    color: lightColors.text.primary,
-    fontFamily: 'HankenGrotesk-Bold',
-    fontSize: typography.sizes['2xl'].fontSize,
-  },
-  backLabel: {
-    color: lightColors.accent.successFg,
-    fontFamily: 'HankenGrotesk-SemiBold',
-    fontSize: typography.sizes.md.fontSize,
-  },
   section: {
     marginBottom: spacing['8'],
   },

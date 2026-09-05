@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import type { Hub } from '@keepit/core-data';
-import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
+import { spacing } from '@keepit/ui-tokens';
 
 import { SelectableRow } from '../../components/checkout';
 import { AsyncStateBlock } from '../../components/discovery';
-import { Button, FormScreen, TextField } from '../../components/ui';
+import { AppHeader, Button, FormScreen, TextField } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
 import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useHubsList } from '../../hooks/useHubsList';
@@ -137,13 +137,10 @@ export default function EscolhaRetirada({ navigation }: Props) {
 
   return (
     <FormScreen>
-      <View style={styles.topBar}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={8} style={styles.roundButton}>
-          <Text style={styles.roundButtonIcon}>‹</Text>
-        </Pressable>
-        <Text style={styles.title}>Escolha o ponto de retirada</Text>
-        <View style={styles.roundButton} />
-      </View>
+      <AppHeader
+        title="Escolha o ponto de retirada"
+        back={{ navigation, fallback: () => navigation.navigate('Home') }}
+      />
 
       {error ? (
         <AsyncStateBlock kind="error" errorLabel="Não foi possível carregar os hubs. Tente novamente." />
@@ -195,31 +192,6 @@ export default function EscolhaRetirada({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing['4'],
-  },
-  roundButton: {
-    width: 36,
-    height: 36,
-    borderRadius: radii.full,
-    backgroundColor: lightColors.bg.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  roundButtonIcon: {
-    fontSize: typography.sizes.lg.fontSize,
-    color: lightColors.text.primary,
-  },
-  title: {
-    flex: 1,
-    fontFamily: 'HankenGrotesk-Bold',
-    fontSize: typography.sizes.lg.fontSize,
-    color: lightColors.text.primary,
-    textAlign: 'center',
-  },
   list: {
     marginTop: spacing['2'],
     marginBottom: spacing['5'],
