@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
@@ -17,8 +17,9 @@ import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useCurrentEmail } from '../../hooks/useCurrentEmail';
 import { usePedidosMine } from '../../hooks/usePedidosMine';
 import { advanceOrderForQa, getNextQaOrderAction } from '../../lib/qaOrderActions';
-import { resetDemoScenario, type ResetDemoScenarioResult } from '../../lib/resetDemoScenario';
+import { resetDemoScenario } from '../../lib/resetDemoScenario';
 import type { PerfilStackParamList } from '../../navigation/types';
+import { getQaResetFeedback } from './painelQaFeedback';
 
 type Props = NativeStackScreenProps<PerfilStackParamList, 'PainelQA'>;
 
@@ -40,19 +41,10 @@ const SIMULATION_STATES: ReadonlyArray<{ key: QaSimulationState; label: string }
   { key: 'error', label: 'Erro' },
 ];
 
-const RESET_FAILURE_LABELS: Record<
-  Extract<ResetDemoScenarioResult, { status: 'degraded' }>['failures'][number],
-  string
-> = {
-  'scenario-persistence': 'cenário persistido',
-  'cart-persistence': 'carrinho persistido',
-  'cart-live-state': 'carrinho em memória',
-};
-
 export default function PainelQA({ navigation }: Props) {
   const client = getDataClient();
   const { resetDemoCart } = useCart();
-  const { state, setSimulation, syncFromClient } = useQaScenario();
+  const { state, setSimulation } = useQaScenario();
   const { data: cliente, loading: clienteLoading } = useCurrentCliente();
   const { data: email, loading: emailLoading } = useCurrentEmail();
   const {
@@ -66,8 +58,24 @@ export default function PainelQA({ navigation }: Props) {
   const [advancingOrderId, setAdvancingOrderId] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const operationInFlightRef = useRef(false);
+
+  const updatingSimulation = simulationPending !== null;
+  const advancingOrder = advancingOrderId !== null;
+  const busy = resetting || updatingSimulation || advancingOrder;
+
+  function beginOperation(): boolean {
+    if (operationInFlightRef.current) return false;
+    operationInFlightRef.current = true;
+    return true;
+  }
+
+  function finishOperation() {
+    operationInFlightRef.current = false;
+  }
 
   async function handleSimulation(domain: QaSimulationDomain, value: QaSimulationState) {
+    if (busy || !beginOperation()) return;
     setSimulationPending(`${domain}:${value}`);
     setNotice(null);
     try {
@@ -79,12 +87,13 @@ export default function PainelQA({ navigation }: Props) {
       setNotice('Não foi possível aplicar a simulação.');
     } finally {
       setSimulationPending(null);
+      finishOperation();
     }
   }
 
   async function handleAdvanceOrder(pedidoId: string) {
     const pedido = pedidos.find((candidate) => candidate.id === pedidoId);
-    if (!pedido) return;
+    if (!pedido || busy || !beginOperation()) return;
 
     setAdvancingOrderId(pedido.id);
     setNotice(null);
@@ -95,42 +104,30 @@ export default function PainelQA({ navigation }: Props) {
       setNotice(`Não foi possível avançar o pedido #${pedido.numero}.`);
     } finally {
       setAdvancingOrderId(null);
-    }
-  }
-
-  function describeResetResult(result: ResetDemoScenarioResult) {
-    if (result.status === 'reset') {
-      setNotice('Cenário restaurado');
-      return;
-    }
-    if (result.status === 'degraded') {
-      const layers = result.failures.map((failure) => RESET_FAILURE_LABELS[failure]).join(', ');
-      setNotice(
-        `Cenário limpo em memória, mas uma ou mais camadas não foram persistidas. Camadas: ${layers}.`,
-      );
-      return;
-    }
-    if (result.status === 'unavailable') {
-      setNotice('Reset disponível somente no datasource mock');
+      finishOperation();
     }
   }
 
   async function confirmReset() {
+    if (busy || !beginOperation()) return;
     setResetting(true);
     setNotice(null);
     try {
       const result = await resetDemoScenario(client, true, { clearLiveCart: resetDemoCart });
-      syncFromClient();
-      refreshPedidos();
-      describeResetResult(result);
+      const feedback = getQaResetFeedback(result);
+      if (feedback) {
+        Alert.alert(feedback.title, feedback.message);
+      }
     } catch {
-      setNotice('Não foi possível restaurar o cenário agora.');
+      Alert.alert('Não foi possível restaurar o cenário', 'Tente novamente em instantes.');
     } finally {
       setResetting(false);
+      finishOperation();
     }
   }
 
   function requestReset() {
+    if (busy || operationInFlightRef.current) return;
     const account = cliente?.nome ?? email ?? 'conta demo atual';
     Alert.alert(
       'Resetar cenário?',
@@ -180,8 +177,8 @@ export default function PainelQA({ navigation }: Props) {
                 return (
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityState={{ selected: active, disabled: Boolean(simulationPending) }}
-                    disabled={Boolean(simulationPending)}
+                    accessibilityState={{ selected: active, disabled: busy }}
+                    disabled={busy}
                     key={simulation.key}
                     onPress={() => void handleSimulation(domain.key, simulation.key)}
                     style={[styles.chip, active && styles.chipActive]}
@@ -214,7 +211,7 @@ export default function PainelQA({ navigation }: Props) {
                 </View>
                 {action && (
                   <Button
-                    disabled={Boolean(advancingOrderId)}
+                    disabled={busy}
                     loading={advancingOrderId === pedido.id}
                     onPress={() => void handleAdvanceOrder(pedido.id)}
                     title={action.label}
@@ -230,7 +227,7 @@ export default function PainelQA({ navigation }: Props) {
         <Text style={styles.resetDescription}>
           Restaura a conta demo e remove pedidos, favoritos futuros e o carrinho atual.
         </Text>
-        <Button loading={resetting} onPress={requestReset} title="Resetar cenário" />
+        <Button disabled={busy} loading={resetting} onPress={requestReset} title="Resetar cenário" />
       </Section>
 
       {!!notice && (
