@@ -23,6 +23,17 @@ export function apenasDigitosCpf(value: string): string {
   return value.replace(/\D/g, '');
 }
 
+/** Aplica a máscara visual `000.000.000-00` e limita a entrada a 11 dígitos. */
+export function maskCpf(value: string): string {
+  const digits = apenasDigitosCpf(value).slice(0, 11);
+  const parts = [digits.slice(0, 3), digits.slice(3, 6), digits.slice(6, 9)].filter(Boolean);
+  let masked = parts.join('.');
+  if (digits.length > 9) {
+    masked += `-${digits.slice(9, 11)}`;
+  }
+  return masked;
+}
+
 function calcularDigitoVerificador(digitos: number[], pesos: number[]): number {
   const soma = digitos.reduce((acc, digito, index) => acc + digito * pesos[index], 0);
   const resto = soma % 11;
