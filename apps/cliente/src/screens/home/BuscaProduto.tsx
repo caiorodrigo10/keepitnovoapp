@@ -19,6 +19,11 @@ import { useSearchLojas } from '../../hooks/useSearchLojas';
 import { useSearchProdutos } from '../../hooks/useSearchProdutos';
 import { CATEGORIAS_BUSCA } from '../../lib/discoveryDisplay';
 import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
+import {
+  GENERAL_SEARCH_SUGGESTIONS,
+  recordRecentQuery,
+  resolveSearchViewState,
+} from '../../lib/searchViewState';
 import type { HomeStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'BuscaProduto'>;
@@ -43,6 +48,7 @@ export default function BuscaProduto({ route, navigation }: Props) {
 
   const [query, setQuery] = useState(route.params?.query ?? '');
   const [categoria, setCategoria] = useState(route.params?.categoria ?? 'todos');
+  const [recentQueries, setRecentQueries] = useState<string[]>([]);
 
   // Story 5.6 (AC5) — busca escopada ao hub REAL do carrinho
   // (`CartContext.hubId`), não mais a um `DEFAULT_HUB_ID` hard-coded.
@@ -93,7 +99,22 @@ export default function BuscaProduto({ route, navigation }: Props) {
   const loadingLojas = storesLoading || isForcedLoading(searchSimulation);
   const loading = loadingProdutos || loadingLojas;
   const error = errorProdutos ?? errorLojas;
-  const semResultados = !loading && !error && produtos.length === 0 && lojas.length === 0;
+  const viewState = resolveSearchViewState({
+    surface: 'combined',
+    query,
+    category: categoria,
+    loading,
+    error,
+    stores: lojas,
+    products: produtos,
+    recent: recentQueries,
+    suggestions: GENERAL_SEARCH_SUGGESTIONS,
+  });
+
+  const selectQuery = (selectedQuery: string) => {
+    setQuery(selectedQuery);
+    setRecentQueries((current) => recordRecentQuery(current, selectedQuery));
+  };
 
   return (
     <View style={styles.flexOne}>
@@ -109,15 +130,51 @@ export default function BuscaProduto({ route, navigation }: Props) {
 
         <CategoryChips categorias={CATEGORIAS_BUSCA} selected={categoria} onSelect={setCategoria} />
 
-        {error ? (
+        {viewState.kind === 'error' ? (
           <AsyncStateBlock kind="error" errorLabel="Não foi possível buscar agora. Tente novamente." />
-        ) : loading ? (
+        ) : viewState.kind === 'loading' ? (
           <AsyncStateBlock kind="loading" />
-        ) : semResultados ? (
-          <AsyncStateBlock kind="empty" emptyLabel={`Nenhum resultado para "${query}".`} />
+        ) : viewState.kind === 'suggestions' ? (
+          <>
+            {viewState.recent.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>BUSCAS RECENTES</Text>
+                {viewState.recent.map((recentQuery) => (
+                  <Pressable key={recentQuery} style={styles.suggestionRow} onPress={() => selectQuery(recentQuery)}>
+                    <Text style={styles.suggestionLabel}>{recentQuery}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>SUGESTÕES</Text>
+              {viewState.general.map((suggestion) => (
+                <Pressable
+                  key={suggestion.category}
+                  style={styles.suggestionRow}
+                  onPress={() => {
+                    setCategoria(suggestion.category);
+                    selectQuery(suggestion.label);
+                  }}
+                >
+                  <Text style={styles.suggestionLabel}>{suggestion.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </>
+        ) : viewState.kind === 'empty' ? (
+          <AsyncStateBlock
+            kind="empty"
+            emptyLabel={
+              viewState.scope === 'category'
+                ? `Nenhum resultado nesta categoria para "${query}".`
+                : `Nenhum resultado para "${query}".`
+            }
+          />
         ) : (
           <>
-            {lojas.length > 0 && (
+            {viewState.showStores && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>LOJAS</Text>
                 {lojas.map(({ loja, disponibilidade }) => (
@@ -125,13 +182,16 @@ export default function BuscaProduto({ route, navigation }: Props) {
                     key={loja.id}
                     loja={loja}
                     disponibilidade={disponibilidade}
-                    onPress={() => navigation.navigate('Loja', { estabelecimentoId: loja.id })}
+                    onPress={() => {
+                      setRecentQueries((current) => recordRecentQuery(current, query));
+                      navigation.navigate('Loja', { estabelecimentoId: loja.id });
+                    }}
                   />
                 ))}
               </View>
             )}
 
-            {produtos.length > 0 && (
+            {viewState.showProducts && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>PRODUTOS</Text>
                 {produtos.map(({ produto, loja }) => (
@@ -139,7 +199,10 @@ export default function BuscaProduto({ route, navigation }: Props) {
                     key={produto.id}
                     produto={produto}
                     subtitulo={loja.nome_fantasia}
-                    onPress={() => navigation.navigate('DetalheProduto', { produtoId: produto.id })}
+                    onPress={() => {
+                      setRecentQueries((current) => recordRecentQuery(current, query));
+                      navigation.navigate('DetalheProduto', { produtoId: produto.id });
+                    }}
                   />
                 ))}
               </View>
@@ -182,5 +245,16 @@ const styles = StyleSheet.create({
     letterSpacing: typography.letterSpacing.section,
     color: lightColors.text.tertiary,
     marginBottom: spacing['2'],
+  },
+  suggestionRow: {
+    minHeight: spacing['12'],
+    justifyContent: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: lightColors.border.subtle,
+  },
+  suggestionLabel: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.md.fontSize,
+    color: lightColors.text.primary,
   },
 });

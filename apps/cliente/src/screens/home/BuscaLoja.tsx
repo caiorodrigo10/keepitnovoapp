@@ -16,6 +16,11 @@ import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useSearchLojas } from '../../hooks/useSearchLojas';
 import { CATEGORIAS_BUSCA } from '../../lib/discoveryDisplay';
 import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
+import {
+  GENERAL_SEARCH_SUGGESTIONS,
+  recordRecentQuery,
+  resolveSearchViewState,
+} from '../../lib/searchViewState';
 import type { HomeStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'BuscaLoja'>;
@@ -32,6 +37,7 @@ export default function BuscaLoja({ route, navigation }: Props) {
 
   const [query, setQuery] = useState(route.params?.query ?? '');
   const [categoria, setCategoria] = useState(route.params?.categoria ?? 'todos');
+  const [recentQueries, setRecentQueries] = useState<string[]>([]);
 
   // Story 5.6 (AC5) — mesma correção de escopo de hub (`cart.hubId`, não
   // `DEFAULT_HUB_ID`) e guard de hub ausente, herdados aqui sem duplicar a
@@ -45,6 +51,23 @@ export default function BuscaLoja({ route, navigation }: Props) {
     simulationToAsyncCallOptions(searchSimulation),
   );
   const loading = storesLoading || isForcedLoading(searchSimulation);
+
+  const viewState = resolveSearchViewState({
+    surface: 'stores',
+    query,
+    category: categoria,
+    loading,
+    error,
+    stores: lojas,
+    products: [],
+    recent: recentQueries,
+    suggestions: GENERAL_SEARCH_SUGGESTIONS,
+  });
+
+  const selectQuery = (selectedQuery: string) => {
+    setQuery(selectedQuery);
+    setRecentQueries((current) => recordRecentQuery(current, selectedQuery));
+  };
 
   if (hubId === null) {
     return (
@@ -78,13 +101,49 @@ export default function BuscaLoja({ route, navigation }: Props) {
 
       <CategoryChips categorias={CATEGORIAS_BUSCA} selected={categoria} onSelect={setCategoria} />
 
-      {error ? (
+      {viewState.kind === 'error' ? (
         <AsyncStateBlock kind="error" errorLabel="Não foi possível buscar agora. Tente novamente." />
-      ) : loading ? (
+      ) : viewState.kind === 'loading' ? (
         <AsyncStateBlock kind="loading" />
-      ) : lojas.length === 0 ? (
-        <AsyncStateBlock kind="empty" emptyLabel={query ? `Nenhuma loja para "${query}".` : 'Nenhuma loja encontrada.'} />
-      ) : (
+      ) : viewState.kind === 'suggestions' ? (
+        <>
+          {viewState.recent.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>BUSCAS RECENTES</Text>
+              {viewState.recent.map((recentQuery) => (
+                <Pressable key={recentQuery} style={styles.suggestionRow} onPress={() => selectQuery(recentQuery)}>
+                  <Text style={styles.suggestionLabel}>{recentQuery}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>SUGESTÕES</Text>
+            {viewState.general.map((suggestion) => (
+              <Pressable
+                key={suggestion.category}
+                style={styles.suggestionRow}
+                onPress={() => {
+                  setCategoria(suggestion.category);
+                  selectQuery(suggestion.label);
+                }}
+              >
+                <Text style={styles.suggestionLabel}>{suggestion.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </>
+      ) : viewState.kind === 'empty' ? (
+        <AsyncStateBlock
+          kind="empty"
+          emptyLabel={
+            viewState.scope === 'category'
+              ? `Nenhuma loja nesta categoria para "${query}".`
+              : `Nenhuma loja para "${query}".`
+          }
+        />
+      ) : viewState.showStores ? (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>LOJAS</Text>
           {lojas.map(({ loja, disponibilidade }) => (
@@ -92,11 +151,14 @@ export default function BuscaLoja({ route, navigation }: Props) {
               key={loja.id}
               loja={loja}
               disponibilidade={disponibilidade}
-              onPress={() => navigation.navigate('Loja', { estabelecimentoId: loja.id })}
+              onPress={() => {
+                setRecentQueries((current) => recordRecentQuery(current, query));
+                navigation.navigate('Loja', { estabelecimentoId: loja.id });
+              }}
             />
           ))}
         </View>
-      )}
+      ) : null}
     </Screen>
   );
 }
@@ -128,5 +190,16 @@ const styles = StyleSheet.create({
     letterSpacing: typography.letterSpacing.section,
     color: lightColors.text.tertiary,
     marginBottom: spacing['2'],
+  },
+  suggestionRow: {
+    minHeight: spacing['12'],
+    justifyContent: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: lightColors.border.subtle,
+  },
+  suggestionLabel: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.md.fontSize,
+    color: lightColors.text.primary,
   },
 });
