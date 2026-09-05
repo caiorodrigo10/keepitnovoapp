@@ -9,7 +9,8 @@ import {
   applyClienteSnapshot,
   createClienteBaseline,
   decodeClienteSnapshot,
-  type ClienteMockSnapshotV4,
+  readMockPasswordRecovery,
+  type ClienteMockSnapshotV5,
   type ClienteMockStorage,
 } from './cliente-state';
 import type { MockDb } from './db';
@@ -114,7 +115,7 @@ export class ClienteMockStateStore {
     return persisted ? { status: 'updated' } : { status: 'degraded' };
   }
 
-  private captureSnapshot(): ClienteMockSnapshotV4 {
+  private captureSnapshot(): ClienteMockSnapshotV5 {
     this.rememberCurrentClienteIds();
     const accounts = this.db.clienteCredenciais.flatMap((credential) => {
       const profile = this.db.clientes.find((cliente) => cliente.id === credential.clienteId);
@@ -135,11 +136,12 @@ export class ClienteMockStateStore {
       favoriteStoreIdsByClienteId: Object.fromEntries(
         Object.entries(this.db.favoriteStoreIdsByClienteId).filter(([clienteId]) => clienteIds.has(clienteId)),
       ),
+      passwordRecovery: readMockPasswordRecovery(this.db),
       qa: this.db.clienteQaState,
     });
   }
 
-  private enqueueSnapshot(snapshot: ClienteMockSnapshotV4, error: PersistenceError): Promise<boolean> {
+  private enqueueSnapshot(snapshot: ClienteMockSnapshotV5, error: PersistenceError): Promise<boolean> {
     const payload = JSON.stringify(structuredClone(snapshot));
     const writeResult = this.writeQueue.then(async () => {
       try {
@@ -163,7 +165,7 @@ export class ClienteMockStateStore {
     this.db.clienteCredenciais.forEach((credential) => this.managedClienteIds.add(credential.clienteId));
   }
 
-  private rememberSnapshotClienteIds(snapshot: ClienteMockSnapshotV4): void {
+  private rememberSnapshotClienteIds(snapshot: ClienteMockSnapshotV5): void {
     snapshot.accounts.forEach((account) => this.managedClienteIds.add(account.id));
   }
 

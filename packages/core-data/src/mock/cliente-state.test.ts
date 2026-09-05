@@ -14,7 +14,7 @@ type SnapshotCorruption = {
   orderId?: string;
 };
 
-const invalidV4Cases: Array<[string, SnapshotCorruption]> = [
+const invalidCurrentCases: Array<[string, SnapshotCorruption]> = [
   ['atraso negativo', { delays: { aceito: -1, em_preparo: 1, saindo_hub: 1, no_hub: 1 } }],
   ['atraso não finito', { delays: { aceito: 1e999, em_preparo: 1, saindo_hub: 1, no_hub: 1 } }],
   ['âncora inválida', { anchor: 'não-é-uma-data' }],
@@ -32,6 +32,7 @@ describe('cliente-state', () => {
       favoriteStoreIdsByClienteId: {},
       orders: [],
       orderAutomation: {},
+      passwordRecovery: null,
       accountDeletion: null,
       qa: { clockOffsetMs: 0, autoProgressOrders: false, orderProgressionDelaysMs: null },
     });
@@ -45,7 +46,7 @@ describe('cliente-state', () => {
     (raw) => expect(parseClienteSnapshot(raw)).toEqual(createClienteBaseline()),
   );
 
-  it('migra V1 para V4 preservando dados e normalizando simulações', () => {
+  it('migra V1 para V5 preservando dados e normalizando simulações', () => {
     const current = createClienteBaseline();
     const legacy: Record<string, unknown> = {
       ...current,
@@ -57,9 +58,10 @@ describe('cliente-state', () => {
     };
     delete legacy.favoriteHubIdsByClienteId;
     delete legacy.favoriteStoreIdsByClienteId;
+    delete legacy.passwordRecovery;
 
     expect(parseClienteSnapshot(JSON.stringify(legacy))).toMatchObject({
-      schemaVersion: 4,
+      schemaVersion: 5,
       sessionClienteId: 'cliente-ana',
       orderAutomation: {},
       qa: {
@@ -97,11 +99,12 @@ describe('cliente-state', () => {
     };
     delete legacy.favoriteHubIdsByClienteId;
     delete legacy.favoriteStoreIdsByClienteId;
+    delete legacy.passwordRecovery;
 
     expect(decodeClienteSnapshot(JSON.stringify(legacy))).toMatchObject({
       status: 'migrated',
       snapshot: {
-        schemaVersion: 4,
+        schemaVersion: 5,
         orderAutomation: {},
         accounts: [{ profile: { nome: 'Ana V2' } }],
         orders: [{ id: pedido.id }],
@@ -124,18 +127,68 @@ describe('cliente-state', () => {
     };
     delete legacy.favoriteHubIdsByClienteId;
     delete legacy.favoriteStoreIdsByClienteId;
+    delete legacy.passwordRecovery;
 
     expect(decodeClienteSnapshot(JSON.stringify(legacy))).toMatchObject({
       status: 'migrated',
       snapshot: {
-        schemaVersion: 4,
+        schemaVersion: 5,
         favoriteHubIdsByClienteId: { 'cliente-ana': ['hub-legado'] },
         favoriteStoreIdsByClienteId: { 'cliente-ana': ['store-legada'] },
+        passwordRecovery: null,
       },
     });
   });
 
-  it.each(invalidV4Cases)('rejeita snapshot V4 com %s', (_case, corruption) => {
+  it('migra V4 para V5 sem perder favoritos isolados por conta', () => {
+    const current = createClienteBaseline();
+    current.favoriteHubIdsByClienteId = { 'cliente-ana': ['hub-v4'] };
+    current.favoriteStoreIdsByClienteId = { 'cliente-ana': ['store-v4'] };
+    const legacy: Record<string, unknown> = { ...current, schemaVersion: 4 };
+    delete legacy.passwordRecovery;
+
+    expect(decodeClienteSnapshot(JSON.stringify(legacy))).toMatchObject({
+      status: 'migrated',
+      snapshot: {
+        schemaVersion: 5,
+        favoriteHubIdsByClienteId: { 'cliente-ana': ['hub-v4'] },
+        favoriteStoreIdsByClienteId: { 'cliente-ana': ['store-v4'] },
+        passwordRecovery: null,
+      },
+    });
+  });
+
+  it.each(['requested', 'ready', 'expired', 'consumed'] as const)(
+    'aceita o estado persistido de recuperação %s',
+    (state) => {
+      const snapshot = createClienteBaseline();
+      Object.assign(snapshot, {
+        passwordRecovery: { requestId: 'recovery-opaque123', clienteId: 'cliente-ana', state },
+      });
+
+      expect(decodeClienteSnapshot(JSON.stringify(snapshot))).toMatchObject({
+        status: 'valid',
+        snapshot: { passwordRecovery: { requestId: 'recovery-opaque123', clienteId: 'cliente-ana', state } },
+      });
+    },
+  );
+
+  it.each([
+    ['conta inexistente', { requestId: 'recovery-opaque123', clienteId: 'cliente-inexistente', state: 'requested' }],
+    ['estado desconhecido', { requestId: 'recovery-opaque123', clienteId: 'cliente-ana', state: 'unknown' }],
+    ['ID não opaco', { requestId: 'ana.souza@example.com', clienteId: 'cliente-ana', state: 'requested' }],
+    [
+      'segredo extra',
+      { requestId: 'recovery-opaque123', clienteId: 'cliente-ana', state: 'requested', password: 'segredo' },
+    ],
+  ])('rejeita recuperação persistida com %s', (_case, passwordRecovery) => {
+    const snapshot = createClienteBaseline();
+    Object.assign(snapshot, { passwordRecovery });
+
+    expect(parseClienteSnapshot(JSON.stringify(snapshot))).toEqual(createClienteBaseline());
+  });
+
+  it.each(invalidCurrentCases)('rejeita snapshot atual com %s', (_case, corruption) => {
     const snapshot = createClienteBaseline();
     const pedido = structuredClone(
       createMockDb().pedidos.find((item) => item.cliente_id === 'cliente-ana')!,

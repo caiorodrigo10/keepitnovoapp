@@ -102,6 +102,15 @@ export interface UpdateProfileInput {
 export type UpdateEmailResult = { status: 'confirmation_required' } | { status: 'updated' };
 
 /**
+ * Story 12.12: capacidade devolvida depois que o datasource aceita uma
+ * solicitação de recuperação. O modo real confirma somente o canal; o
+ * mock entrega um callback demonstrável que contém apenas um ID opaco.
+ */
+export type PasswordResetRequestResult =
+  | { delivery: 'email' }
+  | { delivery: 'demo'; callbackUrl: string };
+
+/**
  * Port de autenticação/perfil do Cliente.
  *
  * Story 2.3 (decisão 10.4): auth é por e-mail/senha via Supabase Auth, não
@@ -121,13 +130,12 @@ export interface AuthPort {
    */
   signIn(email: string, senha: string, options?: AsyncCallOptions): Promise<Cliente>;
   /**
-   * Story 2.7 (AC1, AC7): solicita a redefinição de senha ao provedor de
-   * autenticação. Resolve sempre da mesma forma para e-mail cadastrado ou
-   * não (anti-enumeração — reflete o retorno indistinto do Supabase Auth);
-   * a tela nunca sabe se o e-mail existe. Não é sucesso fictício: a chamada
-   * de rede é real no adapter Supabase.
+   * Stories 2.7/12.12: solicita a redefinição sem revelar se o e-mail
+   * existe. O adapter Supabase devolve somente o canal real depois que a
+   * chamada de rede resolve; o mock devolve um callback demonstrável com ID
+   * opaco, sem senha, e-mail ou token.
    */
-  requestPasswordReset(email: string, options?: AsyncCallOptions): Promise<void>;
+  requestPasswordReset(email: string, options?: AsyncCallOptions): Promise<PasswordResetRequestResult>;
   /**
    * Story 2.7 (AC3, AC5): consome o deep link de recuperação — a URL bruta
    * (que pode conter tokens) nunca sai desta chamada nem chega à navegação

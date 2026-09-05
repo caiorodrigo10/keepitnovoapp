@@ -2,16 +2,36 @@ import type {
   AuthPort,
   Cliente,
   ClienteConfirmacaoTelefone,
+  PasswordResetRequestResult,
   SignUpInput,
   UpdateEmailResult,
   UpdateProfileInput,
 } from '../ports/auth.port';
 import type { AsyncCallOptions } from '../types';
 import { generateMockId, simulateAsync } from './async-helpers';
-import { CLIENTE_DEMO_INITIAL_PASSWORD } from './cliente-state';
+import {
+  CLIENTE_DEMO_INITIAL_PASSWORD,
+  readMockPasswordRecovery,
+  writeMockPasswordRecovery,
+} from './cliente-state';
 import type { MockDb } from './db';
 
 const PASSWORD_RECOVERY_CALLBACK = 'com.keepithub.cliente://auth/reset';
+const NO_ACTIVE_PASSWORD_RECOVERY_ERROR = '[mock] Nenhuma sessão de recuperação ativa.';
+const INVALID_PASSWORD_RECOVERY_CALLBACK_ERROR =
+  '[mock] auth.establishPasswordRecoverySession — link inválido ou sessão indisponível.';
+let passwordRecoveryRequestSequence = 0;
+
+function createPasswordRecoveryRequestId(): string {
+  passwordRecoveryRequestSequence += 1;
+  return `${generateMockId('recovery')}-${passwordRecoveryRequestSequence.toString(36)}`;
+}
+
+function createPasswordRecoveryCallback(requestId: string): string {
+  const callback = new URL(PASSWORD_RECOVERY_CALLBACK);
+  callback.searchParams.set('requestId', requestId);
+  return callback.toString();
+}
 
 export function createAuthMock(db: MockDb): AuthPort {
   /**
@@ -20,10 +40,6 @@ export function createAuthMock(db: MockDb): AuthPort {
    * `db.sessionClienteId` (`signUp`, `signIn`, `signOut`) logo abaixo.
    */
   const listeners = new Set<(cliente: Cliente | null) => void>();
-  /** Story 2.7 — separa a conta solicitada da sessão de recuperação mock ativa. */
-  let requestedPasswordRecoveryClienteId: string | null = null;
-  let passwordRecoveryClienteId: string | null = null;
-
   function currentSessionCliente(): Cliente | null {
     return db.clientes.find((c) => c.id === db.sessionClienteId) ?? null;
   }
@@ -33,7 +49,7 @@ export function createAuthMock(db: MockDb): AuthPort {
     listeners.forEach((listener) => listener(cliente));
   }
 
-  function assertPasswordRecoveryCallback(callbackUrl: string): void {
+  function parsePasswordRecoveryRequestId(callbackUrl: string): string {
     let url: URL;
     try {
       url = new URL(callbackUrl);
@@ -45,15 +61,21 @@ export function createAuthMock(db: MockDb): AuthPort {
       throw new Error('[mock] auth.establishPasswordRecoverySession — callback de outra rota.');
     }
 
-    const hash = new URLSearchParams(url.hash.startsWith('#') ? url.hash.slice(1) : url.hash);
-    if (url.searchParams.has('error') || hash.has('error')) {
-      throw new Error('[mock] auth.establishPasswordRecoverySession — link inválido ou expirado.');
+    const requestIds = url.searchParams.getAll('requestId');
+    if (
+      url.hash !== '' ||
+      [...url.searchParams.keys()].some((key) => key !== 'requestId') ||
+      requestIds.length !== 1 ||
+      !/^recovery-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(requestIds[0] ?? '')
+    ) {
+      throw new Error(INVALID_PASSWORD_RECOVERY_CALLBACK_ERROR);
     }
+
+    return requestIds[0]!;
   }
 
   db.onClienteStateReset = () => {
-    requestedPasswordRecoveryClienteId = null;
-    passwordRecoveryClienteId = null;
+    writeMockPasswordRecovery(db, null);
     notifyAuthStateChange();
   };
 
@@ -109,14 +131,23 @@ export function createAuthMock(db: MockDb): AuthPort {
      * independente do e-mail existir (mesma anti-enumeração do adapter
      * Supabase, AC7).
      */
-    requestPasswordReset(email: string, options?: AsyncCallOptions): Promise<void> {
+    requestPasswordReset(email: string, options?: AsyncCallOptions): Promise<PasswordResetRequestResult> {
+      const emptyResult: PasswordResetRequestResult = {
+        delivery: 'demo',
+        callbackUrl: createPasswordRecoveryCallback(createPasswordRecoveryRequestId()),
+      };
       return simulateAsync(
-        () => {
-          requestedPasswordRecoveryClienteId =
-            db.clienteCredenciais.find((credential) => credential.email === email)?.clienteId ?? null;
-          passwordRecoveryClienteId = null;
+        async () => {
+          const requestId = createPasswordRecoveryRequestId();
+          const clienteId = db.clienteCredenciais.find((credential) => credential.email === email)?.clienteId;
+          writeMockPasswordRecovery(
+            db,
+            clienteId ? { requestId, clienteId, state: 'requested' } : null,
+          );
+          await db.onClienteMutation();
+          return { delivery: 'demo' as const, callbackUrl: createPasswordRecoveryCallback(requestId) };
         },
-        undefined,
+        emptyResult,
         options,
       );
     },
@@ -124,14 +155,14 @@ export function createAuthMock(db: MockDb): AuthPort {
     /** Story 2.7 (AC6) — valida a rota e ativa somente a conta solicitada sem expor enumeração. */
     establishPasswordRecoverySession(callbackUrl: string, options?: AsyncCallOptions): Promise<void> {
       return simulateAsync(
-        () => {
-          passwordRecoveryClienteId = null;
-          assertPasswordRecoveryCallback(callbackUrl);
-          if (!requestedPasswordRecoveryClienteId) {
-            throw new Error('[mock] auth.establishPasswordRecoverySession — callback sem sessão válida.');
+        async () => {
+          const requestId = parsePasswordRecoveryRequestId(callbackUrl);
+          const recovery = readMockPasswordRecovery(db);
+          if (!recovery || recovery.requestId !== requestId || recovery.state !== 'requested') {
+            throw new Error(INVALID_PASSWORD_RECOVERY_CALLBACK_ERROR);
           }
-          passwordRecoveryClienteId = requestedPasswordRecoveryClienteId;
-          requestedPasswordRecoveryClienteId = null;
+          writeMockPasswordRecovery(db, { ...recovery, state: 'ready' });
+          await db.onClienteMutation();
         },
         undefined,
         options,
@@ -142,16 +173,16 @@ export function createAuthMock(db: MockDb): AuthPort {
     updatePassword(password: string, options?: AsyncCallOptions): Promise<void> {
       return simulateAsync(
         async () => {
-          if (!passwordRecoveryClienteId) {
-            throw new Error('[mock] Nenhuma sessão de recuperação ativa.');
+          const recovery = readMockPasswordRecovery(db);
+          if (!recovery || recovery.state !== 'ready') {
+            throw new Error(NO_ACTIVE_PASSWORD_RECOVERY_ERROR);
           }
-          const credencial = db.clienteCredenciais.find((item) => item.clienteId === passwordRecoveryClienteId);
+          const credencial = db.clienteCredenciais.find((item) => item.clienteId === recovery.clienteId);
           if (!credencial) {
-            passwordRecoveryClienteId = null;
-            throw new Error('[mock] Nenhuma sessão de recuperação ativa.');
+            throw new Error(NO_ACTIVE_PASSWORD_RECOVERY_ERROR);
           }
           credencial.password = password;
-          passwordRecoveryClienteId = null;
+          writeMockPasswordRecovery(db, { ...recovery, state: 'consumed' });
           await db.onClienteMutation();
         },
         undefined,

@@ -9,7 +9,7 @@ import { clientesCredenciaisFixture, clientesFixture } from './fixtures';
 import type { MockDb } from './db';
 import type { OrderAutomationRuntime } from './order-auto-progress';
 
-export const CLIENTE_MOCK_SCHEMA_VERSION = 4 as const;
+export const CLIENTE_MOCK_SCHEMA_VERSION = 5 as const;
 export const CLIENTE_MOCK_STATE_KEY = '@keepit/cliente:mock-state';
 export const CLIENTE_DEMO_INITIAL_PASSWORD = 'keepit123';
 
@@ -28,6 +28,12 @@ export interface ClienteMockAccount {
   password: string;
   profile: Cliente;
 }
+
+export type MockPasswordRecovery = {
+  requestId: string;
+  clienteId: string;
+  state: 'requested' | 'ready' | 'expired' | 'consumed';
+} | null;
 
 interface ClienteMockSnapshotV1 {
   schemaVersion: 1;
@@ -79,10 +85,39 @@ export interface ClienteMockSnapshotV4 {
   qa: QaScenarioState;
 }
 
+export interface ClienteMockSnapshotV5 {
+  schemaVersion: 5;
+  accounts: ClienteMockAccount[];
+  sessionClienteId: string | null;
+  orders: Pedido[];
+  orderAutomation: Record<string, OrderAutomationRuntime>;
+  favoriteHubIdsByClienteId: Record<string, string[]>;
+  favoriteStoreIdsByClienteId: Record<string, string[]>;
+  selectedHubId: string | null;
+  accountDeletion: { requestedAt: string } | null;
+  passwordRecovery: MockPasswordRecovery;
+  qa: QaScenarioState;
+}
+
 export type ClienteMockSnapshotDecodeResult =
-  | { status: 'valid'; snapshot: ClienteMockSnapshotV4 }
-  | { status: 'migrated'; snapshot: ClienteMockSnapshotV4 }
-  | { status: 'recovered'; reason: 'missing' | 'invalid'; snapshot: ClienteMockSnapshotV4 };
+  | { status: 'valid'; snapshot: ClienteMockSnapshotV5 }
+  | { status: 'migrated'; snapshot: ClienteMockSnapshotV5 }
+  | { status: 'recovered'; reason: 'missing' | 'invalid'; snapshot: ClienteMockSnapshotV5 };
+
+const passwordRecoveryByDb = new WeakMap<MockDb, NonNullable<MockPasswordRecovery>>();
+
+export function readMockPasswordRecovery(db: MockDb): MockPasswordRecovery {
+  const recovery = passwordRecoveryByDb.get(db);
+  return recovery ? structuredClone(recovery) : null;
+}
+
+export function writeMockPasswordRecovery(db: MockDb, recovery: MockPasswordRecovery): void {
+  if (recovery === null) {
+    passwordRecoveryByDb.delete(db);
+    return;
+  }
+  passwordRecoveryByDb.set(db, structuredClone(recovery));
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -269,7 +304,12 @@ function hasValidLegacySnapshotShape(
 }
 
 function hasValidClienteIdentity(
-  snapshot: ClienteMockSnapshotV1 | ClienteMockSnapshotV2 | ClienteMockSnapshotV3 | ClienteMockSnapshotV4,
+  snapshot:
+    | ClienteMockSnapshotV1
+    | ClienteMockSnapshotV2
+    | ClienteMockSnapshotV3
+    | ClienteMockSnapshotV4
+    | ClienteMockSnapshotV5,
 ): boolean {
   const accountIds = snapshot.accounts.map((account) => account.id);
   const accountEmails = snapshot.accounts.map((account) => account.email.trim().toLowerCase());
@@ -296,6 +336,7 @@ function isClienteMockSnapshotV1(value: unknown): value is ClienteMockSnapshotV1
   const hasValidShape =
     hasValidLegacySnapshotShape(value) &&
     value.schemaVersion === 1 &&
+    value.passwordRecovery === undefined &&
     typeof value.qa.clockOffsetMs === 'number' &&
     typeof value.qa.autoProgressOrders === 'boolean';
 
@@ -306,6 +347,7 @@ function isClienteMockSnapshotV2(value: unknown): value is ClienteMockSnapshotV2
   const hasValidShape =
     hasValidLegacySnapshotShape(value) &&
     value.schemaVersion === 2 &&
+    value.passwordRecovery === undefined &&
     isLegacyQaScenarioState(value.qa);
 
   return hasValidShape && hasValidClienteIdentity(value as unknown as ClienteMockSnapshotV2);
@@ -333,6 +375,7 @@ function isClienteMockSnapshotV3(value: unknown): value is ClienteMockSnapshotV3
   const hasValidShape =
     hasValidLegacySnapshotShape(value) &&
     value.schemaVersion === 3 &&
+    value.passwordRecovery === undefined &&
     isQaScenarioState(value.qa) &&
     hasValidOrderAutomation(
       (value as Record<string, unknown>).orderAutomation,
@@ -353,7 +396,9 @@ function hasValidFavoritesByClienteId(value: unknown, accountIds: ReadonlySet<st
 }
 
 function isClienteMockSnapshotV4(value: unknown): value is ClienteMockSnapshotV4 {
-  if (!hasValidCommonSnapshotShape(value) || value.schemaVersion !== CLIENTE_MOCK_SCHEMA_VERSION) return false;
+  if (!hasValidCommonSnapshotShape(value) || value.schemaVersion !== 4 || value.passwordRecovery !== undefined) {
+    return false;
+  }
 
   const accountIds = new Set(value.accounts.map((account) => account.id));
   const hasValidShape =
@@ -363,6 +408,43 @@ function isClienteMockSnapshotV4(value: unknown): value is ClienteMockSnapshotV4
     hasValidFavoritesByClienteId(value.favoriteStoreIdsByClienteId, accountIds);
 
   return hasValidShape && hasValidClienteIdentity(value as unknown as ClienteMockSnapshotV4);
+}
+
+const passwordRecoveryStates = new Set<NonNullable<MockPasswordRecovery>['state']>([
+  'requested',
+  'ready',
+  'expired',
+  'consumed',
+]);
+
+function isMockPasswordRecovery(
+  value: unknown,
+  accountIds: ReadonlySet<string>,
+): value is MockPasswordRecovery {
+  if (value === null) return true;
+  if (!isRecord(value) || Object.keys(value).length !== 3) return false;
+
+  return (
+    typeof value.requestId === 'string' &&
+    /^recovery-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.requestId) &&
+    typeof value.clienteId === 'string' &&
+    accountIds.has(value.clienteId) &&
+    passwordRecoveryStates.has(value.state as NonNullable<MockPasswordRecovery>['state'])
+  );
+}
+
+function isClienteMockSnapshotV5(value: unknown): value is ClienteMockSnapshotV5 {
+  if (!hasValidCommonSnapshotShape(value) || value.schemaVersion !== CLIENTE_MOCK_SCHEMA_VERSION) return false;
+
+  const accountIds = new Set(value.accounts.map((account) => account.id));
+  const hasValidShape =
+    isQaScenarioState(value.qa) &&
+    hasValidOrderAutomation(value.orderAutomation, new Set(value.orders.map((order) => order.id))) &&
+    hasValidFavoritesByClienteId(value.favoriteHubIdsByClienteId, accountIds) &&
+    hasValidFavoritesByClienteId(value.favoriteStoreIdsByClienteId, accountIds) &&
+    isMockPasswordRecovery(value.passwordRecovery, accountIds);
+
+  return hasValidShape && hasValidClienteIdentity(value as unknown as ClienteMockSnapshotV5);
 }
 
 export function createDefaultQaScenarioState(): QaScenarioState {
@@ -381,7 +463,7 @@ export function createDefaultQaScenarioState(): QaScenarioState {
   };
 }
 
-function migrateLegacyClienteSnapshot(
+function migrateLegacyClienteSnapshotToV4(
   snapshot: ClienteMockSnapshotV1 | ClienteMockSnapshotV2 | ClienteMockSnapshotV3,
 ): ClienteMockSnapshotV4 {
   const normalizedV3: ClienteMockSnapshotV3 =
@@ -405,7 +487,7 @@ function migrateLegacyClienteSnapshot(
 
   return {
     ...currentFields,
-    schemaVersion: CLIENTE_MOCK_SCHEMA_VERSION,
+    schemaVersion: 4,
     favoriteHubIdsByClienteId:
       favoriteHubIds.length > 0 ? { [CLIENTE_DEMO_ID]: [...new Set(favoriteHubIds)] } : {},
     favoriteStoreIdsByClienteId:
@@ -413,7 +495,14 @@ function migrateLegacyClienteSnapshot(
   };
 }
 
-export function createClienteBaseline(): ClienteMockSnapshotV4 {
+function migrateClienteSnapshot(
+  snapshot: ClienteMockSnapshotV1 | ClienteMockSnapshotV2 | ClienteMockSnapshotV3 | ClienteMockSnapshotV4,
+): ClienteMockSnapshotV5 {
+  const v4 = snapshot.schemaVersion === 4 ? structuredClone(snapshot) : migrateLegacyClienteSnapshotToV4(snapshot);
+  return { ...v4, schemaVersion: CLIENTE_MOCK_SCHEMA_VERSION, passwordRecovery: null };
+}
+
+export function createClienteBaseline(): ClienteMockSnapshotV5 {
   const profile = clientesFixture.find((cliente) => cliente.id === CLIENTE_DEMO_ID);
   const credential = clientesCredenciaisFixture.find((item) => item.clienteId === CLIENTE_DEMO_ID);
 
@@ -438,6 +527,7 @@ export function createClienteBaseline(): ClienteMockSnapshotV4 {
     favoriteStoreIdsByClienteId: {},
     selectedHubId: null,
     accountDeletion: null,
+    passwordRecovery: null,
     qa: createDefaultQaScenarioState(),
   };
 }
@@ -449,17 +539,20 @@ export function decodeClienteSnapshot(raw: string | null): ClienteMockSnapshotDe
 
   try {
     const value: unknown = JSON.parse(raw);
-    if (isClienteMockSnapshotV4(value)) {
+    if (isClienteMockSnapshotV5(value)) {
       return { status: 'valid', snapshot: structuredClone(value) };
     }
+    if (isClienteMockSnapshotV4(value)) {
+      return { status: 'migrated', snapshot: migrateClienteSnapshot(value) };
+    }
     if (isClienteMockSnapshotV3(value)) {
-      return { status: 'migrated', snapshot: migrateLegacyClienteSnapshot(value) };
+      return { status: 'migrated', snapshot: migrateClienteSnapshot(value) };
     }
     if (isClienteMockSnapshotV2(value)) {
-      return { status: 'migrated', snapshot: migrateLegacyClienteSnapshot(value) };
+      return { status: 'migrated', snapshot: migrateClienteSnapshot(value) };
     }
     if (isClienteMockSnapshotV1(value)) {
-      return { status: 'migrated', snapshot: migrateLegacyClienteSnapshot(value) };
+      return { status: 'migrated', snapshot: migrateClienteSnapshot(value) };
     }
     return { status: 'recovered', reason: 'invalid', snapshot: createClienteBaseline() };
   } catch {
@@ -467,11 +560,11 @@ export function decodeClienteSnapshot(raw: string | null): ClienteMockSnapshotDe
   }
 }
 
-export function parseClienteSnapshot(raw: string | null): ClienteMockSnapshotV4 {
+export function parseClienteSnapshot(raw: string | null): ClienteMockSnapshotV5 {
   return decodeClienteSnapshot(raw).snapshot;
 }
 
-export function applyClienteSnapshot(db: MockDb, snapshot: ClienteMockSnapshotV4): void {
+export function applyClienteSnapshot(db: MockDb, snapshot: ClienteMockSnapshotV5): void {
   const clienteIds = new Set(snapshot.accounts.map((account) => account.id));
   db.clientes = db.clientes.filter((cliente) => !clienteIds.has(cliente.id));
   db.clienteCredenciais = db.clienteCredenciais.filter((credential) => !clienteIds.has(credential.clienteId));
@@ -493,4 +586,5 @@ export function applyClienteSnapshot(db: MockDb, snapshot: ClienteMockSnapshotV4
   db.favoriteStoreIdsByClienteId = structuredClone(snapshot.favoriteStoreIdsByClienteId);
   db.clienteQaState = structuredClone(snapshot.qa);
   db.clienteOrderAutomation = structuredClone(snapshot.orderAutomation);
+  writeMockPasswordRecovery(db, snapshot.passwordRecovery);
 }

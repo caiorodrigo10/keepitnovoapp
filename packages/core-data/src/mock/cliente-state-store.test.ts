@@ -6,6 +6,7 @@ import {
   initializeDataClient,
   type ClienteMockStorage,
 } from '../index';
+import type { AuthPort } from '../ports/auth.port';
 import { createAuthMock } from './auth.mock';
 import { CLIENTE_MOCK_STATE_KEY, createClienteBaseline } from './cliente-state';
 import { ClienteMockStateStore } from './cliente-state-store';
@@ -62,6 +63,13 @@ function deferred<T>() {
     resolve = promiseResolve;
   });
   return { promise, resolve };
+}
+
+async function requestDemoCallback(auth: AuthPort, email: string): Promise<string> {
+  const result = await auth.requestPasswordReset(email, { delayMs: 0 });
+  expect(result).toMatchObject({ delivery: 'demo', callbackUrl: expect.any(String) });
+  if (result.delivery !== 'demo') throw new Error('O adapter mock deve devolver callback demo.');
+  return result.callbackUrl;
 }
 
 describe('ClienteMockStateStore', () => {
@@ -318,21 +326,84 @@ describe('ClienteMockStateStore', () => {
     expect(client.demoScenario!.getQaState().simulations.stores).toBe('loading');
   });
 
-  it('persiste senha redefinida e passa a exigir a nova senha no próximo login', async () => {
+  it('persiste requested, ready e consumed e impede replay após reabertura', async () => {
     const storage = memoryStorage();
-    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
-    await client.auth.requestPasswordReset('ana.souza@example.com', { delayMs: 0 });
-    await client.auth.establishPasswordRecoverySession('com.keepithub.cliente://auth/reset', { delayMs: 0 });
-    await client.auth.updatePassword('novaSenha9', { delayMs: 0 });
-    await client.auth.signOut({ delayMs: 0 });
-    await client.demoScenario!.flush();
+    const first = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    const callbackUrl = await requestDemoCallback(first.auth, 'ana.souza@example.com');
+    const requestId = new URL(callbackUrl).searchParams.get('requestId');
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!).passwordRecovery).toEqual({
+      requestId,
+      clienteId: 'cliente-ana',
+      state: 'requested',
+    });
 
     __resetDataClientForTests();
-    const reopened = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
-    await expect(reopened.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 })).rejects.toThrow();
+    const readyClient = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await readyClient.auth.establishPasswordRecoverySession(callbackUrl, { delayMs: 0 });
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!).passwordRecovery).toEqual({
+      requestId,
+      clienteId: 'cliente-ana',
+      state: 'ready',
+    });
+
+    __resetDataClientForTests();
+    const updateClient = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await updateClient.auth.updatePassword('novaSenha9', { delayMs: 0 });
+    const consumedSnapshot = JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!);
+    expect(consumedSnapshot.passwordRecovery).toEqual({
+      requestId,
+      clienteId: 'cliente-ana',
+      state: 'consumed',
+    });
+    expect(consumedSnapshot.passwordRecovery).not.toHaveProperty('password');
+
+    __resetDataClientForTests();
+    const consumedClient = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
     await expect(
-      reopened.auth.signIn('ana.souza@example.com', 'novaSenha9', { delayMs: 0 }),
+      consumedClient.auth.establishPasswordRecoverySession(callbackUrl, { delayMs: 0 }),
+    ).rejects.toThrow(/link inválido|consumid|sessão/i);
+    await expect(consumedClient.auth.updatePassword('replay', { delayMs: 0 })).rejects.toThrow(
+      /consumid|nenhuma sessão/i,
+    );
+    await expect(consumedClient.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 })).rejects.toThrow();
+    await expect(
+      consumedClient.auth.signIn('ana.souza@example.com', 'novaSenha9', { delayMs: 0 }),
     ).resolves.toMatchObject({ id: 'cliente-ana' });
+  });
+
+  it.each(['expired', 'consumed'] as const)(
+    'rejeita callback %s persistido sem alterar a credencial',
+    async (state) => {
+      const snapshot = createClienteBaseline();
+      Object.assign(snapshot, {
+        passwordRecovery: { requestId: 'recovery-opaque123', clienteId: 'cliente-ana', state },
+      });
+      const storage = memoryStorage({ initialValue: JSON.stringify(snapshot) });
+      const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+      const callbackUrl = 'com.keepithub.cliente://auth/reset?requestId=recovery-opaque123';
+
+      await expect(client.auth.establishPasswordRecoverySession(callbackUrl, { delayMs: 0 })).rejects.toThrow(
+        /link inválido|expirad|consumid|sessão/i,
+      );
+      await expect(client.auth.updatePassword('senha-indevida', { delayMs: 0 })).rejects.toThrow();
+      await expect(
+        client.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 }),
+      ).resolves.toMatchObject({ id: 'cliente-ana' });
+    },
+  );
+
+  it('persiste a nova solicitação e mantém o callback mais novo utilizável após rejeitar o anterior', async () => {
+    const storage = memoryStorage();
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    const firstUrl = await requestDemoCallback(client.auth, 'ana.souza@example.com');
+    const secondUrl = await requestDemoCallback(client.auth, 'ana.souza@example.com');
+
+    expect(secondUrl).not.toBe(firstUrl);
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!).passwordRecovery.requestId).toBe(
+      new URL(secondUrl).searchParams.get('requestId'),
+    );
+    await expect(client.auth.establishPasswordRecoverySession(firstUrl, { delayMs: 0 })).rejects.toThrow();
+    await expect(client.auth.establishPasswordRecoverySession(secondUrl, { delayMs: 0 })).resolves.toBeUndefined();
   });
 
   it('persiste perfil e pedido criado após reabertura', async () => {
@@ -479,8 +550,8 @@ describe('ClienteMockStateStore', () => {
     const storage = memoryStorage({ initialValue: JSON.stringify(createClienteBaseline()) });
     const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
     await client.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
-    await client.auth.requestPasswordReset('ana.souza@example.com', { delayMs: 0 });
-    await client.auth.establishPasswordRecoverySession('com.keepithub.cliente://auth/reset', { delayMs: 0 });
+    const callbackUrl = await requestDemoCallback(client.auth, 'ana.souza@example.com');
+    await client.auth.establishPasswordRecoverySession(callbackUrl, { delayMs: 0 });
 
     const authEvents: Array<string | null> = [];
     let resolveInitialAuth!: () => void;
@@ -501,6 +572,10 @@ describe('ClienteMockStateStore', () => {
     await expect(client.auth.updatePassword('senha-invalida', { delayMs: 0 })).rejects.toThrow(
       'Nenhuma sessão de recuperação ativa',
     );
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!).passwordRecovery).toBeNull();
+    await expect(
+      client.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 }),
+    ).resolves.toMatchObject({ id: 'cliente-ana' });
     unsubscribe();
   });
 
@@ -562,6 +637,7 @@ describe('ClienteMockStateStore', () => {
       selectedHubId: baseline.selectedHubId,
       favoriteStoreIdsByClienteId: baseline.favoriteStoreIdsByClienteId,
       favoriteHubIdsByClienteId: baseline.favoriteHubIdsByClienteId,
+      passwordRecovery: baseline.passwordRecovery,
       orderAutomation: baseline.orderAutomation,
       orders: baseline.orders,
       sessionClienteId: baseline.sessionClienteId,

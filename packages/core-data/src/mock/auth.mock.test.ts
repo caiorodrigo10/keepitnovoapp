@@ -212,8 +212,10 @@ describe('auth.mock (contract)', () => {
         { delayMs: 1 },
       );
       await port.signOut({ delayMs: 1 });
-      await port.requestPasswordReset('beatriz@example.com', { delayMs: 1 });
-      await port.establishPasswordRecoverySession('com.keepithub.cliente://auth/reset', { delayMs: 1 });
+      const result = await port.requestPasswordReset('beatriz@example.com', { delayMs: 1 });
+      expect(result.delivery).toBe('demo');
+      if (result.delivery !== 'demo') throw new Error('O adapter mock deve devolver callback demo.');
+      await port.establishPasswordRecoverySession(result.callbackUrl, { delayMs: 1 });
       await port.updatePassword('novaSegunda2', { delayMs: 1 });
 
       await expect(port.signIn('beatriz@example.com', 'senhaSegunda1', { delayMs: 1 })).rejects.toThrow(
@@ -228,11 +230,31 @@ describe('auth.mock (contract)', () => {
       });
     });
 
+    it('requestPasswordReset devolve somente um ID opaco no callback demo', async () => {
+      const email = 'ana.souza@example.com';
+      const password = 'keepit123';
+
+      const result = await port.requestPasswordReset(email, { delayMs: 1 });
+
+      expect(result).toMatchObject({ delivery: 'demo' });
+      if (result.delivery !== 'demo') throw new Error('O adapter mock deve devolver callback demo.');
+      const url = new URL(result.callbackUrl);
+      expect(`${url.protocol}//${url.host}${url.pathname}`).toBe('com.keepithub.cliente://auth/reset');
+      expect([...url.searchParams.keys()]).toEqual(['requestId']);
+      expect(url.searchParams.get('requestId')).toMatch(/^recovery-[a-z0-9-]+$/);
+      expect(url.hash).toBe('');
+      expect(result.callbackUrl).not.toContain(email);
+      expect(result.callbackUrl).not.toContain(password);
+    });
+
     it('establishPasswordRecoverySession rejeita callback de outra rota e não ativa recuperação', async () => {
-      await port.requestPasswordReset('ana.souza@example.com', { delayMs: 1 });
+      const result = await port.requestPasswordReset('ana.souza@example.com', { delayMs: 1 });
+      expect(result.delivery).toBe('demo');
 
       await expect(
-        port.establishPasswordRecoverySession('com.keepithub.cliente://auth/other', { delayMs: 1 }),
+        port.establishPasswordRecoverySession('com.keepithub.cliente://auth/other?requestId=recovery-opaque123', {
+          delayMs: 1,
+        }),
       ).rejects.toThrow(/callback de outra rota/i);
       await expect(port.updatePassword('nova-senha', { delayMs: 1 })).rejects.toThrow(
         /nenhuma sessão de recuperação ativa/i,
@@ -240,8 +262,15 @@ describe('auth.mock (contract)', () => {
     });
 
     it('requestPasswordReset resolve igualmente para e-mail cadastrado ou não — anti-enumeração (AC7)', async () => {
-      await expect(port.requestPasswordReset('ana.souza@example.com', { delayMs: 1 })).resolves.toBeUndefined();
-      await expect(port.requestPasswordReset('nao-cadastrado@example.com', { delayMs: 1 })).resolves.toBeUndefined();
+      const known = await port.requestPasswordReset('ana.souza@example.com', { delayMs: 1 });
+      const unknown = await port.requestPasswordReset('nao-cadastrado@example.com', { delayMs: 1 });
+
+      expect(known).toMatchObject({ delivery: 'demo', callbackUrl: expect.any(String) });
+      expect(unknown).toMatchObject({ delivery: 'demo', callbackUrl: expect.any(String) });
+      if (unknown.delivery !== 'demo') throw new Error('O adapter mock deve devolver callback demo.');
+      await expect(port.establishPasswordRecoverySession(unknown.callbackUrl, { delayMs: 1 })).rejects.toThrow(
+        /link inválido|sessão/i,
+      );
     });
 
     it('updatePassword rejeita sem establishPasswordRecoverySession prévio', async () => {
@@ -250,13 +279,32 @@ describe('auth.mock (contract)', () => {
       );
     });
 
-    it('updatePassword consome a sessão de recuperação — uma 2ª chamada exige novo establishPasswordRecoverySession', async () => {
-      await port.requestPasswordReset('ana.souza@example.com', { delayMs: 1 });
-      await port.establishPasswordRecoverySession('com.keepithub.cliente://auth/reset', { delayMs: 1 });
+    it('updatePassword consome a sessão de recuperação e impede replay', async () => {
+      const result = await port.requestPasswordReset('ana.souza@example.com', { delayMs: 1 });
+      if (result.delivery !== 'demo') throw new Error('O adapter mock deve devolver callback demo.');
+      await port.establishPasswordRecoverySession(result.callbackUrl, { delayMs: 1 });
       await expect(port.updatePassword('nova-senha', { delayMs: 1 })).resolves.toBeUndefined();
       await expect(port.updatePassword('outra-senha', { delayMs: 1 })).rejects.toThrow(
-        /nenhuma sessão de recuperação ativa/i,
+        /consumid|nenhuma sessão de recuperação ativa/i,
       );
+      await expect(port.establishPasswordRecoverySession(result.callbackUrl, { delayMs: 1 })).rejects.toThrow(
+        /link inválido|consumid|sessão/i,
+      );
+    });
+
+    it('nova solicitação usa outro ID, invalida o callback anterior e preserva o mais novo', async () => {
+      const first = await port.requestPasswordReset('ana.souza@example.com', { delayMs: 1 });
+      const second = await port.requestPasswordReset('ana.souza@example.com', { delayMs: 1 });
+      if (first.delivery !== 'demo' || second.delivery !== 'demo') {
+        throw new Error('O adapter mock deve devolver callbacks demo.');
+      }
+
+      expect(second.callbackUrl).not.toBe(first.callbackUrl);
+      await expect(port.establishPasswordRecoverySession(first.callbackUrl, { delayMs: 1 })).rejects.toThrow(
+        /link inválido|sessão/i,
+      );
+      await expect(port.establishPasswordRecoverySession(second.callbackUrl, { delayMs: 1 })).resolves.toBeUndefined();
+      await expect(port.updatePassword('senha-mais-nova', { delayMs: 1 })).resolves.toBeUndefined();
     });
   });
 
