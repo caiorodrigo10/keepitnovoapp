@@ -4,6 +4,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
+import { resolveLojaDisponibilidade } from '@keepit/core-data';
 
 import {
   AsyncStateBlock,
@@ -12,11 +13,12 @@ import {
 } from '../../components/discovery';
 import { Screen } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
+import { useFavorites } from '../../context/FavoritesContext';
 import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useHubsList } from '../../hooks/useHubsList';
 import { useStoresList } from '../../hooks/useStoresList';
-import { CATEGORIAS_HOME, isFavorito } from '../../lib/discoveryDisplay';
+import { CATEGORIAS_HOME, selectFavoriteEntities } from '../../lib/discoveryDisplay';
 import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
 import { selectStoresForSurface } from '../../lib/storeDiscovery';
 import type { HomeStackParamList } from '../../navigation/types';
@@ -54,6 +56,7 @@ export default function Home({ navigation }: Props) {
   const storesSimulation = useQaSimulation('stores');
 
   const cart = useCart();
+  const { favoriteStoreIds } = useFavorites();
   const { data: cliente } = useCurrentCliente();
   const { data: hubs, loading: hubsLoading, error: errorHubs } = useHubsList(
     simulationToAsyncCallOptions(hubsSimulation),
@@ -68,7 +71,10 @@ export default function Home({ navigation }: Props) {
   );
   const loadingLojas = storesLoading || isForcedLoading(storesSimulation);
 
-  const favoritas = useMemo(() => lojas.filter((loja) => isFavorito(loja.id)), [lojas]);
+  const favoritas = useMemo(
+    () => selectFavoriteEntities(lojas, favoriteStoreIds),
+    [favoriteStoreIds, lojas],
+  );
   const lojasDisponiveis = useMemo(() => selectStoresForSurface(lojas, 'purchase'), [lojas]);
   const lojasPorCategoria = useMemo(() => {
     const grupos = new Map<string, typeof lojasDisponiveis>();
@@ -135,6 +141,7 @@ export default function Home({ navigation }: Props) {
                 <StoreCard
                   key={loja.id}
                   loja={loja}
+                  disponibilidade={resolveLojaDisponibilidade(loja)}
                   onPress={() => navigation.navigate('Loja', { estabelecimentoId: loja.id })}
                 />
               ))}

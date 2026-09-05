@@ -5,6 +5,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { AsyncStateBlock, StoreCard } from '../../components/discovery';
+import { FavoriteButton } from '../../components/discovery/FavoriteButton';
 import { ImagePlaceholder } from '../../components/discovery/ImagePlaceholder';
 import { Screen } from '../../components/ui';
 import { useQaSimulation } from '../../context/QaScenarioContext';
@@ -54,7 +55,14 @@ export default function Hub({ route, navigation }: Props) {
       ) : (
         <>
           <ImagePlaceholder uri={hub.foto_url} style={styles.foto} borderRadius={radii.card} />
-          <Text style={styles.nome}>{hub.nome}</Text>
+          <View style={styles.titleRow}>
+            <Text style={styles.nome}>{hub.nome}</Text>
+            <FavoriteButton
+              kind="hub"
+              resourceId={hub.id}
+              resourceName={hub.nome}
+            />
+          </View>
           <Text style={styles.endereco}>{hub.endereco}</Text>
           {hub.ponto_referencia && <Text style={styles.pontoReferencia}>{hub.ponto_referencia}</Text>}
 
@@ -98,9 +106,15 @@ const styles = StyleSheet.create({
     marginBottom: spacing['4'],
   },
   nome: {
+    flex: 1,
     fontFamily: 'HankenGrotesk-Bold',
     fontSize: typography.sizes['2xl'].fontSize,
     color: lightColors.text.primary,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing['3'],
   },
   endereco: {
     fontFamily: 'HankenGrotesk-Regular',

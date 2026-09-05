@@ -11,6 +11,7 @@ import { BuildMetadata } from '../../components/qa/BuildMetadata';
 import { Button, FormScreen, Screen, TextField } from '../../components/ui';
 import { QA_BUILD_ENABLED } from '../../config/buildInfo';
 import { useQaSimulation } from '../../context/QaScenarioContext';
+import { useFavorites } from '../../context/FavoritesContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useCurrentEmail } from '../../hooks/useCurrentEmail';
 import { usePedidosMine } from '../../hooks/usePedidosMine';
@@ -104,6 +105,7 @@ export default function Perfil({ navigation }: Props) {
   const { data: cliente, loading: clienteLoading, error: clienteError } = useCurrentCliente();
   const { data: email, loading: emailLoading, error: emailError } = useCurrentEmail();
   const { data: pedidos, error: pedidosError } = usePedidosMine(cliente?.id ?? null);
+  const { favoriteHubCount, favoriteStoreCount } = useFavorites();
   const orderSummary = partitionPedidos(pedidos);
 
   const loading = clienteLoading || emailLoading || isForcedLoading(profileSimulation);
@@ -248,7 +250,7 @@ export default function Perfil({ navigation }: Props) {
           .getParent<BottomTabNavigationProp<MainTabParamList>>()
           ?.navigate('PedidosTab', { screen: 'MeusPedidos' }),
     },
-    { label: 'Hubs favoritos', onPress: () => showEmBreve('Hubs favoritos') },
+    { label: 'Favoritos', onPress: () => navigation.navigate('Favoritos') },
     { label: 'Formas de pagamento', onPress: () => showEmBreve('Formas de pagamento') },
     { label: 'Notificações', onPress: () => showEmBreve('Notificações') },
     { label: 'Ajuda & suporte', onPress: () => showEmBreve('Ajuda & suporte') },
@@ -364,8 +366,12 @@ export default function Perfil({ navigation }: Props) {
               <Text style={styles.statLabel}>Pedidos</Text>
             </View>
             <View style={styles.statCard}>
-              <Text style={styles.statValue}>—</Text>
+              <Text style={styles.statValue}>{favoriteHubCount}</Text>
               <Text style={styles.statLabel}>Hubs favoritos</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statValue}>{favoriteStoreCount}</Text>
+              <Text style={styles.statLabel}>Lojas favoritas</Text>
             </View>
           </View>
 
@@ -465,11 +471,13 @@ const styles = StyleSheet.create({
   },
   statsRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing['3'],
     marginBottom: spacing['6'],
   },
   statCard: {
     flex: 1,
+    minWidth: 96,
     backgroundColor: lightColors.bg.surface,
     borderRadius: radii.card,
     padding: spacing['4'],

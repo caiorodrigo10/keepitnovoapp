@@ -77,6 +77,7 @@ export type PedidosStackParamList = {
  */
 export type PerfilStackParamList = {
   Perfil: undefined;
+  Favoritos: undefined;
   ExcluirConta: undefined;
   PainelQA: undefined;
 };

@@ -4,6 +4,7 @@ import type { Estabelecimento, LojaDisponibilidade } from '@keepit/core-data';
 import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 
 import { formatDistanciaKm, getRatingPlaceholder } from '../../lib/discoveryDisplay';
+import { FavoriteButton } from './FavoriteButton';
 import { ImagePlaceholder } from './ImagePlaceholder';
 import { LojaEstadoBadge } from './LojaEstadoBadge';
 
@@ -30,22 +31,29 @@ export function StoreCard({ loja, onPress, disponibilidade }: StoreCardProps) {
   const categoriaLabel = CATEGORIA_LABEL[loja.categoria] ?? loja.categoria;
 
   return (
-    <Pressable style={styles.row} onPress={onPress}>
-      <ImagePlaceholder uri={loja.foto_fachada_url} />
-      <View style={styles.info}>
-        <Text style={styles.nome} numberOfLines={1}>
-          {loja.nome_fantasia}
-        </Text>
-        <Text style={styles.meta} numberOfLines={1}>
-          {categoriaLabel} · {formatDistanciaKm(loja.id)} · ★ {getRatingPlaceholder(loja.id).toFixed(1)}
-        </Text>
-      </View>
-      {disponibilidade?.estado ? (
-        <LojaEstadoBadge estado={disponibilidade.estado} />
-      ) : (
-        <Text style={styles.chevron}>{'>'}</Text>
-      )}
-    </Pressable>
+    <View style={styles.row}>
+      <Pressable style={styles.content} onPress={onPress}>
+        <ImagePlaceholder uri={loja.foto_fachada_url} />
+        <View style={styles.info}>
+          <Text style={styles.nome} numberOfLines={1}>
+            {loja.nome_fantasia}
+          </Text>
+          <Text style={styles.meta} numberOfLines={1}>
+            {categoriaLabel} · {formatDistanciaKm(loja.id)} · ★ {getRatingPlaceholder(loja.id).toFixed(1)}
+          </Text>
+        </View>
+        {disponibilidade?.estado ? (
+          <LojaEstadoBadge estado={disponibilidade.estado} />
+        ) : (
+          <Text style={styles.chevron}>{'>'}</Text>
+        )}
+      </Pressable>
+      <FavoriteButton
+        kind="store"
+        resourceId={loja.id}
+        resourceName={loja.nome_fantasia}
+      />
+    </View>
   );
 }
 
@@ -54,6 +62,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing['3'],
+    gap: spacing['2'],
+  },
+  content: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing['3'],
   },
   info: {

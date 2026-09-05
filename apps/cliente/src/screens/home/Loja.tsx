@@ -6,6 +6,7 @@ import { resolveLojaDisponibilidade } from '@keepit/core-data';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { FloatingCartButton } from '../../components/checkout';
+import { FavoriteButton } from '../../components/discovery/FavoriteButton';
 import {
   AsyncStateBlock,
   ProductRow,
@@ -103,7 +104,14 @@ export default function Loja({ route, navigation }: Props) {
                     <Text style={styles.nome}>{loja.nome_fantasia}</Text>
                     <Text style={styles.meta}>{loja.categoria}</Text>
                   </View>
-                  {estado && <LojaEstadoBadge estado={estado} />}
+                  <View style={styles.headerActions}>
+                    {estado && <LojaEstadoBadge estado={estado} />}
+                    <FavoriteButton
+                      kind="store"
+                      resourceId={loja.id}
+                      resourceName={loja.nome_fantasia}
+                    />
+                  </View>
                 </View>
                 <RatingLabel value={getRatingPlaceholder(loja.id)} />
               </View>
@@ -200,6 +208,10 @@ const styles = StyleSheet.create({
   },
   headerTexts: {
     flex: 1,
+  },
+  headerActions: {
+    alignItems: 'flex-end',
+    gap: spacing['2'],
   },
   nome: {
     fontFamily: 'HankenGrotesk-Bold',

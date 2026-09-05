@@ -6,6 +6,7 @@ import type { PerfilStackParamList } from './types';
 import { QA_BUILD_ENABLED } from '../config/buildInfo';
 import { getQaPerfilRouteNames, isQaRuntimeEnabled } from '../lib/qaAccess';
 import Perfil from '../screens/perfil/Perfil';
+import Favoritos from '../screens/perfil/Favoritos';
 import ExcluirConta from '../screens/perfil/ExcluirConta';
 import PainelQA from '../screens/perfil/PainelQA';
 
@@ -31,6 +32,7 @@ export function PerfilStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="Perfil" component={Perfil} />
+      <Stack.Screen name="Favoritos" component={Favoritos} />
       <Stack.Screen name="ExcluirConta" component={ExcluirConta} />
       {getQaPerfilRouteNames(qaEnabled).map((routeName) => (
         <Stack.Screen key={routeName} name={routeName} component={PainelQA} />
