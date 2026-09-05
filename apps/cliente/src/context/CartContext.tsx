@@ -1,8 +1,16 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Alert } from 'react-native';
+
+import type { Hub } from '@keepit/core-data';
 
 import { loadCartState, saveCartState } from '../lib/cartStorage';
-import { shouldConfirmStoreSwitch } from '../lib/cartRules';
+import {
+  planHubSelection,
+  planItemAddition,
+  type AddItemInput,
+  type CartOrderState,
+  type CartTransition,
+} from '../lib/cartRules';
+import { executeCartTransition, type CartMutationResult } from '../lib/cartTransaction';
 
 /**
  * Item do carrinho local (Story 0.6) — espelha `carrinho_itens`
@@ -35,15 +43,6 @@ export interface SavedCard {
 
 export type PaymentSelection = { type: 'pix' } | { type: 'cartao'; cardId: string };
 
-interface AddItemInput {
-  estabelecimentoId: string;
-  produtoId: string;
-  nome: string;
-  precoReais: number;
-  quantidade?: number;
-  fotoUrl?: string | null;
-}
-
 interface CartContextValue {
   estabelecimentoId: string | null;
   items: CartItem[];
@@ -61,28 +60,30 @@ interface CartContextValue {
   nfSolicitada: boolean;
   setNfSolicitada: (value: boolean) => void;
   subtotalReais: number;
-  /**
-   * `onCommitted` (Story 6.1, AC3) — chamado só quando o item é REALMENTE
-   * adicionado (imediatamente, ou depois do cliente confirmar a troca de
-   * loja). Não é chamado se o cliente cancelar a confirmação — permite às
-   * telas (ex.: `DetalheProduto`) navegar para o Carrinho só após o add
-   * ter efeito, em vez de navegar incondicionalmente.
-   */
-  addItem: (input: AddItemInput, onCommitted?: () => void) => void;
-  incrementItem: (produtoId: string) => void;
-  decrementItem: (produtoId: string) => void;
-  removeItem: (produtoId: string) => void;
-  setHubId: (hubId: string) => void;
-  setPayment: (selection: PaymentSelection) => void;
+  addItem: (input: AddItemInput, confirmed?: boolean) => Promise<CartMutationResult>;
+  incrementItem: (produtoId: string) => Promise<CartMutationResult>;
+  decrementItem: (produtoId: string) => Promise<CartMutationResult>;
+  removeItem: (produtoId: string) => Promise<CartMutationResult>;
+  selectHub: (hub: Pick<Hub, 'id' | 'ativo'>, confirmed?: boolean) => Promise<CartMutationResult>;
+  /** Compatibilidade temporária para telas migradas na próxima task. */
+  setHubId: (hubId: string) => Promise<CartMutationResult>;
+  setPayment: (selection: PaymentSelection) => Promise<CartMutationResult>;
   markCpfCollected: () => void;
   addCard: (card: Omit<SavedCard, 'id' | 'padrao'>) => SavedCard;
   /** Limpa carrinho/hub/pagamento após um pedido mock ser "pago" (Task 5/AC3) — mantém `cpfCollected`/`cards` (perfil do cliente, não do pedido). */
-  clearOrder: () => void;
+  clearOrder: () => Promise<CartMutationResult>;
   /** Restaura todo o estado efêmero do carrinho para o baseline do cenário demo. */
-  resetDemoCart: () => void;
+  resetDemoCart: () => Promise<void>;
 }
 
 const CartContext = createContext<CartContextValue | null>(null);
+
+const EMPTY_ORDER_STATE: CartOrderState = {
+  estabelecimentoId: null,
+  items: [],
+  hubId: null,
+  payment: null,
+};
 
 /**
  * [IDS] Decisão FINAL (Story 1.10, Task 8 — reavaliação formal do gap
@@ -109,10 +110,8 @@ const CartContext = createContext<CartContextValue | null>(null);
  * junto com a integração de pagamento real (Épico 1+).
  */
 export function CartProvider({ children }: { children: ReactNode }) {
-  const [estabelecimentoId, setEstabelecimentoId] = useState<string | null>(null);
-  const [items, setItems] = useState<CartItem[]>([]);
-  const [hubId, setHubIdState] = useState<string | null>(null);
-  const [payment, setPaymentState] = useState<PaymentSelection | null>(null);
+  const [orderState, setOrderState] = useState<CartOrderState>(EMPTY_ORDER_STATE);
+  const stateRef = useRef<CartOrderState>(EMPTY_ORDER_STATE);
   const [cpfCollected, setCpfCollected] = useState(false);
   // Fix demo Bloco 13 (Caio): começar SEM cartão salvo — o cliente escolhe
   // PIX ou adiciona um cartão do zero (`Pagamento.tsx`/`AdicionarCartao.tsx`
@@ -122,66 +121,97 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [nfSolicitada, setNfSolicitadaState] = useState(false);
   const cardIdCounter = useRef(1);
 
-  const addItem = useCallback(
-    (
-      { estabelecimentoId: novoEstabelecimentoId, produtoId, nome, precoReais, quantidade = 1, fotoUrl }: AddItemInput,
-      onCommitted?: () => void,
-    ) => {
-      const commit = (limparCarrinhoAnterior: boolean) => {
-        setEstabelecimentoId(novoEstabelecimentoId);
-        setItems((prevItems) => {
-          // Regra fechada "1 pedido = 1 loja" — trocar de loja reinicia o
-          // carrinho em vez de misturar itens de dois estabelecimentos.
-          // [Source: docs/PERGUNTAS_REGRAS_NEGOCIO.md#Rodada 5]
-          const base = limparCarrinhoAnterior ? [] : prevItems;
-          const existente = base.find((item) => item.produtoId === produtoId);
-          if (existente) {
-            return base.map((item) =>
-              item.produtoId === produtoId ? { ...item, quantidade: item.quantidade + quantidade } : item,
-            );
-          }
-          return [...base, { produtoId, nome, precoSnapshotReais: precoReais, quantidade, fotoUrl }];
-        });
-        onCommitted?.();
-      };
+  const resolveHydrationRef = useRef<(() => void) | null>(null);
+  const hydrationPromiseRef = useRef<Promise<void> | null>(null);
+  if (!hydrationPromiseRef.current) {
+    hydrationPromiseRef.current = new Promise((resolve) => {
+      resolveHydrationRef.current = resolve;
+    });
+  }
+  const queueRef = useRef<Promise<void>>(hydrationPromiseRef.current);
 
-      // Story 6.1 (AC3): trocar de loja com o carrinho atual NÃO-VAZIO exige
-      // confirmação explícita ANTES de limpar (antes desta Story a troca
-      // acontecia silenciosamente). `shouldConfirmStoreSwitch` é a mesma
-      // regra fechada da Rodada 5, extraída como função pura testável.
-      if (shouldConfirmStoreSwitch(estabelecimentoId, novoEstabelecimentoId, items.length)) {
-        Alert.alert('Trocar de loja?', 'Isso vai limpar seu carrinho atual. Continuar?', [
-          { text: 'Cancelar', style: 'cancel' },
-          { text: 'Continuar', style: 'destructive', onPress: () => commit(true) },
-        ]);
-        return;
-      }
-
-      commit(false);
+  const applyTransition = useCallback(
+    (plan: (current: CartOrderState) => CartTransition): Promise<CartMutationResult> => {
+      const operation = queueRef.current.then(async () => {
+        const current = stateRef.current;
+        const result = await executeCartTransition(current, plan(current), saveCartState);
+        if (result.status === 'committed') {
+          stateRef.current = result.state;
+          setOrderState(result.state);
+        }
+        return result;
+      });
+      queueRef.current = operation.then(
+        () => undefined,
+        () => undefined,
+      );
+      return operation;
     },
-    [estabelecimentoId, items],
+    [],
   );
 
-  const incrementItem = useCallback((produtoId: string) => {
-    setItems((prev) =>
-      prev.map((item) => (item.produtoId === produtoId ? { ...item, quantidade: item.quantidade + 1 } : item)),
-    );
-  }, []);
+  const addItem = useCallback(
+    (input: AddItemInput, confirmed = false) =>
+      applyTransition((current) => planItemAddition(current, input, confirmed)),
+    [applyTransition],
+  );
 
-  const decrementItem = useCallback((produtoId: string) => {
-    setItems((prev) =>
-      prev
-        .map((item) => (item.produtoId === produtoId ? { ...item, quantidade: item.quantidade - 1 } : item))
-        .filter((item) => item.quantidade > 0),
-    );
-  }, []);
+  const incrementItem = useCallback(
+    (produtoId: string) =>
+      applyTransition((current) => ({
+        kind: 'ready',
+        next: {
+          ...current,
+          items: current.items.map((item) =>
+            item.produtoId === produtoId ? { ...item, quantidade: item.quantidade + 1 } : item,
+          ),
+        },
+      })),
+    [applyTransition],
+  );
 
-  const removeItem = useCallback((produtoId: string) => {
-    setItems((prev) => prev.filter((item) => item.produtoId !== produtoId));
-  }, []);
+  const decrementItem = useCallback(
+    (produtoId: string) =>
+      applyTransition((current) => ({
+        kind: 'ready',
+        next: {
+          ...current,
+          items: current.items
+            .map((item) =>
+              item.produtoId === produtoId ? { ...item, quantidade: item.quantidade - 1 } : item,
+            )
+            .filter((item) => item.quantidade > 0),
+        },
+      })),
+    [applyTransition],
+  );
 
-  const setHubId = useCallback((id: string) => setHubIdState(id), []);
-  const setPayment = useCallback((selection: PaymentSelection) => setPaymentState(selection), []);
+  const removeItem = useCallback(
+    (produtoId: string) =>
+      applyTransition((current) => ({
+        kind: 'ready',
+        next: { ...current, items: current.items.filter((item) => item.produtoId !== produtoId) },
+      })),
+    [applyTransition],
+  );
+
+  const selectHub = useCallback(
+    (hub: Pick<Hub, 'id' | 'ativo'>, confirmed = false) =>
+      applyTransition((current) => planHubSelection(current, hub, confirmed)),
+    [applyTransition],
+  );
+
+  const setHubId = useCallback(
+    (id: string) =>
+      applyTransition((current) => ({ kind: 'ready', next: { ...current, hubId: id } })),
+    [applyTransition],
+  );
+
+  const setPayment = useCallback(
+    (selection: PaymentSelection) =>
+      applyTransition((current) => ({ kind: 'ready', next: { ...current, payment: selection } })),
+    [applyTransition],
+  );
   const markCpfCollected = useCallback(() => setCpfCollected(true), []);
   const setNfSolicitada = useCallback((value: boolean) => setNfSolicitadaState(value), []);
 
@@ -191,68 +221,56 @@ export function CartProvider({ children }: { children: ReactNode }) {
     return novo;
   }, []);
 
-  const clearOrder = useCallback(() => {
-    setEstabelecimentoId(null);
-    setItems([]);
-    setHubIdState(null);
-    setPaymentState(null);
-  }, []);
+  const clearOrder = useCallback(
+    () => applyTransition(() => ({ kind: 'ready', next: EMPTY_ORDER_STATE })),
+    [applyTransition],
+  );
 
-  const resetDemoCart = useCallback(() => {
-    setEstabelecimentoId(null);
-    setItems([]);
-    setHubIdState(null);
-    setPaymentState(null);
+  const resetDemoCart = useCallback(async () => {
     setCpfCollected(false);
     setCards([]);
     setNfSolicitadaState(false);
     cardIdCounter.current = 1;
-  }, []);
+    await applyTransition(() => ({ kind: 'ready', next: EMPTY_ORDER_STATE }));
+  }, [applyTransition]);
 
   const subtotalReais = useMemo(
-    () => items.reduce((total, item) => total + item.precoSnapshotReais * item.quantidade, 0),
-    [items],
+    () => orderState.items.reduce((total, item) => total + item.precoSnapshotReais * item.quantidade, 0),
+    [orderState.items],
   );
 
   // Persistência via AsyncStorage (Story 6.1, AC3) — o carrinho sobrevive a
-  // fechar/reabrir o app no mesmo aparelho. `hydratedRef` evita que o efeito
-  // de escrita rode ANTES da leitura inicial terminar (o que sobrescreveria
-  // um carrinho salvo com o estado inicial vazio). Fail-open: erro de
-  // leitura/escrita (ver `lib/cartStorage.ts`) nunca trava a tela.
-  const hydratedRef = useRef(false);
-
+  // fechar/reabrir o app no mesmo aparelho. A hidratação ocupa a primeira
+  // posição da fila: nenhuma mutação lê/publica estado antes dela terminar.
   useEffect(() => {
     let ativo = true;
-    loadCartState().then((persisted) => {
-      if (!ativo) {
-        return;
-      }
-      if (persisted) {
-        setEstabelecimentoId(persisted.estabelecimentoId);
-        setItems(persisted.items);
-        setHubIdState(persisted.hubId);
-        setPaymentState(persisted.payment);
-      }
-      hydratedRef.current = true;
-    });
+    loadCartState()
+      .then((persisted) => {
+        if (!ativo) {
+          return;
+        }
+        if (persisted) {
+          stateRef.current = persisted;
+          setOrderState(persisted);
+        }
+      })
+      .finally(() => {
+        if (ativo) {
+          resolveHydrationRef.current?.();
+          resolveHydrationRef.current = null;
+        }
+      });
     return () => {
       ativo = false;
     };
   }, []);
 
-  useEffect(() => {
-    if (!hydratedRef.current) {
-      return;
-    }
-    saveCartState({ estabelecimentoId, items, hubId, payment });
-  }, [estabelecimentoId, items, hubId, payment]);
-
   const value = useMemo<CartContextValue>(
     () => ({
-      estabelecimentoId,
-      items,
-      hubId,
-      payment,
+      estabelecimentoId: orderState.estabelecimentoId,
+      items: orderState.items,
+      hubId: orderState.hubId,
+      payment: orderState.payment,
       cpfCollected,
       cards,
       nfSolicitada,
@@ -262,6 +280,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       incrementItem,
       decrementItem,
       removeItem,
+      selectHub,
       setHubId,
       setPayment,
       markCpfCollected,
@@ -270,10 +289,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       resetDemoCart,
     }),
     [
-      estabelecimentoId,
-      items,
-      hubId,
-      payment,
+      orderState,
       cpfCollected,
       cards,
       nfSolicitada,
@@ -283,6 +299,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       incrementItem,
       decrementItem,
       removeItem,
+      selectHub,
       setHubId,
       setPayment,
       markCpfCollected,

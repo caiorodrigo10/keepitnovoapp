@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
@@ -33,10 +33,8 @@ function formatPreco(preco: number): string {
  * navega para `Carrinho` — é o ponto de entrada real do fluxo de checkout
  * desta story.
  *
- * **Story 6.1 (AC1/AC3):** `<FloatingCartButton>` adicionado como irmão de
- * `<Screen>`. `cart.addItem` agora recebe um `onCommitted` — a navegação
- * para `Carrinho` só acontece quando o item é REALMENTE adicionado (não
- * dispara se o cliente cancelar a confirmação de troca de loja).
+ * **Story 12.9:** a tela decide a confirmação e só navega depois que
+ * `cart.addItem` devolve `committed` (snapshot já persistido).
  */
 export default function DetalheProduto({ route, navigation }: Props) {
   const { produtoId } = route.params;
@@ -50,6 +48,58 @@ export default function DetalheProduto({ route, navigation }: Props) {
   );
   const loadingProduto = productLoading || isForcedLoading(storesSimulation);
   const { data: loja } = useStoreDetail(produto?.estabelecimento_id ?? '', {});
+
+  const showPersistenceError = () => {
+    Alert.alert(
+      'Não foi possível atualizar o carrinho',
+      'Não conseguimos salvar sua alteração. Tente novamente em instantes.',
+    );
+  };
+
+  const handleAddItem = async () => {
+    if (!produto) {
+      return;
+    }
+
+    const input = {
+      estabelecimentoId: produto.estabelecimento_id,
+      produtoId: produto.id,
+      nome: produto.nome,
+      precoReais: produto.preco_reais,
+      quantidade,
+      fotoUrl: produto.foto_url,
+    };
+    const result = await cart.addItem(input);
+
+    if (result.status === 'committed') {
+      navigation.navigate('Carrinho');
+      return;
+    }
+
+    if (result.status === 'persistence_error') {
+      showPersistenceError();
+      return;
+    }
+
+    if (result.status === 'confirmation_required') {
+      Alert.alert('Trocar de loja?', 'Isso vai limpar seu carrinho atual. Continuar?', [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Continuar',
+          style: 'destructive',
+          onPress: () => {
+            void cart.addItem(input, true).then((confirmedResult) => {
+              if (confirmedResult.status === 'committed') {
+                navigation.navigate('Carrinho');
+              } else if (confirmedResult.status === 'persistence_error') {
+                showPersistenceError();
+              }
+            });
+          },
+        },
+      ]);
+    }
+  };
 
   return (
     <View style={styles.flexOne}>
@@ -117,21 +167,7 @@ export default function DetalheProduto({ route, navigation }: Props) {
             <Pressable
               style={styles.addButton}
               onPress={() => {
-                // Story 6.1 (AC3): `onCommitted` só dispara quando o item é
-                // REALMENTE adicionado — se a troca de loja exigir confirmação
-                // (`CartContext.addItem`), a navegação espera o cliente decidir
-                // em vez de ir para o Carrinho incondicionalmente.
-                cart.addItem(
-                  {
-                    estabelecimentoId: produto.estabelecimento_id,
-                    produtoId: produto.id,
-                    nome: produto.nome,
-                    precoReais: produto.preco_reais,
-                    quantidade,
-                    fotoUrl: produto.foto_url,
-                  },
-                  () => navigation.navigate('Carrinho'),
-                );
+                void handleAddItem();
               }}
             >
               <Text style={styles.addButtonLabel}>Adicionar ao carrinho</Text>

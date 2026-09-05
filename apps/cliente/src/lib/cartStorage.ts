@@ -55,14 +55,17 @@ export async function loadCartState(): Promise<PersistedCartState | null> {
 }
 
 /**
- * Grava o carrinho. Fail-open: erro de escrita não propaga — a mudança fica
- * só em memória até a próxima escrita bem-sucedida, sem travar a tela.
+ * Grava o carrinho e torna o resultado observável para que o chamador só
+ * publique uma mudança depois de confirmar a persistência do snapshot.
  */
-export async function saveCartState(state: PersistedCartState): Promise<void> {
+export type CartStorageWriteResult = { status: 'saved' } | { status: 'failed' };
+
+export async function saveCartState(state: PersistedCartState): Promise<CartStorageWriteResult> {
   try {
     await AsyncStorage.setItem(CARRINHO_KEY, JSON.stringify(state));
+    return { status: 'saved' };
   } catch {
-    // Fail-open — ver JSDoc do módulo.
+    return { status: 'failed' };
   }
 }
 

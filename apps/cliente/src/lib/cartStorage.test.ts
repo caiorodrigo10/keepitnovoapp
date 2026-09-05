@@ -66,15 +66,32 @@ describe('cartStorage (Story 6.1, AC3)', () => {
     it('grava o estado serializado sob a mesma chave', async () => {
       mockedStorage.setItem.mockResolvedValue(undefined);
 
-      await saveCartState(SAMPLE_STATE);
+      await expect(saveCartState(SAMPLE_STATE)).resolves.toEqual({ status: 'saved' });
 
       expect(mockedStorage.setItem).toHaveBeenCalledWith(expect.any(String), JSON.stringify(SAMPLE_STATE));
     });
 
-    it('fail-open: erro na escrita não propaga exceção', async () => {
+    it('torna observável a falha de escrita sem propagar exceção', async () => {
       mockedStorage.setItem.mockRejectedValue(new Error('storage indisponível'));
 
-      await expect(saveCartState(SAMPLE_STATE)).resolves.toBeUndefined();
+      await expect(saveCartState(SAMPLE_STATE)).resolves.toEqual({ status: 'failed' });
+    });
+
+    it('faz round-trip do snapshot salvo sem outra fonte de estado', async () => {
+      let persisted: string | null = null;
+      mockedStorage.setItem.mockImplementation(async (_key, value) => {
+        persisted = value;
+      });
+      mockedStorage.getItem.mockImplementation(async () => persisted);
+      const switched: PersistedCartState = {
+        estabelecimentoId: 'loja-b',
+        hubId: 'hub-a',
+        payment: null,
+        items: [{ produtoId: 'p-b', nome: 'Item B', precoSnapshotReais: 20, quantidade: 1 }],
+      };
+
+      await expect(saveCartState(switched)).resolves.toEqual({ status: 'saved' });
+      await expect(loadCartState()).resolves.toEqual(switched);
     });
   });
 
