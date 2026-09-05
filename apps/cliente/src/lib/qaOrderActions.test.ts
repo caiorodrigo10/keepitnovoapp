@@ -10,7 +10,6 @@ function pedido(status: Pedido['status']): Pedido {
 
 describe('getNextQaOrderAction', () => {
   it.each([
-    ['aguardando_pagamento', { kind: 'accept', label: 'Aceitar pedido' }],
     ['aguardando_aceite', { kind: 'accept', label: 'Aceitar pedido' }],
     ['aceito', { kind: 'override', status: 'em_preparo', label: 'Em preparo' }],
     ['em_preparo', { kind: 'override', status: 'saindo_hub', label: 'Saindo para o hub' }],
@@ -22,6 +21,10 @@ describe('getNextQaOrderAction', () => {
 
   it('não oferece ação para pedido terminal', () => {
     expect(getNextQaOrderAction(pedido('entregue'))).toBeNull();
+  });
+
+  it('não oferece aceite enquanto o pagamento ainda está pendente', () => {
+    expect(getNextQaOrderAction(pedido('aguardando_pagamento'))).toBeNull();
   });
 });
 
@@ -56,14 +59,14 @@ describe('advanceOrderForQa', () => {
     expect(confirmPin).toHaveBeenCalledWith('pedido-qa', '7734');
   });
 
-  it('não chama nenhuma port quando não há ação suportada', async () => {
+  it('não chama nenhuma port enquanto o pagamento ainda está pendente', async () => {
     const order = {
       accept: vi.fn(),
       advanceStatus: vi.fn(),
       confirmPin: vi.fn(),
     };
 
-    await advanceOrderForQa({ order } as unknown as DataClient, pedido('entregue'));
+    await advanceOrderForQa({ order } as unknown as DataClient, pedido('aguardando_pagamento'));
 
     expect(order.accept).not.toHaveBeenCalled();
     expect(order.advanceStatus).not.toHaveBeenCalled();

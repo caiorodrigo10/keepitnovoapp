@@ -7,7 +7,6 @@ export type QaOrderAction =
 
 export function getNextQaOrderAction(pedido: Pedido): QaOrderAction | null {
   switch (pedido.status) {
-    case 'aguardando_pagamento':
     case 'aguardando_aceite':
       return { kind: 'accept', label: 'Aceitar pedido' };
     case 'aceito':
