@@ -3,5 +3,6 @@ export * from './Button';
 export * from './TextField';
 export * from './Checkbox';
 export * from './FormScreen';
+export * from './FormSheet';
 export * from './Dots';
 export * from './BellIcon';
