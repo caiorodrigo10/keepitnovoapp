@@ -4,6 +4,7 @@ import type { ProdutoComLoja } from '../hooks/useSearchProdutos';
 import {
   GENERAL_SEARCH_SUGGESTIONS,
   recordRecentQuery,
+  resolveSearchSuggestionSelection,
   resolveSearchViewState,
   type SearchViewInput,
   type SearchViewState,
@@ -64,6 +65,25 @@ describe('resolveSearchViewState', () => {
       recent: ['arroz'],
       general: GENERAL_SEARCH_SUGGESTIONS,
     });
+  });
+
+  it('seleciona sugestões por categoria sem adicionar o label ao predicado textual', () => {
+    const selections = GENERAL_SEARCH_SUGGESTIONS.map(resolveSearchSuggestionSelection);
+
+    expect(selections).toEqual([
+      { query: '', category: 'farmacia', recentQuery: 'Farmácias' },
+      { query: '', category: 'vestuario', recentQuery: 'Roupas' },
+      { query: '', category: 'conveniencia', recentQuery: 'Conveniência' },
+    ]);
+    expect(
+      resolveSearchViewState(
+        baseInput({
+          ...selections[0],
+          stores: [store],
+          products: [product],
+        }),
+      ),
+    ).toEqual({ kind: 'results', showStores: true, showProducts: true });
   });
 });
 

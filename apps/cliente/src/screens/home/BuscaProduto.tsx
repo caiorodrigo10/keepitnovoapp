@@ -22,6 +22,7 @@ import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimul
 import {
   GENERAL_SEARCH_SUGGESTIONS,
   recordRecentQuery,
+  resolveSearchSuggestionSelection,
   resolveSearchViewState,
 } from '../../lib/searchViewState';
 import type { HomeStackParamList } from '../../navigation/types';
@@ -154,8 +155,10 @@ export default function BuscaProduto({ route, navigation }: Props) {
                   key={suggestion.category}
                   style={styles.suggestionRow}
                   onPress={() => {
-                    setCategoria(suggestion.category);
-                    selectQuery(suggestion.label);
+                    const selection = resolveSearchSuggestionSelection(suggestion);
+                    setCategoria(selection.category);
+                    setQuery(selection.query);
+                    setRecentQueries((current) => recordRecentQuery(current, selection.recentQuery));
                   }}
                 >
                   <Text style={styles.suggestionLabel}>{suggestion.label}</Text>

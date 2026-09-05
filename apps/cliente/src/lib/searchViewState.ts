@@ -12,6 +12,22 @@ export const GENERAL_SEARCH_SUGGESTIONS: SearchSuggestion[] = [
   { label: 'Conveniência', category: 'conveniencia' },
 ];
 
+export interface SearchSuggestionSelection {
+  query: '';
+  category: string;
+  recentQuery: string;
+}
+
+export function resolveSearchSuggestionSelection(
+  suggestion: SearchSuggestion,
+): SearchSuggestionSelection {
+  return {
+    query: '',
+    category: suggestion.category,
+    recentQuery: suggestion.label,
+  };
+}
+
 export interface SearchViewInput {
   surface: 'combined' | 'stores';
   query: string;
@@ -35,7 +51,7 @@ export function resolveSearchViewState(input: SearchViewInput): SearchViewState 
   if (input.error) return { kind: 'error' };
   if (input.loading) return { kind: 'loading' };
 
-  if (input.query.trim().length === 0) {
+  if (input.query.trim().length === 0 && input.category === 'todos') {
     return { kind: 'suggestions', recent: input.recent, general: input.suggestions };
   }
 
