@@ -15,6 +15,20 @@ export type EstabelecimentoStatus = 'em_analise' | 'ativo' | 'rejeitado' | 'susp
  */
 export type LojaEstado = 'aberta' | 'fechada' | 'pausada';
 
+export type LojaDisponibilidade =
+  | {
+      estado: null;
+      visivelAoCliente: false;
+      disponivelParaCompra: false;
+      motivo: 'administrativa' | 'excluida';
+    }
+  | {
+      estado: LojaEstado;
+      visivelAoCliente: true;
+      disponivelParaCompra: boolean;
+      motivo: LojaEstado;
+    };
+
 /**
  * Domínio: tabela `estabelecimentos_horarios`.
  * [Source: docs/architecture/03-data-models.md#1.5]
@@ -48,6 +62,7 @@ export interface Estabelecimento {
   motivo_rejeicao: string | null;
   motivo_suspensao: string | null;
   pausado_manualmente: boolean;
+  excluido_em: string | null;
   horarios: EstabelecimentoHorario[];
 }
 
@@ -55,8 +70,10 @@ export interface StorePort {
   /**
    * Lojas que atendem um determinado hub. No MVP, o schema não tem FK direta
    * `estabelecimento -> hub` (é geo/raio_atendimento_km) — o mock atual só
-   * seed 1 hub, então retorna todas as lojas ativas. Documentado como
-   * simplificação aceitável para o Épico 0 (ver Story 0.2 Dev Notes).
+   * seed 1 hub, então retorna todas as lojas públicas. Lojas pausadas ou fora
+   * do horário continuam na população; cada superfície decide como apresentá-las
+   * por `resolveLojaDisponibilidade`. Documentado como simplificação aceitável
+   * para o Épico 0 (ver Story 0.2 Dev Notes).
    */
   listByHub(hubId: string, options?: AsyncCallOptions): Promise<Estabelecimento[]>;
   getCatalog(estabelecimentoId: string, options?: AsyncCallOptions): Promise<Produto[]>;
@@ -212,6 +229,42 @@ export function deriveLojaEstado(estabelecimento: Estabelecimento, now: Date = n
   const fechaMin = paraMinutos(horarioHoje.hora_fecha);
 
   return horaAtual >= abreMin && horaAtual < fechaMin ? 'aberta' : 'fechada';
+}
+
+/**
+ * Story 12.10 — projeção única de visibilidade pública e disponibilidade de
+ * compra. Exclusão vence qualquer outro estado; status administrativo nunca
+ * chama a regra temporal. Somente lojas públicas derivam aberta/fechada/pausada.
+ */
+export function resolveLojaDisponibilidade(
+  estabelecimento: Estabelecimento,
+  now: Date = new Date(),
+): LojaDisponibilidade {
+  if (estabelecimento.excluido_em !== null) {
+    return {
+      estado: null,
+      visivelAoCliente: false,
+      disponivelParaCompra: false,
+      motivo: 'excluida',
+    };
+  }
+
+  if (estabelecimento.status !== 'ativo') {
+    return {
+      estado: null,
+      visivelAoCliente: false,
+      disponivelParaCompra: false,
+      motivo: 'administrativa',
+    };
+  }
+
+  const estado = deriveLojaEstado(estabelecimento, now);
+  return {
+    estado,
+    visivelAoCliente: true,
+    disponivelParaCompra: estado === 'aberta',
+    motivo: estado,
+  };
 }
 
 /**

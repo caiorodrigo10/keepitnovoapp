@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { StorePort } from '../ports/store.port';
+import type { Estabelecimento, StorePort } from '../ports/store.port';
 import { createMockDb, type MockDb } from './db';
 import { createStoreMock, deriveLojaEstado } from './store.mock';
 
@@ -17,6 +17,51 @@ describe('store.mock (contract)', () => {
     const lojas = await port.listByHub('hub-centro', { delayMs: 1 });
     expect(lojas.length).toBeGreaterThan(0);
     expect(lojas.every((loja) => loja.status === 'ativo')).toBe(true);
+  });
+
+  it('listByHub devolve lojas públicas abertas, fechadas e pausadas, sem administrativas ou excluídas', async () => {
+    const now = new Date(2026, 8, 5, 12, 0);
+    const horarioAberto = [
+      { dia_semana: now.getDay(), aberto: true, hora_abre: '08:00', hora_fecha: '18:00' },
+    ];
+    const horarioFechado = [
+      { dia_semana: now.getDay(), aberto: true, hora_abre: '08:00', hora_fecha: '10:00' },
+    ];
+    const loja = (id: string, override: Partial<Estabelecimento>): Estabelecimento => ({
+      id,
+      nome_fantasia: `Loja ${id}`,
+      categoria: 'farmacia',
+      descricao: null,
+      foto_fachada_url: null,
+      endereco: 'Rua A',
+      lat: 0,
+      lng: 0,
+      raio_atendimento_km: 1,
+      tempo_medio_entrega_min: 20,
+      taxa_deslocamento_reais: 5,
+      ticket_minimo_reais: null,
+      status: 'ativo',
+      motivo_rejeicao: null,
+      motivo_suspensao: null,
+      pausado_manualmente: false,
+      excluido_em: null,
+      horarios: horarioAberto,
+      ...override,
+    });
+    db.estabelecimentos = [
+      loja('open', { horarios: horarioAberto }),
+      loja('closed', { horarios: horarioFechado }),
+      loja('paused', { pausado_manualmente: true }),
+      loja('suspended', { status: 'suspenso' }),
+      loja('deleted', { excluido_em: '2026-09-05T09:00:00.000Z' }),
+    ];
+
+    const lojas = await port.listByHub('hub-centro', { delayMs: 0 });
+    const ids = lojas.map(({ id }) => id);
+
+    expect(ids).toEqual(expect.arrayContaining(['open', 'closed', 'paused']));
+    expect(ids).not.toContain('suspended');
+    expect(ids).not.toContain('deleted');
   });
 
   it('getCatalog resolves with only active products for the given loja', async () => {

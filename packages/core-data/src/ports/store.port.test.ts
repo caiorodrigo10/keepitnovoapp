@@ -1,6 +1,65 @@
 import { describe, expect, it } from 'vitest';
 
-import { deriveLojaEstado, validarHorariosSemanais } from './store.port';
+import {
+  deriveLojaEstado,
+  resolveLojaDisponibilidade,
+  validarHorariosSemanais,
+  type Estabelecimento,
+} from './store.port';
+
+describe('resolveLojaDisponibilidade (Story 12.10, Task 1)', () => {
+  const NOW = new Date(2026, 8, 5, 12, 0);
+  const horarioAberto = [
+    { dia_semana: NOW.getDay(), aberto: true, hora_abre: '08:00', hora_fecha: '18:00' },
+  ];
+  const horarioFechado = [
+    { dia_semana: NOW.getDay(), aberto: true, hora_abre: '08:00', hora_fecha: '10:00' },
+  ];
+  const loja = (override: Partial<Estabelecimento>): Estabelecimento => ({
+    id: 'loja',
+    nome_fantasia: 'Loja',
+    categoria: 'farmacia',
+    descricao: null,
+    foto_fachada_url: null,
+    endereco: 'Rua A',
+    lat: 0,
+    lng: 0,
+    raio_atendimento_km: 1,
+    tempo_medio_entrega_min: 20,
+    taxa_deslocamento_reais: 5,
+    ticket_minimo_reais: null,
+    status: 'ativo',
+    motivo_rejeicao: null,
+    motivo_suspensao: null,
+    pausado_manualmente: false,
+    excluido_em: null,
+    horarios: horarioAberto,
+    ...override,
+  });
+
+  it.each([
+    ['aberta', loja({ status: 'ativo', excluido_em: null, pausado_manualmente: false, horarios: horarioAberto }), true, true],
+    ['fechada', loja({ status: 'ativo', excluido_em: null, pausado_manualmente: false, horarios: horarioFechado }), true, false],
+    ['pausada', loja({ status: 'ativo', excluido_em: null, pausado_manualmente: true, horarios: horarioAberto }), true, false],
+    ['administrativa', loja({ status: 'suspenso', excluido_em: null, pausado_manualmente: false, horarios: horarioAberto }), false, false],
+    [
+      'excluida',
+      loja({
+        status: 'ativo',
+        excluido_em: '2026-09-05T09:00:00.000Z',
+        pausado_manualmente: false,
+        horarios: horarioAberto,
+      }),
+      false,
+      false,
+    ],
+  ])('%s resolve visibilidade e compra', (_case, estabelecimento, visivel, compra) => {
+    expect(resolveLojaDisponibilidade(estabelecimento, NOW)).toMatchObject({
+      visivelAoCliente: visivel,
+      disponivelParaCompra: compra,
+    });
+  });
+});
 
 /**
  * Story 4.7 (AC1, AC3) — [IDS] CREATE. Testa a função pura isolada de sua
@@ -88,6 +147,7 @@ describe('deriveLojaEstado (Story 5.3, AC1, AC3, AC4)', () => {
     motivo_rejeicao: null,
     motivo_suspensao: null,
     pausado_manualmente: false,
+    excluido_em: null,
     horarios: [{ dia_semana: 3, aberto: true, hora_abre: '09:00', hora_fecha: '18:00' }],
   };
 

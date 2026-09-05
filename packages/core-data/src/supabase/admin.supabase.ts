@@ -68,7 +68,7 @@ const FOTO_FACHADA_SIGNED_URL_EXPIRES_IN_SECONDS = 300;
 const ESTABELECIMENTOS_ADMIN_COLUMNS =
   'id, nome_fantasia, cnpj, categoria, descricao, foto_fachada_url, endereco, lat, lng, ' +
   'raio_atendimento_km, tempo_medio_entrega_min, taxa_deslocamento_reais, ticket_minimo_reais, ' +
-  'chave_pix, chave_pix_tipo, status, motivo_rejeicao, motivo_suspensao, pausado_manualmente, ' +
+  'chave_pix, chave_pix_tipo, status, motivo_rejeicao, motivo_suspensao, pausado_manualmente, excluido_em, ' +
   'responsavel_nome, telefone, dados_receita, criado_em, aprovado_em, aprovado_por';
 
 type EstabelecimentoAdminRow = {
@@ -91,6 +91,7 @@ type EstabelecimentoAdminRow = {
   motivo_rejeicao: string | null;
   motivo_suspensao: string | null;
   pausado_manualmente: boolean;
+  excluido_em: string | null;
   responsavel_nome: string;
   telefone: string;
   dados_receita: Record<string, unknown> | null;
@@ -142,6 +143,7 @@ function mapRowToEstabelecimentoAdmin(
     motivo_rejeicao: row.motivo_rejeicao,
     motivo_suspensao: row.motivo_suspensao,
     pausado_manualmente: row.pausado_manualmente,
+    excluido_em: row.excluido_em,
     horarios,
     cnpj: row.cnpj,
     telefone: row.telefone,

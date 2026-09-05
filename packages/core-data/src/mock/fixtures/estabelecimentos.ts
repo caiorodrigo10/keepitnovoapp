@@ -90,6 +90,7 @@ export const estabelecimentosFixture: Estabelecimento[] = [
     motivo_rejeicao: null,
     motivo_suspensao: null,
     pausado_manualmente: false,
+    excluido_em: null,
     horarios: horarioAmplo(),
   },
   {
@@ -109,6 +110,7 @@ export const estabelecimentosFixture: Estabelecimento[] = [
     motivo_rejeicao: null,
     motivo_suspensao: null,
     pausado_manualmente: true,
+    excluido_em: null,
     horarios: horarioPadrao(),
   },
   {
@@ -128,6 +130,7 @@ export const estabelecimentosFixture: Estabelecimento[] = [
     motivo_rejeicao: null,
     motivo_suspensao: null,
     pausado_manualmente: false,
+    excluido_em: null,
     horarios: horarioAmplo(),
   },
   {
@@ -147,6 +150,7 @@ export const estabelecimentosFixture: Estabelecimento[] = [
     motivo_rejeicao: null,
     motivo_suspensao: null,
     pausado_manualmente: false,
+    excluido_em: null,
     horarios: horarioPadariaManha(),
   },
   {
@@ -166,6 +170,7 @@ export const estabelecimentosFixture: Estabelecimento[] = [
     motivo_rejeicao: null,
     motivo_suspensao: null,
     pausado_manualmente: false,
+    excluido_em: null,
     horarios: horarioAmplo(),
   },
   {
@@ -185,6 +190,7 @@ export const estabelecimentosFixture: Estabelecimento[] = [
     motivo_rejeicao: null,
     motivo_suspensao: null,
     pausado_manualmente: false,
+    excluido_em: null,
     horarios: horarioAmplo(),
   },
   {
@@ -204,6 +210,7 @@ export const estabelecimentosFixture: Estabelecimento[] = [
     motivo_rejeicao: null,
     motivo_suspensao: null,
     pausado_manualmente: false,
+    excluido_em: null,
     horarios: horarioAmplo(),
   },
   {
@@ -223,6 +230,7 @@ export const estabelecimentosFixture: Estabelecimento[] = [
     motivo_rejeicao: null,
     motivo_suspensao: null,
     pausado_manualmente: false,
+    excluido_em: null,
     horarios: horarioAmplo(),
   },
   {
@@ -242,6 +250,7 @@ export const estabelecimentosFixture: Estabelecimento[] = [
     motivo_rejeicao: null,
     motivo_suspensao: null,
     pausado_manualmente: false,
+    excluido_em: null,
     horarios: horarioAmplo(),
   },
   {
@@ -261,6 +270,7 @@ export const estabelecimentosFixture: Estabelecimento[] = [
     motivo_rejeicao: null,
     motivo_suspensao: null,
     pausado_manualmente: false,
+    excluido_em: null,
     horarios: horarioAmplo(),
   },
   {
@@ -280,6 +290,7 @@ export const estabelecimentosFixture: Estabelecimento[] = [
     motivo_rejeicao: null,
     motivo_suspensao: 'Reincidência de chargeback e reclamações de clientes (ver Qualidade do Lojista).',
     pausado_manualmente: false,
+    excluido_em: null,
     // Não-ativo (não aparece no catálogo público) — horário sem domingo mantido só por variedade de fixture.
     horarios: horarioSemDomingo(),
   },
@@ -300,6 +311,7 @@ export const estabelecimentosFixture: Estabelecimento[] = [
     motivo_rejeicao: null,
     motivo_suspensao: null,
     pausado_manualmente: false,
+    excluido_em: null,
     horarios: horarioPadrao(),
   },
   /**
@@ -324,6 +336,7 @@ export const estabelecimentosFixture: Estabelecimento[] = [
     motivo_rejeicao: null,
     motivo_suspensao: null,
     pausado_manualmente: false,
+    excluido_em: null,
     horarios: horarioPadrao(),
   },
   {
@@ -343,6 +356,7 @@ export const estabelecimentosFixture: Estabelecimento[] = [
     motivo_rejeicao: null,
     motivo_suspensao: null,
     pausado_manualmente: false,
+    excluido_em: null,
     horarios: horarioPadrao(),
   },
 ];

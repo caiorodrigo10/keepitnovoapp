@@ -27,7 +27,7 @@ const EPIC_DESCOBERTA = 'Épico 5';
  * status, ao contrário da Descoberta pública).
  */
 export const ESTABELECIMENTO_COLUMNS =
-  'id, nome_fantasia, categoria, descricao, foto_fachada_url, endereco, lat, lng, raio_atendimento_km, tempo_medio_entrega_min, taxa_deslocamento_reais, ticket_minimo_reais, status, motivo_rejeicao, motivo_suspensao, pausado_manualmente';
+  'id, nome_fantasia, categoria, descricao, foto_fachada_url, endereco, lat, lng, raio_atendimento_km, tempo_medio_entrega_min, taxa_deslocamento_reais, ticket_minimo_reais, status, motivo_rejeicao, motivo_suspensao, pausado_manualmente, excluido_em';
 
 export type EstabelecimentoRow = {
   id: string;
@@ -46,6 +46,7 @@ export type EstabelecimentoRow = {
   motivo_rejeicao: string | null;
   motivo_suspensao: string | null;
   pausado_manualmente: boolean;
+  excluido_em: string | null;
 };
 
 type EstabelecimentoHorarioRow = {
@@ -87,7 +88,7 @@ type EstabelecimentoHubRow = {
  * Story 5.2 (AC2, AC6) — ids de `estabelecimentos` associados a um `hub_id`
  * via `estabelecimentos_hubs`, sob a RLS `publico_ve_estab_hubs` já aplicada
  * (migration `20260812213002_criar_estabelecimentos_hubs.sql`, fail-closed:
- * só expõe o par se hub ativo E loja ativa/não-pausada/não-excluída). Hub
+ * só expõe o par se hub ativo E loja ativa/não-excluída). Hub
  * sem nenhuma linha na junção resolve `[]` honesto (AC6) — nunca lança, nunca
  * simula.
  */
@@ -138,6 +139,7 @@ export function mapRowToEstabelecimento(row: EstabelecimentoRow, horarios: Estab
     motivo_rejeicao: row.motivo_rejeicao,
     motivo_suspensao: row.motivo_suspensao,
     pausado_manualmente: row.pausado_manualmente,
+    excluido_em: row.excluido_em,
     horarios,
   };
 }
@@ -167,7 +169,7 @@ async function fetchEstabelecimentoPorId(
  * Story 5.2 (AC2, AC3, AC6) — `estabelecimentos` cujo `id` está no conjunto
  * `ids` (ids já filtrados pela junção `estabelecimentos_hubs`, via
  * `fetchEstabelecimentoIdsPorHub`), com o filtro explícito `status = 'ativo'
- * AND pausado_manualmente = false AND excluido_em IS NULL` aplicado na
+ * AND excluido_em IS NULL` aplicado na
  * própria query — defesa em profundidade redundante com a RLS
  * `publico_ve_estab_hubs`/`publico_ve_ativos` (mesmo padrão de
  * `product.supabase.ts#list`), não uma substituição dela. `ids` vazio resolve
@@ -186,7 +188,6 @@ async function fetchEstabelecimentosPorIds(
     .select(ESTABELECIMENTO_COLUMNS)
     .in('id', ids)
     .eq('status', 'ativo')
-    .eq('pausado_manualmente', false)
     .is('excluido_em', null);
   if (error) {
     throw error;
@@ -217,7 +218,7 @@ export function createStoreSupabase(client?: SupabaseClient<Database>): StorePor
      * `lojas-por-hub` com Haversine do texto literal do épico): junção
      * explícita `estabelecimentos_hubs` × `estabelecimentos`, sob a RLS
      * `publico_ve_estab_hubs` já aplicada (hub ativo E loja
-     * ativa/não-pausada/não-excluída) + filtro client-side redundante
+     * ativa/não-excluída) + filtro client-side redundante
      * (defesa em profundidade). Sem `raio_atendimento_km`/Haversine.
      *
      * A POPULAÇÃO de `estabelecimentos_hubs` é a decisão de negócio BR-HUB

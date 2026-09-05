@@ -99,6 +99,7 @@ const ESTABELECIMENTO_ROW = {
   motivo_rejeicao: null,
   motivo_suspensao: null,
   pausado_manualmente: false,
+  excluido_em: null,
 };
 
 const HORARIOS_ROWS = [
@@ -120,6 +121,7 @@ describe('store.supabase.ts — getById (Stories 4.7/4.8, AUTO-DECISION escopo e
     expect(builders.estabelecimentos_horarios.eq).toHaveBeenCalledWith('estabelecimento_id', 'estab-1');
     expect(estabelecimento?.id).toBe('estab-1');
     expect(estabelecimento?.pausado_manualmente).toBe(false);
+    expect(estabelecimento?.excluido_em).toBeNull();
     expect(estabelecimento?.horarios).toEqual([HORARIOS_ROWS[0], HORARIOS_ROWS[1]]);
   });
 
@@ -296,7 +298,13 @@ describe('store.supabase.ts — updateHorarios (Story 4.7, AC1, AC3)', () => {
   });
 });
 
-const ESTABELECIMENTO_ROW_2 = { ...ESTABELECIMENTO_ROW, id: 'estab-2', nome_fantasia: 'Mercadinho Bom Preço' };
+const LIST_BY_HUB_ROWS = {
+  open: { ...ESTABELECIMENTO_ROW, id: 'open' },
+  closed: { ...ESTABELECIMENTO_ROW, id: 'closed' },
+  paused: { ...ESTABELECIMENTO_ROW, id: 'paused', pausado_manualmente: true },
+  suspended: { ...ESTABELECIMENTO_ROW, id: 'suspended', status: 'suspenso' },
+  deleted: { ...ESTABELECIMENTO_ROW, id: 'deleted', excluido_em: '2026-09-05T09:00:00.000Z' },
+};
 
 /**
  * Story 5.2 (AC2, AC3, AC6) — RECORTE HONESTO: a LEITURA (junção
@@ -304,26 +312,32 @@ const ESTABELECIMENTO_ROW_2 = { ...ESTABELECIMENTO_ROW, id: 'estab-2', nome_fant
  * POPULAÇÃO da associação (BR-HUB, pendente do Caio) não é desta Story —
  * ver `docs/stories/5.2.story.md` Dependencies.
  */
-describe('store.supabase.ts — listByHub (Story 5.2, AC2, AC3, AC6)', () => {
-  it('hub com 2 lojas associadas retorna as 2, com horarios de cada uma', async () => {
+describe('store.supabase.ts — listByHub (Stories 5.2/12.10)', () => {
+  it('devolve abertas, fechadas e pausadas, consultando somente lojas públicas', async () => {
     const { client, builders } = fakeClient({
       estabelecimentos_hubs: {
-        data: [{ estabelecimento_id: 'estab-1' }, { estabelecimento_id: 'estab-2' }],
+        data: Object.values(LIST_BY_HUB_ROWS).map(({ id }) => ({ estabelecimento_id: id })),
         error: null,
       },
-      estabelecimentos: { data: [ESTABELECIMENTO_ROW, ESTABELECIMENTO_ROW_2], error: null },
+      estabelecimentos: {
+        data: [LIST_BY_HUB_ROWS.open, LIST_BY_HUB_ROWS.closed, LIST_BY_HUB_ROWS.paused],
+        error: null,
+      },
       estabelecimentos_horarios: { data: HORARIOS_ROWS, error: null },
     });
     const port = createStoreSupabase(client);
 
-    const lojas = await port.listByHub('hub-1');
+    const lojas = await port.listByHub('hub-centro');
+    const ids = lojas.map(({ id }) => id);
 
-    expect(builders.estabelecimentos_hubs.eq).toHaveBeenCalledWith('hub_id', 'hub-1');
-    expect(builders.estabelecimentos.in).toHaveBeenCalledWith('id', ['estab-1', 'estab-2']);
+    expect(builders.estabelecimentos_hubs.eq).toHaveBeenCalledWith('hub_id', 'hub-centro');
+    expect(builders.estabelecimentos.in).toHaveBeenCalledWith('id', ['open', 'closed', 'paused', 'suspended', 'deleted']);
     expect(builders.estabelecimentos.eq).toHaveBeenCalledWith('status', 'ativo');
-    expect(builders.estabelecimentos.eq).toHaveBeenCalledWith('pausado_manualmente', false);
     expect(builders.estabelecimentos.is).toHaveBeenCalledWith('excluido_em', null);
-    expect(lojas.map((l) => l.id)).toEqual(['estab-1', 'estab-2']);
+    expect(builders.estabelecimentos.eq).not.toHaveBeenCalledWith('pausado_manualmente', false);
+    expect(ids).toEqual(expect.arrayContaining(['open', 'closed', 'paused']));
+    expect(ids).not.toContain('suspended');
+    expect(ids).not.toContain('deleted');
     expect(lojas[0].horarios).toEqual(HORARIOS_ROWS);
   });
 
@@ -337,21 +351,20 @@ describe('store.supabase.ts — listByHub (Story 5.2, AC2, AC3, AC6)', () => {
     expect(from).not.toHaveBeenCalledWith('estabelecimentos');
   });
 
-  it('loja pausada/inativa associada ao hub NÃO aparece (filtro client-side redundante com a RLS)', async () => {
+  it('loja administrativa associada ao hub não aparece no retorno já filtrado pelo Postgres', async () => {
     const { client, builders } = fakeClient({
       estabelecimentos_hubs: {
-        data: [{ estabelecimento_id: 'estab-1' }, { estabelecimento_id: 'estab-pausada' }],
+        data: [{ estabelecimento_id: 'estab-1' }, { estabelecimento_id: 'estab-suspenso' }],
         error: null,
       },
-      // Simula o Postgres já filtrando a loja pausada pela cláusula
-      // `pausado_manualmente = false` — só a loja elegível volta na linha.
+      // Simula o Postgres aplicando `status = 'ativo'` antes de devolver as linhas.
       estabelecimentos: { data: [ESTABELECIMENTO_ROW], error: null },
     });
     const port = createStoreSupabase(client);
 
     const lojas = await port.listByHub('hub-1');
 
-    expect(builders.estabelecimentos.in).toHaveBeenCalledWith('id', ['estab-1', 'estab-pausada']);
+    expect(builders.estabelecimentos.in).toHaveBeenCalledWith('id', ['estab-1', 'estab-suspenso']);
     expect(lojas.map((l) => l.id)).toEqual(['estab-1']);
   });
 

@@ -1,6 +1,7 @@
 import type { Produto } from '../ports/product.port';
 import {
   deriveLojaEstado,
+  resolveLojaDisponibilidade,
   validarHorariosSemanais,
   type Estabelecimento,
   type EstabelecimentoHorario,
@@ -31,8 +32,13 @@ export function createStoreMock(db: MockDb): StorePort {
   return {
     listByHub(_hubId: string, options?: AsyncCallOptions): Promise<Estabelecimento[]> {
       // Ver nota em store.port.ts: schema não tem FK direta estabelecimento -> hub
-      // no MVP; mock retorna todas as lojas ativas (single-hub scenario).
-      return simulateAsync(() => db.estabelecimentos.filter((e) => e.status === 'ativo'), [], options);
+      // no MVP; mock retorna todas as lojas públicas (single-hub scenario),
+      // inclusive pausadas/fechadas. Filtros de superfície pertencem ao app.
+      return simulateAsync(
+        () => db.estabelecimentos.filter((e) => resolveLojaDisponibilidade(e).visivelAoCliente),
+        [],
+        options,
+      );
     },
 
     getCatalog(estabelecimentoId: string, options?: AsyncCallOptions): Promise<Produto[]> {
