@@ -1,8 +1,9 @@
 import { useMemo } from 'react';
 
-import type { AsyncCallOptions, Estabelecimento } from '@keepit/core-data';
+import type { AsyncCallOptions } from '@keepit/core-data';
 import type { AsyncResourceState } from '@keepit/core-data/hooks';
 
+import { selectStoresForSurface, type LojaComDisponibilidade } from '../lib/storeDiscovery';
 import { useStoresList } from './useStoresList';
 
 /**
@@ -19,13 +20,13 @@ export function useSearchLojas(
   query: string,
   categoria: string | undefined,
   options?: AsyncCallOptions,
-): AsyncResourceState<Estabelecimento[]> {
+): AsyncResourceState<LojaComDisponibilidade[]> {
   const { data, loading, error } = useStoresList(hubId, options);
 
   const filtered = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
 
-    return data.filter((loja) => {
+    return selectStoresForSurface(data, 'search').filter(({ loja }) => {
       const matchesQuery =
         normalizedQuery.length === 0 ||
         loja.nome_fantasia.toLowerCase().includes(normalizedQuery) ||

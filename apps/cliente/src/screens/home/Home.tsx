@@ -18,6 +18,7 @@ import { useHubsList } from '../../hooks/useHubsList';
 import { useStoresList } from '../../hooks/useStoresList';
 import { CATEGORIAS_HOME, isFavorito } from '../../lib/discoveryDisplay';
 import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
+import { selectStoresForSurface } from '../../lib/storeDiscovery';
 import type { HomeStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Home'>;
@@ -68,15 +69,17 @@ export default function Home({ navigation }: Props) {
   const loadingLojas = storesLoading || isForcedLoading(storesSimulation);
 
   const favoritas = useMemo(() => lojas.filter((loja) => isFavorito(loja.id)), [lojas]);
+  const lojasDisponiveis = useMemo(() => selectStoresForSurface(lojas, 'purchase'), [lojas]);
   const lojasPorCategoria = useMemo(() => {
-    const grupos = new Map<string, typeof lojas>();
-    for (const loja of lojas) {
+    const grupos = new Map<string, typeof lojasDisponiveis>();
+    for (const item of lojasDisponiveis) {
+      const { loja } = item;
       const grupo = grupos.get(loja.categoria) ?? [];
-      grupo.push(loja);
+      grupo.push(item);
       grupos.set(loja.categoria, grupo);
     }
     return grupos;
-  }, [lojas]);
+  }, [lojasDisponiveis]);
 
   const inicial = (cliente?.nome ?? '?').trim().charAt(0).toUpperCase() || '?';
   const loading = loadingHubs || loadingLojas;
@@ -145,10 +148,10 @@ export default function Home({ navigation }: Props) {
                 <Text style={styles.verTodas}>Ver todas</Text>
               </Pressable>
             </View>
-            {lojas.length === 0 ? (
+            {lojasDisponiveis.length === 0 ? (
               <AsyncStateBlock kind="empty" emptyLabel="Nenhuma loja por perto ainda." />
             ) : (
-              lojas.map((loja) => (
+              lojasDisponiveis.map(({ loja }) => (
                 <StoreCard
                   key={loja.id}
                   loja={loja}
@@ -163,7 +166,7 @@ export default function Home({ navigation }: Props) {
               <Text style={styles.sectionTitle}>
                 {CATEGORIAS_HOME.find((c) => c.id === categoriaId)?.label ?? categoriaId}
               </Text>
-              {lojasDaCategoria.map((loja) => (
+              {lojasDaCategoria.map(({ loja }) => (
                 <StoreCard
                   key={loja.id}
                   loja={loja}

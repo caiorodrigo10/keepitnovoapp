@@ -1,10 +1,23 @@
 import { getDataClient } from '@keepit/core-data';
-import type { AsyncCallOptions, Estabelecimento, Produto } from '@keepit/core-data';
+import type {
+  AsyncCallOptions,
+  Estabelecimento,
+  LojaDisponibilidade,
+  Produto,
+} from '@keepit/core-data';
 import { useAsyncResource, type AsyncResourceState } from '@keepit/core-data/hooks';
+
+import { selectStoresForSurface } from '../lib/storeDiscovery';
 
 export interface ProdutoComLoja {
   produto: Produto;
   loja: Estabelecimento;
+  disponibilidade: LojaDisponibilidade;
+}
+
+export interface StoreProductsInput {
+  loja: Estabelecimento;
+  products: Produto[];
 }
 
 /**
@@ -18,6 +31,23 @@ export interface ProdutoComLoja {
  */
 export function sortProdutosByPrecoAsc(items: ProdutoComLoja[]): ProdutoComLoja[] {
   return [...items].sort((a, b) => a.produto.preco_reais - b.produto.preco_reais);
+}
+
+export function joinSearchProducts(inputs: StoreProductsInput[], now: Date = new Date()): ProdutoComLoja[] {
+  const disponibilidadePorLoja = new Map(
+    selectStoresForSurface(
+      inputs.map(({ loja }) => loja),
+      'search',
+      now,
+    ).map(({ loja, disponibilidade }) => [loja.id, disponibilidade]),
+  );
+
+  return inputs.flatMap(({ loja, products }) => {
+    const disponibilidade = disponibilidadePorLoja.get(loja.id);
+    if (!disponibilidade) return [];
+
+    return products.map((produto) => ({ produto, loja, disponibilidade }));
+  });
 }
 
 /**
@@ -46,14 +76,14 @@ export function useSearchProdutos(
       const lojas = await client.store.listByHub(hubId, options);
       const porLoja = await Promise.all(
         lojas.map(async (loja) => {
-          const produtos = await client.product.list(loja.id);
-          return produtos.map((produto) => ({ produto, loja }));
+          const products = await client.product.list(loja.id);
+          return { loja, products };
         }),
       );
 
       const normalizedQuery = query.trim().toLowerCase();
 
-      const filtrados = porLoja.flat().filter(({ produto, loja }) => {
+      const filtrados = joinSearchProducts(porLoja).filter(({ produto, loja }) => {
         const matchesQuery = normalizedQuery.length === 0 || produto.nome.toLowerCase().includes(normalizedQuery);
         const matchesCategoria = !categoria || categoria === 'todos' || loja.categoria === categoria;
         return matchesQuery && matchesCategoria;

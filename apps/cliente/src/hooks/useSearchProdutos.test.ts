@@ -2,7 +2,29 @@ import { describe, expect, it } from 'vitest';
 
 import type { Estabelecimento, Produto } from '@keepit/core-data';
 
-import { sortProdutosByPrecoAsc, type ProdutoComLoja } from './useSearchProdutos';
+import {
+  joinSearchProducts,
+  sortProdutosByPrecoAsc,
+  type ProdutoComLoja,
+  type StoreProductsInput,
+} from './useSearchProdutos';
+
+const NOW = new Date(2026, 8, 5, 12, 0, 0);
+
+function estabelecimento(
+  id: string,
+  pausadoManualmente: boolean,
+  horaFecha: string,
+  status: Estabelecimento['status'] = 'ativo',
+): Estabelecimento {
+  return {
+    id,
+    status,
+    pausado_manualmente: pausadoManualmente,
+    excluido_em: null,
+    horarios: [{ dia_semana: NOW.getDay(), aberto: true, hora_abre: '08:00', hora_fecha: horaFecha }],
+  } as Estabelecimento;
+}
 
 /**
  * Story 5.6 (AC3) — ordenação por `preco_reais` ascendente, sem ranking por
@@ -15,6 +37,12 @@ function produtoComLoja(id: string, precoReais: number): ProdutoComLoja {
   return {
     produto: { id, preco_reais: precoReais } as Produto,
     loja: { id: 'estab-1' } as Estabelecimento,
+    disponibilidade: {
+      estado: 'aberta',
+      visivelAoCliente: true,
+      disponivelParaCompra: true,
+      motivo: 'aberta',
+    },
   };
 }
 
@@ -46,5 +74,35 @@ describe('sortProdutosByPrecoAsc (Story 5.6, AC3)', () => {
     const resultado = sortProdutosByPrecoAsc(items);
 
     expect(resultado.map((item) => item.produto.id)).toEqual(['x', 'y']);
+  });
+});
+
+describe('joinSearchProducts (Story 12.10, Task 2)', () => {
+  it('preserva produtos de lojas fechadas e pausadas com o estado associado e omite lojas administrativas', () => {
+    const closed = estabelecimento('closed', false, '10:00');
+    const paused = estabelecimento('paused', true, '18:00');
+    const suspended = estabelecimento('suspended', false, '18:00', 'suspenso');
+
+    const results = joinSearchProducts(
+      [
+        {
+          loja: closed,
+          products: [{ id: 'p-closed', estabelecimento_id: closed.id, ativo: true }],
+        },
+        {
+          loja: paused,
+          products: [{ id: 'p-paused', estabelecimento_id: paused.id, ativo: true }],
+        },
+        {
+          loja: suspended,
+          products: [{ id: 'p-hidden', estabelecimento_id: suspended.id, ativo: true }],
+        },
+      ] as StoreProductsInput[],
+      NOW,
+    );
+
+    expect(results.map(({ produto }) => produto.id)).toEqual(['p-closed', 'p-paused']);
+    expect(results.map(({ loja }) => loja.id)).toEqual(['closed', 'paused']);
+    expect(results.map(({ disponibilidade }) => disponibilidade.estado)).toEqual(['fechada', 'pausada']);
   });
 });

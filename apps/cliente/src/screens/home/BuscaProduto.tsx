@@ -120,10 +120,11 @@ export default function BuscaProduto({ route, navigation }: Props) {
             {lojas.length > 0 && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>LOJAS</Text>
-                {lojas.map((loja) => (
+                {lojas.map(({ loja, disponibilidade }) => (
                   <StoreCard
                     key={loja.id}
                     loja={loja}
+                    disponibilidade={disponibilidade}
                     onPress={() => navigation.navigate('Loja', { estabelecimentoId: loja.id })}
                   />
                 ))}

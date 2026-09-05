@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
@@ -10,6 +11,7 @@ import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useHubDetail } from '../../hooks/useHubDetail';
 import { useStoresList } from '../../hooks/useStoresList';
 import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
+import { selectStoresForSurface } from '../../lib/storeDiscovery';
 import type { HomeStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Hub'>;
@@ -35,6 +37,7 @@ export default function Hub({ route, navigation }: Props) {
   const loadingLojas = storesLoading || isForcedLoading(storesSimulation);
   const loading = loadingHub || loadingLojas;
   const error = errorHub ?? errorLojas;
+  const lojasDisponiveis = useMemo(() => selectStoresForSurface(lojas, 'purchase'), [lojas]);
 
   return (
     <Screen>
@@ -57,10 +60,10 @@ export default function Hub({ route, navigation }: Props) {
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Lojas neste hub</Text>
-            {lojas.length === 0 ? (
+            {lojasDisponiveis.length === 0 ? (
               <AsyncStateBlock kind="empty" emptyLabel="Nenhuma loja neste hub ainda." />
             ) : (
-              lojas.map((loja) => (
+              lojasDisponiveis.map(({ loja }) => (
                 <StoreCard
                   key={loja.id}
                   loja={loja}
