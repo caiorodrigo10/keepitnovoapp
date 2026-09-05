@@ -3,6 +3,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
+import { getSelectionAccessibility } from '../ui/interactionAccessibility';
+
 interface SelectableRowProps {
   selected: boolean;
   title: string;
@@ -21,8 +23,14 @@ interface SelectableRowProps {
  * 0.6) — evita duplicar o mesmo card 2x.
  */
 export function SelectableRow({ selected, title, subtitle, highlight, leading, onPress }: SelectableRowProps) {
+  const accessibilityLabel = [title, highlight, subtitle].filter(Boolean).join(', ');
+
   return (
-    <Pressable style={[styles.row, selected && styles.rowSelected]} onPress={onPress}>
+    <Pressable
+      {...getSelectionAccessibility('radio', accessibilityLabel, selected)}
+      style={[styles.row, selected && styles.rowSelected]}
+      onPress={onPress}
+    >
       {leading}
       <View style={styles.info}>
         <Text style={styles.title}>{title}</Text>
