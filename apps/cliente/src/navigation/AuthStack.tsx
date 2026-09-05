@@ -7,8 +7,6 @@ import { darkColors } from '@keepit/ui-tokens';
 import type { AuthStackParamList } from './types';
 import { getOnboardingVisto } from '../lib/onboardingFlag';
 import Onboarding1 from '../screens/auth/Onboarding1';
-import Onboarding2 from '../screens/auth/Onboarding2';
-import Onboarding3 from '../screens/auth/Onboarding3';
 import CriarConta from '../screens/auth/CriarConta';
 import ConfirmacaoSMS from '../screens/auth/ConfirmacaoSMS';
 import Login from '../screens/auth/Login';
@@ -51,8 +49,6 @@ export function AuthStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName={initialRoute}>
       <Stack.Screen name="Onboarding1" component={Onboarding1} />
-      <Stack.Screen name="Onboarding2" component={Onboarding2} />
-      <Stack.Screen name="Onboarding3" component={Onboarding3} />
       <Stack.Screen name="CriarConta" component={CriarConta} />
       <Stack.Screen name="ConfirmacaoSMS" component={ConfirmacaoSMS} />
       <Stack.Screen name="Login" component={Login} />
