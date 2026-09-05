@@ -26,6 +26,24 @@ export type AccountDeletionInput = {
   currentPassword?: string;
 };
 
+const ACCOUNT_DELETION_ACTIONS = ['status', 'schedule', 'cancel'] as const;
+
+export function parseAccountDeletionInput(value: unknown): AccountDeletionInput | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+
+  const body = value as Record<string, unknown>;
+  if (Object.keys(body).some((key) => key !== 'action' && key !== 'currentPassword')) return null;
+  if (!ACCOUNT_DELETION_ACTIONS.includes(body.action as AccountDeletionInput['action'])) return null;
+  if (body.currentPassword !== undefined && typeof body.currentPassword !== 'string') return null;
+
+  return body.currentPassword === undefined
+    ? { action: body.action as AccountDeletionInput['action'] }
+    : {
+        action: body.action as AccountDeletionInput['action'],
+        currentPassword: body.currentPassword,
+      };
+}
+
 export type AccountDeletionResult =
   | { ok: true; data: AccountDeletionRecord | null }
   | { ok: false; error: { status: number; code: string } };

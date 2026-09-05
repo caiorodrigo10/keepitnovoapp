@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 
 import {
   handleAccountDeletion,
+  parseAccountDeletionInput,
   type AccountDeletionInput,
   type AccountDeletionRecord,
   type AccountDeletionRepository,
@@ -17,10 +18,13 @@ type Row = {
 
 type QueryResult = { data: Row | null; error: { code?: string; message: string } | null };
 type ServiceClient = {
+  rpc(
+    fn: 'cancel_account_deletion_request',
+    args: { p_user_id: string },
+  ): { maybeSingle(): Promise<QueryResult> };
   from(table: 'account_deletion_requests'): {
     select(columns: string): any;
     insert(values: { user_id: string }): { select(columns: string): { single(): Promise<QueryResult> } };
-    update(values: { status: 'cancelled'; cancelled_at: string }): any;
   };
 };
 
@@ -65,12 +69,8 @@ function repository(client: ServiceClient): AccountDeletionRepository {
     },
     async cancel(userId) {
       const { data, error } = await client
-        .from('account_deletion_requests')
-        .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
-        .eq('user_id', userId)
-        .eq('status', 'scheduled')
-        .select(ROW_COLUMNS)
-        .maybeSingle() as QueryResult;
+        .rpc('cancel_account_deletion_request', { p_user_id: userId })
+        .maybeSingle();
       if (error) throw new Error(error.message);
       return toRecord(data) ?? latest(userId);
     },
@@ -103,14 +103,15 @@ Deno.serve(async (request: Request): Promise<Response> => {
     return new Response(JSON.stringify({ error: { code: 'UNAUTHORIZED' } }), { status: 401, headers: RESPONSE_HEADERS });
   }
 
-  let input: AccountDeletionInput;
+  let rawInput: unknown;
   try {
-    input = await request.json() as AccountDeletionInput;
+    rawInput = await request.json();
   } catch {
     return new Response(JSON.stringify({ error: { code: 'INVALID_BODY' } }), { status: 400, headers: RESPONSE_HEADERS });
   }
-  if (!['status', 'schedule', 'cancel'].includes(input.action)) {
-    return new Response(JSON.stringify({ error: { code: 'INVALID_ACTION' } }), { status: 400, headers: RESPONSE_HEADERS });
+  const input: AccountDeletionInput | null = parseAccountDeletionInput(rawInput);
+  if (!input) {
+    return new Response(JSON.stringify({ error: { code: 'INVALID_BODY' } }), { status: 400, headers: RESPONSE_HEADERS });
   }
 
   const serviceClient = createClient(supabaseUrl, serviceRoleKey, {

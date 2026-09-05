@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   handleAccountDeletion,
+  parseAccountDeletionInput,
   type AccountDeletionRecord,
   type AccountDeletionRepository,
   type ReauthenticatedIdentity,
@@ -24,6 +25,14 @@ function repository(overrides: Partial<AccountDeletionRepository> = {}): Account
 }
 
 describe('handleAccountDeletion', () => {
+  it('recusa corpo nulo e aceita somente ações conhecidas', () => {
+    expect(parseAccountDeletionInput(null)).toBeNull();
+    expect(parseAccountDeletionInput({ action: 'unknown' })).toBeNull();
+    expect(parseAccountDeletionInput({ action: 'status', clienteId: USER.id })).toBeNull();
+    expect(parseAccountDeletionInput({ action: 'schedule', currentPassword: 123 })).toBeNull();
+    expect(parseAccountDeletionInput({ action: 'status' })).toEqual({ action: 'status' });
+  });
+
   it('consulta somente o estado do usuário derivado do JWT', async () => {
     const status = vi.fn(async () => SCHEDULED);
     const result = await handleAccountDeletion(

@@ -1133,3 +1133,7 @@ parcial impede mais de uma linha `scheduled|processing` por usuário.
 No MVP atual somente o ciclo reversível `status/schedule/cancel` está ativo.
 O processador destrutivo e qualquer cron permanecem ausentes até Produto e
 Jurídico aprovarem, campo a campo, a matriz de apagar/anonimizar/reter.
+Até essa decisão, a FK para `auth.users` usa `ON DELETE RESTRICT`, evitando
+apagar silenciosamente a trilha do ciclo. A recuperação chama uma função SQL
+restrita à service role que cancela atomicamente apenas antes de `delete_at`,
+usando o relógio do banco.

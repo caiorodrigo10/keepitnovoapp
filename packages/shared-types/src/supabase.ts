@@ -14,7 +14,7 @@
 //
 // Stories 12.11/12.13 (2026-09-05) — overlay de drift derivado do output oficial
 // `mcp__codex_apps__supabase_generate_typescript_types`: adiciona somente
-// favoritos e `account_deletion_requests`.
+// favoritos, `account_deletion_requests` e sua RPC de cancelamento.
 // O keepit-dev ainda não recebeu as migrations locais 20260814000004–00006;
 // por isso, suas colunas/RPCs forward-schema permanecem verbatim abaixo.
 // Regenerar o arquivo inteiro assim que o histórico remoto alcançar o repo.
@@ -852,6 +852,14 @@ export type Database = {
           bloqueado: boolean
           bloqueado_em: string
           cliente_id: string
+        }[]
+      }
+      cancel_account_deletion_request: {
+        Args: { p_user_id: string }
+        Returns: {
+          delete_at: string
+          requested_at: string
+          status: string
         }[]
       }
       // Bloco 10 (Story 6.21) — RPC nova

@@ -924,6 +924,10 @@ Edge Functions administrativas (aprovar/rejeitar/suspender/estornar) inserem em 
   identidade antes de usar a service role server-side.
 - Senha, JWT e service key não entram na tabela, resposta ou logs. Falha de
   persistência retorna erro e não encerra a sessão.
+- O cancelamento usa `cancel_account_deletion_request` (somente service role)
+  para verificar `delete_at > now()` no mesmo `UPDATE`, fechando a corrida no
+  limite de sete dias. A FK bloqueia exclusão de Auth até a política decidir
+  explicitamente a retenção/anônimização da auditoria.
 - O finalizador/cron destrutivo está bloqueado enquanto faltar a política de
   retenção aprovada; vencimento sozinho não apaga dados.
 

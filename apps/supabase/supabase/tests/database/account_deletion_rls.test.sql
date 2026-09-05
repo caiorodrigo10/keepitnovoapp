@@ -4,7 +4,8 @@ BEGIN;
 INSERT INTO auth.users (id, aud, role, email, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
 VALUES
   ('13131313-1111-4111-8111-111111111111', 'authenticated', 'authenticated', 'story-12-13-a@example.invalid', '{}', '{"nome":"A"}', NOW(), NOW()),
-  ('13131313-2222-4222-8222-222222222222', 'authenticated', 'authenticated', 'story-12-13-b@example.invalid', '{}', '{"nome":"B"}', NOW(), NOW());
+  ('13131313-2222-4222-8222-222222222222', 'authenticated', 'authenticated', 'story-12-13-b@example.invalid', '{}', '{"nome":"B"}', NOW(), NOW()),
+  ('13131313-3333-4333-8333-333333333333', 'authenticated', 'authenticated', 'story-12-13-c@example.invalid', '{}', '{"nome":"C"}', NOW(), NOW());
 
 INSERT INTO public.account_deletion_requests (user_id)
 VALUES ('13131313-1111-4111-8111-111111111111');
@@ -26,6 +27,36 @@ BEGIN
   VALUES ('13131313-1111-4111-8111-111111111111');
   RAISE EXCEPTION 'duas solicitacoes ativas deveriam falhar';
 EXCEPTION WHEN unique_violation THEN NULL;
+END;
+$$;
+
+DO $$
+DECLARE cancelled_count bigint;
+BEGIN
+  SELECT count(*) INTO cancelled_count
+  FROM public.cancel_account_deletion_request('13131313-1111-4111-8111-111111111111');
+  IF cancelled_count <> 1 THEN RAISE EXCEPTION 'solicitacao dentro do prazo deveria cancelar'; END IF;
+END;
+$$;
+
+INSERT INTO public.account_deletion_requests (user_id, requested_at, delete_at)
+VALUES (
+  '13131313-3333-4333-8333-333333333333',
+  NOW() - INTERVAL '8 days',
+  NOW() - INTERVAL '1 day'
+);
+
+DO $$
+DECLARE cancelled_count bigint;
+DECLARE persisted_status text;
+BEGIN
+  SELECT count(*) INTO cancelled_count
+  FROM public.cancel_account_deletion_request('13131313-3333-4333-8333-333333333333');
+  SELECT status INTO persisted_status FROM public.account_deletion_requests
+  WHERE user_id = '13131313-3333-4333-8333-333333333333';
+  IF cancelled_count <> 0 OR persisted_status <> 'scheduled' THEN
+    RAISE EXCEPTION 'solicitacao vencida nao pode ser recuperada';
+  END IF;
 END;
 $$;
 
@@ -53,6 +84,14 @@ DO $$
 BEGIN
   UPDATE public.account_deletion_requests SET status = 'cancelled';
   RAISE EXCEPTION 'authenticated não deveria atualizar diretamente';
+EXCEPTION WHEN insufficient_privilege THEN NULL;
+END;
+$$;
+
+DO $$
+BEGIN
+  DELETE FROM public.account_deletion_requests;
+  RAISE EXCEPTION 'authenticated não deveria excluir diretamente';
 EXCEPTION WHEN insufficient_privilege THEN NULL;
 END;
 $$;
