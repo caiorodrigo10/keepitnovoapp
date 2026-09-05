@@ -33,6 +33,10 @@ import type { OrderAutomationRuntime } from './order-auto-progress';
  */
 export interface MockDb {
   onClienteMutation: () => void | Promise<void>;
+  /** Executa a mutação persistida inteira na fila do state store quando ela está conectada. */
+  runClienteMutation<T>(
+    run: (persist: () => Promise<boolean>) => T | Promise<T>,
+  ): Promise<T>;
   onClienteStateReset: () => void | Promise<void>;
   clientes: Cliente[];
   hubs: Hub[];
@@ -156,6 +160,12 @@ export interface MockDb {
 export function createMockDb(): MockDb {
   return {
     onClienteMutation: () => undefined,
+    async runClienteMutation<T>(run: (persist: () => Promise<boolean>) => T | Promise<T>): Promise<T> {
+      return run(async () => {
+        await this.onClienteMutation();
+        return true;
+      });
+    },
     onClienteStateReset: () => undefined,
     clientes: structuredClone(clientesFixture),
     hubs: structuredClone(hubsFixture),

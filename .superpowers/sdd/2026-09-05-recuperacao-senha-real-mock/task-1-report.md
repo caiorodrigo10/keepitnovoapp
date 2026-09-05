@@ -220,3 +220,64 @@ Exit 0
 O typecheck continua apontando exclusivamente a integração da Task 2 em
 `src/supabase/auth.supabase.ts:160` (`Promise<void>` versus
 `Promise<PasswordResetRequestResult>`).
+
+## Correção após terceiro re-review — round 4
+
+O terceiro re-review confirmou que aguardar a barreira somente na captura não
+serializava a mutação comum: `signOut`/`signIn` ainda alteravam o `MockDb`
+enquanto um reset estava pendente, e o rollback do reset podia apagar esse
+efeito antes de a persistência comum capturá-lo.
+
+O `MockDb` agora expõe uma unidade de mutação serializada que recebe a
+capacidade de persistir dentro da própria transação. Quando o state store está
+hidratado, ele executa corpo, captura e escrita na mesma fila usada por reset,
+recovery e favoritos. Todos os caminhos persistidos de auth e pedidos foram
+migrados para essa unidade; validação, alteração em memória, persistência e
+notificação mantêm a ordem original, inclusive no-op de perfil/CPF e erros de
+PIN que precisam persistir a tentativa antes de rejeitar. `setQaState` também
+entrou na fila, e favoritos passaram a revalidar a sessão dentro da unidade
+rollbackable sem gravar em operações idempotentes.
+
+### RED determinístico do round 4
+
+```text
+pnpm --filter @keepit/core-data test -- src/mock/cliente-state-store.test.ts
+
+Test Files  1 failed (1)
+Tests       1 failed | 32 passed (33)
+Falha       expected 'cliente-ana' to be null
+Exit 1
+```
+
+O único teste novo mantém a escrita do reset pendente e depois a faz falhar,
+inicia `signOut` nesse intervalo e reabre o mesmo storage. Antes da correção,
+`signOut` resolvia, mas memória e snapshot durável continuavam autenticados.
+
+### GREEN e regressão do round 4
+
+```text
+pnpm --filter @keepit/core-data test -- \
+  src/mock/auth.mock.test.ts \
+  src/mock/cliente-state.test.ts \
+  src/mock/cliente-state-store.test.ts \
+  src/mock/favorites.mock.test.ts \
+  src/mock/order.mock.test.ts
+
+Test Files  5 passed (5)
+Tests       157 passed (157)
+Exit 0
+
+pnpm --filter @keepit/core-data test
+
+Test Files  32 passed (32)
+Tests       651 passed (651)
+Exit 0
+
+pnpm --filter @keepit/core-data typecheck
+Exit 0
+```
+
+O typecheck passou nesta rodada porque a Task 2 já estava integrada no commit
+`c0ca1cd`; portanto o gap Supabase registrado nas rodadas anteriores deixou de
+estar presente na base atual. A serialização V5 não altera schema, migração ou
+payload e mantém as regressões de recovery e favoritos verdes.

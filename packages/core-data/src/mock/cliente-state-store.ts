@@ -129,11 +129,13 @@ export class ClienteMockStateStore {
   }
 
   async setQaState(next: QaScenarioState): Promise<DemoScenarioMutationResult> {
-    const qa = structuredClone(next);
-    this.db.clienteQaState = qa;
-    this.lastSnapshot = { ...this.lastSnapshot, qa: structuredClone(qa) };
-    const persisted = await this.persist();
-    return persisted ? { status: 'updated' } : { status: 'degraded' };
+    return this.runSerializedStateMutation(async () => {
+      const qa = structuredClone(next);
+      this.db.clienteQaState = qa;
+      this.lastSnapshot = { ...this.lastSnapshot, qa: structuredClone(qa) };
+      const persisted = await this.persistNow();
+      return persisted ? { status: 'updated' } : { status: 'degraded' };
+    });
   }
 
   private captureSnapshot(): ClienteMockSnapshotV5 {
@@ -180,13 +182,16 @@ export class ClienteMockStateStore {
 
   private connectMutationPersistence(): void {
     this.db.onClienteMutation = () => this.persist().then(() => undefined);
+    this.db.runClienteMutation = (run) =>
+      this.runSerializedStateMutation(() => run(() => this.persistNow()));
     connectMockPasswordRecoveryMutation(this.db, (mutate) => this.runRollbackableStateMutation(mutate));
     connectMockFavoriteMutation(this.db, (mutate) => this.runRollbackableStateMutation(mutate));
   }
 
-  private runRollbackableStateMutation(mutate: () => () => void): Promise<boolean> {
+  private runRollbackableStateMutation(mutate: () => (() => void) | null): Promise<boolean> {
     return this.runSerializedStateMutation(async () => {
       const rollback = mutate();
+      if (!rollback) return true;
       try {
         const persisted = await this.persistNow();
         if (!persisted) rollback();
@@ -198,7 +203,7 @@ export class ClienteMockStateStore {
     });
   }
 
-  private runSerializedStateMutation<T>(run: () => Promise<T>): Promise<T> {
+  private runSerializedStateMutation<T>(run: () => T | Promise<T>): Promise<T> {
     const result = this.stateMutationBarrier.then(run);
     this.stateMutationBarrier = result.then(
       () => undefined,

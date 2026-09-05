@@ -501,7 +501,7 @@ describe('ClienteMockStateStore', () => {
     await firstWriteStarted.promise;
     const signOut = auth.signOut({ delayMs: 0 });
     await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(db.sessionClienteId).toBeNull();
+    expect(db.sessionClienteId).toBe('cliente-ana');
 
     releaseFirstWrite.resolve(undefined);
     await expect(updatePassword).rejects.toThrow(/persist/i);
@@ -565,7 +565,7 @@ describe('ClienteMockStateStore', () => {
     const reset = stateStore.reset();
     const signOut = auth.signOut({ delayMs: 0 });
     await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(db.sessionClienteId).toBeNull();
+    expect(db.sessionClienteId).toBe('cliente-ana');
     releaseFirstWrite.resolve(undefined);
     await expect(updatePassword).rejects.toThrow(/persist/i);
     await resetWriteStarted.promise;
@@ -760,6 +760,58 @@ describe('ClienteMockStateStore', () => {
       persistence: 'degraded',
       lastError: 'reset',
     });
+  });
+
+  it('preserva signOut iniciado durante o rollback de um reset degradado', async () => {
+    vi.useFakeTimers();
+    const snapshot = createClienteBaseline();
+    snapshot.sessionClienteId = 'cliente-ana';
+    const values = new Map([[CLIENTE_MOCK_STATE_KEY, JSON.stringify(snapshot)]]);
+    const resetWriteStarted = deferred<void>();
+    const releaseResetWrite = deferred<void>();
+    let writeCount = 0;
+    const storage: ClienteMockStorage = {
+      async getItem(key) {
+        return values.get(key) ?? null;
+      },
+      async setItem(key, value) {
+        writeCount += 1;
+        if (writeCount === 1) {
+          resetWriteStarted.resolve(undefined);
+          await releaseResetWrite.promise;
+          throw new Error('disk full');
+        }
+        values.set(key, value);
+      },
+      async removeItem(key) {
+        values.delete(key);
+      },
+    };
+    const db = createMockDb();
+    const stateStore = new ClienteMockStateStore(db, storage);
+    const auth = createAuthMock(db);
+    await stateStore.hydrate();
+
+    const reset = stateStore.reset();
+    await resetWriteStarted.promise;
+    const signOut = auth.signOut({ delayMs: 0 });
+    await vi.advanceTimersByTimeAsync(0);
+    releaseResetWrite.resolve(undefined);
+
+    await expect(reset).resolves.toEqual({ status: 'degraded' });
+    await expect(signOut).resolves.toBeUndefined();
+    await stateStore.flush();
+
+    expect(db.sessionClienteId).toBeNull();
+    expect(JSON.parse(values.get(CLIENTE_MOCK_STATE_KEY)!).sessionClienteId).toBeNull();
+
+    const reopenedDb = createMockDb();
+    const reopenedStore = new ClienteMockStateStore(reopenedDb, storage);
+    const reopenedAuth = createAuthMock(reopenedDb);
+    await reopenedStore.hydrate();
+    const currentUser = reopenedAuth.currentUser({ delayMs: 0 });
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(currentUser).resolves.toBeNull();
   });
 
   it('reset emite logout aos listeners e invalida a recuperação de senha ativa', async () => {

@@ -4,7 +4,7 @@ import { simulateAsync } from './async-helpers';
 import type { MockDb } from './db';
 
 type FavoritePort = HubFavoritesPort | StoreFavoritesPort;
-type FavoriteMutation = () => () => void;
+type FavoriteMutation = () => (() => void) | null;
 
 const favoriteMutationByDb = new WeakMap<
   MockDb,
@@ -29,12 +29,32 @@ async function runMockFavoriteMutation(db: MockDb, mutate: FavoriteMutation): Pr
   }
 
   const rollback = mutate();
+  if (!rollback) return;
   try {
     await db.onClienteMutation();
   } catch (error) {
     rollback();
     throw error;
   }
+}
+
+function simulateFavoriteMutation(
+  db: MockDb,
+  mutate: (clienteId: string) => (() => void) | null,
+  options?: AsyncCallOptions,
+): Promise<void> {
+  return simulateAsync(
+    () =>
+      runMockFavoriteMutation(db, () => {
+        const clienteId = requireClienteSession(db);
+        if (options?.forceError) {
+          throw new Error('[mock] Erro simulado via AsyncCallOptions.forceError');
+        }
+        return options?.forceEmpty ? null : mutate(clienteId);
+      }),
+    undefined,
+    options ? { ...options, forceError: false, forceEmpty: false } : undefined,
+  );
 }
 
 function requireClienteSession(db: MockDb): string {
@@ -84,55 +104,44 @@ function createFavoritePort(db: MockDb, valuesByClienteId: () => Record<string, 
     },
 
     favorite(resourceId: string, options?: AsyncCallOptions): Promise<void> {
-      return simulateAuthenticated(
+      return simulateFavoriteMutation(
         db,
-        async (clienteId) => {
-          const values = valuesByClienteId()[clienteId] ?? [];
-          if (values.includes(resourceId)) return;
-          await runMockFavoriteMutation(db, () => {
-            const valuesByCliente = valuesByClienteId();
-            const current = valuesByCliente[clienteId] ?? [];
-            const previous = valuesByCliente[clienteId];
-            if (current.includes(resourceId)) return () => undefined;
-            valuesByCliente[clienteId] = [...current, resourceId];
-            return () => {
-              if (previous) {
-                valuesByCliente[clienteId] = previous;
-              } else {
-                delete valuesByCliente[clienteId];
-              }
-            };
-          });
+        (clienteId) => {
+          const valuesByCliente = valuesByClienteId();
+          const current = valuesByCliente[clienteId] ?? [];
+          const previous = valuesByCliente[clienteId];
+          if (current.includes(resourceId)) return null;
+          valuesByCliente[clienteId] = [...current, resourceId];
+          return () => {
+            if (previous) {
+              valuesByCliente[clienteId] = previous;
+            } else {
+              delete valuesByCliente[clienteId];
+            }
+          };
         },
-        undefined,
         options,
       );
     },
 
     unfavorite(resourceId: string, options?: AsyncCallOptions): Promise<void> {
-      return simulateAuthenticated(
+      return simulateFavoriteMutation(
         db,
-        async (clienteId) => {
-          const values = valuesByClienteId()[clienteId] ?? [];
-          const index = values.indexOf(resourceId);
-          if (index < 0) return;
-          await runMockFavoriteMutation(db, () => {
-            const valuesByCliente = valuesByClienteId();
-            const current = valuesByCliente[clienteId] ?? [];
-            const previous = valuesByCliente[clienteId];
-            const next = current.filter((id) => id !== resourceId);
-            if (next.length === current.length) return () => undefined;
-            if (next.length === 0) {
-              delete valuesByCliente[clienteId];
-            } else {
-              valuesByCliente[clienteId] = next;
-            }
-            return () => {
-              if (previous) valuesByCliente[clienteId] = previous;
-            };
-          });
+        (clienteId) => {
+          const valuesByCliente = valuesByClienteId();
+          const current = valuesByCliente[clienteId] ?? [];
+          const previous = valuesByCliente[clienteId];
+          const next = current.filter((id) => id !== resourceId);
+          if (next.length === current.length) return null;
+          if (next.length === 0) {
+            delete valuesByCliente[clienteId];
+          } else {
+            valuesByCliente[clienteId] = next;
+          }
+          return () => {
+            if (previous) valuesByCliente[clienteId] = previous;
+          };
         },
-        undefined,
         options,
       );
     },
