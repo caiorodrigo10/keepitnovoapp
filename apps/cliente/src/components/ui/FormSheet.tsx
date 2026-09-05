@@ -30,13 +30,13 @@ export function FormSheet({
   keyboardVerticalOffset = 0,
 }: FormSheetProps) {
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <KeyboardAvoidingView
         style={styles.overlay}
         behavior={getKeyboardAvoidingBehavior(Platform.OS)}
         keyboardVerticalOffset={keyboardVerticalOffset}
       >
-        <View style={styles.sheet}>
+        <SafeAreaView style={styles.sheet} edges={['bottom']}>
           <ScrollView
             {...FORM_SCROLL_PROPS}
             contentContainerStyle={[styles.content, contentContainerStyle]}
@@ -45,7 +45,7 @@ export function FormSheet({
             {children}
           </ScrollView>
           {footer ? <View style={[styles.footer, footerStyle]}>{footer}</View> : null}
-        </View>
+        </SafeAreaView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
