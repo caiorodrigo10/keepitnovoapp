@@ -495,8 +495,9 @@ function createInMemoryPasswordRecoveryState(): PasswordRecoveryState {
 }
 
 /**
- * Falha fechada do callback: mantém a marca ativa até a tentativa de remover
- * a sessão local terminar, depois limpa o estado de recovery. Erros de
+ * Falha fechada do callback: só limpa a marca depois que o SDK confirma a
+ * remoção da sessão local. Se o logout falhar ou rejeitar, mantém recovery
+ * ativo para impedir que uma sessão parcial seja promovida a login. Erros de
  * cleanup não substituem o erro público genérico nem carregam detalhes do
  * provider/URL. O escopo local evita encerrar sessões legítimas em outros
  * dispositivos ao descartar apenas a sessão parcial deste callback.
@@ -506,9 +507,10 @@ async function cleanupFailedPasswordRecovery(
   passwordRecoveryState: PasswordRecoveryState,
 ): Promise<void> {
   try {
-    await auth.signOut({ scope: 'local' });
+    const { error } = await auth.signOut({ scope: 'local' });
+    if (error) return;
   } catch {
-    // Best effort: a limpeza do marcador ainda precisa ser tentada.
+    return;
   }
   try {
     await passwordRecoveryState.clear();

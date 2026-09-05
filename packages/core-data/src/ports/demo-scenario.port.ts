@@ -23,6 +23,11 @@ export interface QaScenarioState {
 
 export type DemoScenarioMutationResult = { status: 'updated' } | { status: 'degraded' };
 
+export type DemoPasswordRecoveryExpirationResult =
+  | { status: 'expired' }
+  | { status: 'unavailable' }
+  | { status: 'degraded' };
+
 export interface DemoScenarioPort {
   reset(): Promise<DemoScenarioResetResult>;
   flush(): Promise<void>;
@@ -31,4 +36,6 @@ export interface DemoScenarioPort {
   setQaState(next: QaScenarioState): Promise<DemoScenarioMutationResult>;
   /** Avança apenas o relógio persistido do cenário mock/QA. */
   advanceClock(ms: number): Promise<DemoScenarioMutationResult>;
+  /** Marca a solicitação mock ainda pendente como expirada e persiste a transição. */
+  expirePasswordRecovery(): Promise<DemoPasswordRecoveryExpirationResult>;
 }

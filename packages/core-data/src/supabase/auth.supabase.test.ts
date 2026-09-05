@@ -446,6 +446,40 @@ describe('auth.supabase.ts — recuperação de senha (Story 2.7, AC1, AC3, AC5,
     expect(state.active()).toBe(false);
   });
 
+  it.each([
+    {
+      failure: 'retorna error',
+      signOut: async () => ({ error: { message: 'cleanup logout failed' } }),
+    },
+    {
+      failure: 'rejeita',
+      signOut: async () => {
+        throw new Error('cleanup logout rejected');
+      },
+    },
+  ])(
+    'establishPasswordRecoverySession mantém o bloqueio ativo quando signOut local $failure',
+    async ({ signOut: signOutImpl }) => {
+      const state = createRecoveryState();
+      const exchangeCodeForSession = vi.fn(async () => ({
+        data: { session: null },
+        error: { message: 'provider rejected the authorization code' },
+      }));
+      const signOut = vi.fn(signOutImpl);
+      const client = {
+        auth: { exchangeCodeForSession, signOut },
+      } as unknown as SupabaseClient<Database>;
+      const port = createAuthSupabase(client, state);
+
+      await expect(
+        port.establishPasswordRecoverySession(`${PASSWORD_RECOVERY_REDIRECT_TO}?code=pkce-cleanup-failed`),
+      ).rejects.toEqual(new Error(GENERIC_PASSWORD_RECOVERY_ERROR));
+
+      expect(signOut).toHaveBeenCalledWith({ scope: 'local' });
+      expect(state.active()).toBe(true);
+    },
+  );
+
   it('updatePassword rejeita sem sessão de recuperação ativa, sem chamar o SDK (AC5)', async () => {
     const updateUser = vi.fn();
     const client = { auth: { updateUser } } as unknown as SupabaseClient<Database>;

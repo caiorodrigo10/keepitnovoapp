@@ -87,7 +87,7 @@ export default function PainelQA({ navigation }: Props) {
   const [advancingOrderId, setAdvancingOrderId] = useState<string | null>(null);
   const [orderOutcomePending, setOrderOutcomePending] = useState<string | null>(null);
   const [scenarioMutationPending, setScenarioMutationPending] = useState<
-    'save' | 'pause' | 'clock' | null
+    'save' | 'pause' | 'clock' | 'recovery' | null
   >(null);
   const [progressionValues, setProgressionValues] = useState<QaOrderProgressionValues>(() =>
     qaOrderProgressionValuesFrom(state),
@@ -233,6 +233,28 @@ export default function PainelQA({ navigation }: Props) {
       }
     } catch {
       setNotice('Não foi possível avançar o relógio QA.');
+    } finally {
+      setScenarioMutationPending(null);
+      finishOperation();
+    }
+  }
+
+  async function handleExpirePasswordRecovery() {
+    if (busy || !beginOperation()) return;
+
+    setScenarioMutationPending('recovery');
+    setNotice(null);
+    try {
+      const result = await client.demoScenario!.expirePasswordRecovery();
+      if (result.status === 'expired') {
+        setNotice('Recuperação pendente marcada como expirada.');
+      } else if (result.status === 'unavailable') {
+        setNotice('Nenhuma recuperação pendente para expirar.');
+      } else {
+        setNotice('Não foi possível persistir a expiração da recuperação.');
+      }
+    } catch {
+      setNotice('Não foi possível expirar a recuperação pendente.');
     } finally {
       setScenarioMutationPending(null);
       finishOperation();
@@ -422,6 +444,19 @@ export default function PainelQA({ navigation }: Props) {
               </View>
             );
           })}
+      </Section>
+
+      <Section title="Recuperação de senha">
+        <Text style={styles.resetDescription}>
+          Marca a solicitação mock pendente como expirada para validar o callback inválido.
+        </Text>
+        <Button
+          disabled={busy}
+          loading={scenarioMutationPending === 'recovery'}
+          onPress={() => void handleExpirePasswordRecovery()}
+          title="Expirar recuperação pendente"
+          variant="outline"
+        />
       </Section>
 
       <Section title="Resetar cenário">

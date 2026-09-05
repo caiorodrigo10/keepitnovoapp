@@ -1,4 +1,5 @@
 import type {
+  DemoPasswordRecoveryExpirationResult,
   DemoScenarioMutationResult,
   DemoScenarioResetResult,
   DemoScenarioStatus,
@@ -16,6 +17,7 @@ import {
   type ClienteMockSnapshotV6,
   type ClienteMockStorage,
   writeMockAccountDeletion,
+  writeMockPasswordRecovery,
 } from './cliente-state';
 import type { MockDb } from './db';
 import { connectMockFavoriteMutation } from './favorites.mock';
@@ -183,6 +185,21 @@ export class ClienteMockStateStore {
     });
 
     return persisted ? { status: 'updated' } : { status: 'degraded' };
+  }
+
+  async expirePasswordRecovery(): Promise<DemoPasswordRecoveryExpirationResult> {
+    let foundPendingRecovery = false;
+    const persisted = await this.runRollbackableStateMutation(() => {
+      const recovery = readMockPasswordRecovery(this.db);
+      if (!recovery || recovery.state !== 'requested') return null;
+
+      foundPendingRecovery = true;
+      writeMockPasswordRecovery(this.db, { ...recovery, state: 'expired' });
+      return () => writeMockPasswordRecovery(this.db, recovery);
+    });
+
+    if (!foundPendingRecovery) return { status: 'unavailable' };
+    return persisted ? { status: 'expired' } : { status: 'degraded' };
   }
 
   private captureSnapshot(): ClienteMockSnapshotV6 {

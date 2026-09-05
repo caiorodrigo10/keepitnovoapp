@@ -222,6 +222,7 @@ export function createDataClient(options: CreateDataClientOptions = {}): DataCli
     getQaState: () => stateStore.getQaState(),
     setQaState: (next) => stateStore.setQaState(next),
     advanceClock: (ms) => stateStore.advanceClock(ms),
+    expirePasswordRecovery: () => stateStore.expirePasswordRecovery(),
   };
   return client;
 }
