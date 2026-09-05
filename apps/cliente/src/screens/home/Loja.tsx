@@ -2,25 +2,26 @@ import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
+import { CUSTOMER_LABELS } from '@keepit/config';
+import { resolveLojaDisponibilidade } from '@keepit/core-data';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { FloatingCartButton } from '../../components/checkout';
+import { FavoriteButton } from '../../components/discovery/FavoriteButton';
 import {
   AsyncStateBlock,
-  DevStateToggle,
   ProductRow,
   RatingLabel,
-  toAsyncCallOptions,
-  type DevSimState,
 } from '../../components/discovery';
 import { ImagePlaceholder } from '../../components/discovery/ImagePlaceholder';
 import { LojaEstadoBadge } from '../../components/discovery/LojaEstadoBadge';
 import { Screen } from '../../components/ui';
+import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useCatalogo } from '../../hooks/useCatalogo';
-import { useLojaEstado } from '../../hooks/useLojaEstado';
 import { useStoreDetail } from '../../hooks/useStoreDetail';
 import { formatReais } from '../../lib/format';
 import { getRatingPlaceholder, resolveTicketMinimoReais } from '../../lib/discoveryDisplay';
+import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
 import type { HomeStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Loja'>;
@@ -38,8 +39,9 @@ const CATEGORIA_PRODUTO_LABEL: Record<string, string> = {
  * Loja + catálogo (Task 3, AC1-AC4). Fiel a `cliente-03-loja-catalogo.png`:
  * cabeçalho (nome, categoria, distância, badge de estado, rating), tabs por
  * categoria de produto, lista de produtos, footer "Ver carrinho" (Story 6.1,
- * `FloatingCartButton`). Os 3 estados de loja (AC1) desabilitam o catálogo
- * com overlay quando `fechada`/`pausada`.
+ * `FloatingCartButton`). Os 3 estados de loja (AC1) permanecem visíveis,
+ * mas lojas `fechada`/`pausada` mantêm o catálogo consultável e bloqueiam
+ * somente as ações de compra em profundidade.
  *
  * **Story 5.4 (AC4, AC5):** "Pedido mínimo: R$ X" (`resolveTicketMinimoReais`,
  * COALESCE com `businessConfig.ticketMinimoReais` quando a loja não define o
@@ -55,13 +57,14 @@ const CATEGORIA_PRODUTO_LABEL: Record<string, string> = {
  */
 export default function Loja({ route, navigation }: Props) {
   const { estabelecimentoId } = route.params;
-  const [devState, setDevState] = useState<DevSimState>('normal');
-  const options = toAsyncCallOptions(devState);
+  const storesSimulation = useQaSimulation('stores');
+  const options = simulationToAsyncCallOptions(storesSimulation);
   const [categoriaAtiva, setCategoriaAtiva] = useState('todos');
 
-  const { data: loja, loading: loadingLoja, error: errorLoja } = useStoreDetail(estabelecimentoId, options);
-  const { data: estado, loading: loadingEstado } = useLojaEstado(estabelecimentoId, options);
-  const { data: produtos, loading: loadingProdutos, error: errorProdutos } = useCatalogo(estabelecimentoId, options);
+  const { data: loja, loading: storeLoading, error: errorLoja } = useStoreDetail(estabelecimentoId, options);
+  const { data: produtos, loading: catalogLoading, error: errorProdutos } = useCatalogo(estabelecimentoId, options);
+  const disponibilidade = loja ? resolveLojaDisponibilidade(loja) : null;
+  const estado = disponibilidade?.estado;
 
   const categoriasProduto = useMemo(() => {
     const categorias = new Set(produtos.map((p) => p.categoria_produto));
@@ -73,9 +76,11 @@ export default function Loja({ route, navigation }: Props) {
     [produtos, categoriaAtiva],
   );
 
-  const loading = loadingLoja || loadingProdutos || loadingEstado;
+  const loadingLoja = storeLoading || isForcedLoading(storesSimulation);
+  const loadingProdutos = catalogLoading || isForcedLoading(storesSimulation);
+  const loading = loadingLoja || loadingProdutos;
   const error = errorLoja ?? errorProdutos;
-  const catalogoDesabilitado = estado === 'fechada' || estado === 'pausada';
+  const compraIndisponivel = disponibilidade ? !disponibilidade.disponivelParaCompra : false;
 
   return (
     <View style={styles.flexOne}>
@@ -83,8 +88,6 @@ export default function Loja({ route, navigation }: Props) {
         <Pressable onPress={() => navigation.goBack()} hitSlop={8} style={styles.backButton}>
           <Text style={styles.backIcon}>‹</Text>
         </Pressable>
-
-        <DevStateToggle value={devState} onChange={setDevState} />
 
         {error ? (
           <AsyncStateBlock kind="error" errorLabel="Não foi possível carregar esta loja. Tente novamente." />
@@ -102,7 +105,14 @@ export default function Loja({ route, navigation }: Props) {
                     <Text style={styles.nome}>{loja.nome_fantasia}</Text>
                     <Text style={styles.meta}>{loja.categoria}</Text>
                   </View>
-                  {estado && <LojaEstadoBadge estado={estado} />}
+                  <View style={styles.headerActions}>
+                    {estado && <LojaEstadoBadge estado={estado} />}
+                    <FavoriteButton
+                      kind="store"
+                      resourceId={loja.id}
+                      resourceName={loja.nome_fantasia}
+                    />
+                  </View>
                 </View>
                 <RatingLabel value={getRatingPlaceholder(loja.id)} />
               </View>
@@ -110,10 +120,10 @@ export default function Loja({ route, navigation }: Props) {
 
             <View style={styles.infoRow}>
               <Text style={styles.infoRowText}>Pedido mínimo: {formatReais(resolveTicketMinimoReais(loja))}</Text>
-              <Text style={styles.infoRowText}>Taxa de deslocamento: {formatReais(loja.taxa_deslocamento_reais)}</Text>
+              <Text style={styles.infoRowText}>{CUSTOMER_LABELS.freight}: {formatReais(loja.taxa_deslocamento_reais)}</Text>
             </View>
 
-            {catalogoDesabilitado && (
+            {compraIndisponivel && (
               <View style={styles.avisoFechada}>
                 <Text style={styles.avisoFechadaTexto}>
                   {estado === 'pausada'
@@ -140,7 +150,7 @@ export default function Loja({ route, navigation }: Props) {
               })}
             </View>
 
-            <View style={[styles.catalogo, catalogoDesabilitado && styles.catalogoDesabilitado]} pointerEvents={catalogoDesabilitado ? 'none' : 'auto'}>
+            <View style={styles.catalogo}>
               {produtosFiltrados.length === 0 ? (
                 <AsyncStateBlock kind="empty" emptyLabel="Esta loja ainda não cadastrou produtos." />
               ) : (
@@ -199,6 +209,10 @@ const styles = StyleSheet.create({
   },
   headerTexts: {
     flex: 1,
+  },
+  headerActions: {
+    alignItems: 'flex-end',
+    gap: spacing['2'],
   },
   nome: {
     fontFamily: 'HankenGrotesk-Bold',
@@ -260,7 +274,4 @@ const styles = StyleSheet.create({
     color: lightColors.bg.primary,
   },
   catalogo: {},
-  catalogoDesabilitado: {
-    opacity: 0.4,
-  },
 });

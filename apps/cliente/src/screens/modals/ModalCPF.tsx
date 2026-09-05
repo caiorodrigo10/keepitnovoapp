@@ -1,33 +1,23 @@
-import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { StyleSheet, Text } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { getDataClient } from '@keepit/core-data';
-import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
+import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 
-import { Button, TextField } from '../../components/ui';
+import { Button, FormSheet, TextField } from '../../components/ui';
+import { QA_BUILD_ENABLED } from '../../config/buildInfo';
 import { useCart } from '../../context/CartContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
-import { apenasDigitosCpf, isCpfValido } from '../../lib/cpf';
+import { apenasDigitosCpf, isCpfValido, maskCpf } from '../../lib/cpf';
+import { createCpfDiagnostics } from '../../lib/cpfDiagnostics';
+import { createCpfSubmissionController, type CpfSubmitResult } from '../../lib/cpfSubmission';
 import type { RootStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ModalCPF'>;
 
-/**
- * Máscara visual `000.000.000-00` — apenas formatação de exibição. A
- * validação real (dígito verificador) é feita por `isCpfValido`
- * (`apps/cliente/src/lib/cpf.ts`, Story 6.5); situação cadastral na Receita
- * (BrasilAPI) continua fora do MVP.
- */
-function maskCpf(value: string): string {
-  const digits = value.replace(/\D/g, '').slice(0, 11);
-  const parts = [digits.slice(0, 3), digits.slice(3, 6), digits.slice(6, 9)].filter(Boolean);
-  let masked = parts.join('.');
-  if (digits.length > 9) {
-    masked += `-${digits.slice(9, 11)}`;
-  }
-  return masked;
-}
+const CPF_INVALIDO = 'Digite um CPF válido.';
+const CPF_NAO_SALVO = 'Não foi possível salvar seu CPF. Tente novamente.';
 
 /**
  * Modal CPF (Task 4, AC1). Sem frame de dispositivo na referência — usa o
@@ -48,58 +38,81 @@ function maskCpf(value: string): string {
 export default function ModalCPF({ navigation, route }: Props) {
   const cart = useCart();
   const { data: cliente } = useCurrentCliente();
+  const controllerRef = useRef(createCpfSubmissionController());
+  const diagnosticsRef = useRef(
+    createCpfDiagnostics(QA_BUILD_ENABLED, (event) => console.info('[cpf-performance]', JSON.stringify(event))),
+  );
   const [cpf, setCpf] = useState('');
   const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<string | undefined>();
+
+  useEffect(() => diagnosticsRef.current.recordRender(cpf.length));
 
   const digits = apenasDigitosCpf(cpf);
-  const podeConfirmar = isCpfValido(digits) && !salvando;
+  const invalidCpfError = digits.length === 11 && !isCpfValido(digits) ? CPF_INVALIDO : undefined;
+  const fieldError = erro ?? invalidCpfError;
 
   const handleConfirmar = async () => {
+    const controller = controllerRef.current;
+    if (controller.isPending()) return;
+    setErro(undefined);
     setSalvando(true);
-    try {
-      if (cliente?.id) {
-        await getDataClient().auth.updateCpf(cliente.id, digits);
-      }
-      cart.markCpfCollected();
-      route.params?.onSubmit?.();
-      navigation.goBack();
-    } finally {
-      setSalvando(false);
+    const result: CpfSubmitResult = await controller.submit({
+      cpf,
+      clienteId: cliente?.id,
+      updateCpf: async (clienteId, digits) => {
+        await getDataClient().auth.updateCpf(clienteId, digits);
+      },
+    });
+    setSalvando(false);
+
+    if (result.status === 'invalid') {
+      setErro(CPF_INVALIDO);
+      return;
     }
+    if (result.status === 'save-failed') {
+      setErro(CPF_NAO_SALVO);
+      return;
+    }
+    if (result.status === 'busy') return;
+
+    cart.markCpfCollected();
+    route.params?.onSubmit?.();
+    navigation.goBack();
   };
 
   return (
-    <View style={styles.overlay}>
-      <View style={styles.card}>
-        <Text style={styles.title}>Confirme seu CPF</Text>
-        <Text style={styles.subtitle}>
-          Precisamos do seu CPF na primeira compra para emitir a nota fiscal e prevenir fraudes. Não pedimos de
-          novo nos próximos pedidos.
-        </Text>
-        <TextField
-          label="CPF"
-          value={cpf}
-          onChangeText={(value) => setCpf(maskCpf(value))}
-          placeholder="000.000.000-00"
-          keyboardType="number-pad"
+    <FormSheet
+      footer={
+        <Button
+          title={salvando ? 'Confirmando...' : 'Confirmar'}
+          onPress={handleConfirmar}
+          disabled={!isCpfValido(digits) || salvando}
         />
-        <Button title={salvando ? 'Confirmando...' : 'Confirmar'} onPress={handleConfirmar} disabled={!podeConfirmar} />
-      </View>
-    </View>
+      }
+    >
+      <Text style={styles.title}>Confirme seu CPF</Text>
+      <Text style={styles.subtitle}>
+        Precisamos do seu CPF na primeira compra para emitir a nota fiscal e prevenir fraudes. Não pedimos de
+        novo nos próximos pedidos.
+      </Text>
+      <TextField
+        label="CPF"
+        value={cpf}
+        onChangeText={(value) => {
+          setErro(undefined);
+          setCpf(diagnosticsRef.current.measureOnChangeText(value, maskCpf));
+        }}
+        placeholder="000.000.000-00"
+        keyboardType="number-pad"
+        editable={!salvando}
+        error={fieldError}
+      />
+    </FormSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  card: {
-    backgroundColor: lightColors.bg.primary,
-    borderTopLeftRadius: radii.modal,
-    borderTopRightRadius: radii.modal,
-    padding: spacing['6'],
-  },
   title: {
     fontFamily: 'HankenGrotesk-Bold',
     fontSize: typography.sizes.xl.fontSize,

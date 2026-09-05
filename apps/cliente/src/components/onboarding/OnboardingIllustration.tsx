@@ -18,13 +18,13 @@ const BADGES: Badge[] = [
 /**
  * [IDS] CREATE — cartão ilustrativo escuro com o ícone de casa (círculo
  * verde) e os badges flutuantes ("Farmácia", "Roupas", "Conveniência"),
- * fiel a `docs/design-refs/cliente-01-onboarding.png`. Reaproveitado pelas
- * 3 telas de onboarding (Task 1) — o mesmo cartão aparece em todas, só o
- * texto abaixo muda.
+ * fiel a `docs/design-refs/cliente-01-onboarding.png`. Mantido fora da lista
+ * paginada em `OnboardingPager.tsx`, para que o cartão permaneça montado
+ * enquanto somente o texto abaixo muda.
  *
  * [Fix REQ-004 — gate 0.4] Cor de fundo do cartão vem do tema ESCURO
  * (`darkColors`), agora consistente com o restante do onboarding (também
- * dark, ver `OnboardingScreen.tsx`). Os badges ("Farmácia", "Roupas",
+ * dark, ver `OnboardingPager.tsx`). Os badges ("Farmácia", "Roupas",
  * "Conveniência") continuam usando `lightColors.bg.primary`/`text.primary`
  * de propósito — são chips claros/brancos flutuando sobre o cartão escuro,
  * fiel à referência. 100% via `@keepit/ui-tokens`, nenhum hex hardcoded.

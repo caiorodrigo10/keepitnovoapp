@@ -1,4 +1,4 @@
-import type { PedidoStatus } from '@keepit/core-data';
+import type { Pedido, PedidoStatus } from '@keepit/core-data';
 
 /**
  * [IDS] CREATE — nenhum util de tradução de `PedidoStatus` existia em
@@ -51,6 +51,21 @@ export function isPedidoEmAndamento(status: PedidoStatus): boolean {
 
 export function isPedidoConcluido(status: PedidoStatus): boolean {
   return !EM_ANDAMENTO_STATUSES.has(status);
+}
+
+export function partitionPedidos(pedidos: Pedido[]): {
+  emAndamento: Pedido[];
+  concluidos: Pedido[];
+  total: number;
+} {
+  const emAndamento = pedidos.filter(({ status }) => isPedidoEmAndamento(status));
+  const concluidos = pedidos.filter(({ status }) => isPedidoConcluido(status));
+
+  return {
+    emAndamento,
+    concluidos,
+    total: emAndamento.length + concluidos.length,
+  };
 }
 
 /** `true` para qualquer ramo de cancelamento/recusa/não-retirado (histórico "com problema"). */

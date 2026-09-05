@@ -3,7 +3,8 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "supabase/functions",
-    "lib": ["ES2022", "DOM"]
+    "lib": ["ES2022", "DOM"],
+    "allowImportingTsExtensions": true
   },
   "include": ["supabase/functions"],
   "exclude": ["node_modules", "dist", "supabase/.temp"]

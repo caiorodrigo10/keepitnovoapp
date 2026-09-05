@@ -9,6 +9,7 @@
 
 import {
   createClient as createSupabaseClient,
+  type AuthFlowType,
   type SupabaseClient,
   type SupportedStorage,
 } from '@supabase/supabase-js';
@@ -60,6 +61,8 @@ export interface CreateClientOptions {
   persistSession?: boolean;
   /** Default: `true` (default do `supabase-js`). */
   autoRefreshToken?: boolean;
+  /** Default do SDK: `implicit`; use `pkce` em apps móveis e server-side. */
+  flowType?: AuthFlowType;
 }
 
 /**
@@ -79,8 +82,12 @@ export function createClient(options: CreateClientOptions = {}): SupabaseClient<
   const url = requireEnv('SUPABASE_URL');
   const anonKey = requireEnv('SUPABASE_ANON_KEY');
 
-  const { storage, persistSession, autoRefreshToken } = options;
-  const hasAuthOptions = storage !== undefined || persistSession !== undefined || autoRefreshToken !== undefined;
+  const { storage, persistSession, autoRefreshToken, flowType } = options;
+  const hasAuthOptions =
+    storage !== undefined ||
+    persistSession !== undefined ||
+    autoRefreshToken !== undefined ||
+    flowType !== undefined;
 
   if (!hasAuthOptions) {
     return createSupabaseClient<Database>(url, anonKey);
@@ -91,6 +98,7 @@ export function createClient(options: CreateClientOptions = {}): SupabaseClient<
       ...(storage !== undefined ? { storage } : {}),
       ...(persistSession !== undefined ? { persistSession } : {}),
       ...(autoRefreshToken !== undefined ? { autoRefreshToken } : {}),
+      ...(flowType !== undefined ? { flowType } : {}),
     },
   });
 }

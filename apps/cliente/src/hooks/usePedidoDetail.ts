@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 
-import type { AsyncCallOptions, Pedido } from '@keepit/core-data';
+import type { Pedido } from '@keepit/core-data';
 
 import { isPedidoEmAndamento } from '../lib/pedidoStatus';
 import { usePedidosMine } from './usePedidosMine';
@@ -27,9 +27,8 @@ export interface PedidoDetailState {
 export function usePedidoDetail(
   clienteId: string | null,
   pedidoId?: string,
-  options?: AsyncCallOptions,
 ): PedidoDetailState {
-  const { data: pedidos, loading, error, refresh } = usePedidosMine(clienteId, options);
+  const { data: pedidos, loading, error, refresh } = usePedidosMine(clienteId);
 
   const pedido = useMemo(() => {
     if (pedidoId) {

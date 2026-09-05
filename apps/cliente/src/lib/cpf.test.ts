@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { apenasDigitosCpf, isCpfValido } from './cpf';
+import { apenasDigitosCpf, isCpfValido, maskCpf } from './cpf';
 
 describe('cpf (Cliente, Story 6.5, AC2)', () => {
   it('aceita um CPF válido conhecido (gerado por algoritmo, não real), com máscara', () => {
@@ -41,5 +41,10 @@ describe('cpf (Cliente, Story 6.5, AC2)', () => {
   it('apenasDigitosCpf remove toda pontuação/máscara', () => {
     expect(apenasDigitosCpf('111.444.777-35')).toBe('11144477735');
     expect(apenasDigitosCpf('  111 444 777 35 ')).toBe('11144477735');
+  });
+
+  it('aplica a máscara e limita a entrada a 11 dígitos', () => {
+    expect(maskCpf('11144477735')).toBe('111.444.777-35');
+    expect(maskCpf('111.444.777-35123')).toBe('111.444.777-35');
   });
 });

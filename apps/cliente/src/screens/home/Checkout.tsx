@@ -1,13 +1,13 @@
 import { useEffect } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { businessConfig } from '@keepit/config';
-import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
+import { businessConfig, CUSTOMER_LABELS } from '@keepit/config';
+import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 
 import { CartItemRow, SummaryLinkRow } from '../../components/checkout';
-import { Button, Checkbox, Screen } from '../../components/ui';
+import { AppHeader, Button, Checkbox, Screen } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useHubDetail } from '../../hooks/useHubDetail';
@@ -15,11 +15,12 @@ import { useStoreDetail } from '../../hooks/useStoreDetail';
 import { computeCheckoutTotals } from '../../lib/checkoutTotals';
 import {
   calcularTicketMinimo,
+  canCheckoutStore,
   deveSincronizarCpfCollected,
   faltaParaTicketMinimo,
+  getCheckoutStoreBlockMessage,
   podeFinalizarNoHorario,
 } from '../../lib/checkoutValidation';
-import { DEFAULT_HUB_ID } from '../../lib/discoveryDisplay';
 import { formatReais } from '../../lib/format';
 import type { HomeStackParamList, RootStackParamList } from '../../navigation/types';
 
@@ -48,19 +49,15 @@ export default function Checkout({ navigation }: Props) {
   const cart = useCart();
   const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
-  const hubId = cart.hubId ?? DEFAULT_HUB_ID;
-  const { data: hub } = useHubDetail(hubId, {});
-  const { data: loja } = useStoreDetail(cart.estabelecimentoId ?? '', {});
+  const { data: hub } = useHubDetail(cart.hubId ?? '', {});
+  const { data: loja, loading: storeLoading } = useStoreDetail(cart.estabelecimentoId ?? '', {});
   const { data: cliente } = useCurrentCliente();
 
-  // Pré-seleciona o hub/cartão default (Épico 0 não tem "hub atual" salvo no
-  // perfil do cliente) — mesmo padrão de fallback usado pela Home (Story 0.5).
+  // Pré-seleciona apenas o cartão default. O hub precisa ser uma escolha
+  // explícita do cliente e nunca é preenchido por fallback.
   useEffect(() => {
-    if (!cart.hubId) {
-      cart.setHubId(DEFAULT_HUB_ID);
-    }
     if (!cart.payment && cart.cards.length > 0) {
-      cart.setPayment({ type: 'cartao', cardId: cart.cards[0].id });
+      void cart.setPayment({ type: 'cartao', cardId: cart.cards[0].id });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -95,6 +92,8 @@ export default function Checkout({ navigation }: Props) {
   const ticketMinimo = calcularTicketMinimo(loja);
   const abaixoDoTicketMinimo = cart.subtotalReais < ticketMinimo;
   const faltaParaMinimo = faltaParaTicketMinimo(cart.subtotalReais, ticketMinimo);
+  const lojaDisponivelParaCompra = canCheckoutStore(loja);
+  const lojaIndisponivelMensagem = getCheckoutStoreBlockMessage(loja);
 
   const payment = cart.payment;
   const cartaoSelecionado =
@@ -103,6 +102,18 @@ export default function Checkout({ navigation }: Props) {
     payment?.type === 'pix' ? 'PIX' : cartaoSelecionado ? `Cartão •••• ${cartaoSelecionado.ultimo4}` : 'Escolher';
 
   const handlePagar = () => {
+    if (!canCheckoutStore(loja)) {
+      Alert.alert(
+        'Loja indisponível',
+        getCheckoutStoreBlockMessage(loja) ?? 'Esta loja está fechada agora',
+      );
+      return;
+    }
+
+    if (!cart.hubId) {
+      return;
+    }
+
     // Story 6.3 (AC1-AC3): validação temporal SÍNCRONA client-side, ANTES de
     // qualquer outra validação/navegação — fail-closed (sem hub/loja
     // carregados ou hub fechado hoje, a validação nunca passa por omissão).
@@ -130,15 +141,19 @@ export default function Checkout({ navigation }: Props) {
     navigation.navigate('Pagamento');
   };
 
+  const handleOpenPayment = () => {
+    const blockMessage = getCheckoutStoreBlockMessage(loja);
+    if (blockMessage) {
+      Alert.alert('Loja indisponível', blockMessage);
+      return;
+    }
+
+    navigation.navigate('Pagamento');
+  };
+
   return (
     <Screen>
-      <View style={styles.topBar}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={8} style={styles.roundButton}>
-          <Text style={styles.roundButtonIcon}>‹</Text>
-        </Pressable>
-        <Text style={styles.title}>Checkout</Text>
-        <View style={styles.roundButton} />
-      </View>
+      <AppHeader title="Checkout" back={{ navigation, fallback: () => navigation.navigate('Home') }} />
 
       <View style={styles.items}>
         {cart.items.map((item) => (
@@ -155,7 +170,7 @@ export default function Checkout({ navigation }: Props) {
 
       <SummaryLinkRow
         title={formaPagamentoLabel}
-        onPress={() => navigation.navigate('Pagamento')}
+        onPress={handleOpenPayment}
       />
 
       <View style={styles.totais}>
@@ -164,7 +179,7 @@ export default function Checkout({ navigation }: Props) {
           <Text style={styles.totaisValue}>{formatReais(cart.subtotalReais)}</Text>
         </View>
         <View style={styles.totaisRow}>
-          <Text style={styles.totaisLabel}>Taxa de deslocamento</Text>
+          <Text style={styles.totaisLabel}>{CUSTOMER_LABELS.freight}</Text>
           <Text style={styles.totaisValue}>{formatReais(taxaDeslocamentoReais)}</Text>
         </View>
         {taxaServicoReais > 0 && (
@@ -181,7 +196,11 @@ export default function Checkout({ navigation }: Props) {
       </View>
 
       <View style={styles.nfRow}>
-        <Checkbox checked={cart.nfSolicitada} onToggle={() => cart.setNfSolicitada(!cart.nfSolicitada)}>
+        <Checkbox
+          checked={cart.nfSolicitada}
+          onToggle={() => cart.setNfSolicitada(!cart.nfSolicitada)}
+          label="Solicitar nota fiscal"
+        >
           Solicitar nota fiscal
         </Checkbox>
       </View>
@@ -192,39 +211,22 @@ export default function Checkout({ navigation }: Props) {
         </Text>
       )}
 
+      {!storeLoading && lojaIndisponivelMensagem && (
+        <Text accessibilityRole="alert" style={styles.avisoLojaIndisponivel}>
+          {lojaIndisponivelMensagem}
+        </Text>
+      )}
+
       <Button
         title={`Pagar ${formatReais(totalReais)}`}
         onPress={handlePagar}
-        disabled={cart.items.length === 0 || abaixoDoTicketMinimo}
+        disabled={cart.items.length === 0 || !cart.hubId || abaixoDoTicketMinimo || !lojaDisponivelParaCompra}
       />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing['4'],
-  },
-  roundButton: {
-    width: 36,
-    height: 36,
-    borderRadius: radii.full,
-    backgroundColor: lightColors.bg.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  roundButtonIcon: {
-    fontSize: typography.sizes.lg.fontSize,
-    color: lightColors.text.primary,
-  },
-  title: {
-    fontFamily: 'HankenGrotesk-Bold',
-    fontSize: typography.sizes.xl.fontSize,
-    color: lightColors.text.primary,
-  },
   items: {
     marginBottom: spacing['2'],
   },
@@ -251,6 +253,12 @@ const styles = StyleSheet.create({
     marginBottom: spacing['5'],
   },
   avisoTicketMinimo: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.accent.warning,
+    marginBottom: spacing['3'],
+  },
+  avisoLojaIndisponivel: {
     fontFamily: 'HankenGrotesk-Regular',
     fontSize: typography.sizes.sm.fontSize,
     color: lightColors.accent.warning,

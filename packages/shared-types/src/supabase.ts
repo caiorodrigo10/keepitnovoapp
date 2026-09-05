@@ -12,6 +12,13 @@
 // `apps/supabase/supabase/migrations/` e nos arquivos de Story em
 // `docs/stories/`, não precisa ser duplicado aqui.
 //
+// Stories 12.11/12.13 (2026-09-05) — overlay de drift derivado do output oficial
+// `mcp__codex_apps__supabase_generate_typescript_types`: adiciona somente
+// favoritos, `account_deletion_requests` e sua RPC de cancelamento.
+// O keepit-dev ainda não recebeu as migrations locais 20260814000004–00006;
+// por isso, suas colunas/RPCs forward-schema permanecem verbatim abaixo.
+// Regenerar o arquivo inteiro assim que o histórico remoto alcançar o repo.
+//
 // NÃO editar à mão — regenerar via `generate_typescript_types` quando o
 // schema mudar. As seções abaixo de `DatabaseWithoutInternals` (Tables<>,
 // TablesInsert<>, TablesUpdate<>, Enums<>, CompositeTypes<>, Constants) são
@@ -34,6 +41,48 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_deletion_requests: {
+        Row: {
+          cancelled_at: string | null
+          completed_at: string | null
+          delete_at: string
+          failed_at: string | null
+          failure_code: string | null
+          id: string
+          processing_at: string | null
+          requested_at: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cancelled_at?: string | null
+          completed_at?: string | null
+          delete_at?: string
+          failed_at?: string | null
+          failure_code?: string | null
+          id?: string
+          processing_at?: string | null
+          requested_at?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cancelled_at?: string | null
+          completed_at?: string | null
+          delete_at?: string
+          failed_at?: string | null
+          failure_code?: string | null
+          id?: string
+          processing_at?: string | null
+          requested_at?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       _canary: {
         Row: {
           id: number
@@ -99,6 +148,79 @@ export type Database = {
           telefone?: string | null
         }
         Relationships: []
+      }
+      clientes_estabelecimentos_favoritos: {
+        Row: {
+          cliente_id: string
+          criado_em: string
+          estabelecimento_id: string
+        }
+        Insert: {
+          cliente_id: string
+          criado_em?: string
+          estabelecimento_id: string
+        }
+        Update: {
+          cliente_id?: string
+          criado_em?: string
+          estabelecimento_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "clientes_estabelecimentos_favoritos_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "clientes_estabelecimentos_favoritos_estabelecimento_id_fkey"
+            columns: ["estabelecimento_id"]
+            isOneToOne: false
+            referencedRelation: "carteira_lojista"
+            referencedColumns: ["estabelecimento_id"]
+          },
+          {
+            foreignKeyName: "clientes_estabelecimentos_favoritos_estabelecimento_id_fkey"
+            columns: ["estabelecimento_id"]
+            isOneToOne: false
+            referencedRelation: "estabelecimentos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      clientes_hubs_favoritos: {
+        Row: {
+          cliente_id: string
+          criado_em: string
+          hub_id: string
+        }
+        Insert: {
+          cliente_id: string
+          criado_em?: string
+          hub_id: string
+        }
+        Update: {
+          cliente_id?: string
+          criado_em?: string
+          hub_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "clientes_hubs_favoritos_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "clientes_hubs_favoritos_hub_id_fkey"
+            columns: ["hub_id"]
+            isOneToOne: false
+            referencedRelation: "hubs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       estabelecimentos: {
         Row: {
@@ -730,6 +852,14 @@ export type Database = {
           bloqueado: boolean
           bloqueado_em: string
           cliente_id: string
+        }[]
+      }
+      cancel_account_deletion_request: {
+        Args: { p_user_id: string }
+        Returns: {
+          delete_at: string
+          requested_at: string
+          status: string
         }[]
       }
       // Bloco 10 (Story 6.21) — RPC nova

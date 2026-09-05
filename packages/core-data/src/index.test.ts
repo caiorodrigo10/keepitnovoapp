@@ -2,7 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@keepit/shared-types';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { __resetDataClientForTests, createDataClient, getDataClient } from './index';
+import { __resetDataClientForTests, createDataClient, getDataClient, initializeDataClient } from './index';
+import { ClienteMockStateStore } from './mock/cliente-state-store';
 
 describe('createDataClient', () => {
   it('defaults to source "mock" and exposes the 9 ports (7 do Épico 0 + analytics, Story 1.10 + lojistaAuth, Story 3.2)', async () => {
@@ -17,6 +18,10 @@ describe('createDataClient', () => {
     expect(client.admin).toBeDefined();
     expect(client.analytics).toBeDefined();
     expect(client.lojistaAuth).toBeDefined();
+    expect(client.favoriteHubs).toBeDefined();
+    expect(client.favoriteStores).toBeDefined();
+    expect(client.accountDeletion).toBeDefined();
+    expect(client.demoScenario?.advanceClock).toBeTypeOf('function');
 
     const hubs = await client.hub.listNearby();
     expect(hubs.length).toBeGreaterThan(0);
@@ -34,6 +39,10 @@ describe('createDataClient', () => {
     expect(client.admin).toBeDefined();
     expect(client.analytics).toBeDefined();
     expect(client.lojistaAuth).toBeDefined();
+    expect(client.favoriteHubs).toBeDefined();
+    expect(client.favoriteStores).toBeDefined();
+    expect(client.accountDeletion).toBeDefined();
+    expect(client.demoScenario).toBeUndefined();
 
     // `hub.listNearby` era o sentinela histórico deste teste; `admin.refundQueue.list`
     // (Épico 8) virou implementação real no Bloco 09 — `store.getCatalog`
@@ -67,6 +76,26 @@ describe('getDataClient', () => {
     const second = getDataClient();
     expect(first).toBe(second);
     __resetDataClientForTests();
+  });
+});
+
+describe('initializeDataClient', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    __resetDataClientForTests();
+  });
+
+  it('descarta o singleton parcial quando a hidratação rejeita e permite uma inicialização saudável', async () => {
+    const hydrate = vi.spyOn(ClienteMockStateStore.prototype, 'hydrate').mockRejectedValueOnce(new Error('boom'));
+    const partialClient = getDataClient({ source: 'mock' });
+
+    await expect(initializeDataClient({ source: 'mock' })).rejects.toThrow('boom');
+    hydrate.mockRestore();
+
+    const recoveredClient = await initializeDataClient({ source: 'mock' });
+
+    expect(recoveredClient).not.toBe(partialClient);
+    await expect(recoveredClient.auth.currentUser({ delayMs: 0 })).resolves.toBeNull();
   });
 });
 

@@ -79,19 +79,34 @@ export function getRatingPlaceholder(estabelecimentoId: string): number {
   return RATING_POR_ESTABELECIMENTO[estabelecimentoId] ?? RATING_FALLBACK;
 }
 
-/**
- * [AUTO-DECISION] "Favoritos" da Home (Task 1) → não existe port de
- * favoritos no Épico 0 (Dev Notes da Story 0.5 já antecipa isso e autoriza
- * usar "um subconjunto de `store.port` marcado como favorito na fixture").
- * Fixado como a loja com maior detalhe no protótipo ("Farmácia Vida", único
- * estabelecimento com catálogo/pedido detalhados no protótipo) — não
- * persistido, não editável nesta story (favoritar de verdade é fora de
- * escopo do Épico 0).
- */
-const FAVORITOS_IDS = new Set(['estab-farmacia-vida']);
+export function selectFavoriteEntities<T extends { id: string }>(
+  entities: readonly T[],
+  favoriteIds: ReadonlySet<string>,
+): T[] {
+  return entities.filter((entity) => favoriteIds.has(entity.id));
+}
 
-export function isFavorito(estabelecimentoId: string): boolean {
-  return FAVORITOS_IDS.has(estabelecimentoId);
+/**
+ * Resolve a lista persistida sem fabricar placeholders. Uma leitura ausente
+ * é omitida somente quando o lote inteiro resolve; se qualquer leitura falha,
+ * a Promise rejeita para a superfície manter seu último snapshot íntegro.
+ */
+export async function resolveFavoriteEntities<T>(
+  favoriteIds: ReadonlySet<string>,
+  getById: (id: string) => Promise<T | null>,
+  include: (entity: T) => boolean = () => true,
+): Promise<T[]> {
+  const reads: Promise<T | null>[] = [...favoriteIds].map((id) => getById(id));
+  const entities: (T | null)[] = await Promise.all(reads);
+  return entities.filter((entity): entity is T => entity !== null && include(entity));
+}
+
+export function shouldResolveFavoriteSnapshot(
+  loading: boolean,
+  hasError: boolean,
+  favoriteCollectionsChanged: boolean,
+): boolean {
+  return !loading && (!hasError || favoriteCollectionsChanged);
 }
 
 /**

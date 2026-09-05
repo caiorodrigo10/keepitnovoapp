@@ -8,6 +8,7 @@ import {
   type PagamentoSimuladoController,
   type PagamentoSimuladoStatus,
 } from '../lib/pagamentoSimulado';
+import { invalidatePedidos } from '../lib/ordersResource';
 
 export interface UsePagamentoSimuladoResult {
   status: PagamentoSimuladoStatus;
@@ -59,7 +60,11 @@ export function usePagamentoSimulado(
       // `usePedidosMine.ts` para não quebrar no web (react-native-web).
       setTimeout: (handler, ms) => setTimeout(handler, ms),
       clearTimeout: (id) => clearTimeout(id),
-      confirmarPagamento: () => getDataClient().order.confirmarPagamento(pedidoId),
+      confirmarPagamento: async () => {
+        const pedido = await getDataClient().order.confirmarPagamento(pedidoId);
+        await invalidatePedidos(pedido.cliente_id);
+        return pedido;
+      },
       delayMs,
       pauseMs: CONFIRMADO_PAUSE_MS,
       onStatusChange: setStatus,

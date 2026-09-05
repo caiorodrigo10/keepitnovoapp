@@ -8,18 +8,27 @@ import { FloatingCartButton } from '../../components/checkout';
 import {
   AsyncStateBlock,
   CategoryChips,
-  DevStateToggle,
   ProductRow,
   SearchBar,
   StoreCard,
-  toAsyncCallOptions,
-  type DevSimState,
 } from '../../components/discovery';
 import { Button, Screen } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
+import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useSearchLojas } from '../../hooks/useSearchLojas';
 import { useSearchProdutos } from '../../hooks/useSearchProdutos';
 import { CATEGORIAS_BUSCA } from '../../lib/discoveryDisplay';
+import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
+import {
+  createCategoryRecentSearch,
+  GENERAL_SEARCH_SUGGESTIONS,
+  getRecentSearchLabel,
+  recordRecentSearch,
+  resolveRecentSearchSelection,
+  resolveSearchSuggestionSelection,
+  resolveSearchViewState,
+  type SearchRecentEntry,
+} from '../../lib/searchViewState';
 import type { HomeStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'BuscaProduto'>;
@@ -39,11 +48,12 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'BuscaProduto'>;
  */
 export default function BuscaProduto({ route, navigation }: Props) {
   const cart = useCart();
-  const [devState, setDevState] = useState<DevSimState>('normal');
-  const options = toAsyncCallOptions(devState);
+  const searchSimulation = useQaSimulation('search');
+  const options = simulationToAsyncCallOptions(searchSimulation);
 
   const [query, setQuery] = useState(route.params?.query ?? '');
   const [categoria, setCategoria] = useState(route.params?.categoria ?? 'todos');
+  const [recentQueries, setRecentQueries] = useState<SearchRecentEntry[]>([]);
 
   // Story 5.6 (AC5) — busca escopada ao hub REAL do carrinho
   // (`CartContext.hubId`), não mais a um `DEFAULT_HUB_ID` hard-coded.
@@ -53,12 +63,12 @@ export default function BuscaProduto({ route, navigation }: Props) {
 
   const {
     data: produtos,
-    loading: loadingProdutos,
+    loading: productsLoading,
     error: errorProdutos,
   } = useSearchProdutos(hubId ?? '', query, categoria, options);
   const {
     data: lojas,
-    loading: loadingLojas,
+    loading: storesLoading,
     error: errorLojas,
   } = useSearchLojas(hubId ?? '', query, categoria, options);
 
@@ -90,9 +100,28 @@ export default function BuscaProduto({ route, navigation }: Props) {
     );
   }
 
+  const loadingProdutos = productsLoading || isForcedLoading(searchSimulation);
+  const loadingLojas = storesLoading || isForcedLoading(searchSimulation);
   const loading = loadingProdutos || loadingLojas;
   const error = errorProdutos ?? errorLojas;
-  const semResultados = !loading && !error && produtos.length === 0 && lojas.length === 0;
+  const viewState = resolveSearchViewState({
+    surface: 'combined',
+    query,
+    category: categoria,
+    loading,
+    error,
+    stores: lojas,
+    products: produtos,
+    recent: recentQueries,
+    suggestions: GENERAL_SEARCH_SUGGESTIONS,
+  });
+
+  const selectRecent = (recent: SearchRecentEntry) => {
+    const selection = resolveRecentSearchSelection(recent);
+    setQuery(selection.query);
+    setCategoria(selection.category);
+    setRecentQueries((current) => recordRecentSearch(current, recent));
+  };
 
   return (
     <View style={styles.flexOne}>
@@ -106,32 +135,77 @@ export default function BuscaProduto({ route, navigation }: Props) {
           </Pressable>
         </View>
 
-        <DevStateToggle value={devState} onChange={setDevState} />
-
         <CategoryChips categorias={CATEGORIAS_BUSCA} selected={categoria} onSelect={setCategoria} />
 
-        {error ? (
+        {viewState.kind === 'error' ? (
           <AsyncStateBlock kind="error" errorLabel="Não foi possível buscar agora. Tente novamente." />
-        ) : loading ? (
+        ) : viewState.kind === 'loading' ? (
           <AsyncStateBlock kind="loading" />
-        ) : semResultados ? (
-          <AsyncStateBlock kind="empty" emptyLabel={`Nenhum resultado para "${query}".`} />
+        ) : viewState.kind === 'suggestions' ? (
+          <>
+            {viewState.recent.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>BUSCAS RECENTES</Text>
+                {viewState.recent.map((recent) => {
+                  const label = getRecentSearchLabel(recent);
+                  return (
+                    <Pressable key={label} style={styles.suggestionRow} onPress={() => selectRecent(recent)}>
+                      <Text style={styles.suggestionLabel}>{label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>SUGESTÕES</Text>
+              {viewState.general.map((suggestion) => (
+                <Pressable
+                  key={suggestion.category}
+                  style={styles.suggestionRow}
+                  onPress={() => {
+                    const selection = resolveSearchSuggestionSelection(suggestion);
+                    setCategoria(selection.category);
+                    setQuery(selection.query);
+                    setRecentQueries((current) =>
+                      recordRecentSearch(current, createCategoryRecentSearch(suggestion)),
+                    );
+                  }}
+                >
+                  <Text style={styles.suggestionLabel}>{suggestion.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </>
+        ) : viewState.kind === 'empty' ? (
+          <AsyncStateBlock
+            kind="empty"
+            emptyLabel={
+              viewState.scope === 'category'
+                ? `Nenhum resultado nesta categoria para "${query}".`
+                : `Nenhum resultado para "${query}".`
+            }
+          />
         ) : (
           <>
-            {lojas.length > 0 && (
+            {viewState.showStores && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>LOJAS</Text>
-                {lojas.map((loja) => (
+                {lojas.map(({ loja, disponibilidade }) => (
                   <StoreCard
                     key={loja.id}
                     loja={loja}
-                    onPress={() => navigation.navigate('Loja', { estabelecimentoId: loja.id })}
+                    disponibilidade={disponibilidade}
+                    onPress={() => {
+                      setRecentQueries((current) => recordRecentSearch(current, query));
+                      navigation.navigate('Loja', { estabelecimentoId: loja.id });
+                    }}
                   />
                 ))}
               </View>
             )}
 
-            {produtos.length > 0 && (
+            {viewState.showProducts && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>PRODUTOS</Text>
                 {produtos.map(({ produto, loja }) => (
@@ -139,7 +213,10 @@ export default function BuscaProduto({ route, navigation }: Props) {
                     key={produto.id}
                     produto={produto}
                     subtitulo={loja.nome_fantasia}
-                    onPress={() => navigation.navigate('DetalheProduto', { produtoId: produto.id })}
+                    onPress={() => {
+                      setRecentQueries((current) => recordRecentSearch(current, query));
+                      navigation.navigate('DetalheProduto', { produtoId: produto.id });
+                    }}
                   />
                 ))}
               </View>
@@ -182,5 +259,16 @@ const styles = StyleSheet.create({
     letterSpacing: typography.letterSpacing.section,
     color: lightColors.text.tertiary,
     marginBottom: spacing['2'],
+  },
+  suggestionRow: {
+    minHeight: spacing['12'],
+    justifyContent: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: lightColors.border.subtle,
+  },
+  suggestionLabel: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.md.fontSize,
+    color: lightColors.text.primary,
   },
 });

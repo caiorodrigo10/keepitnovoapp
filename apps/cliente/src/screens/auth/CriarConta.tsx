@@ -5,7 +5,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { EmailJaExisteError, getDataClient } from '@keepit/core-data';
 import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 
-import { Button, Checkbox, Screen, TextField } from '../../components/ui';
+import { Button, Checkbox, FormScreen, TextField } from '../../components/ui';
 import { isTelefoneBRValido, maskTelefoneBR } from '../../lib/telefoneMask';
 import type { AuthStackParamList } from '../../navigation/types';
 
@@ -130,7 +130,7 @@ export default function CriarConta({ navigation }: Props) {
   }
 
   return (
-    <Screen>
+    <FormScreen footer={<Button title="Criar conta" onPress={handleCriarConta} loading={loading} />}>
       <Text style={styles.brand}>KEEPITHUB</Text>
       <Text style={styles.title}>Criar conta</Text>
       <Text style={styles.subtitle}>Compre em minutos no hub mais perto de você.</Text>
@@ -174,21 +174,23 @@ export default function CriarConta({ navigation }: Props) {
       />
 
       <View style={styles.checkboxBlock}>
-        <Checkbox checked={aceiteTermos} onToggle={() => setAceiteTermos((previous) => !previous)}>
+        <Checkbox
+          checked={aceiteTermos}
+          onToggle={() => setAceiteTermos((previous) => !previous)}
+          label="Aceito os Termos e a Política de Privacidade"
+          error={errors.termos}
+        >
           Aceito os <Text style={styles.bold}>Termos</Text> e a{' '}
           <Text style={styles.bold}>Política de Privacidade</Text>.
         </Checkbox>
-        {!!errors.termos && <Text style={styles.termsError}>{errors.termos}</Text>}
       </View>
-
-      <Button title="Criar conta" onPress={handleCriarConta} loading={loading} />
 
       <Pressable style={styles.loginRow} onPress={() => navigation.navigate('Login')} hitSlop={8}>
         <Text style={styles.loginText}>
           Já tem conta? <Text style={styles.loginTextBold}>Entrar</Text>
         </Text>
       </Pressable>
-    </Screen>
+    </FormScreen>
   );
 }
 
@@ -225,13 +227,6 @@ const styles = StyleSheet.create({
   bold: {
     fontFamily: 'HankenGrotesk-Bold',
     color: lightColors.text.primary,
-  },
-  termsError: {
-    marginTop: spacing['1'],
-    marginLeft: spacing['5'] + spacing['3'],
-    fontFamily: 'HankenGrotesk-Regular',
-    fontSize: typography.sizes.sm.fontSize,
-    color: lightColors.accent.warning,
   },
   loginRow: {
     alignItems: 'center',

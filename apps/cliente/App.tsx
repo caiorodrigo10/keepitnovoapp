@@ -1,10 +1,6 @@
-// Story 2.5.1 (AC4) — PRIMEIRO import do arquivo, deliberadamente. Roda seu
-// efeito colateral (bootstrap do `DataClient`, com AsyncStorage quando
-// `EXPO_PUBLIC_DATA_SOURCE=supabase`) na avaliação do módulo, antes de
-// qualquer outro import — inclusive antes de `RootNavigator`, cujo
-// `useEffect` chama `getDataClient()` pela primeira vez. Ver Dev Notes
-// "Sequência obrigatória" da story e o JSDoc do próprio módulo.
-import './src/lib/dataClientBootstrap';
+// PRIMEIRO import do arquivo, deliberadamente: inicia a hidratação antes que
+// qualquer consumidor de `getDataClient()` seja montado.
+import { useDataClientReady } from './src/lib/dataClientBootstrap';
 
 import { useMemo } from 'react';
 import { Linking } from 'react-native';
@@ -17,7 +13,12 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { getDataClient } from '@keepit/core-data';
 import { fonts } from '@keepit/ui-tokens';
 
+import { SimulatedStateBanner } from './src/components/qa/SimulatedStateBanner';
+import { QA_BUILD_ENABLED } from './src/config/buildInfo';
 import { CartProvider } from './src/context/CartContext';
+import { QaScenarioProvider } from './src/context/QaScenarioContext';
+import { canMountReadyApp } from './src/lib/appReadiness';
+import { isQaRuntimeEnabled } from './src/lib/qaAccess';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { createPasswordRecoveryLinking } from './src/navigation/passwordRecoveryLinking';
 
@@ -39,23 +40,41 @@ import { createPasswordRecoveryLinking } from './src/navigation/passwordRecovery
  * comportamento, só evitaria uma alocação desnecessária.
  */
 export default function App() {
+  const dataReady = useDataClientReady();
   const [fontsLoaded, fontError] = useFonts(fonts);
-  const linking = useMemo(() => createPasswordRecoveryLinking(getDataClient().auth, Linking), []);
 
   // Espera as fontes carregarem no nativo; se o carregamento falhar (ex.: alvo
   // web onde o .ttf não decodifica), renderiza mesmo assim com fonte fallback
   // em vez de travar em tela branca.
-  if (!fontsLoaded && !fontError) {
+  if (!canMountReadyApp(dataReady, fontsLoaded, Boolean(fontError))) {
     return null;
   }
+
+  return <ReadyApp />;
+}
+
+function ReadyApp() {
+  const client = getDataClient();
+  const linking = useMemo(() => createPasswordRecoveryLinking(client.auth, Linking), [client]);
+  const qaEnabled = isQaRuntimeEnabled(QA_BUILD_ENABLED, client.demoScenario);
+  const navigation = (
+    <NavigationContainer linking={linking}>
+      <RootNavigator />
+    </NavigationContainer>
+  );
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <CartProvider>
-          <NavigationContainer linking={linking}>
-            <RootNavigator />
-          </NavigationContainer>
+          {qaEnabled ? (
+            <QaScenarioProvider>
+              <SimulatedStateBanner />
+              {navigation}
+            </QaScenarioProvider>
+          ) : (
+            navigation
+          )}
           <StatusBar style="dark" />
         </CartProvider>
       </SafeAreaProvider>

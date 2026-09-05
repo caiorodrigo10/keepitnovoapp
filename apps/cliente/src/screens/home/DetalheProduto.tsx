@@ -1,17 +1,21 @@
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
+import { resolveLojaDisponibilidade } from '@keepit/core-data';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { FloatingCartButton } from '../../components/checkout';
-import { AsyncStateBlock, DevStateToggle, RatingLabel, toAsyncCallOptions, type DevSimState } from '../../components/discovery';
+import { AsyncStateBlock, RatingLabel } from '../../components/discovery';
 import { ImagePlaceholder } from '../../components/discovery/ImagePlaceholder';
 import { Screen } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
+import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useProductDetail } from '../../hooks/useProductDetail';
 import { useStoreDetail } from '../../hooks/useStoreDetail';
+import { createActionInterlock } from '../../lib/actionInterlock';
 import { getRatingPlaceholder } from '../../lib/discoveryDisplay';
+import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
 import type { HomeStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'DetalheProduto'>;
@@ -31,20 +35,95 @@ function formatPreco(preco: number): string {
  * navega para `Carrinho` — é o ponto de entrada real do fluxo de checkout
  * desta story.
  *
- * **Story 6.1 (AC1/AC3):** `<FloatingCartButton>` adicionado como irmão de
- * `<Screen>`. `cart.addItem` agora recebe um `onCommitted` — a navegação
- * para `Carrinho` só acontece quando o item é REALMENTE adicionado (não
- * dispara se o cliente cancelar a confirmação de troca de loja).
+ * **Story 12.9:** a tela decide a confirmação e só navega depois que
+ * `cart.addItem` devolve `committed` (snapshot já persistido).
  */
 export default function DetalheProduto({ route, navigation }: Props) {
   const { produtoId } = route.params;
-  const [devState, setDevState] = useState<DevSimState>('normal');
-  const options = toAsyncCallOptions(devState);
+  const storesSimulation = useQaSimulation('stores');
   const [quantidade, setQuantidade] = useState(1);
+  const [addPending, setAddPending] = useState(false);
+  const addInterlockRef = useRef(createActionInterlock());
   const cart = useCart();
 
-  const { data: produto, loading: loadingProduto, error: errorProduto } = useProductDetail(produtoId, options);
+  const { data: produto, loading: productLoading, error: errorProduto } = useProductDetail(
+    produtoId,
+    simulationToAsyncCallOptions(storesSimulation),
+  );
+  const loadingProduto = productLoading || isForcedLoading(storesSimulation);
   const { data: loja } = useStoreDetail(produto?.estabelecimento_id ?? '', {});
+  const disponibilidade = loja ? resolveLojaDisponibilidade(loja) : null;
+  const compraDisponivel = disponibilidade?.disponivelParaCompra ?? false;
+  const motivoIndisponibilidade = disponibilidade && !disponibilidade.disponivelParaCompra
+    ? disponibilidade.estado === 'pausada'
+      ? 'Esta loja está pausada no momento'
+      : 'Esta loja está fechada agora'
+    : null;
+
+  const showPersistenceError = () => {
+    Alert.alert(
+      'Não foi possível atualizar o carrinho',
+      'Não conseguimos salvar sua alteração. Tente novamente em instantes.',
+    );
+  };
+
+  const finishAddIntent = () => {
+    addInterlockRef.current.release();
+    setAddPending(false);
+  };
+
+  const handleAddItem = async (confirmed = false) => {
+    if (!produto || !loja || !resolveLojaDisponibilidade(loja).disponivelParaCompra) {
+      finishAddIntent();
+      return;
+    }
+
+    const input = {
+      estabelecimentoId: produto.estabelecimento_id,
+      produtoId: produto.id,
+      nome: produto.nome,
+      precoReais: produto.preco_reais,
+      quantidade,
+      fotoUrl: produto.foto_url,
+    };
+    const result = await cart.addItem(input, confirmed);
+
+    if (result.status === 'committed') {
+      finishAddIntent();
+      navigation.navigate('Carrinho');
+      return;
+    }
+
+    if (result.status === 'persistence_error') {
+      finishAddIntent();
+      showPersistenceError();
+      return;
+    }
+
+    if (result.status === 'confirmation_required') {
+      Alert.alert('Trocar de loja?', 'Isso vai limpar seu carrinho atual. Continuar?', [
+        { text: 'Cancelar', style: 'cancel', onPress: finishAddIntent },
+        {
+          text: 'Continuar',
+          style: 'destructive',
+          onPress: () => {
+            void handleAddItem(true);
+          },
+        },
+      ], { cancelable: true, onDismiss: finishAddIntent });
+      return;
+    }
+
+    finishAddIntent();
+  };
+
+  const beginAddItem = () => {
+    if (!addInterlockRef.current.acquire()) {
+      return;
+    }
+    setAddPending(true);
+    void handleAddItem();
+  };
 
   return (
     <View style={styles.flexOne}>
@@ -57,8 +136,6 @@ export default function DetalheProduto({ route, navigation }: Props) {
             <Text style={styles.roundButtonIcon}>♡</Text>
           </View>
         </View>
-
-        <DevStateToggle value={devState} onChange={setDevState} />
 
         {errorProduto ? (
           <AsyncStateBlock kind="error" errorLabel="Não foi possível carregar este produto. Tente novamente." />
@@ -111,25 +188,19 @@ export default function DetalheProduto({ route, navigation }: Props) {
               </View>
             </View>
 
+            {motivoIndisponibilidade && (
+              <Text accessibilityRole="alert" style={styles.avisoIndisponibilidade}>
+                {motivoIndisponibilidade}
+              </Text>
+            )}
+
             <Pressable
-              style={styles.addButton}
-              onPress={() => {
-                // Story 6.1 (AC3): `onCommitted` só dispara quando o item é
-                // REALMENTE adicionado — se a troca de loja exigir confirmação
-                // (`CartContext.addItem`), a navegação espera o cliente decidir
-                // em vez de ir para o Carrinho incondicionalmente.
-                cart.addItem(
-                  {
-                    estabelecimentoId: produto.estabelecimento_id,
-                    produtoId: produto.id,
-                    nome: produto.nome,
-                    precoReais: produto.preco_reais,
-                    quantidade,
-                    fotoUrl: produto.foto_url,
-                  },
-                  () => navigation.navigate('Carrinho'),
-                );
-              }}
+              accessibilityRole="button"
+              accessibilityLabel="Adicionar ao carrinho"
+              accessibilityState={{ disabled: addPending || !compraDisponivel, busy: addPending }}
+              disabled={addPending || !compraDisponivel}
+              style={[styles.addButton, (addPending || !compraDisponivel) && styles.addButtonDisabled]}
+              onPress={beginAddItem}
             >
               <Text style={styles.addButtonLabel}>Adicionar ao carrinho</Text>
               <Text style={styles.addButtonPreco}>{formatPreco(produto.preco_reais * quantidade)}</Text>
@@ -269,6 +340,17 @@ const styles = StyleSheet.create({
     fontFamily: 'HankenGrotesk-SemiBold',
     fontSize: typography.sizes.lg.fontSize,
     color: lightColors.text.primary,
+  },
+  addButtonDisabled: {
+    backgroundColor: lightColors.bg.muted,
+    borderColor: lightColors.border.default,
+    borderWidth: 1,
+  },
+  avisoIndisponibilidade: {
+    fontFamily: 'HankenGrotesk-Medium',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.accent.warning,
+    marginTop: spacing['4'],
   },
   addButtonPreco: {
     fontFamily: 'HankenGrotesk-Bold',

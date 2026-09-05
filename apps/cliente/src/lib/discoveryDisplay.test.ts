@@ -2,7 +2,74 @@ import { describe, expect, it } from 'vitest';
 
 import { businessConfig } from '@keepit/config';
 
-import { getRatingPlaceholder, resolveTicketMinimoReais } from './discoveryDisplay';
+import {
+  getRatingPlaceholder,
+  resolveFavoriteEntities,
+  resolveTicketMinimoReais,
+  selectFavoriteEntities,
+  shouldResolveFavoriteSnapshot,
+} from './discoveryDisplay';
+
+describe('favorite discovery projections (Story 12.11)', () => {
+  it('seleciona somente os IDs do contexto sem descartar entidades indisponíveis', () => {
+    const entities = [
+      { id: 'loja-aberta', state: 'aberta' },
+      { id: 'loja-pausada', state: 'pausada' },
+      { id: 'loja-estatica-antiga', state: 'aberta' },
+    ];
+
+    expect(
+      selectFavoriteEntities(entities, new Set(['loja-pausada'])),
+    ).toEqual([{ id: 'loja-pausada', state: 'pausada' }]);
+  });
+
+  it('resolve os IDs na ordem persistida, preserva inativos e omite apenas alvos ausentes', async () => {
+    const entities = new Map([
+      ['hub-ativo', { id: 'hub-ativo', ativo: true }],
+      ['hub-inativo', { id: 'hub-inativo', ativo: false }],
+    ]);
+
+    await expect(
+      resolveFavoriteEntities(
+        new Set(['hub-inativo', 'hub-ausente', 'hub-ativo']),
+        async (id) => entities.get(id) ?? null,
+      ),
+    ).resolves.toEqual([
+      { id: 'hub-inativo', ativo: false },
+      { id: 'hub-ativo', ativo: true },
+    ]);
+  });
+
+  it('rejeita a resolução inteira quando uma leitura falha para a UI manter o último snapshot', async () => {
+    await expect(
+      resolveFavoriteEntities(new Set(['hub-a']), async () => {
+        throw new Error('falha de leitura');
+      }),
+    ).rejects.toThrow('falha de leitura');
+  });
+
+  it('aplica a visibilidade pública somente depois que todas as leituras resolvem', async () => {
+    const entities = new Map([
+      ['loja-visivel', { id: 'loja-visivel', deletedAt: null }],
+      ['loja-excluida', { id: 'loja-excluida', deletedAt: '2026-09-05T00:00:00Z' }],
+    ]);
+
+    await expect(
+      resolveFavoriteEntities(
+        new Set(entities.keys()),
+        async (id) => entities.get(id) ?? null,
+        (entity) => entity.deletedAt === null,
+      ),
+    ).resolves.toEqual([{ id: 'loja-visivel', deletedAt: null }]);
+  });
+
+  it('não substitui o snapshot após refresh falho, mas reconcilia IDs alterados por rollback', () => {
+    expect(shouldResolveFavoriteSnapshot(true, false, true)).toBe(false);
+    expect(shouldResolveFavoriteSnapshot(false, true, false)).toBe(false);
+    expect(shouldResolveFavoriteSnapshot(false, true, true)).toBe(true);
+    expect(shouldResolveFavoriteSnapshot(false, false, false)).toBe(true);
+  });
+});
 
 /**
  * Story 5.4 (AC4) — "Pedido mínimo: R$ X". Único ponto testável em `.test.ts`

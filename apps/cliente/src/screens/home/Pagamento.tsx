@@ -1,19 +1,26 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { businessConfig } from '@keepit/config';
 import { getDataClient } from '@keepit/core-data';
-import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
+import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 
 import { SelectableRow } from '../../components/checkout';
-import { Button, Screen } from '../../components/ui';
+import { AppHeader, Button, Screen } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useStoreDetail } from '../../hooks/useStoreDetail';
 import { computeCheckoutTotals } from '../../lib/checkoutTotals';
+import {
+  canCheckoutStore,
+  getCheckoutStoreBlockMessage,
+  loadCheckoutStoreForSubmission,
+} from '../../lib/checkoutValidation';
 import { isSupabaseDataSource } from '../../lib/dataSource';
+import { invalidatePedidos } from '../../lib/ordersResource';
+import { createPaymentSubmissionController } from '../../lib/paymentSubmission';
 import type { HomeStackParamList, RootStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Pagamento'>;
@@ -64,15 +71,32 @@ function roundReais(value: number): number {
 export default function Pagamento({ navigation }: Props) {
   const cart = useCart();
   const { data: cliente } = useCurrentCliente();
-  const { data: loja } = useStoreDetail(cart.estabelecimentoId ?? '', {});
+  const { data: loja, loading: storeLoading } = useStoreDetail(cart.estabelecimentoId ?? '', {});
   const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [cleanupPending, setCleanupPending] = useState(false);
+  const paymentSubmissionRef = useRef(createPaymentSubmissionController());
 
   const semCartaoSalvo = cart.cards.length === 0;
+  const lojaDisponivelParaCompra = canCheckoutStore(loja);
+  const lojaIndisponivelMensagem = getCheckoutStoreBlockMessage(loja);
 
   const handlePagar = async () => {
-    if (!cart.payment || !cliente || !cart.estabelecimentoId || !cart.hubId || cart.items.length === 0) {
+    const pendingTarget = paymentSubmissionRef.current.getPendingTarget();
+    if (!pendingTarget && !canCheckoutStore(loja)) {
+      setErro(getCheckoutStoreBlockMessage(loja) ?? 'Esta loja está fechada agora');
+      return;
+    }
+
+    if (
+      !pendingTarget &&
+      (!cart.payment || !cliente || !cart.estabelecimentoId || !cart.hubId || cart.items.length === 0)
+    ) {
+      return;
+    }
+    const paymentType = pendingTarget?.paymentType ?? cart.payment?.type;
+    if (!paymentType) {
       return;
     }
 
@@ -80,56 +104,88 @@ export default function Pagamento({ navigation }: Props) {
     setErro(null);
     try {
       const client = getDataClient();
-      const taxaDeslocamentoReais = loja?.taxa_deslocamento_reais ?? 0;
-      const { taxaServicoReais, totalReais } = computeCheckoutTotals(
-        cart.subtotalReais,
-        taxaDeslocamentoReais,
-        businessConfig.taxaServicoCompradorReais,
-      );
-      const taxaKeepitReais = roundReais((cart.subtotalReais * businessConfig.taxaKeepitPercent) / 100);
+      const result = await paymentSubmissionRef.current.submit({
+        paymentType,
+        clearOrder: cart.clearOrder,
+        createOrder: async () => {
+          const estabelecimentoId = cart.estabelecimentoId;
+          if (!cart.payment || !cliente || !estabelecimentoId || !cart.hubId || cart.items.length === 0) {
+            throw new Error('Dados do carrinho ficaram indisponíveis antes da criação do pedido.');
+          }
 
-      const pedido = await client.order.create({
-        cliente_id: cliente.id,
-        estabelecimento_id: cart.estabelecimentoId,
-        hub_id: cart.hubId,
-        itens: cart.items.map((item) => ({
-          produto_id: item.produtoId,
-          nome_snapshot: item.nome,
-          preco_unitario_reais: item.precoSnapshotReais,
-          quantidade: item.quantidade,
-        })),
-        forma_pagamento: cart.payment.type === 'pix' ? 'pix' : 'cartao',
-        subtotal_produtos_reais: cart.subtotalReais,
-        taxa_deslocamento_reais: taxaDeslocamentoReais,
-        taxa_keepit_reais: taxaKeepitReais,
-        taxa_servico_comprador_reais: taxaServicoReais,
-        total_pago_reais: totalReais,
-        nf_solicitada: cart.nfSolicitada,
+          const currentStore = await loadCheckoutStoreForSubmission(
+            estabelecimentoId,
+            (id) => client.store.getById(id),
+          );
+
+          const taxaDeslocamentoReais = currentStore.taxa_deslocamento_reais;
+          const { taxaServicoReais, totalReais } = computeCheckoutTotals(
+            cart.subtotalReais,
+            taxaDeslocamentoReais,
+            businessConfig.taxaServicoCompradorReais,
+          );
+          const taxaKeepitReais = roundReais((cart.subtotalReais * businessConfig.taxaKeepitPercent) / 100);
+
+          const pedido = await client.order.create({
+            cliente_id: cliente.id,
+            estabelecimento_id: estabelecimentoId,
+            hub_id: cart.hubId,
+            itens: cart.items.map((item) => ({
+              produto_id: item.produtoId,
+              nome_snapshot: item.nome,
+              preco_unitario_reais: item.precoSnapshotReais,
+              quantidade: item.quantidade,
+            })),
+            forma_pagamento: paymentType,
+            subtotal_produtos_reais: cart.subtotalReais,
+            taxa_deslocamento_reais: taxaDeslocamentoReais,
+            taxa_keepit_reais: taxaKeepitReais,
+            taxa_servico_comprador_reais: taxaServicoReais,
+            total_pago_reais: totalReais,
+            nf_solicitada: cart.nfSolicitada,
+          });
+
+          return pedido;
+        },
+        afterCreate: async (pedido) => {
+          if (!cliente) {
+            return;
+          }
+          void invalidatePedidos(cliente.id);
+
+          // Story 7.2 (AC5) — best-effort, só em DATA_SOURCE=supabase: cria a
+          // cobrança PIX real no Asaas para este pedido, em paralelo ao fluxo
+          // simulado abaixo. Uma falha não repete nem invalida o pedido criado.
+          if (isSupabaseDataSource()) {
+            try {
+              await client.payment.criarCobrancaPix(pedido.id);
+            } catch (err) {
+              console.warn('[Pagamento] criarCobrancaPix falhou (best-effort):', err);
+            }
+          }
+        },
       });
 
-      // Story 7.2 (AC5) — best-effort, só em DATA_SOURCE=supabase: cria a
-      // cobrança PIX real no Asaas para este pedido, em paralelo ao fluxo
-      // simulado abaixo. Nunca bloqueia nem propaga erro para o `catch`
-      // existente — a UI ainda não consome o QR real (ver "Fora de
-      // escopo" da Story 7.2), então uma falha aqui não deve impedir o
-      // cliente de ver o feedback visual de pagamento/PIN que já existe.
-      if (isSupabaseDataSource()) {
-        try {
-          await client.payment.criarCobrancaPix(pedido.id);
-        } catch (err) {
-          console.warn('[Pagamento] criarCobrancaPix falhou (best-effort):', err);
-        }
+      if (result.status === 'busy') {
+        return;
       }
 
-      cart.clearOrder();
+      if (result.status === 'cleanup_failed') {
+        setCleanupPending(true);
+        setErro(
+          'Pedido criado, mas não foi possível limpar o carrinho. Toque em Continuar para tentar a limpeza novamente; nenhum novo pedido será criado.',
+        );
+        return;
+      }
 
       // Story 6.7.1 (AC1, AC3, AC7): nunca navega "seco" — sempre passa por
       // uma tela de feedback de pagamento antes do PIN, nos dois
       // DATA_SOURCE (ver AUTO-DECISION no JSDoc do arquivo).
-      if (cart.payment.type === 'pix') {
-        rootNavigation.navigate('ModalPagamentoPix', { pedidoId: pedido.id });
+      setCleanupPending(false);
+      if (result.target.paymentType === 'pix') {
+        rootNavigation.navigate('ModalPagamentoPix', { pedidoId: result.target.pedidoId });
       } else {
-        rootNavigation.navigate('ModalProcessandoPagamento', { pedidoId: pedido.id });
+        rootNavigation.navigate('ModalProcessandoPagamento', { pedidoId: result.target.pedidoId });
       }
     } catch (error) {
       setErro(error instanceof Error ? error.message : 'Não foi possível concluir o pagamento. Tente novamente.');
@@ -140,13 +196,7 @@ export default function Pagamento({ navigation }: Props) {
 
   return (
     <Screen>
-      <View style={styles.topBar}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={8} style={styles.roundButton}>
-          <Text style={styles.roundButtonIcon}>‹</Text>
-        </Pressable>
-        <Text style={styles.title}>Pagamento</Text>
-        <View style={styles.roundButton} />
-      </View>
+      <AppHeader title="Pagamento" back={{ navigation, fallback: () => navigation.navigate('Home') }} />
 
       <Text style={styles.sectionTitle}>FORMAS SALVAS</Text>
 
@@ -171,14 +221,24 @@ export default function Pagamento({ navigation }: Props) {
         <Text style={styles.addCardLinkLabel}>+ Adicionar novo cartão</Text>
       </Pressable>
 
-      {!!erro && <Text style={styles.erro}>{erro}</Text>}
+      {!!(erro ?? (!storeLoading && !cleanupPending ? lojaIndisponivelMensagem : null)) && (
+        <Text accessibilityRole="alert" style={styles.erro}>
+          {erro ?? lojaIndisponivelMensagem}
+        </Text>
+      )}
 
       <View style={styles.footer}>
         <Button
-          title="Pagar"
+          title={cleanupPending ? 'Continuar' : 'Pagar'}
           onPress={handlePagar}
           loading={enviando}
-          disabled={!cart.payment || cart.items.length === 0 || (semCartaoSalvo && cart.payment?.type === 'cartao')}
+          disabled={
+            !cleanupPending &&
+            (!cart.payment ||
+              cart.items.length === 0 ||
+              !lojaDisponivelParaCompra ||
+              (semCartaoSalvo && cart.payment?.type === 'cartao'))
+          }
         />
       </View>
     </Screen>
@@ -186,29 +246,6 @@ export default function Pagamento({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing['5'],
-  },
-  roundButton: {
-    width: 36,
-    height: 36,
-    borderRadius: radii.full,
-    backgroundColor: lightColors.bg.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  roundButtonIcon: {
-    fontSize: typography.sizes.lg.fontSize,
-    color: lightColors.text.primary,
-  },
-  title: {
-    fontFamily: 'HankenGrotesk-Bold',
-    fontSize: typography.sizes.xl.fontSize,
-    color: lightColors.text.primary,
-  },
   sectionTitle: {
     fontFamily: 'HankenGrotesk-Medium',
     fontSize: typography.sizes.xs.fontSize,

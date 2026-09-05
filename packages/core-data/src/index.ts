@@ -2,9 +2,12 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@keepit/shared-types';
 
 import type { AdminPort } from './ports/admin.port';
+import type { AccountDeletionPort } from './ports/account-deletion.port';
 import type { AnalyticsPort } from './ports/analytics.port';
 import type { AuthPort, PasswordRecoveryState } from './ports/auth.port';
+import type { DemoScenarioPort } from './ports/demo-scenario.port';
 import type { EstabelecimentoCadastroPort } from './ports/estabelecimento-cadastro.port';
+import type { HubFavoritesPort, StoreFavoritesPort } from './ports/favorites.port';
 import type { HubPort } from './ports/hub.port';
 import type { LojistaAuthPort } from './ports/lojista-auth.port';
 import type { OrderPort } from './ports/order.port';
@@ -14,10 +17,14 @@ import type { StorePort } from './ports/store.port';
 import type { WalletPort } from './ports/wallet.port';
 
 import { createAdminMock } from './mock/admin.mock';
+import { createAccountDeletionMock } from './mock/account-deletion.mock';
 import { createAnalyticsMock } from './mock/analytics.mock';
 import { createAuthMock } from './mock/auth.mock';
+import type { ClienteMockStorage } from './mock/cliente-state';
+import { ClienteMockStateStore } from './mock/cliente-state-store';
 import { createMockDb } from './mock/db';
 import { createEstabelecimentoCadastroMock } from './mock/estabelecimento-cadastro.mock';
+import { createFavoritesMock } from './mock/favorites.mock';
 import { createHubMock } from './mock/hub.mock';
 import { createLojistaAuthMock } from './mock/lojista-auth.mock';
 import { createOrderMock } from './mock/order.mock';
@@ -27,9 +34,11 @@ import { createStoreMock } from './mock/store.mock';
 import { createWalletMock } from './mock/wallet.mock';
 
 import { createAdminSupabase } from './supabase/admin.supabase';
+import { createAccountDeletionSupabase } from './supabase/account-deletion.supabase';
 import { createAnalyticsSupabase } from './supabase/analytics.supabase';
 import { createAuthSupabase } from './supabase/auth.supabase';
 import { createEstabelecimentoCadastroSupabase } from './supabase/estabelecimento-cadastro.supabase';
+import { createFavoritesSupabase } from './supabase/favorites.supabase';
 import { createHubSupabase } from './supabase/hub.supabase';
 import { createLojistaAuthSupabase } from './supabase/lojista-auth.supabase';
 import { createOrderSupabase } from './supabase/order.supabase';
@@ -61,6 +70,8 @@ export interface CreateDataClientOptions {
    * ver `apps/cliente/src/lib/dataClientBootstrap.ts`).
    */
   passwordRecoveryState?: PasswordRecoveryState;
+  /** Storage persistente exclusivo do cenário mock do app Cliente. */
+  clienteMockStorage?: ClienteMockStorage;
 }
 
 /**
@@ -69,6 +80,7 @@ export interface CreateDataClientOptions {
  * SÓ a port, nunca a implementação mock/Supabase diretamente.
  */
 export interface DataClient {
+  accountDeletion: AccountDeletionPort;
   auth: AuthPort;
   hub: HubPort;
   store: StorePort;
@@ -100,6 +112,29 @@ export interface DataClient {
    * (tipado no domínio público de Descoberta do Cliente).
    */
   estabelecimentoCadastro: EstabelecimentoCadastroPort;
+  favoriteHubs: HubFavoritesPort;
+  favoriteStores: StoreFavoritesPort;
+  /** Disponível somente no datasource mock. */
+  demoScenario?: DemoScenarioPort;
+}
+
+const mockStateStores = new WeakMap<DataClient, ClienteMockStateStore>();
+
+function createVolatileClienteMockStorage(): ClienteMockStorage {
+  const values = new Map<string, string>();
+  return {
+    getItem: async (key) => values.get(key) ?? null,
+    setItem: async (key, value) => {
+      values.set(key, value);
+    },
+    removeItem: async (key) => {
+      values.delete(key);
+    },
+  };
+}
+
+function mockStateStoreFor(client: DataClient): ClienteMockStateStore | undefined {
+  return mockStateStores.get(client);
 }
 
 /**
@@ -139,7 +174,9 @@ export function createDataClient(options: CreateDataClientOptions = {}): DataCli
     // Quando omitido, cada factory mantém seu comportamento anterior
     // (`client?` undefined → cria/memoiza o próprio client).
     const client = options.supabaseClient;
+    const favorites = createFavoritesSupabase(client);
     return {
+      accountDeletion: createAccountDeletionSupabase(client),
       auth: options.passwordRecoveryState
         ? createAuthSupabase(client, options.passwordRecoveryState)
         : createAuthSupabase(client),
@@ -153,12 +190,15 @@ export function createDataClient(options: CreateDataClientOptions = {}): DataCli
       analytics: createAnalyticsSupabase(client),
       lojistaAuth: createLojistaAuthSupabase(client),
       estabelecimentoCadastro: createEstabelecimentoCadastroSupabase(client),
+      ...favorites,
     };
   }
 
   const db = createMockDb();
+  const favorites = createFavoritesMock(db);
 
-  return {
+  const client: DataClient = {
+    accountDeletion: createAccountDeletionMock(db),
     auth: createAuthMock(db),
     hub: createHubMock(db),
     store: createStoreMock(db),
@@ -170,10 +210,25 @@ export function createDataClient(options: CreateDataClientOptions = {}): DataCli
     analytics: createAnalyticsMock(db),
     lojistaAuth: createLojistaAuthMock(db),
     estabelecimentoCadastro: createEstabelecimentoCadastroMock(db),
+    ...favorites,
   };
+
+  const stateStore = new ClienteMockStateStore(db, options.clienteMockStorage ?? createVolatileClienteMockStorage());
+  mockStateStores.set(client, stateStore);
+  client.demoScenario = {
+    reset: () => stateStore.reset(),
+    flush: () => stateStore.flush(),
+    getStatus: () => stateStore.getStatus(),
+    getQaState: () => stateStore.getQaState(),
+    setQaState: (next) => stateStore.setQaState(next),
+    advanceClock: (ms) => stateStore.advanceClock(ms),
+    expirePasswordRecovery: () => stateStore.expirePasswordRecovery(),
+  };
+  return client;
 }
 
 let sharedClient: DataClient | null = null;
+let sharedInitialization: Promise<DataClient> | null = null;
 
 /**
  * Singleton do `DataClient` para o processo/sessão atual — usado pelos hooks
@@ -187,15 +242,48 @@ export function getDataClient(options?: CreateDataClientOptions): DataClient {
   return sharedClient;
 }
 
+/** Devolve o singleton somente depois que o cenário mock foi hidratado. */
+export function initializeDataClient(options: CreateDataClientOptions = {}): Promise<DataClient> {
+  if (!sharedInitialization) {
+    const client = getDataClient(options);
+    const hydration = (async () => {
+      await mockStateStoreFor(client)?.hydrate();
+      return client;
+    })();
+    const guardedInitialization = hydration.catch((error: unknown) => {
+      if (sharedInitialization === guardedInitialization) {
+        sharedInitialization = null;
+        if (sharedClient === client) {
+          sharedClient = null;
+        }
+      }
+      throw error;
+    });
+    sharedInitialization = guardedInitialization;
+  }
+  return sharedInitialization;
+}
+
+/** Descarta uma inicialização incompleta e tenta novamente com um singleton novo. */
+export function recoverDataClient(options: CreateDataClientOptions = {}): Promise<DataClient> {
+  sharedClient = null;
+  sharedInitialization = null;
+  return initializeDataClient(options);
+}
+
 /** Reseta o singleton — uso exclusivo de testes. */
 export function __resetDataClientForTests(): void {
   sharedClient = null;
+  sharedInitialization = null;
 }
 
 export * from './ports/admin.port';
+export * from './ports/account-deletion.port';
 export * from './ports/analytics.port';
 export * from './ports/auth.port';
+export * from './ports/demo-scenario.port';
 export * from './ports/estabelecimento-cadastro.port';
+export * from './ports/favorites.port';
 export * from './ports/hub.port';
 export * from './ports/lojista-auth.port';
 export * from './ports/order.port';
@@ -204,6 +292,7 @@ export * from './ports/product.port';
 export * from './ports/store.port';
 export * from './ports/wallet.port';
 export * from './types';
+export type { ClienteMockStorage } from './mock/cliente-state';
 /** Story 2.3 (Task 6/7) — `EmailJaExisteError`, consumido por `CriarConta.tsx` (AC4). */
 export * from './supabase/auth-errors';
 /** Story 3.5 (AC3, AC4) — 4 erros nomeados da RPC, consumidos por `CadastroPasso3.tsx`. */

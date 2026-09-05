@@ -1,13 +1,80 @@
 import { describe, expect, it } from 'vitest';
 
 import { businessConfig } from '@keepit/config';
+import type { Estabelecimento, EstabelecimentoStatus } from '@keepit/core-data';
 
 import {
   calcularTicketMinimo,
+  canCheckoutStore,
   deveSincronizarCpfCollected,
   faltaParaTicketMinimo,
+  getCheckoutStoreBlockMessage,
+  loadCheckoutStoreForSubmission,
   podeFinalizarNoHorario,
 } from './checkoutValidation';
+
+const NOW = new Date(2026, 8, 5, 12, 0);
+const checkoutStore = (
+  status: EstabelecimentoStatus,
+  paused: boolean,
+  close: string,
+  deleted: string | null = null,
+) => ({
+  status,
+  pausado_manualmente: paused,
+  excluido_em: deleted,
+  horarios: [{ dia_semana: NOW.getDay(), aberto: true, hora_abre: '08:00', hora_fecha: close }],
+}) as Estabelecimento;
+const openStore = checkoutStore('ativo', false, '18:00');
+const closedStore = checkoutStore('ativo', false, '10:00');
+const pausedStore = checkoutStore('ativo', true, '18:00');
+const suspendedStore = checkoutStore('suspenso', false, '18:00');
+const deletedStore = checkoutStore('ativo', false, '18:00', '2026-09-05T09:00:00.000Z');
+
+describe('canCheckoutStore (Story 12.10, Task 4)', () => {
+  it.each([
+    [openStore, true],
+    [closedStore, false],
+    [pausedStore, false],
+    [suspendedStore, false],
+    [deletedStore, false],
+    [null, false],
+  ])('permite checkout somente para loja pública aberta', (store, expected) => {
+    expect(canCheckoutStore(store, NOW)).toBe(expected);
+  });
+
+  it.each([
+    [openStore, null],
+    [closedStore, 'Esta loja está fechada agora'],
+    [pausedStore, 'Esta loja está pausada no momento'],
+    [suspendedStore, 'Esta loja está fechada agora'],
+    [deletedStore, 'Esta loja está fechada agora'],
+    [null, 'Esta loja está fechada agora'],
+  ])('expõe um motivo uniforme no bloqueio final do pagamento', (store, expected) => {
+    expect(getCheckoutStoreBlockMessage(store, NOW)).toBe(expected);
+  });
+
+  it.each([
+    [openStore, null],
+    [closedStore, 'Esta loja está fechada agora'],
+    [pausedStore, 'Esta loja está pausada no momento'],
+    [suspendedStore, 'Esta loja está fechada agora'],
+    [deletedStore, 'Esta loja está fechada agora'],
+    [null, 'Esta loja está fechada agora'],
+  ])('relê e valida a loja atual imediatamente antes da submissão', async (store, expectedError) => {
+    const submissionStore = loadCheckoutStoreForSubmission(
+      'store-id',
+      async (id) => (id === 'store-id' ? store : null),
+      NOW,
+    );
+
+    if (expectedError) {
+      await expect(submissionStore).rejects.toThrow(expectedError);
+    } else {
+      await expect(submissionStore).resolves.toBe(openStore);
+    }
+  });
+});
 
 describe('podeFinalizarNoHorario (Story 6.3, AC1, AC4)', () => {
   // Data/hora fixa do teste (não usa o relógio real) — `diaSemana` é

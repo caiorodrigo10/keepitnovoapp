@@ -1,6 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@keepit/supabase-client';
-import { getDataClient } from '@keepit/core-data';
+import { useEffect, useState } from 'react';
+import { initializeDataClient, recoverDataClient, type DataClient } from '@keepit/core-data';
+
+import { clienteMockStorage } from './clienteMockStorage';
 
 /**
  * Story 2.7 (AC5) — chave dedicada em `AsyncStorage`, mesmo storage já
@@ -34,15 +37,15 @@ const passwordRecoveryState = {
  * app hoje (`docs/architecture/06-session-persistence.md` §1.2 confirma:
  * zero import de `@keepit/supabase-client` em `apps/`). Este é
  * deliberadamente o ÚNICO lugar do app Cliente que importa
- * `@keepit/supabase-client` e `AsyncStorage` — telas e hooks continuam
- * importando só `@keepit/core-data` (fronteira do Épico 0 preservada, ver
- * §3.3 do documento acima).
+ * `@keepit/supabase-client`; o adapter de storage fica isolado em
+ * `clienteMockStorage.ts`. Telas e hooks continuam importando só
+ * `@keepit/core-data` (fronteira do Épico 0 preservada, ver §3.3 do
+ * documento acima).
  *
- * **Efeito colateral no import.** Este módulo roda seu corpo top-level na
- * avaliação do módulo (antes de qualquer render/`useEffect`). Precisa ser o
- * PRIMEIRO import de `App.tsx` — antes do import de `RootNavigator` — porque
- * `getDataClient()` memoiza a configuração da primeira chamada (Story 2.5.1,
- * "Sequência obrigatória" #1); um `useEffect` chegaria tarde demais.
+ * **Efeito colateral no import.** Este módulo cria `dataClientReady` na
+ * avaliação (antes de qualquer render). Precisa ser o PRIMEIRO import de
+ * `App.tsx` — antes do import de `RootNavigator` — para iniciar a hidratação
+ * antes que qualquer consumidor de `getDataClient()` seja montado.
  *
  * **`EXPO_PUBLIC_DATA_SOURCE`** segue o mesmo padrão de prefixo Expo que
  * `@keepit/supabase-client` adota para URL/anon key nesta story (AC1) — é o
@@ -52,28 +55,104 @@ const passwordRecoveryState = {
  * permanece 100% mock — o default seguro não muda para quem não configurou
  * nada, mesmo comportamento de todo o Épico 0-2.
  *
- * **Falha ao criar o client Supabase não pode travar o boot numa tela
- * branca** (CodeRabbit Focus Areas da story). Se `createClient()` lançar
- * (ex.: `EXPO_PUBLIC_SUPABASE_URL`/`ANON_KEY` ausentes), este módulo
- * degrada para mock com um `console.warn` — mesmo espírito do guard de AC7
- * em `RootNavigator.tsx` (Story 2.3.1), sem retry/backoff (princípio nº2 do
- * `CLAUDE.md`).
+ * **Falha de configuração ou hidratação não pode travar o boot numa tela
+ * branca.** Cada tentativa principal é limitada a 5 s. Uma falha no modo
+ * Supabase recupera com um singleton mock persistente novo; uma falha no
+ * próprio mock persistente recupera com um singleton volátil novo. O aviso
+ * nunca inclui o erro original, pois mensagens do SDK podem carregar URL ou
+ * outros dados sensíveis.
  */
-const dataSource = process.env.EXPO_PUBLIC_DATA_SOURCE?.trim() === 'supabase' ? 'supabase' : 'mock';
+const DATA_CLIENT_BOOTSTRAP_TIMEOUT_MS = 5_000;
 
-if (dataSource === 'supabase') {
+export interface BootstrapDataClientOptions {
+  timeoutMs?: number;
+}
+
+function settleWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('DataClient bootstrap timeout')), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
+}
+
+export async function bootstrapDataClient(
+  options: BootstrapDataClientOptions = {},
+): Promise<DataClient> {
+  const timeoutMs = options.timeoutMs ?? DATA_CLIENT_BOOTSTRAP_TIMEOUT_MS;
+  const dataSource =
+    process.env.EXPO_PUBLIC_DATA_SOURCE?.trim() === 'supabase' ? 'supabase' : 'mock';
+
   try {
+    if (dataSource === 'mock') {
+      return await settleWithin(
+        initializeDataClient({ source: 'mock', clienteMockStorage }),
+        timeoutMs,
+      );
+    }
+
     const supabaseClient = createClient({
       storage: AsyncStorage,
       persistSession: true,
       autoRefreshToken: true,
+      // O verifier fica no storage do SDK; o callback expõe só um code
+      // descartável, que `exchangeCodeForSession` consome uma única vez.
+      flowType: 'pkce',
     });
-    getDataClient({ source: 'supabase', supabaseClient, passwordRecoveryState });
-  } catch (error) {
-    console.warn(
-      '[dataClientBootstrap] falha ao inicializar o client Supabase — caindo para mock:',
-      error,
+    return await settleWithin(
+      initializeDataClient({ source: 'supabase', supabaseClient, passwordRecoveryState }),
+      timeoutMs,
     );
-    getDataClient({ source: 'mock' });
+  } catch {
+    console.warn('[dataClientBootstrap] inicialização indisponível; usando fallback mock.');
+    const fallbackOptions =
+      dataSource === 'supabase'
+        ? { source: 'mock' as const, clienteMockStorage }
+        : { source: 'mock' as const };
+    try {
+      return await settleWithin(recoverDataClient(fallbackOptions), timeoutMs);
+    } catch {
+      return recoverDataClient({ source: 'mock' });
+    }
   }
+}
+
+export const dataClientReady: Promise<DataClient> = bootstrapDataClient();
+
+/** Notifica readiness enquanto o consumidor estiver montado. */
+export function subscribeToDataClientReady(
+  readiness: Promise<unknown>,
+  onReady: () => void,
+): () => void {
+  let mounted = true;
+  const notifyWhenMounted = () => {
+    if (mounted) {
+      onReady();
+    }
+  };
+  void readiness.then(notifyWhenMounted, notifyWhenMounted).catch(() => undefined);
+
+  return () => {
+    mounted = false;
+  };
+}
+
+/** Expõe o estado de conclusão do bootstrap para o root React. */
+export function useDataClientReady(): boolean {
+  const [dataReady, setDataReady] = useState(false);
+
+  useEffect(
+    () => subscribeToDataClientReady(dataClientReady, () => setDataReady(true)),
+    [],
+  );
+
+  return dataReady;
 }

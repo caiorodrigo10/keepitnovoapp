@@ -2,6 +2,8 @@ import { ActivityIndicator, Pressable, StyleSheet, Text } from 'react-native';
 
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
+import { getButtonAccessibility } from './interactionAccessibility';
+
 export type ButtonVariant = 'primary' | 'outline' | 'ghost';
 
 interface ButtonProps {
@@ -20,17 +22,20 @@ interface ButtonProps {
  * mas mantido para reuso futuro), `ghost` (texto simples).
  */
 export function Button({ title, onPress, variant = 'primary', disabled, loading }: ButtonProps) {
+  const isDisabled = Boolean(disabled || loading);
+
   return (
     <Pressable
+      {...getButtonAccessibility(title, isDisabled, Boolean(loading))}
       onPress={onPress}
-      disabled={disabled || loading}
+      disabled={isDisabled}
       style={({ pressed }) => [
         styles.base,
         variant === 'primary' && styles.primary,
         variant === 'outline' && styles.outline,
         variant === 'ghost' && styles.ghost,
-        (disabled || loading) && styles.disabled,
-        pressed && !disabled && !loading && styles.pressed,
+        isDisabled && styles.disabled,
+        pressed && !isDisabled && styles.pressed,
       ]}
     >
       {loading ? (
@@ -53,11 +58,12 @@ export function Button({ title, onPress, variant = 'primary', disabled, loading 
 
 const styles = StyleSheet.create({
   base: {
-    height: 52,
+    minHeight: 52,
     borderRadius: radii.sm,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing['4'],
+    paddingVertical: spacing['2'],
   },
   primary: {
     backgroundColor: lightColors.accent.brand,
@@ -69,7 +75,7 @@ const styles = StyleSheet.create({
   },
   ghost: {
     backgroundColor: 'transparent',
-    height: 'auto',
+    minHeight: spacing['12'],
   },
   disabled: {
     opacity: 0.5,

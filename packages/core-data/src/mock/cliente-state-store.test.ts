@@ -1,0 +1,1034 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import {
+  __resetDataClientForTests,
+  createDataClient,
+  initializeDataClient,
+  type ClienteMockStorage,
+} from '../index';
+import type { AuthPort } from '../ports/auth.port';
+import { createAuthMock } from './auth.mock';
+import {
+  CLIENTE_MOCK_STATE_KEY,
+  createClienteBaseline,
+  readMockPasswordRecovery,
+} from './cliente-state';
+import { ClienteMockStateStore } from './cliente-state-store';
+import { createMockDb } from './db';
+import { createOrderMock } from './order.mock';
+
+interface MemoryStorageOptions {
+  getItemError?: Error;
+  setItemError?: Error;
+  setItemErrors?: Error[];
+  initialValue?: string;
+}
+
+interface MemoryStorage extends ClienteMockStorage {
+  peek(key: string): string | null;
+  writeCount(): number;
+}
+
+function memoryStorage(options: MemoryStorageOptions = {}): MemoryStorage {
+  const values = new Map<string, string>();
+  const setItemErrors = [...(options.setItemErrors ?? [])];
+  let writes = 0;
+  if (options.initialValue !== undefined) {
+    values.set(CLIENTE_MOCK_STATE_KEY, options.initialValue);
+  }
+
+  return {
+    async getItem(key) {
+      if (options.getItemError) throw options.getItemError;
+      return values.get(key) ?? null;
+    },
+    async setItem(key, value) {
+      writes += 1;
+      if (options.setItemError) throw options.setItemError;
+      const error = setItemErrors.shift();
+      if (error) throw error;
+      values.set(key, value);
+    },
+    async removeItem(key) {
+      values.delete(key);
+    },
+    peek(key) {
+      return values.get(key) ?? null;
+    },
+    writeCount() {
+      return writes;
+    },
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+  return { promise, resolve };
+}
+
+async function requestDemoCallback(auth: AuthPort, email: string): Promise<string> {
+  const result = await auth.requestPasswordReset(email, { delayMs: 0 });
+  expect(result).toMatchObject({ delivery: 'demo', callbackUrl: expect.any(String) });
+  if (result.delivery !== 'demo') throw new Error('O adapter mock deve devolver callback demo.');
+  return result.callbackUrl;
+}
+
+describe('ClienteMockStateStore', () => {
+  beforeEach(() => {
+    __resetDataClientForTests();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function progressingSnapshot(options: {
+    autoProgressOrders?: boolean;
+    clockOffsetMs?: number;
+  } = {}) {
+    const snapshot = createClienteBaseline();
+    const seeded = structuredClone(
+      createMockDb().pedidos.find((pedido) => pedido.cliente_id === 'cliente-ana')!,
+    );
+    Object.assign(seeded, {
+      status: 'aguardando_aceite',
+      aceito_em: null,
+      saiu_hub_em: null,
+      lojista_chegou_em: null,
+    });
+    snapshot.orders = [seeded];
+    snapshot.qa = {
+      ...snapshot.qa,
+      autoProgressOrders: options.autoProgressOrders ?? true,
+      clockOffsetMs: options.clockOffsetMs ?? 0,
+      orderProgressionDelaysMs: {
+        aceito: 1_000,
+        em_preparo: 1_000,
+        saindo_hub: 1_000,
+        no_hub: 1_000,
+      },
+    };
+    snapshot.orderAutomation = { [seeded.id]: { enteredStatusAt: '2026-09-05T10:00:00.000Z' } };
+    return { snapshot, seeded };
+  }
+
+  it('aplica em ordem as transições vencidas ao reabrir', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-05T10:00:05.000Z'));
+    const { snapshot } = progressingSnapshot();
+    const storage = memoryStorage({ initialValue: JSON.stringify(snapshot) });
+
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+
+    const listing = client.order.listMine('cliente-ana', { delayMs: 0 });
+    await vi.runAllTimersAsync();
+    await expect(listing).resolves.toEqual([
+      expect.objectContaining({ status: 'no_hub' }),
+    ]);
+    await client.demoScenario!.flush();
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!).orderAutomation).toEqual({});
+    expect(storage.writeCount()).toBe(1);
+  });
+
+  it('preserva pedido e âncora enquanto a progressão está pausada', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-05T10:00:05.000Z'));
+    const { snapshot, seeded } = progressingSnapshot({ autoProgressOrders: false });
+    const storage = memoryStorage({ initialValue: JSON.stringify(snapshot) });
+
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+
+    const listing = client.order.listMine('cliente-ana', { delayMs: 0 });
+    await vi.runAllTimersAsync();
+    await expect(listing).resolves.toEqual([
+      expect.objectContaining({ id: seeded.id, status: 'aguardando_aceite' }),
+    ]);
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!).orderAutomation).toEqual(
+      snapshot.orderAutomation,
+    );
+    expect(storage.writeCount()).toBe(0);
+  });
+
+  it('persiste somente as transições vencidas e a nova âncora', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-05T10:00:02.500Z'));
+    const { snapshot, seeded } = progressingSnapshot();
+    const storage = memoryStorage({ initialValue: JSON.stringify(snapshot) });
+
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await client.demoScenario!.flush();
+
+    const persisted = JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!);
+    expect(persisted.orders).toEqual([
+      expect.objectContaining({
+        id: seeded.id,
+        status: 'em_preparo',
+        aceito_em: '2026-09-05T10:00:01.000Z',
+      }),
+    ]);
+    expect(persisted.orderAutomation).toEqual({
+      [seeded.id]: { enteredStatusAt: '2026-09-05T10:00:02.000Z' },
+    });
+    expect(storage.writeCount()).toBe(1);
+  });
+
+  it('é idempotente na segunda hidratação no mesmo instante', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-05T10:00:02.500Z'));
+    const { snapshot } = progressingSnapshot();
+    const storage = memoryStorage({ initialValue: JSON.stringify(snapshot) });
+
+    const first = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await first.demoScenario!.flush();
+    const afterFirstHydration = storage.peek(CLIENTE_MOCK_STATE_KEY);
+    expect(storage.writeCount()).toBe(1);
+
+    __resetDataClientForTests();
+    const second = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await second.demoScenario!.flush();
+
+    expect(storage.peek(CLIENTE_MOCK_STATE_KEY)).toBe(afterFirstHydration);
+    expect(storage.writeCount()).toBe(1);
+  });
+
+  it('não progride quando o relógio QA fica anterior à âncora', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-05T10:00:05.000Z'));
+    const { snapshot, seeded } = progressingSnapshot({ clockOffsetMs: -10_000 });
+    const storage = memoryStorage({ initialValue: JSON.stringify(snapshot) });
+
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+
+    const listing = client.order.listMine('cliente-ana', { delayMs: 0 });
+    await vi.runAllTimersAsync();
+    await expect(listing).resolves.toEqual([
+      expect.objectContaining({ id: seeded.id, status: 'aguardando_aceite' }),
+    ]);
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!).orderAutomation).toEqual(
+      snapshot.orderAutomation,
+    );
+    expect(storage.writeCount()).toBe(0);
+  });
+
+  it('aplica o estado QA ao banco antes de aguardar a persistência', async () => {
+    const db = createMockDb();
+    const writeStarted = deferred<void>();
+    const releaseWrite = deferred<void>();
+    const storage: ClienteMockStorage = {
+      async getItem() {
+        return JSON.stringify(createClienteBaseline());
+      },
+      async setItem() {
+        writeStarted.resolve(undefined);
+        await releaseWrite.promise;
+      },
+      async removeItem() {},
+    };
+    const stateStore = new ClienteMockStateStore(db, storage);
+    await stateStore.hydrate();
+    const next = stateStore.getQaState();
+    next.clockOffsetMs = 30_000;
+    next.autoProgressOrders = true;
+
+    const update = stateStore.setQaState(next);
+    await writeStarted.promise;
+
+    expect(db.clienteQaState).toEqual(next);
+    releaseWrite.resolve(undefined);
+    await update;
+  });
+
+  it('hidrata antes de devolver o client e reabre o estado persistido', async () => {
+    const storage = memoryStorage();
+    const first = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await first.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
+    await first.demoScenario!.flush();
+
+    __resetDataClientForTests();
+    const reopened = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await expect(reopened.auth.currentUser({ delayMs: 0 })).resolves.toMatchObject({ id: 'cliente-ana' });
+  });
+
+  it('preserva favoritos isolados de duas contas após reabertura e limpa todos no reset', async () => {
+    const storage = memoryStorage();
+    const first = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await first.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
+    await first.favoriteHubs.favorite('hub-ana', { delayMs: 0 });
+    await first.favoriteStores.favorite('store-ana', { delayMs: 0 });
+    await first.auth.signUp(
+      { nome: 'Bea', email: 'bea@example.com', senha: 'senha1234', telefone: null },
+      { delayMs: 0 },
+    );
+    await first.favoriteHubs.favorite('hub-bea', { delayMs: 0 });
+    await first.favoriteStores.favorite('store-bea', { delayMs: 0 });
+    await first.demoScenario!.flush();
+
+    __resetDataClientForTests();
+    const reopened = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await expect(reopened.favoriteHubs.list({ delayMs: 0 })).resolves.toEqual(['hub-bea']);
+    await expect(reopened.favoriteStores.list({ delayMs: 0 })).resolves.toEqual(['store-bea']);
+
+    await reopened.auth.signOut({ delayMs: 0 });
+    await reopened.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
+    await expect(reopened.favoriteHubs.list({ delayMs: 0 })).resolves.toEqual(['hub-ana']);
+    await expect(reopened.favoriteStores.list({ delayMs: 0 })).resolves.toEqual(['store-ana']);
+
+    await reopened.demoScenario!.reset();
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!)).toEqual(createClienteBaseline());
+    await reopened.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
+    await expect(reopened.favoriteHubs.list({ delayMs: 0 })).resolves.toEqual([]);
+    await expect(reopened.favoriteStores.list({ delayMs: 0 })).resolves.toEqual([]);
+  });
+
+  it('rejeita e reverte favorito quando o AsyncStorage falha', async () => {
+    const snapshot = createClienteBaseline();
+    snapshot.sessionClienteId = 'cliente-ana';
+    const storage = memoryStorage({
+      initialValue: JSON.stringify(snapshot),
+      setItemError: new Error('disk full'),
+    });
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+
+    await expect(client.favoriteHubs.favorite('hub-centro', { delayMs: 0 })).rejects.toThrow(/persist/i);
+    await expect(client.favoriteHubs.list({ delayMs: 0 })).resolves.toEqual([]);
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!)).toEqual(snapshot);
+  });
+
+  it('persiste simulação por port e restaura após reabertura', async () => {
+    const storage = memoryStorage();
+    const first = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    const next = first.demoScenario!.getQaState();
+    next.simulations.orders = 'error';
+    await expect(first.demoScenario!.setQaState(next)).resolves.toEqual({ status: 'updated' });
+
+    __resetDataClientForTests();
+    const reopened = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    expect(reopened.demoScenario!.getQaState().simulations.orders).toBe('error');
+  });
+
+  it('não altera o store ao mutar o estado devolvido por getQaState', async () => {
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: memoryStorage() });
+    const qa = client.demoScenario!.getQaState();
+
+    qa.simulations.orders = 'error';
+
+    expect(client.demoScenario!.getQaState().simulations.orders).toBe('normal');
+  });
+
+  it('isola estado e payload de mutações posteriores ao setQaState', async () => {
+    const storage = memoryStorage();
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    const next = client.demoScenario!.getQaState();
+    next.simulations.orders = 'error';
+
+    await client.demoScenario!.setQaState(next);
+    next.simulations.orders = 'normal';
+
+    expect(client.demoScenario!.getQaState().simulations.orders).toBe('error');
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!).qa.simulations.orders).toBe('error');
+  });
+
+  it('degrada honestamente quando a persistência do estado QA falha', async () => {
+    const storage = memoryStorage({
+      initialValue: JSON.stringify(createClienteBaseline()),
+      setItemError: new Error('disk full'),
+    });
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    const next = client.demoScenario!.getQaState();
+    next.simulations.stores = 'loading';
+
+    await expect(client.demoScenario!.setQaState(next)).resolves.toEqual({ status: 'degraded' });
+    expect(client.demoScenario!.getQaState().simulations.stores).toBe('loading');
+  });
+
+  it('persiste requested, ready e consumed e impede replay após reabertura', async () => {
+    const storage = memoryStorage();
+    const first = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    const callbackUrl = await requestDemoCallback(first.auth, 'ana.souza@example.com');
+    const requestId = new URL(callbackUrl).searchParams.get('requestId');
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!).passwordRecovery).toEqual({
+      requestId,
+      clienteId: 'cliente-ana',
+      state: 'requested',
+    });
+
+    __resetDataClientForTests();
+    const readyClient = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await readyClient.auth.establishPasswordRecoverySession(callbackUrl, { delayMs: 0 });
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!).passwordRecovery).toEqual({
+      requestId,
+      clienteId: 'cliente-ana',
+      state: 'ready',
+    });
+
+    __resetDataClientForTests();
+    const updateClient = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await updateClient.auth.updatePassword('novaSenha9', { delayMs: 0 });
+    const consumedSnapshot = JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!);
+    expect(consumedSnapshot.passwordRecovery).toEqual({
+      requestId,
+      clienteId: 'cliente-ana',
+      state: 'consumed',
+    });
+    expect(consumedSnapshot.passwordRecovery).not.toHaveProperty('password');
+
+    __resetDataClientForTests();
+    const consumedClient = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await expect(
+      consumedClient.auth.establishPasswordRecoverySession(callbackUrl, { delayMs: 0 }),
+    ).rejects.toThrow(/link inválido|consumid|sessão/i);
+    await expect(consumedClient.auth.updatePassword('replay', { delayMs: 0 })).rejects.toThrow(
+      /consumid|nenhuma sessão/i,
+    );
+    await expect(consumedClient.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 })).rejects.toThrow();
+    await expect(
+      consumedClient.auth.signIn('ana.souza@example.com', 'novaSenha9', { delayMs: 0 }),
+    ).resolves.toMatchObject({ id: 'cliente-ana' });
+  });
+
+  it('rejeita requestPasswordReset e restaura a solicitação anterior quando requested não persiste', async () => {
+    const baseline = createClienteBaseline();
+    baseline.passwordRecovery = {
+      requestId: 'recovery-anterior123',
+      clienteId: 'cliente-ana',
+      state: 'requested',
+    };
+    const storage = memoryStorage({
+      initialValue: JSON.stringify(baseline),
+      setItemErrors: [new Error('disk full')],
+    });
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+
+    await expect(
+      client.auth.requestPasswordReset('ana.souza@example.com', { delayMs: 0 }),
+    ).rejects.toThrow(/persist/i);
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!)).toEqual(baseline);
+    await expect(
+      client.auth.establishPasswordRecoverySession(
+        'com.keepithub.cliente://auth/reset?requestId=recovery-anterior123',
+        { delayMs: 0 },
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('restaura requested quando ready não pode ser persistido e permite tentar o callback novamente', async () => {
+    const snapshot = createClienteBaseline();
+    snapshot.passwordRecovery = {
+      requestId: 'recovery-opaque123',
+      clienteId: 'cliente-ana',
+      state: 'requested',
+    };
+    const storage = memoryStorage({
+      initialValue: JSON.stringify(snapshot),
+      setItemErrors: [new Error('disk full')],
+    });
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    const callbackUrl = 'com.keepithub.cliente://auth/reset?requestId=recovery-opaque123';
+
+    await expect(client.auth.establishPasswordRecoverySession(callbackUrl, { delayMs: 0 })).rejects.toThrow(
+      /persist/i,
+    );
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!).passwordRecovery.state).toBe('requested');
+    await expect(client.auth.establishPasswordRecoverySession(callbackUrl, { delayMs: 0 })).resolves.toBeUndefined();
+  });
+
+  it('rejeita updatePassword, restaura senha/ready e só consome após uma escrita bem-sucedida', async () => {
+    const snapshot = createClienteBaseline();
+    snapshot.passwordRecovery = {
+      requestId: 'recovery-opaque123',
+      clienteId: 'cliente-ana',
+      state: 'ready',
+    };
+    const storage = memoryStorage({
+      initialValue: JSON.stringify(snapshot),
+      setItemErrors: [new Error('disk full')],
+    });
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+
+    await expect(client.auth.updatePassword('senha-nao-persistida', { delayMs: 0 })).rejects.toThrow(/persist/i);
+    const afterFailure = JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!);
+    expect(afterFailure.passwordRecovery.state).toBe('ready');
+    expect(afterFailure.accounts[0].password).toBe('keepit123');
+
+    await expect(client.auth.updatePassword('senha-persistida', { delayMs: 0 })).resolves.toBeUndefined();
+    __resetDataClientForTests();
+    const reopened = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await expect(reopened.auth.updatePassword('replay', { delayMs: 0 })).rejects.toThrow(/nenhuma sessão/i);
+    await expect(reopened.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 })).rejects.toThrow();
+    await expect(
+      reopened.auth.signIn('ana.souza@example.com', 'senha-persistida', { delayMs: 0 }),
+    ).resolves.toMatchObject({ id: 'cliente-ana' });
+  });
+
+  it('isola rollback de updatePassword de uma persistência concorrente de signOut', async () => {
+    const snapshot = createClienteBaseline();
+    snapshot.sessionClienteId = 'cliente-ana';
+    snapshot.passwordRecovery = {
+      requestId: 'recovery-opaque123',
+      clienteId: 'cliente-ana',
+      state: 'ready',
+    };
+    const values = new Map([[CLIENTE_MOCK_STATE_KEY, JSON.stringify(snapshot)]]);
+    const firstWriteStarted = deferred<void>();
+    const releaseFirstWrite = deferred<void>();
+    let writeCount = 0;
+    const storage: ClienteMockStorage = {
+      async getItem(key) {
+        return values.get(key) ?? null;
+      },
+      async setItem(key, value) {
+        writeCount += 1;
+        if (writeCount === 1) {
+          firstWriteStarted.resolve(undefined);
+          await releaseFirstWrite.promise;
+          throw new Error('disk full');
+        }
+        values.set(key, value);
+      },
+      async removeItem(key) {
+        values.delete(key);
+      },
+    };
+    const db = createMockDb();
+    const stateStore = new ClienteMockStateStore(db, storage);
+    const auth = createAuthMock(db);
+    await stateStore.hydrate();
+
+    const updatePassword = auth.updatePassword('senha-transiente', { delayMs: 0 });
+    await firstWriteStarted.promise;
+    const signOut = auth.signOut({ delayMs: 0 });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(db.sessionClienteId).toBe('cliente-ana');
+
+    releaseFirstWrite.resolve(undefined);
+    await expect(updatePassword).rejects.toThrow(/persist/i);
+    await signOut;
+    await stateStore.flush();
+
+    const persisted = JSON.parse(values.get(CLIENTE_MOCK_STATE_KEY)!);
+    expect(persisted.accounts[0].password).toBe('keepit123');
+    expect(persisted.passwordRecovery.state).toBe('ready');
+    expect(persisted.sessionClienteId).toBeNull();
+
+    const reopenedDb = createMockDb();
+    const reopenedStore = new ClienteMockStateStore(reopenedDb, storage);
+    const reopenedAuth = createAuthMock(reopenedDb);
+    await reopenedStore.hydrate();
+    await expect(reopenedAuth.updatePassword('senha-final', { delayMs: 0 })).resolves.toBeUndefined();
+  });
+
+  it('serializa reset entre recovery falho e persistência comum sem ressuscitar callback', async () => {
+    const snapshot = createClienteBaseline();
+    snapshot.sessionClienteId = 'cliente-ana';
+    snapshot.passwordRecovery = {
+      requestId: 'recovery-opaque123',
+      clienteId: 'cliente-ana',
+      state: 'ready',
+    };
+    const values = new Map([[CLIENTE_MOCK_STATE_KEY, JSON.stringify(snapshot)]]);
+    const firstWriteStarted = deferred<void>();
+    const releaseFirstWrite = deferred<void>();
+    const resetWriteStarted = deferred<void>();
+    const releaseResetWrite = deferred<void>();
+    let writeCount = 0;
+    const storage: ClienteMockStorage = {
+      async getItem(key) {
+        return values.get(key) ?? null;
+      },
+      async setItem(key, value) {
+        writeCount += 1;
+        if (writeCount === 1) {
+          firstWriteStarted.resolve(undefined);
+          await releaseFirstWrite.promise;
+          throw new Error('disk full');
+        }
+        if (writeCount === 2) {
+          resetWriteStarted.resolve(undefined);
+          await releaseResetWrite.promise;
+        }
+        values.set(key, value);
+      },
+      async removeItem(key) {
+        values.delete(key);
+      },
+    };
+    const db = createMockDb();
+    const stateStore = new ClienteMockStateStore(db, storage);
+    const auth = createAuthMock(db);
+    await stateStore.hydrate();
+
+    const updatePassword = auth.updatePassword('senha-transiente', { delayMs: 0 });
+    await firstWriteStarted.promise;
+    const reset = stateStore.reset();
+    const signOut = auth.signOut({ delayMs: 0 });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(db.sessionClienteId).toBe('cliente-ana');
+    releaseFirstWrite.resolve(undefined);
+    await expect(updatePassword).rejects.toThrow(/persist/i);
+    await resetWriteStarted.promise;
+    releaseResetWrite.resolve(undefined);
+
+    await expect(reset).resolves.toEqual({ status: 'reset' });
+    await signOut;
+    await stateStore.flush();
+    expect(readMockPasswordRecovery(db)).toBeNull();
+    expect(JSON.parse(values.get(CLIENTE_MOCK_STATE_KEY)!).passwordRecovery).toBeNull();
+
+    const reopenedDb = createMockDb();
+    const reopenedStore = new ClienteMockStateStore(reopenedDb, storage);
+    const reopenedAuth = createAuthMock(reopenedDb);
+    await reopenedStore.hydrate();
+    await expect(reopenedAuth.updatePassword('senha-indevida', { delayMs: 0 })).rejects.toThrow(
+      /nenhuma sessão/i,
+    );
+  });
+
+  it.each(['expired', 'consumed'] as const)(
+    'rejeita callback %s persistido sem alterar a credencial',
+    async (state) => {
+      const snapshot = createClienteBaseline();
+      Object.assign(snapshot, {
+        passwordRecovery: { requestId: 'recovery-opaque123', clienteId: 'cliente-ana', state },
+      });
+      const storage = memoryStorage({ initialValue: JSON.stringify(snapshot) });
+      const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+      const callbackUrl = 'com.keepithub.cliente://auth/reset?requestId=recovery-opaque123';
+
+      await expect(client.auth.establishPasswordRecoverySession(callbackUrl, { delayMs: 0 })).rejects.toThrow(
+        /link inválido|expirad|consumid|sessão/i,
+      );
+      await expect(client.auth.updatePassword('senha-indevida', { delayMs: 0 })).rejects.toThrow();
+      await expect(
+        client.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 }),
+      ).resolves.toMatchObject({ id: 'cliente-ana' });
+    },
+  );
+
+  it('persiste a nova solicitação e mantém o callback mais novo utilizável após rejeitar o anterior', async () => {
+    const storage = memoryStorage();
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    const firstUrl = await requestDemoCallback(client.auth, 'ana.souza@example.com');
+    const secondUrl = await requestDemoCallback(client.auth, 'ana.souza@example.com');
+
+    expect(secondUrl).not.toBe(firstUrl);
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!).passwordRecovery.requestId).toBe(
+      new URL(secondUrl).searchParams.get('requestId'),
+    );
+    await expect(client.auth.establishPasswordRecoverySession(firstUrl, { delayMs: 0 })).rejects.toThrow();
+    await expect(client.auth.establishPasswordRecoverySession(secondUrl, { delayMs: 0 })).resolves.toBeUndefined();
+  });
+
+  it('persiste perfil e pedido criado após reabertura', async () => {
+    const storage = memoryStorage();
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await client.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
+    await client.auth.updateProfile('cliente-ana', { nome: 'Ana Persistida' }, { delayMs: 0 });
+    const created = await client.order.create(
+      {
+        cliente_id: 'cliente-ana',
+        estabelecimento_id: 'estab-farmacia-vida',
+        hub_id: 'hub-centro',
+        itens: [
+          {
+            produto_id: 'produto-dipirona',
+            nome_snapshot: 'Dipirona Monoidratada 500mg',
+            preco_unitario_reais: 14.9,
+            quantidade: 2,
+          },
+        ],
+        forma_pagamento: 'pix',
+        subtotal_produtos_reais: 29.8,
+        taxa_deslocamento_reais: 5,
+        taxa_keepit_reais: 3.58,
+        taxa_servico_comprador_reais: 1.99,
+        total_pago_reais: 40.37,
+        nf_solicitada: false,
+      },
+      { delayMs: 0 },
+    );
+    await client.demoScenario!.flush();
+
+    __resetDataClientForTests();
+    const reopened = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await expect(reopened.auth.getById('cliente-ana', { delayMs: 0 })).resolves.toMatchObject({
+      nome: 'Ana Persistida',
+    });
+    await expect(reopened.order.listMine('cliente-ana', { delayMs: 0 })).resolves.toEqual([
+      expect.objectContaining({ id: created.id, total_pago_reais: 40.37 }),
+    ]);
+  });
+
+  it('mantém operações de auth e pedido pendentes até a escrita correspondente terminar', async () => {
+    const values = new Map([[CLIENTE_MOCK_STATE_KEY, JSON.stringify(createClienteBaseline())]]);
+    let writeStarted = deferred<void>();
+    let releaseWrite = deferred<void>();
+    const storage: ClienteMockStorage = {
+      async getItem(key) {
+        return values.get(key) ?? null;
+      },
+      async setItem(key, value) {
+        writeStarted.resolve(undefined);
+        await releaseWrite.promise;
+        values.set(key, value);
+      },
+      async removeItem(key) {
+        values.delete(key);
+      },
+    };
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+
+    let authSettled = false;
+    const signIn = client.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
+    void signIn.then(
+      () => {
+        authSettled = true;
+      },
+      () => {
+        authSettled = true;
+      },
+    );
+    await writeStarted.promise;
+    expect(authSettled).toBe(false);
+    releaseWrite.resolve(undefined);
+    await signIn;
+
+    writeStarted = deferred<void>();
+    releaseWrite = deferred<void>();
+    let orderSettled = false;
+    const createOrder = client.order.create(
+      {
+        cliente_id: 'cliente-ana',
+        estabelecimento_id: 'estab-farmacia-vida',
+        hub_id: 'hub-centro',
+        itens: [
+          {
+            produto_id: 'produto-dipirona',
+            nome_snapshot: 'Dipirona Monoidratada 500mg',
+            preco_unitario_reais: 14.9,
+            quantidade: 2,
+          },
+        ],
+        forma_pagamento: 'pix',
+        subtotal_produtos_reais: 29.8,
+        taxa_deslocamento_reais: 5,
+        taxa_keepit_reais: 3.58,
+        taxa_servico_comprador_reais: 1.99,
+        total_pago_reais: 40.37,
+        nf_solicitada: false,
+      },
+      { delayMs: 0 },
+    );
+    void createOrder.then(
+      () => {
+        orderSettled = true;
+      },
+      () => {
+        orderSettled = true;
+      },
+    );
+    await writeStarted.promise;
+    expect(orderSettled).toBe(false);
+    releaseWrite.resolve(undefined);
+    await createOrder;
+  });
+
+  it('reset preserva o estado anterior e publica status sem propagar falha de storage', async () => {
+    const snapshot = createClienteBaseline();
+    snapshot.sessionClienteId = 'cliente-ana';
+    snapshot.qa.simulations.search = 'error';
+    snapshot.passwordRecovery = {
+      requestId: 'recovery-opaque123',
+      clienteId: 'cliente-ana',
+      state: 'ready',
+    };
+    const storage = memoryStorage({
+      initialValue: JSON.stringify(snapshot),
+      setItemErrors: [new Error('disk full')],
+    });
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+
+    await expect(client.demoScenario!.reset()).resolves.toEqual({ status: 'degraded' });
+
+    await expect(client.auth.currentUser({ delayMs: 0 })).resolves.toMatchObject({ id: 'cliente-ana' });
+    expect(client.demoScenario!.getQaState().simulations.search).toBe('error');
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!)).toEqual(snapshot);
+    expect(client.demoScenario!.getStatus()).toMatchObject({
+      hydrated: true,
+      persistence: 'degraded',
+      lastError: 'reset',
+    });
+  });
+
+  it('preserva signOut iniciado durante o rollback de um reset degradado', async () => {
+    vi.useFakeTimers();
+    const snapshot = createClienteBaseline();
+    snapshot.sessionClienteId = 'cliente-ana';
+    const values = new Map([[CLIENTE_MOCK_STATE_KEY, JSON.stringify(snapshot)]]);
+    const resetWriteStarted = deferred<void>();
+    const releaseResetWrite = deferred<void>();
+    let writeCount = 0;
+    const storage: ClienteMockStorage = {
+      async getItem(key) {
+        return values.get(key) ?? null;
+      },
+      async setItem(key, value) {
+        writeCount += 1;
+        if (writeCount === 1) {
+          resetWriteStarted.resolve(undefined);
+          await releaseResetWrite.promise;
+          throw new Error('disk full');
+        }
+        values.set(key, value);
+      },
+      async removeItem(key) {
+        values.delete(key);
+      },
+    };
+    const db = createMockDb();
+    const stateStore = new ClienteMockStateStore(db, storage);
+    const auth = createAuthMock(db);
+    await stateStore.hydrate();
+
+    const reset = stateStore.reset();
+    await resetWriteStarted.promise;
+    const signOut = auth.signOut({ delayMs: 0 });
+    await vi.advanceTimersByTimeAsync(0);
+    releaseResetWrite.resolve(undefined);
+
+    await expect(reset).resolves.toEqual({ status: 'degraded' });
+    await expect(signOut).resolves.toBeUndefined();
+    await stateStore.flush();
+
+    expect(db.sessionClienteId).toBeNull();
+    expect(JSON.parse(values.get(CLIENTE_MOCK_STATE_KEY)!).sessionClienteId).toBeNull();
+
+    const reopenedDb = createMockDb();
+    const reopenedStore = new ClienteMockStateStore(reopenedDb, storage);
+    const reopenedAuth = createAuthMock(reopenedDb);
+    await reopenedStore.hydrate();
+    const currentUser = reopenedAuth.currentUser({ delayMs: 0 });
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(currentUser).resolves.toBeNull();
+  });
+
+  it('reset emite logout aos listeners e invalida a recuperação de senha ativa', async () => {
+    const storage = memoryStorage({ initialValue: JSON.stringify(createClienteBaseline()) });
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await client.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
+    const callbackUrl = await requestDemoCallback(client.auth, 'ana.souza@example.com');
+    await client.auth.establishPasswordRecoverySession(callbackUrl, { delayMs: 0 });
+
+    const authEvents: Array<string | null> = [];
+    let resolveInitialAuth!: () => void;
+    const initialAuth = new Promise<void>((resolve) => {
+      resolveInitialAuth = resolve;
+    });
+    const unsubscribe = client.auth.onAuthStateChange((cliente) => {
+      authEvents.push(cliente?.id ?? null);
+      resolveInitialAuth();
+    });
+    await initialAuth;
+    expect(authEvents).toEqual(['cliente-ana']);
+    authEvents.length = 0;
+
+    await client.demoScenario!.reset();
+
+    expect(authEvents).toEqual([null]);
+    await expect(client.auth.updatePassword('senha-invalida', { delayMs: 0 })).rejects.toThrow(
+      'Nenhuma sessão de recuperação ativa',
+    );
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!).passwordRecovery).toBeNull();
+    await expect(
+      client.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 }),
+    ).resolves.toMatchObject({ id: 'cliente-ana' });
+    unsubscribe();
+  });
+
+  it('mantém o baseline utilizável e expõe falha de leitura', async () => {
+    const storage = memoryStorage({ getItemError: new Error('read failed') });
+
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+
+    expect(client.demoScenario!.getStatus()).toEqual({
+      hydrated: true,
+      persistence: 'degraded',
+      lastError: 'read',
+    });
+    await expect(client.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 })).resolves.toMatchObject({
+      id: 'cliente-ana',
+    });
+  });
+
+  it('reset remove contas e pedidos Cliente criados na sessão sem tocar dados auxiliares ou do Lojista', async () => {
+    const db = createMockDb();
+    const storage = memoryStorage();
+    const stateStore = new ClienteMockStateStore(db, storage);
+    const pedidoClienteTemplate = structuredClone(db.pedidos.find((item) => item.cliente_id === 'cliente-ana')!);
+    await stateStore.hydrate();
+    const auth = createAuthMock(db);
+    const orders = createOrderMock(db);
+    const auxiliar = structuredClone(db.clientes.find((cliente) => cliente.id === 'lj-cliente-thiago')!);
+    const pedidoAuxiliar = structuredClone(db.pedidos.find((pedido) => pedido.cliente_id === auxiliar.id)!);
+    const lojistaContas = structuredClone(db.lojistaContas);
+    const estabelecimentosCadastrados = structuredClone(db.estabelecimentosCadastrados);
+
+    const created = await auth.signUp(
+      { nome: 'Cliente Efêmero', email: 'efemero@example.com', senha: 'senha1234', telefone: null },
+      { delayMs: 0 },
+    );
+    const credential = db.clienteCredenciais.find((item) => item.clienteId === created.id)!;
+    credential.password = 'senha1234';
+    const pedido = structuredClone(pedidoClienteTemplate);
+    pedido.id = 'pedido-efemero';
+    pedido.cliente_id = created.id;
+    db.pedidos.push(pedido);
+    await stateStore.persist();
+
+    await stateStore.reset();
+
+    await expect(auth.signIn('efemero@example.com', 'senha1234', { delayMs: 0 })).rejects.toThrow();
+    await expect(orders.listMine(created.id, { delayMs: 0 })).resolves.toEqual([]);
+    expect(db.clientes.find((cliente) => cliente.id === auxiliar.id)).toEqual(auxiliar);
+    expect(db.pedidos.find((item) => item.id === pedidoAuxiliar.id)).toEqual(pedidoAuxiliar);
+    expect(db.lojistaContas).toEqual(lojistaContas);
+    expect(db.estabelecimentosCadastrados).toEqual(estabelecimentosCadastrados);
+  });
+
+  it('aceita snapshot válido com propriedades em outra ordem sem tentar regravá-lo', async () => {
+    const baseline = createClienteBaseline();
+    const reordered = JSON.stringify({
+      qa: baseline.qa,
+      accountDeletionsByClienteId: baseline.accountDeletionsByClienteId,
+      selectedHubId: baseline.selectedHubId,
+      favoriteStoreIdsByClienteId: baseline.favoriteStoreIdsByClienteId,
+      favoriteHubIdsByClienteId: baseline.favoriteHubIdsByClienteId,
+      passwordRecovery: baseline.passwordRecovery,
+      orderAutomation: baseline.orderAutomation,
+      orders: baseline.orders,
+      sessionClienteId: baseline.sessionClienteId,
+      accounts: baseline.accounts,
+      schemaVersion: baseline.schemaVersion,
+    });
+    const storage = memoryStorage({ initialValue: reordered, setItemError: new Error('unexpected write') });
+
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+
+    await client.demoScenario!.flush();
+
+    expect(client.demoScenario!.getStatus()).toEqual({
+      hydrated: true,
+      persistence: 'ready',
+      lastError: null,
+    });
+    expect(storage.peek(CLIENTE_MOCK_STATE_KEY)).toBe(reordered);
+  });
+
+  it('substitui payload incompatível pelo baseline completo no storage', async () => {
+    const storage = memoryStorage({ initialValue: JSON.stringify({ schemaVersion: 999 }) });
+
+    await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!)).toEqual(createClienteBaseline());
+  });
+
+  it('executa uma escrita posterior depois de uma rejeição na fila', async () => {
+    const storage = memoryStorage({ setItemErrors: [new Error('first write failed')] });
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    expect(client.demoScenario!.getStatus()).toMatchObject({ persistence: 'degraded', lastError: 'write' });
+
+    await client.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
+    await client.demoScenario!.flush();
+
+    expect(client.demoScenario!.getStatus()).toMatchObject({ persistence: 'ready', lastError: null });
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!)).toEqual({
+      ...createClienteBaseline(),
+      sessionClienteId: 'cliente-ana',
+    });
+  });
+
+  it('reverte relógio, conclusão e bloqueio quando advanceClock não persiste', async () => {
+    const snapshot = createClienteBaseline();
+    snapshot.sessionClienteId = 'cliente-ana';
+    const values = new Map([[CLIENTE_MOCK_STATE_KEY, JSON.stringify(snapshot)]]);
+    let writes = 0;
+    const storage: ClienteMockStorage = {
+      async getItem(key) {
+        return values.get(key) ?? null;
+      },
+      async setItem(key, value) {
+        writes += 1;
+        if (writes === 2) throw new Error('disk full');
+        values.set(key, value);
+      },
+      async removeItem(key) {
+        values.delete(key);
+      },
+    };
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await client.accountDeletion.schedule('keepit123');
+
+    await expect(client.demoScenario!.advanceClock(7 * 24 * 60 * 60 * 1_000)).resolves.toEqual({
+      status: 'degraded',
+    });
+
+    expect(client.demoScenario!.getQaState().clockOffsetMs).toBe(0);
+    await expect(client.accountDeletion.status()).resolves.toMatchObject({ status: 'scheduled' });
+    await expect(client.auth.currentUser({ delayMs: 0 })).resolves.toMatchObject({ bloqueado: false });
+
+    await expect(client.demoScenario!.advanceClock(7 * 24 * 60 * 60 * 1_000)).resolves.toEqual({
+      status: 'updated',
+    });
+    await expect(client.accountDeletion.status()).resolves.toMatchObject({ status: 'completed' });
+  });
+
+  it('serializa cancelamento iniciado enquanto o schedule ainda persiste', async () => {
+    const snapshot = createClienteBaseline();
+    snapshot.sessionClienteId = 'cliente-ana';
+    const values = new Map([[CLIENTE_MOCK_STATE_KEY, JSON.stringify(snapshot)]]);
+    const scheduleWriteStarted = deferred<void>();
+    const releaseScheduleWrite = deferred<void>();
+    let writes = 0;
+    const storage: ClienteMockStorage = {
+      async getItem(key) {
+        return values.get(key) ?? null;
+      },
+      async setItem(key, value) {
+        writes += 1;
+        if (writes === 1) {
+          scheduleWriteStarted.resolve(undefined);
+          await releaseScheduleWrite.promise;
+        }
+        values.set(key, value);
+      },
+      async removeItem(key) {
+        values.delete(key);
+      },
+    };
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+
+    const schedule = client.accountDeletion.schedule('keepit123');
+    await scheduleWriteStarted.promise;
+    let cancelSettled = false;
+    const cancel = client.accountDeletion.cancel().finally(() => {
+      cancelSettled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(cancelSettled).toBe(false);
+
+    releaseScheduleWrite.resolve(undefined);
+    await schedule;
+    await expect(cancel).resolves.toMatchObject({ status: 'cancelled' });
+    await client.demoScenario!.flush();
+
+    expect(
+      JSON.parse(values.get(CLIENTE_MOCK_STATE_KEY)!).accountDeletionsByClienteId['cliente-ana'].status,
+    ).toBe('cancelled');
+  });
+
+  it('não oferece cenário mock no datasource supabase', () => {
+    expect(createDataClient({ source: 'supabase' }).demoScenario).toBeUndefined();
+  });
+});

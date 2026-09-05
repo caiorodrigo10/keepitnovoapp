@@ -106,4 +106,5 @@ export const businessConfig = {
 export type BusinessConfig = typeof businessConfig;
 
 export { CATEGORIA_OPTIONS, CATEGORIA_PRODUTO_OPTIONS, type CategoriaOption } from './business-rules';
+export { CUSTOMER_LABELS } from './customer-labels';
 export { SUPORTE_WHATSAPP_DISPONIVEL, SUPORTE_WHATSAPP_NUMERO } from './support-contact';

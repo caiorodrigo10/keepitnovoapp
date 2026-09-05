@@ -18,7 +18,7 @@
     },
     "android": {
       "package": "com.keepithub.cliente",
-      "versionCode": 4,
+      "versionCode": 7,
       "permissions": [],
       "adaptiveIcon": {
         "backgroundColor": "#F6F7F3",

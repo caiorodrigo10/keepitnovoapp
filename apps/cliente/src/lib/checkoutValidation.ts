@@ -1,4 +1,4 @@
-import type { Estabelecimento, Hub } from '@keepit/core-data';
+import { resolveLojaDisponibilidade, type Estabelecimento, type Hub } from '@keepit/core-data';
 import { businessConfig } from '@keepit/config';
 
 /**
@@ -16,6 +16,52 @@ import { businessConfig } from '@keepit/config';
 function paraMinutos(hora: string): number {
   const [h, m] = hora.split(':').map(Number);
   return h * 60 + m;
+}
+
+/**
+ * Story 12.10 (Task 4). Defesa em profundidade do checkout: somente uma
+ * loja pública aberta aceita compra. A regra permanece integralmente na
+ * projeção central de domínio, sem uma segunda tabela de verdade na tela.
+ */
+export function canCheckoutStore(
+  loja: Estabelecimento | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  return loja ? resolveLojaDisponibilidade(loja, now).disponivelParaCompra : false;
+}
+
+/** Mensagem única usada por todos os bloqueios de entrada e submissão. */
+export function getCheckoutStoreBlockMessage(
+  loja: Estabelecimento | null | undefined,
+  now: Date = new Date(),
+): string | null {
+  if (!loja) {
+    return 'Esta loja está fechada agora';
+  }
+
+  const disponibilidade = resolveLojaDisponibilidade(loja, now);
+  if (disponibilidade.disponivelParaCompra) {
+    return null;
+  }
+
+  return disponibilidade.estado === 'pausada'
+    ? 'Esta loja está pausada no momento'
+    : 'Esta loja está fechada agora';
+}
+
+/** Relê a loja no boundary final e impede que dado de tela obsoleto autorize pedido. */
+export async function loadCheckoutStoreForSubmission(
+  estabelecimentoId: string,
+  loadStore: (id: string) => Promise<Estabelecimento | null>,
+  now: Date = new Date(),
+): Promise<Estabelecimento> {
+  const loja = await loadStore(estabelecimentoId);
+  const blockMessage = getCheckoutStoreBlockMessage(loja, now);
+  if (!loja || blockMessage) {
+    throw new Error(blockMessage ?? 'Esta loja está fechada agora');
+  }
+
+  return loja;
 }
 
 /**

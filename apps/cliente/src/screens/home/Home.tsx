@@ -1,24 +1,26 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
+import { resolveLojaDisponibilidade } from '@keepit/core-data';
 
 import {
   AsyncStateBlock,
-  DevStateToggle,
   SearchBar,
   StoreCard,
-  toAsyncCallOptions,
-  type DevSimState,
 } from '../../components/discovery';
 import { Screen } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
+import { useFavorites } from '../../context/FavoritesContext';
+import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useHubsList } from '../../hooks/useHubsList';
 import { useStoresList } from '../../hooks/useStoresList';
-import { CATEGORIAS_HOME, DEFAULT_HUB_ID, isFavorito } from '../../lib/discoveryDisplay';
+import { CATEGORIAS_HOME, selectFavoriteEntities } from '../../lib/discoveryDisplay';
+import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
+import { selectStoresForSurface } from '../../lib/storeDiscovery';
 import type { HomeStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Home'>;
@@ -50,28 +52,40 @@ function CategoriaIcon({ categoriaId, color, size }: { categoriaId: string; colo
  * cards de loja, adicionadas abaixo da seção principal.
  */
 export default function Home({ navigation }: Props) {
-  const [devState, setDevState] = useState<DevSimState>('normal');
-  const options = toAsyncCallOptions(devState);
+  const hubsSimulation = useQaSimulation('hubs');
+  const storesSimulation = useQaSimulation('stores');
 
   const cart = useCart();
+  const { favoriteStoreIds } = useFavorites();
   const { data: cliente } = useCurrentCliente();
-  const { data: hubs, loading: loadingHubs, error: errorHubs } = useHubsList(options);
+  const { data: hubs, loading: hubsLoading, error: errorHubs } = useHubsList(
+    simulationToAsyncCallOptions(hubsSimulation),
+  );
+  const loadingHubs = hubsLoading || isForcedLoading(hubsSimulation);
   // AC1 (Story 5.1.1): Home reflete o hub SELECIONADO (`cart.hubId`), não mais sempre `hubs[0]` fixo.
-  const hubAtual = hubs.find((hub) => hub.id === cart.hubId) ?? hubs[0];
-  const hubId = hubAtual?.id ?? DEFAULT_HUB_ID;
+  const hubAtual = hubs.find((hub) => hub.id === cart.hubId);
 
-  const { data: lojas, loading: loadingLojas, error: errorLojas } = useStoresList(hubId, options);
+  const { data: lojas, loading: storesLoading, error: errorLojas } = useStoresList(
+    cart.hubId ?? '',
+    simulationToAsyncCallOptions(storesSimulation),
+  );
+  const loadingLojas = storesLoading || isForcedLoading(storesSimulation);
 
-  const favoritas = useMemo(() => lojas.filter((loja) => isFavorito(loja.id)), [lojas]);
+  const favoritas = useMemo(
+    () => selectFavoriteEntities(lojas, favoriteStoreIds),
+    [favoriteStoreIds, lojas],
+  );
+  const lojasDisponiveis = useMemo(() => selectStoresForSurface(lojas, 'purchase'), [lojas]);
   const lojasPorCategoria = useMemo(() => {
-    const grupos = new Map<string, typeof lojas>();
-    for (const loja of lojas) {
+    const grupos = new Map<string, typeof lojasDisponiveis>();
+    for (const item of lojasDisponiveis) {
+      const { loja } = item;
       const grupo = grupos.get(loja.categoria) ?? [];
-      grupo.push(loja);
+      grupo.push(item);
       grupos.set(loja.categoria, grupo);
     }
     return grupos;
-  }, [lojas]);
+  }, [lojasDisponiveis]);
 
   const inicial = (cliente?.nome ?? '?').trim().charAt(0).toUpperCase() || '?';
   const loading = loadingHubs || loadingLojas;
@@ -84,15 +98,13 @@ export default function Home({ navigation }: Props) {
           <Text style={styles.retirarEmLabel}>RETIRAR EM</Text>
           <Pressable style={styles.hubSelector} onPress={() => navigation.navigate('EscolhaRetirada')}>
             <Text style={styles.hubNome}>{hubAtual?.nome ?? (loadingHubs ? 'Carregando…' : 'Selecionar hub')}</Text>
-            <Text style={styles.hubChevron}>⌄</Text>
+            {!!hubAtual && <Text style={styles.hubAction}>Alterar</Text>}
           </Pressable>
         </View>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>{inicial}</Text>
         </View>
       </View>
-
-      <DevStateToggle value={devState} onChange={setDevState} />
 
       <SearchBar
         readOnly
@@ -129,6 +141,7 @@ export default function Home({ navigation }: Props) {
                 <StoreCard
                   key={loja.id}
                   loja={loja}
+                  disponibilidade={resolveLojaDisponibilidade(loja)}
                   onPress={() => navigation.navigate('Loja', { estabelecimentoId: loja.id })}
                 />
               ))}
@@ -142,10 +155,10 @@ export default function Home({ navigation }: Props) {
                 <Text style={styles.verTodas}>Ver todas</Text>
               </Pressable>
             </View>
-            {lojas.length === 0 ? (
+            {lojasDisponiveis.length === 0 ? (
               <AsyncStateBlock kind="empty" emptyLabel="Nenhuma loja por perto ainda." />
             ) : (
-              lojas.map((loja) => (
+              lojasDisponiveis.map(({ loja }) => (
                 <StoreCard
                   key={loja.id}
                   loja={loja}
@@ -160,7 +173,7 @@ export default function Home({ navigation }: Props) {
               <Text style={styles.sectionTitle}>
                 {CATEGORIAS_HOME.find((c) => c.id === categoriaId)?.label ?? categoriaId}
               </Text>
-              {lojasDaCategoria.map((loja) => (
+              {lojasDaCategoria.map(({ loja }) => (
                 <StoreCard
                   key={loja.id}
                   loja={loja}
@@ -198,9 +211,10 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.xl.fontSize,
     color: lightColors.text.primary,
   },
-  hubChevron: {
-    fontSize: typography.sizes.lg.fontSize,
-    color: lightColors.text.secondary,
+  hubAction: {
+    fontFamily: 'HankenGrotesk-Medium',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.accent.successFg,
   },
   avatar: {
     width: 40,

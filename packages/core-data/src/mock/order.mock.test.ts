@@ -1,10 +1,50 @@
 import { businessConfig } from '@keepit/config';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { OrderPort } from '../ports/order.port';
+import type { CreatePedidoInput, OrderChangeEvent, OrderPort } from '../ports/order.port';
 import { OrderTransitionError, PinBloqueadoError, PinIncorretoError } from '../ports/order.port';
+import { createDefaultQaScenarioState } from './cliente-state';
+import { ClienteMockStateStore } from './cliente-state-store';
 import { createMockDb, type MockDb } from './db';
 import { createOrderMock } from './order.mock';
+
+const validInput: CreatePedidoInput = {
+  cliente_id: 'cliente-ana',
+  estabelecimento_id: 'estab-farmacia-vida',
+  hub_id: 'hub-centro',
+  itens: [
+    {
+      produto_id: 'produto-dipirona',
+      nome_snapshot: 'Dipirona Monoidratada 500mg',
+      preco_unitario_reais: 14.9,
+      quantidade: 2,
+    },
+  ],
+  forma_pagamento: 'pix',
+  subtotal_produtos_reais: 29.8,
+  taxa_deslocamento_reais: 5,
+  taxa_keepit_reais: (29.8 * businessConfig.taxaKeepitPercent) / 100,
+  taxa_servico_comprador_reais: businessConfig.taxaServicoCompradorReais,
+  total_pago_reais: 29.8 + 5 + businessConfig.taxaServicoCompradorReais,
+  nf_solicitada: false,
+};
+
+function qaComAtrasosDeUmSegundo() {
+  const qa = createDefaultQaScenarioState();
+  qa.autoProgressOrders = true;
+  qa.orderProgressionDelaysMs = {
+    aceito: 1_000,
+    em_preparo: 1_000,
+    saindo_hub: 1_000,
+    no_hub: 1_000,
+  };
+  return qa;
+}
+
+async function settleMock<T>(promise: Promise<T>): Promise<T> {
+  await vi.runAllTimersAsync();
+  return promise;
+}
 
 describe('order.mock (contract)', () => {
   let db: MockDb;
@@ -15,39 +55,23 @@ describe('order.mock (contract)', () => {
     port = createOrderMock(db);
   });
 
-  it('create persiste o snapshot de itens e os totais de cabeçalho recebidos (Story 6.6, AC1/AC7 — sem recalcular a partir do catálogo)', async () => {
-    const subtotal = 29.8; // 2x produto-dipirona a R$ 14,90 (mesmo valor do catálogo, calculado por quem chama)
-    const taxaKeepit = (subtotal * businessConfig.taxaKeepitPercent) / 100;
-    const taxaDeslocamento = 5;
-    const taxaServico = businessConfig.taxaServicoCompradorReais;
-    const total = subtotal + taxaDeslocamento + taxaServico;
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
-    const pedido = await port.create(
-      {
-        cliente_id: 'cliente-ana',
-        estabelecimento_id: 'estab-farmacia-vida',
-        hub_id: 'hub-centro',
-        itens: [
-          { produto_id: 'produto-dipirona', nome_snapshot: 'Dipirona Monoidratada 500mg', preco_unitario_reais: 14.9, quantidade: 2 },
-        ],
-        forma_pagamento: 'pix',
-        subtotal_produtos_reais: subtotal,
-        taxa_deslocamento_reais: taxaDeslocamento,
-        taxa_keepit_reais: taxaKeepit,
-        taxa_servico_comprador_reais: taxaServico,
-        total_pago_reais: total,
-        nf_solicitada: false,
-      },
-      { delayMs: 1 },
-    );
+  it('create persiste o snapshot de itens e os totais de cabeçalho recebidos (Story 6.6, AC1/AC7 — sem recalcular a partir do catálogo)', async () => {
+    const pedido = await port.create(validInput, { delayMs: 1 });
 
     expect(pedido.subtotal_produtos_reais).toBeCloseTo(29.8, 2);
     expect(pedido.taxa_keepit_reais).toBeCloseTo((29.8 * businessConfig.taxaKeepitPercent) / 100, 2);
-    expect(pedido.taxa_deslocamento_reais).toBeCloseTo(taxaDeslocamento, 2);
+    expect(pedido.taxa_deslocamento_reais).toBeCloseTo(5, 2);
     // Story 6.16 (AC1, AC3): campo que faltava no read model — volta a
     // aparecer no `Pedido` retornado por `create`, como o resto dos totais.
-    expect(pedido.taxa_servico_comprador_reais).toBeCloseTo(taxaServico, 2);
-    expect(pedido.total_pago_reais).toBeCloseTo(total, 2);
+    expect(pedido.taxa_servico_comprador_reais).toBeCloseTo(businessConfig.taxaServicoCompradorReais, 2);
+    expect(pedido.total_pago_reais).toBeCloseTo(
+      29.8 + 5 + businessConfig.taxaServicoCompradorReais,
+      2,
+    );
     // Story 6.7.1 (AC5): status inicial volta a ser `aguardando_pagamento` —
     // a transição para `aguardando_aceite` passa a ser feita por
     // `confirmarPagamento`, chamada automaticamente pela UI (ver testes abaixo).
@@ -90,6 +114,41 @@ describe('order.mock (contract)', () => {
     expect(db.pedidos.length).toBe(pedidosAntes);
   });
 
+  it('notifica persistência somente depois de uma mutação de pedido bem-sucedida', async () => {
+    let mutationCount = 0;
+    db.onClienteMutation = () => {
+      mutationCount += 1;
+    };
+
+    await expect(port.confirmarPagamento('pedido-2049', { delayMs: 1 })).rejects.toThrow();
+    expect(mutationCount).toBe(0);
+
+    await port.create(
+      {
+        cliente_id: 'cliente-ana',
+        estabelecimento_id: 'estab-farmacia-vida',
+        hub_id: 'hub-centro',
+        itens: [
+          {
+            produto_id: 'produto-dipirona',
+            nome_snapshot: 'Dipirona Monoidratada 500mg',
+            preco_unitario_reais: 14.9,
+            quantidade: 2,
+          },
+        ],
+        forma_pagamento: 'pix',
+        subtotal_produtos_reais: 29.8,
+        taxa_deslocamento_reais: 5,
+        taxa_keepit_reais: 3.58,
+        taxa_servico_comprador_reais: 1.99,
+        total_pago_reais: 40.37,
+        nf_solicitada: false,
+      },
+      { delayMs: 1 },
+    );
+    expect(mutationCount).toBe(1);
+  });
+
   it('confirmarPagamento transitions aguardando_pagamento -> aguardando_aceite, without touching aceito_em (Story 6.7.1, AC1-AC4)', async () => {
     const criado = await port.create(
       {
@@ -116,10 +175,266 @@ describe('order.mock (contract)', () => {
     expect(confirmado.aceito_em).toBeNull();
   });
 
+  it('agenda após pagamento, reconcilia leituras e emite cada transição uma vez', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-09-05T10:00:00.000Z');
+    db.clienteQaState = qaComAtrasosDeUmSegundo();
+    const eventSnapshots: { status: string; enteredStatusAt: string | null }[] = [];
+    const event = vi.fn((value: OrderChangeEvent) => {
+      if (value.reason !== 'auto-progress') return;
+      eventSnapshots.push({
+        status: db.pedidos.find((pedido) => pedido.id === value.pedidoId)?.status ?? 'missing',
+        enteredStatusAt: db.clienteOrderAutomation[value.pedidoId!]?.enteredStatusAt ?? null,
+      });
+    });
+    port.subscribeChanges!(event);
+
+    const created = await settleMock(port.create(validInput, { delayMs: 0 }));
+    await settleMock(port.confirmarPagamento(created.id, { delayMs: 0 }));
+
+    expect(db.clienteOrderAutomation[created.id]).toEqual({
+      enteredStatusAt: '2026-09-05T10:00:00.000Z',
+    });
+
+    const persistedSnapshots: { status: string; enteredStatusAt: string | null }[] = [];
+    db.onClienteMutation = () => {
+      persistedSnapshots.push({
+        status: db.pedidos.find((pedido) => pedido.id === created.id)?.status ?? 'missing',
+        enteredStatusAt: db.clienteOrderAutomation[created.id]?.enteredStatusAt ?? null,
+      });
+    };
+    vi.setSystemTime('2026-09-05T10:00:05.000Z');
+    const current = (await settleMock(port.listMine('cliente-ana', { delayMs: 0 }))).find(
+      (pedido) => pedido.id === created.id,
+    );
+    expect(current?.status).toBe('no_hub');
+    expect(event.mock.calls.filter(([value]) => value.reason === 'auto-progress')).toEqual(
+      Array.from({ length: 4 }, () => [
+        { clienteId: 'cliente-ana', pedidoId: created.id, reason: 'auto-progress' },
+      ]),
+    );
+    expect(event.mock.calls.filter(([value]) => value.reason === 'mutation')).toHaveLength(2);
+    const expectedSnapshots = [
+      { status: 'aceito', enteredStatusAt: '2026-09-05T10:00:01.000Z' },
+      { status: 'em_preparo', enteredStatusAt: '2026-09-05T10:00:02.000Z' },
+      { status: 'saindo_hub', enteredStatusAt: '2026-09-05T10:00:03.000Z' },
+      { status: 'no_hub', enteredStatusAt: null },
+    ];
+    expect(persistedSnapshots).toEqual(expectedSnapshots);
+    expect(eventSnapshots).toEqual(expectedSnapshots);
+
+    const sameCurrent = (await settleMock(port.listMine('cliente-ana', { delayMs: 0 }))).find(
+      (pedido) => pedido.id === created.id,
+    );
+    expect(sameCurrent?.status).toBe('no_hub');
+    expect(event.mock.calls.filter(([value]) => value.reason === 'auto-progress')).toHaveLength(4);
+  });
+
+  it('serializa listMine e getById sobrepostos sem repetir transições', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-09-05T10:00:00.000Z');
+    db.clienteQaState = qaComAtrasosDeUmSegundo();
+    const created = await settleMock(port.create(validInput, { delayMs: 0 }));
+    await settleMock(port.confirmarPagamento(created.id, { delayMs: 0 }));
+
+    const persistedStatuses: string[] = [];
+    const eventStatuses: string[] = [];
+    let releaseFirstPersistence!: () => void;
+    let markFirstPersistenceStarted!: () => void;
+    let shouldBlock = true;
+    const firstPersistenceStarted = new Promise<void>((resolve) => {
+      markFirstPersistenceStarted = resolve;
+    });
+    const firstPersistenceGate = new Promise<void>((resolve) => {
+      releaseFirstPersistence = resolve;
+    });
+    db.onClienteMutation = async () => {
+      persistedStatuses.push(db.pedidos.find((pedido) => pedido.id === created.id)!.status);
+      if (shouldBlock) {
+        shouldBlock = false;
+        markFirstPersistenceStarted();
+        await firstPersistenceGate;
+      }
+    };
+    port.subscribeChanges!((event) => {
+      if (event.reason === 'auto-progress') {
+        eventStatuses.push(db.pedidos.find((pedido) => pedido.id === created.id)!.status);
+      }
+    });
+
+    vi.setSystemTime('2026-09-05T10:00:05.000Z');
+    const listing = port.listMine('cliente-ana', { delayMs: 0 });
+    await vi.advanceTimersByTimeAsync(0);
+    await firstPersistenceStarted;
+
+    const detail = port.getById(created.id, { delayMs: 0 });
+    await vi.advanceTimersByTimeAsync(0);
+    releaseFirstPersistence();
+
+    const [orders, current] = await Promise.all([listing, detail]);
+    expect(orders.find((pedido) => pedido.id === created.id)?.status).toBe('no_hub');
+    expect(current?.status).toBe('no_hub');
+    expect(persistedStatuses).toEqual(['aceito', 'em_preparo', 'saindo_hub', 'no_hub']);
+    expect(eventStatuses).toEqual(['aceito', 'em_preparo', 'saindo_hub', 'no_hub']);
+    expect(db.clienteOrderAutomation[created.id]).toBeUndefined();
+  });
+
+  it('não agenda antes do pagamento e mantém o pedido aguardando pagamento', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-09-05T10:00:00.000Z');
+    db.clienteQaState = qaComAtrasosDeUmSegundo();
+
+    const created = await settleMock(port.create(validInput, { delayMs: 0 }));
+    vi.setSystemTime('2026-09-05T10:00:05.000Z');
+    const current = await settleMock(port.getById(created.id, { delayMs: 0 }));
+
+    expect(current?.status).toBe('aguardando_pagamento');
+    expect(db.clienteOrderAutomation[created.id]).toBeUndefined();
+  });
+
+  it('reconcilia a progressão automática também em getById', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-09-05T10:00:00.000Z');
+    db.clienteQaState = qaComAtrasosDeUmSegundo();
+    const created = await settleMock(port.create(validInput, { delayMs: 0 }));
+    await settleMock(port.confirmarPagamento(created.id, { delayMs: 0 }));
+
+    vi.setSystemTime('2026-09-05T10:00:05.000Z');
+    const current = await settleMock(port.getById(created.id, { delayMs: 0 }));
+
+    expect(current?.status).toBe('no_hub');
+  });
+
+  it('deixa de notificar um listener após unsubscribe', async () => {
+    vi.useFakeTimers();
+    const event = vi.fn();
+    const unsubscribe = port.subscribeChanges!(event);
+    await settleMock(port.create(validInput, { delayMs: 0 }));
+    expect(event).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+    await settleMock(port.create(validInput, { delayMs: 0 }));
+
+    expect(event).toHaveBeenCalledTimes(1);
+  });
+
+  it('emite reset para cada conta removida do domínio Cliente', async () => {
+    const stateStore = new ClienteMockStateStore(db, {
+      async getItem() {
+        return null;
+      },
+      async setItem() {},
+      async removeItem() {},
+    });
+    await stateStore.hydrate();
+    const event = vi.fn();
+    port.subscribeChanges!(event);
+
+    await stateStore.reset();
+
+    expect(event).toHaveBeenCalledWith({ clienteId: 'cliente-ana', reason: 'reset' });
+  });
+
+  it.each([
+    ['pausada', false, qaComAtrasosDeUmSegundo().orderProgressionDelaysMs],
+    ['sem configuração de atrasos', true, null],
+  ] as const)('não progride quando a automação está %s', async (_label, autoProgressOrders, delays) => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-09-05T10:00:00.000Z');
+    db.clienteQaState = qaComAtrasosDeUmSegundo();
+    const created = await settleMock(port.create(validInput, { delayMs: 0 }));
+    await settleMock(port.confirmarPagamento(created.id, { delayMs: 0 }));
+
+    db.clienteQaState.autoProgressOrders = autoProgressOrders;
+    db.clienteQaState.orderProgressionDelaysMs = delays;
+    vi.setSystemTime('2026-09-05T10:00:05.000Z');
+
+    const current = await settleMock(port.getById(created.id, { delayMs: 0 }));
+    expect(current?.status).toBe('aguardando_aceite');
+  });
+
+  it.each(['cancel', 'refuse'] as const)(
+    'remove a âncora após %s terminal',
+    async (terminalAction) => {
+      vi.useFakeTimers();
+      vi.setSystemTime('2026-09-05T10:00:00.000Z');
+      db.clienteQaState = qaComAtrasosDeUmSegundo();
+      const created = await settleMock(port.create(validInput, { delayMs: 0 }));
+      await settleMock(port.confirmarPagamento(created.id, { delayMs: 0 }));
+
+      if (terminalAction === 'cancel') {
+        await settleMock(port.cancel(created.id, 'Mudei de ideia', { delayMs: 0 }));
+      } else {
+        await settleMock(port.refuse(created.id, 'Sem estoque', { delayMs: 0 }));
+      }
+
+      expect(db.clienteOrderAutomation[created.id]).toBeUndefined();
+    },
+  );
+
+  it('remove uma âncora residual após entrega válida em no_hub', async () => {
+    vi.useFakeTimers();
+    const pedido = db.pedidos.find((candidate) => candidate.id === 'lj-pedido-2045')!;
+    db.clienteOrderAutomation[pedido.id] = { enteredStatusAt: '2026-09-05T10:00:00.000Z' };
+
+    const delivered = await settleMock(port.confirmPin(pedido.id, pedido.pin_texto, { delayMs: 0 }));
+
+    expect(delivered.status).toBe('entregue');
+    expect(db.clienteOrderAutomation[pedido.id]).toBeUndefined();
+  });
+
+  it('reancora uma transição manual no relógio QA', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-09-05T10:00:00.000Z');
+    db.clienteQaState = qaComAtrasosDeUmSegundo();
+    db.clienteQaState.clockOffsetMs = 10_000;
+    const created = await settleMock(port.create(validInput, { delayMs: 0 }));
+    await settleMock(port.confirmarPagamento(created.id, { delayMs: 0 }));
+
+    vi.setSystemTime('2026-09-05T10:00:00.500Z');
+    await settleMock(port.accept(created.id, 25, { delayMs: 0 }));
+    vi.setSystemTime('2026-09-05T10:00:01.250Z');
+
+    const current = await settleMock(port.getById(created.id, { delayMs: 0 }));
+    expect(current?.status).toBe('aceito');
+    expect(db.clienteOrderAutomation[created.id]).toEqual({
+      enteredStatusAt: '2026-09-05T10:00:10.500Z',
+    });
+  });
+
   it('confirmarPagamento rejects with OrderTransitionError from any other status (Story 6.7.1, AC4)', async () => {
     // Fixture `pedido-2049` já nasce em `aguardando_aceite` (Story 0.10/6.6 fixtures).
     await expect(port.confirmarPagamento('pedido-2049', { delayMs: 1 })).rejects.toThrow(/não permitida/i);
     await expect(port.confirmarPagamento('pedido-2049', { delayMs: 1 })).rejects.toBeInstanceOf(OrderTransitionError);
+  });
+
+  it('rejeita qualquer tentativa de PIN antes de no_hub sem efeitos colaterais', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-09-05T10:00:00.000Z');
+    db.clienteQaState = qaComAtrasosDeUmSegundo();
+    const created = await settleMock(port.create(validInput, { delayMs: 0 }));
+    await settleMock(port.confirmarPagamento(created.id, { delayMs: 0 }));
+    const before = structuredClone(created);
+    const runtimeBefore = structuredClone(db.clienteOrderAutomation[created.id]);
+    const persistence = vi.fn();
+    const event = vi.fn();
+    db.onClienteMutation = persistence;
+    port.subscribeChanges!(event);
+
+    const correctAttempt = port.confirmPin(created.id, created.pin_texto, { delayMs: 0 });
+    const correctRejection = expect(correctAttempt).rejects.toBeInstanceOf(OrderTransitionError);
+    await vi.runAllTimersAsync();
+    await correctRejection;
+
+    const wrongAttempt = port.confirmPin(created.id, '0000', { delayMs: 0 });
+    const wrongRejection = expect(wrongAttempt).rejects.toBeInstanceOf(OrderTransitionError);
+    await vi.runAllTimersAsync();
+    await wrongRejection;
+
+    expect(created).toEqual(before);
+    expect(db.clienteOrderAutomation[created.id]).toEqual(runtimeBefore);
+    expect(persistence).not.toHaveBeenCalled();
+    expect(event).not.toHaveBeenCalled();
   });
 
   it('listMine resolves with only the pedidos of the given cliente', async () => {
@@ -129,7 +444,7 @@ describe('order.mock (contract)', () => {
   });
 
   it('confirmPin blocks after businessConfig.pinTentativasMax wrong attempts (Story 6.15, AC3, AC8) — rejects with PinIncorretoError then PinBloqueadoError, mesmas classes do adapter Supabase', async () => {
-    const pedidoId = 'pedido-2049';
+    const pedidoId = 'lj-pedido-2045';
 
     for (let i = 0; i < businessConfig.pinTentativasMax - 1; i += 1) {
       const promise = port.confirmPin(pedidoId, '0000', { delayMs: 1 });
@@ -145,11 +460,23 @@ describe('order.mock (contract)', () => {
 
     // Tentativa (mesmo com PIN correto) durante o bloqueio ativo continua bloqueada,
     // sem consumir/incrementar tentativa.
-    await expect(port.confirmPin(pedidoId, '7734', { delayMs: 1 })).rejects.toBeInstanceOf(PinBloqueadoError);
+    await expect(port.confirmPin(pedidoId, '4567', { delayMs: 1 })).rejects.toBeInstanceOf(PinBloqueadoError);
+  });
+
+  it('confirmPin incorreto rejeita, mas notifica persistência porque incrementa tentativas', async () => {
+    let mutationCount = 0;
+    db.onClienteMutation = () => {
+      mutationCount += 1;
+    };
+
+    await expect(port.confirmPin('lj-pedido-2045', '0000', { delayMs: 1 })).rejects.toBeInstanceOf(PinIncorretoError);
+
+    expect(db.pedidos.find((pedido) => pedido.id === 'lj-pedido-2045')?.tentativas_pin).toBe(1);
+    expect(mutationCount).toBe(1);
   });
 
   it('confirmPin with the correct PIN transitions status to "entregue" and zeroes tentativas_pin/pin_bloqueado_ate', async () => {
-    const pedido = await port.confirmPin('pedido-2049', '7734', { delayMs: 1 });
+    const pedido = await port.confirmPin('lj-pedido-2045', '4567', { delayMs: 1 });
     expect(pedido.status).toBe('entregue');
     expect(pedido.entregue_em).not.toBeNull();
     expect(pedido.tentativas_pin).toBe(0);

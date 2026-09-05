@@ -150,6 +150,12 @@ export class OrderTransitionError extends Error {
  */
 export type AdvanceableStatus = Extract<PedidoStatus, 'em_preparo' | 'saindo_hub' | 'no_hub'>;
 
+export type OrderChangeEvent = {
+  clienteId: string;
+  pedidoId?: string;
+  reason: 'mutation' | 'auto-progress' | 'reset';
+};
+
 /**
  * Story 6.15 (AC3, AC4, AC8) — [IDS] CREATE, mesmo padrão de erro tipado
  * domínio-level já usado por `OrderTransitionError` acima (não vive em
@@ -182,6 +188,7 @@ export class PinBloqueadoError extends Error {
 }
 
 export interface OrderPort {
+  subscribeChanges?(listener: (event: OrderChangeEvent) => void): () => void;
   create(input: CreatePedidoInput, options?: AsyncCallOptions): Promise<Pedido>;
   listMine(clienteId: string, options?: AsyncCallOptions): Promise<Pedido[]>;
   /** Resolve um único pedido por id — Story 1.10 (Task 2), usado pelas telas de detalhe do Cliente. */

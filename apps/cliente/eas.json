@@ -6,6 +6,7 @@
     "demo": {
       "distribution": "store",
       "autoIncrement": true,
+      "environment": "preview",
       "ios": {
         "credentialsSource": "local"
       },
@@ -13,22 +14,28 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_DATA_SOURCE": "mock"
+        "EXPO_PUBLIC_DATA_SOURCE": "mock",
+        "EXPO_PUBLIC_APP_ENV": "qa",
+        "EXPO_PUBLIC_QA_ENABLED": "true"
       }
     },
     "demo-apk": {
       "distribution": "internal",
       "autoIncrement": true,
+      "environment": "preview",
       "android": {
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_DATA_SOURCE": "mock"
+        "EXPO_PUBLIC_DATA_SOURCE": "mock",
+        "EXPO_PUBLIC_APP_ENV": "qa",
+        "EXPO_PUBLIC_QA_ENABLED": "true"
       }
     },
     "production": {
       "distribution": "store",
       "autoIncrement": true,
+      "environment": "production",
       "ios": {
         "credentialsSource": "local"
       },
@@ -36,7 +43,9 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_DATA_SOURCE": "supabase"
+        "EXPO_PUBLIC_DATA_SOURCE": "supabase",
+        "EXPO_PUBLIC_APP_ENV": "production",
+        "EXPO_PUBLIC_QA_ENABLED": "false"
       }
     }
   },

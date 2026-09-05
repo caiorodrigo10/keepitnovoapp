@@ -7,6 +7,7 @@ import type {
   Cliente,
   ClienteConfirmacaoTelefone,
   PasswordRecoveryState,
+  PasswordResetRequestResult,
   SignUpInput,
   UpdateEmailResult,
   UpdateProfileInput,
@@ -24,6 +25,8 @@ const EPIC = 'Épico 2';
  * `resetPasswordForEmail` e o único aceito por `establishPasswordRecoverySession`.
  */
 export const PASSWORD_RECOVERY_REDIRECT_TO = 'com.keepithub.cliente://auth/reset';
+const PASSWORD_RECOVERY_SESSION_ERROR =
+  '[core-data/supabase] auth.establishPasswordRecoverySession — não foi possível iniciar a recuperação.';
 
 /**
  * Esqueleto Supabase de `AuthPort` (Story 1.9). `signUp` implementado na
@@ -59,6 +62,7 @@ export function createAuthSupabase(
   // Quando `client` é passado explicitamente (ex. testes), `cachedClient` é
   // o próprio `client` recebido — nunca substituído.
   let cachedClient: SupabaseClient<Database> | null = client ?? null;
+  let passwordUpdateInFlight = false;
   const resolveClient = (): SupabaseClient<Database> => cachedClient ?? (cachedClient = createClient());
 
   return {
@@ -155,56 +159,51 @@ export function createAuthSupabase(
      * obfuscação documentada em `signUp`/`EmailJaExisteError`, aqui a favor
      * do usuário: a tela mostra a mesma confirmação neutra nos dois casos,
      * ver `EsqueciSenha.tsx`). Erro real do SDK (rede, rate limit) é
-     * relançado tal como recebido, sem mascarar como sucesso.
+     * relançado tal como recebido, sem mascarar como sucesso. O SDK atual
+     * documenta que uma nova chamada pode reenviar o e-mail, mas não garante
+     * revogação imediata de links anteriores; por isso este adapter não
+     * inventa invalidação local nem promete essa semântica ao chamador.
      */
-    async requestPasswordReset(email: string, _options?: AsyncCallOptions): Promise<void> {
+    async requestPasswordReset(
+      email: string,
+      _options?: AsyncCallOptions,
+    ): Promise<PasswordResetRequestResult> {
       const { error } = await resolveClient().auth.resetPasswordForEmail(email, {
         redirectTo: PASSWORD_RECOVERY_REDIRECT_TO,
       });
       if (error) {
         throw error;
       }
+      return { delivery: 'email' };
     },
 
     /**
-     * Story 2.7 (Task, AC3, AC5). Recebe a URL bruta do callback (pode
-     * conter `access_token`/`refresh_token` no fragmento, ou `code` na
-     * query — PKCE) e a consome inteiramente dentro deste adapter via
+     * Story 2.7 (Task, AC3, AC5). Recebe a URL bruta do callback PKCE e
+     * consome somente o `code` de uso único dentro deste adapter via
      * `parsePasswordRecoveryCallback`; nada da URL sai daqui. Marca
      * `passwordRecoveryState` ANTES de trocar a sessão para que
      * `onAuthStateChange` (que pode disparar de forma síncrona/imediata
-     * dentro de `setSession`/`exchangeCodeForSession`) já veja a sessão
+     * dentro de `exchangeCodeForSession`) já veja a sessão
      * como "somente recuperação" e não promova o usuário para `Main`. Em
-     * qualquer falha, desfaz a marca e relança — sem sessão de recuperação
-     * ativa, `updatePassword` também não pode ter efeito.
+     * qualquer falha, encerra uma possível sessão parcial, desfaz a marca e
+     * relança somente um erro genérico — sem sessão de recuperação ativa,
+     * `updatePassword` também não pode ter efeito e detalhes do provider ou
+     * da URL bruta nunca escapam desta fronteira.
      */
     async establishPasswordRecoverySession(callbackUrl: string, _options?: AsyncCallOptions): Promise<void> {
-      const callback = parsePasswordRecoveryCallback(callbackUrl);
       const auth = resolveClient().auth;
 
-      await passwordRecoveryState.activate();
       try {
-        if (callback.code) {
-          const { error } = await auth.exchangeCodeForSession(callback.code);
-          if (error) {
-            throw error;
-          }
-          return;
-        }
+        const code = parsePasswordRecoveryCallback(callbackUrl);
+        await passwordRecoveryState.activate();
 
-        if (!callback.accessToken || !callback.refreshToken) {
-          throw new Error('[core-data/supabase] auth.establishPasswordRecoverySession — callback sem sessão válida.');
+        const { data, error } = await auth.exchangeCodeForSession(code);
+        if (error || !data.session) {
+          throw new Error(PASSWORD_RECOVERY_SESSION_ERROR);
         }
-        const { error } = await auth.setSession({
-          access_token: callback.accessToken,
-          refresh_token: callback.refreshToken,
-        });
-        if (error) {
-          throw error;
-        }
-      } catch (error) {
-        await passwordRecoveryState.clear();
-        throw error;
+      } catch {
+        await cleanupFailedPasswordRecovery(auth, passwordRecoveryState);
+        throw new Error(PASSWORD_RECOVERY_SESSION_ERROR);
       }
     },
 
@@ -216,22 +215,34 @@ export function createAuthSupabase(
      * de recuperação; só então limpa a marca. Se `signOut` falhar, a marca
      * permanece ativa (mais seguro manter `onAuthStateChange` bloqueando a
      * promoção do que arriscar liberar o `Main` com uma sessão inconsistente).
+     * A guarda síncrona, adquirida antes do primeiro `await`, impede duas
+     * chamadas concorrentes de atravessarem `isActive()` e chegarem juntas ao
+     * provider; ela é liberada no `finally` para permitir retry após erro.
      */
     async updatePassword(password: string, _options?: AsyncCallOptions): Promise<void> {
-      if (!(await passwordRecoveryState.isActive())) {
+      if (passwordUpdateInFlight) {
         throw new Error('[core-data/supabase] auth.updatePassword — nenhuma sessão de recuperação ativa.');
       }
-      const auth = resolveClient().auth;
-      const { error } = await auth.updateUser({ password });
-      if (error) {
-        throw error;
-      }
+      passwordUpdateInFlight = true;
 
-      const { error: signOutError } = await auth.signOut();
-      if (signOutError) {
-        throw signOutError;
+      try {
+        if (!(await passwordRecoveryState.isActive())) {
+          throw new Error('[core-data/supabase] auth.updatePassword — nenhuma sessão de recuperação ativa.');
+        }
+        const auth = resolveClient().auth;
+        const { error } = await auth.updateUser({ password });
+        if (error) {
+          throw error;
+        }
+
+        const { error: signOutError } = await auth.signOut();
+        if (signOutError) {
+          throw signOutError;
+        }
+        await passwordRecoveryState.clear();
+      } finally {
+        passwordUpdateInFlight = false;
       }
-      await passwordRecoveryState.clear();
     },
 
     /**
@@ -484,19 +495,40 @@ function createInMemoryPasswordRecoveryState(): PasswordRecoveryState {
 }
 
 /**
- * Story 2.7 (AC3, AC5) — único ponto que lê o conteúdo do callback de
- * recuperação. Devolve somente o mínimo necessário para restaurar a sessão
- * (`code` do fluxo PKCE OU `access_token`/`refresh_token` do fluxo
- * implícito); nunca devolve a URL/hash inteiros nem loga nada. Rejeita
- * qualquer URL que não seja exatamente `PASSWORD_RECOVERY_REDIRECT_TO`,
- * que carregue `error` (link expirado/inválido do próprio Supabase) ou que
- * não traga nenhum dos dois formatos de sessão reconhecidos.
+ * Falha fechada do callback: só limpa a marca depois que o SDK confirma a
+ * remoção da sessão local. Se o logout falhar ou rejeitar, mantém recovery
+ * ativo para impedir que uma sessão parcial seja promovida a login. Erros de
+ * cleanup não substituem o erro público genérico nem carregam detalhes do
+ * provider/URL. O escopo local evita encerrar sessões legítimas em outros
+ * dispositivos ao descartar apenas a sessão parcial deste callback.
  */
-function parsePasswordRecoveryCallback(callbackUrl: string): {
-  code: string | null;
-  accessToken: string | null;
-  refreshToken: string | null;
-} {
+async function cleanupFailedPasswordRecovery(
+  auth: SupabaseClient<Database>['auth'],
+  passwordRecoveryState: PasswordRecoveryState,
+): Promise<void> {
+  try {
+    const { error } = await auth.signOut({ scope: 'local' });
+    if (error) return;
+  } catch {
+    return;
+  }
+  try {
+    await passwordRecoveryState.clear();
+  } catch {
+    // O chamador recebe sempre o mesmo erro genérico de callback.
+  }
+}
+
+/**
+ * Story 2.7 (AC3, AC5) — único ponto que lê o conteúdo do callback de
+ * recuperação. Devolve somente o `code` PKCE de uso único necessário para
+ * trocar a sessão; nunca devolve a URL/hash inteiros nem loga nada. O fluxo
+ * implícito é rejeitado de propósito: `setSession` poderia reutilizar o mesmo
+ * access token até o JWT expirar, mesmo depois de `signOut`. Rejeita qualquer
+ * URL que não seja exatamente `PASSWORD_RECOVERY_REDIRECT_TO`, que carregue
+ * `error` (link expirado/inválido do próprio Supabase) ou que não traga code.
+ */
+function parsePasswordRecoveryCallback(callbackUrl: string): string {
   let url: URL;
   try {
     url = new URL(callbackUrl);
@@ -504,7 +536,7 @@ function parsePasswordRecoveryCallback(callbackUrl: string): {
     throw new Error('[core-data/supabase] auth.establishPasswordRecoverySession — callback inválido.');
   }
 
-  if (`${url.protocol}//${url.host}${url.pathname}` !== PASSWORD_RECOVERY_REDIRECT_TO) {
+  if (url.username || url.password || `${url.protocol}//${url.host}${url.pathname}` !== PASSWORD_RECOVERY_REDIRECT_TO) {
     throw new Error('[core-data/supabase] auth.establishPasswordRecoverySession — callback de outra rota.');
   }
 
@@ -514,13 +546,11 @@ function parsePasswordRecoveryCallback(callbackUrl: string): {
   }
 
   const code = url.searchParams.get('code');
-  const accessToken = hash.get('access_token');
-  const refreshToken = hash.get('refresh_token');
-  if (!code && (!accessToken || !refreshToken || hash.get('type') !== 'recovery')) {
+  if (!code) {
     throw new Error('[core-data/supabase] auth.establishPasswordRecoverySession — callback sem sessão válida.');
   }
 
-  return { code, accessToken, refreshToken };
+  return code;
 }
 
 /**

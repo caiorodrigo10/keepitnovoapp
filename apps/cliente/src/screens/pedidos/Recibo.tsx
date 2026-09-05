@@ -1,10 +1,11 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
+import { CUSTOMER_LABELS } from '@keepit/config';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { AsyncStateBlock } from '../../components/discovery';
-import { Button, Screen } from '../../components/ui';
+import { AppHeader, Button, Screen } from '../../components/ui';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useHubDetail } from '../../hooks/useHubDetail';
 import { useStoreDetail } from '../../hooks/useStoreDetail';
@@ -56,13 +57,10 @@ export default function Recibo({ route, navigation }: Props) {
 
   return (
     <Screen>
-      <View style={styles.topBar}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={8} style={styles.roundButton}>
-          <Text style={styles.roundButtonIcon}>‹</Text>
-        </Pressable>
-        <Text style={styles.title}>{pedido ? `Pedido #${pedido.numero}` : 'Pedido'}</Text>
-        <View style={styles.roundButton} />
-      </View>
+      <AppHeader
+        title={pedido ? `Pedido #${pedido.numero}` : 'Pedido'}
+        back={{ navigation, fallback: () => navigation.navigate('MeusPedidos') }}
+      />
 
       {loading && <AsyncStateBlock kind="loading" />}
       {!loading && !!error && <AsyncStateBlock kind="error" />}
@@ -127,7 +125,7 @@ export default function Recibo({ route, navigation }: Props) {
             <Text style={styles.totaisValue}>{formatReais(pedido.subtotal_produtos_reais)}</Text>
           </View>
           <View style={styles.totaisRow}>
-            <Text style={styles.totaisLabel}>Taxa de deslocamento</Text>
+            <Text style={styles.totaisLabel}>{CUSTOMER_LABELS.freight}</Text>
             <Text style={styles.totaisValue}>{formatReais(pedido.taxa_deslocamento_reais)}</Text>
           </View>
           {pedido.taxa_servico_comprador_reais > 0 && (
@@ -168,29 +166,6 @@ function formatData(isoDate: string): string {
 }
 
 const styles = StyleSheet.create({
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing['5'],
-  },
-  roundButton: {
-    width: 36,
-    height: 36,
-    borderRadius: radii.full,
-    backgroundColor: lightColors.bg.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  roundButtonIcon: {
-    fontSize: typography.sizes.lg.fontSize,
-    color: lightColors.text.primary,
-  },
-  title: {
-    fontFamily: 'HankenGrotesk-Bold',
-    fontSize: typography.sizes.xl.fontSize,
-    color: lightColors.text.primary,
-  },
   statusFaixa: {
     flexDirection: 'row',
     alignItems: 'center',

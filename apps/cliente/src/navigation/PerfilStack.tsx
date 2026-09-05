@@ -1,8 +1,14 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
+import { getDataClient } from '@keepit/core-data';
+
 import type { PerfilStackParamList } from './types';
+import { QA_BUILD_ENABLED } from '../config/buildInfo';
+import { getQaPerfilRouteNames, isQaRuntimeEnabled } from '../lib/qaAccess';
 import Perfil from '../screens/perfil/Perfil';
+import Favoritos from '../screens/perfil/Favoritos';
 import ExcluirConta from '../screens/perfil/ExcluirConta';
+import PainelQA from '../screens/perfil/PainelQA';
 
 const Stack = createNativeStackNavigator<PerfilStackParamList>();
 
@@ -18,10 +24,19 @@ const Stack = createNativeStackNavigator<PerfilStackParamList>();
  * exigido por compliance Apple 5.1.1(v).
  */
 export function PerfilStack() {
+  const qaEnabled = isQaRuntimeEnabled(
+    QA_BUILD_ENABLED,
+    getDataClient().demoScenario,
+  );
+
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="Perfil" component={Perfil} />
+      <Stack.Screen name="Favoritos" component={Favoritos} />
       <Stack.Screen name="ExcluirConta" component={ExcluirConta} />
+      {getQaPerfilRouteNames(qaEnabled).map((routeName) => (
+        <Stack.Screen key={routeName} name={routeName} component={PainelQA} />
+      ))}
     </Stack.Navigator>
   );
 }

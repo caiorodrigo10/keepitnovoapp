@@ -1,11 +1,15 @@
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Linking, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { getDataClient } from '@keepit/core-data';
+import { getDataClient, type PasswordResetRequestResult } from '@keepit/core-data';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
-import { Button, Screen, TextField } from '../../components/ui';
+import { Button, FormScreen, Screen, TextField } from '../../components/ui';
+import {
+  createPasswordRecoveryDemoCallbackAction,
+  resolvePasswordResetConfirmation,
+} from '../../lib/passwordRecoveryPresentation';
 import type { AuthStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'EsqueciSenha'>;
@@ -17,7 +21,6 @@ type Props = NativeStackScreenProps<AuthStackParamList, 'EsqueciSenha'>;
  * (Story 2.6) — texto novo, sem fonte no protótipo, avaliado pelo @po
  * contra o `CLAUDE.md`.
  */
-const MSG_CONFIRMACAO_NEUTRA = 'Se houver uma conta cadastrada com este e-mail, enviamos um link para redefinir sua senha.';
 /** Falha real de rede/provedor (AC1) — nunca "e-mail não encontrado" (isso seria enumeração, ver AC7). */
 const MSG_ERRO_GENERICO = 'Não foi possível enviar o link agora. Tente novamente em instantes.';
 
@@ -27,26 +30,33 @@ const MSG_ERRO_GENERICO = 'Não foi possível enviar o link agora. Tente novamen
  * [Source: docs/prd/02-requirements.md#FR3] fluxo "esqueci minha senha" via
  * e-mail. Sem referência visual dedicada — segue o design system.
  *
- * **Story 2.7:** "Enviar" chama `auth.port.requestPasswordReset` pela
+ * **Story 2.7/12.12:** "Enviar" chama `auth.port.requestPasswordReset` pela
  * fronteira `AuthPort` — no modo `supabase`, dispara
  * `resetPasswordForEmail` de verdade (AC1, não é mais sucesso apenas
- * visual); no modo `mock`, o adapter simula sucesso sem chamar rede nem
- * alterar fixtures (AC6). Em ambos, a confirmação é a mesma tela/texto
- * neutro — a chamada resolve indistintamente para e-mail cadastrado ou não
- * (AC7): a UI nunca sabe qual dos dois aconteceu, e não tenta adivinhar.
+ * visual); no modo `mock`, o adapter oferece um callback demonstrável sem
+ * chamar rede. A UI decide pela capacidade `delivery`, não pelo datasource:
+ * mantém a confirmação anti-enumeração no envio real e identifica
+ * honestamente a demonstração, sem revelar se o e-mail existe.
  */
 export default function EsqueciSenha({ navigation }: Props) {
   const [email, setEmail] = useState('');
-  const [enviado, setEnviado] = useState(false);
+  const [resetResult, setResetResult] = useState<PasswordResetRequestResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [openingDemoCallback, setOpeningDemoCallback] = useState(false);
+  const [demoCallbackAction] = useState(() =>
+    createPasswordRecoveryDemoCallbackAction({
+      openUrl: (callbackUrl) => Linking.openURL(callbackUrl),
+      onOpening: () => setOpeningDemoCallback(true),
+    }),
+  );
 
   async function handleEnviar() {
     setError(null);
     setLoading(true);
     try {
-      await getDataClient().auth.requestPasswordReset(email.trim());
-      setEnviado(true);
+      const result = await getDataClient().auth.requestPasswordReset(email.trim());
+      setResetResult(result);
     } catch {
       // AC1/AC5 — falha real (rede, rate limit etc.), não "e-mail inexistente"
       // (o Supabase não distingue os dois — ver AC7/Dev Notes).
@@ -56,23 +66,49 @@ export default function EsqueciSenha({ navigation }: Props) {
     }
   }
 
-  if (enviado) {
+  async function handleAbrirCallbackDemo(callbackUrl: string) {
+    try {
+      // O custom scheme volta pelo `subscribe` de passwordRecoveryLinking,
+      // que consome a URL bruta e entrega somente recovery=ready|invalid.
+      await demoCallbackAction.open(callbackUrl);
+    } catch {
+      navigation.navigate('RecuperarSenha', { recovery: 'invalid' });
+    }
+  }
+
+  if (resetResult) {
+    const confirmation = resolvePasswordResetConfirmation(resetResult);
+
     return (
       <Screen scroll={false}>
         <View style={styles.confirmBlock}>
           <View style={styles.confirmIcon}>
             <Text style={styles.confirmIconText}>✓</Text>
           </View>
-          <Text style={styles.title}>Verifique seu e-mail</Text>
-          <Text style={styles.subtitle}>{MSG_CONFIRMACAO_NEUTRA}</Text>
+          <Text style={styles.title}>{confirmation.title}</Text>
+          <Text style={styles.subtitle}>{confirmation.message}</Text>
         </View>
-        <Button title="Voltar ao login" onPress={() => navigation.navigate('Login')} />
+        {confirmation.showDemoAction && resetResult.delivery === 'demo' && (
+          <Button
+            title="Abrir callback de demonstração"
+            onPress={() => void handleAbrirCallbackDemo(resetResult.callbackUrl)}
+            loading={openingDemoCallback}
+            disabled={openingDemoCallback}
+          />
+        )}
+        <Button
+          title="Voltar ao login"
+          variant={confirmation.showDemoAction ? 'ghost' : 'primary'}
+          onPress={() => navigation.navigate('Login')}
+        />
       </Screen>
     );
   }
 
   return (
-    <Screen>
+    <FormScreen
+      footer={<Button title="Enviar" onPress={handleEnviar} loading={loading} disabled={!email.trim()} />}
+    >
       <Text style={styles.brand}>KEEPITHUB</Text>
       <Text style={styles.title}>Esqueci a senha</Text>
       <Text style={styles.subtitle}>Informe seu e-mail para receber o link de redefinição.</Text>
@@ -88,8 +124,7 @@ export default function EsqueciSenha({ navigation }: Props) {
         autoCapitalize="none"
       />
 
-      <Button title="Enviar" onPress={handleEnviar} loading={loading} disabled={!email.trim()} />
-    </Screen>
+    </FormScreen>
   );
 }
 

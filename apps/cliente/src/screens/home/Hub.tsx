@@ -1,14 +1,18 @@
-import { useState } from 'react';
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
-import { AsyncStateBlock, DevStateToggle, StoreCard, toAsyncCallOptions, type DevSimState } from '../../components/discovery';
+import { AsyncStateBlock, StoreCard } from '../../components/discovery';
+import { FavoriteButton } from '../../components/discovery/FavoriteButton';
 import { ImagePlaceholder } from '../../components/discovery/ImagePlaceholder';
 import { Screen } from '../../components/ui';
+import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useHubDetail } from '../../hooks/useHubDetail';
 import { useStoresList } from '../../hooks/useStoresList';
+import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
+import { selectStoresForSurface } from '../../lib/storeDiscovery';
 import type { HomeStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Hub'>;
@@ -18,22 +22,29 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'Hub'>;
  */
 export default function Hub({ route, navigation }: Props) {
   const { hubId } = route.params;
-  const [devState, setDevState] = useState<DevSimState>('normal');
-  const options = toAsyncCallOptions(devState);
+  const hubsSimulation = useQaSimulation('hubs');
+  const storesSimulation = useQaSimulation('stores');
 
-  const { data: hub, loading: loadingHub, error: errorHub } = useHubDetail(hubId, options);
-  const { data: lojas, loading: loadingLojas, error: errorLojas } = useStoresList(hubId, options);
+  const { data: hub, loading: hubLoading, error: errorHub } = useHubDetail(
+    hubId,
+    simulationToAsyncCallOptions(hubsSimulation),
+  );
+  const { data: lojas, loading: storesLoading, error: errorLojas } = useStoresList(
+    hubId,
+    simulationToAsyncCallOptions(storesSimulation),
+  );
 
+  const loadingHub = hubLoading || isForcedLoading(hubsSimulation);
+  const loadingLojas = storesLoading || isForcedLoading(storesSimulation);
   const loading = loadingHub || loadingLojas;
   const error = errorHub ?? errorLojas;
+  const lojasDisponiveis = useMemo(() => selectStoresForSurface(lojas, 'purchase'), [lojas]);
 
   return (
     <Screen>
       <Pressable onPress={() => navigation.goBack()} hitSlop={8} style={styles.backButton}>
         <Text style={styles.backIcon}>‹</Text>
       </Pressable>
-
-      <DevStateToggle value={devState} onChange={setDevState} />
 
       {error ? (
         <AsyncStateBlock kind="error" errorLabel="Não foi possível carregar este hub. Tente novamente." />
@@ -44,16 +55,23 @@ export default function Hub({ route, navigation }: Props) {
       ) : (
         <>
           <ImagePlaceholder uri={hub.foto_url} style={styles.foto} borderRadius={radii.card} />
-          <Text style={styles.nome}>{hub.nome}</Text>
+          <View style={styles.titleRow}>
+            <Text style={styles.nome}>{hub.nome}</Text>
+            <FavoriteButton
+              kind="hub"
+              resourceId={hub.id}
+              resourceName={hub.nome}
+            />
+          </View>
           <Text style={styles.endereco}>{hub.endereco}</Text>
           {hub.ponto_referencia && <Text style={styles.pontoReferencia}>{hub.ponto_referencia}</Text>}
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Lojas neste hub</Text>
-            {lojas.length === 0 ? (
+            {lojasDisponiveis.length === 0 ? (
               <AsyncStateBlock kind="empty" emptyLabel="Nenhuma loja neste hub ainda." />
             ) : (
-              lojas.map((loja) => (
+              lojasDisponiveis.map(({ loja }) => (
                 <StoreCard
                   key={loja.id}
                   loja={loja}
@@ -88,9 +106,15 @@ const styles = StyleSheet.create({
     marginBottom: spacing['4'],
   },
   nome: {
+    flex: 1,
     fontFamily: 'HankenGrotesk-Bold',
     fontSize: typography.sizes['2xl'].fontSize,
     color: lightColors.text.primary,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing['3'],
   },
   endereco: {
     fontFamily: 'HankenGrotesk-Regular',

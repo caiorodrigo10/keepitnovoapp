@@ -1,11 +1,11 @@
 import { useCallback } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { AsyncStateBlock } from '../../components/discovery';
-import { Button, Screen } from '../../components/ui';
+import { AppHeader, Button, Screen } from '../../components/ui';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { usePagamentoSimulado } from '../../hooks/usePagamentoSimulado';
 import { usePedidoDetail } from '../../hooks/usePedidoDetail';
@@ -38,13 +38,14 @@ export default function ModalProcessandoPagamento({ route, navigation }: Props) 
 
   return (
     <Screen>
-      <View style={styles.topBar}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={8} style={styles.roundButton}>
-          <Text style={styles.roundButtonIcon}>‹</Text>
-        </Pressable>
-        <Text style={styles.title}>Pagamento</Text>
-        <View style={styles.roundButton} />
-      </View>
+      <AppHeader
+        title="Pagamento"
+        back={{
+          navigation,
+          fallback: () =>
+            navigation.navigate('Main', { screen: 'PedidosTab', params: { screen: 'MeusPedidos' } }),
+        }}
+      />
 
       {loading && <AsyncStateBlock kind="loading" />}
       {!loading && (!!error || !pedido) && (
@@ -73,29 +74,6 @@ export default function ModalProcessandoPagamento({ route, navigation }: Props) 
 }
 
 const styles = StyleSheet.create({
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing['5'],
-  },
-  roundButton: {
-    width: 36,
-    height: 36,
-    borderRadius: radii.full,
-    backgroundColor: lightColors.bg.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  roundButtonIcon: {
-    fontSize: typography.sizes.lg.fontSize,
-    color: lightColors.text.primary,
-  },
-  title: {
-    fontFamily: 'HankenGrotesk-Bold',
-    fontSize: typography.sizes.xl.fontSize,
-    color: lightColors.text.primary,
-  },
   statusCard: {
     backgroundColor: lightColors.bg.surface,
     borderRadius: radii.card,

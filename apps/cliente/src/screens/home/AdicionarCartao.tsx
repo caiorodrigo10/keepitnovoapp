@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
-import { Button, Screen, TextField } from '../../components/ui';
+import { AppHeader, Button, FormScreen, TextField } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
 import type { HomeStackParamList } from '../../navigation/types';
 
@@ -52,14 +52,10 @@ export default function AdicionarCartao({ navigation }: Props) {
   };
 
   return (
-    <Screen>
-      <View style={styles.topBar}>
-        <Pressable onPress={() => navigation.goBack()} hitSlop={8} style={styles.roundButton}>
-          <Text style={styles.roundButtonIcon}>‹</Text>
-        </Pressable>
-        <Text style={styles.title}>Adicionar cartão</Text>
-        <View style={styles.roundButton} />
-      </View>
+    <FormScreen
+      footer={<Button title="Adicionar cartão" onPress={handleAdicionar} disabled={!podeAdicionar} />}
+    >
+      <AppHeader title="Adicionar cartão" back={{ navigation, fallback: () => navigation.navigate('Home') }} />
 
       <View style={styles.cardPreview}>
         <View style={styles.cardChip} />
@@ -95,35 +91,11 @@ export default function AdicionarCartao({ navigation }: Props) {
         </View>
       </View>
 
-      <Button title="Adicionar cartão" onPress={handleAdicionar} disabled={!podeAdicionar} />
-    </Screen>
+    </FormScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing['5'],
-  },
-  roundButton: {
-    width: 36,
-    height: 36,
-    borderRadius: radii.full,
-    backgroundColor: lightColors.bg.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  roundButtonIcon: {
-    fontSize: typography.sizes.lg.fontSize,
-    color: lightColors.text.primary,
-  },
-  title: {
-    fontFamily: 'HankenGrotesk-Bold',
-    fontSize: typography.sizes.xl.fontSize,
-    color: lightColors.text.primary,
-  },
   cardPreview: {
     backgroundColor: lightColors.text.primary,
     borderRadius: radii.card,

@@ -5,7 +5,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { getDataClient } from '@keepit/core-data';
 import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 
-import { Button, Screen, TextField } from '../../components/ui';
+import { Button, FormScreen, Screen, TextField } from '../../components/ui';
 import type { AuthStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'RecuperarSenha'>;
@@ -29,10 +29,11 @@ const MSG_ERRO_GENERICO = 'Não foi possível redefinir a senha agora. Solicite 
  * visual dedicada — segue o design system, mesmo padrão de
  * `EsqueciSenha.tsx`.
  *
- * `route.params.recovery === 'invalid'` (link ausente, de outra rota, com
- * erro do Supabase ou sem sessão de recuperação válida — decidido dentro
- * de `passwordRecoveryLinking.ts`/`auth.supabase.ts`, nunca aqui) mostra o
- * caminho seguro de retorno exigido pela AC3, sem detalhar a causa.
+ * Qualquer estado diferente de `route.params.recovery === 'ready'` (link
+ * ausente, com erro do provider ou sem sessão de recuperação válida —
+ * decidido dentro de `passwordRecoveryLinking.ts`/`auth.supabase.ts`, nunca
+ * aqui) mostra o caminho seguro de retorno exigido pela AC3, sem detalhar a
+ * causa.
  *
  * Submit chama exclusivamente `auth.port.updatePassword` — nenhum token é
  * lido, exibido ou validado por esta tela (AC5). Sucesso navega para
@@ -44,7 +45,9 @@ export default function RecuperarSenha({ navigation, route }: Props) {
   const [confirmacao, setConfirmacao] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const linkInvalido = route.params?.recovery === 'invalid';
+  // A tela só libera redefinição quando recebe o estado já sanitizado pelo
+  // linking. Ausência, expiração e consumo compartilham o mesmo retorno.
+  const linkInvalido = route.params?.recovery !== 'ready';
 
   async function handleRedefinir() {
     if (senha.length < 8) {
@@ -83,7 +86,16 @@ export default function RecuperarSenha({ navigation, route }: Props) {
   }
 
   return (
-    <Screen>
+    <FormScreen
+      footer={
+        <Button
+          title="Redefinir senha"
+          onPress={handleRedefinir}
+          loading={loading}
+          disabled={!senha || !confirmacao}
+        />
+      }
+    >
       <Text style={styles.title}>Defina uma nova senha</Text>
       <Text style={styles.subtitle}>Crie uma senha nova para voltar a acessar sua conta.</Text>
 
@@ -106,13 +118,7 @@ export default function RecuperarSenha({ navigation, route }: Props) {
         autoCapitalize="none"
       />
 
-      <Button
-        title="Redefinir senha"
-        onPress={handleRedefinir}
-        loading={loading}
-        disabled={!senha || !confirmacao}
-      />
-    </Screen>
+    </FormScreen>
   );
 }
 

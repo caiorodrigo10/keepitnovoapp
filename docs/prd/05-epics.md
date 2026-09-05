@@ -1,6 +1,6 @@
 # 05 — Epic List
 
-O MVP é entregue em **10 épicos**. Cada épico entrega valor demonstrável e sustenta o próximo.
+O produto está organizado em **13 épicos numerados de 0 a 12**. Cada épico entrega valor demonstrável e sustenta o próximo.
 
 > **Correção de curso (2026-07-31):** nenhum épico ou Story foi apagado. A
 > interface permanece. A profundidade do backend de cada Story agora é regida
@@ -23,6 +23,9 @@ O MVP é entregue em **10 épicos**. Cada épico entrega valor demonstrável e s
 | 7 | [Pagamento & Carteira](./epics/7-pagamento-carteira.md) | PIX e webhook reais, ledger básico e carteira visual; cartão e automações financeiras ficam no backlog preservado. |
 | 8 | [Painel Admin — Operação](./epics/8-admin-operacao.md) | Admin opera o dia a dia: fila de reembolsos manuais, cancelamento forçado, bloqueio de cliente, suspensão de lojista, dashboard financeiro geral. |
 | 9 | [Publicação & Compliance](./epics/9-publicacao-compliance.md) | Preparar e submeter os apps às lojas: Termos, LGPD/exclusão, ícones, splash, metadata, migração dev→produção, submissão App Store + Play Store. |
+| 10 | [Admin Demo Mock](./epics/10-admin-demo-mock.md) | Disponibilizar cenários e controles administrativos necessários à demonstração do produto. |
+| 11 | [Elevação visual do Painel Admin](./epics/11-experiencia-painel-admin.md) | Refinar a experiência visual e acessível do painel sem alterar seus fluxos e contratos. |
+| 12 | [Estabilização do Beta Android — App Cliente](./epics/12-estabilizacao-beta-android-cliente.md) | Tornar o app Cliente funcional, previsível e testável em mock e real antes de uma nova avaliação Android. |
 
 ## Dependências entre épicos
 
