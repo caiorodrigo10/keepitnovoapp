@@ -129,6 +129,8 @@ export class ClienteMockStateStore {
       sessionClienteId: this.db.sessionClienteId,
       orders: this.db.pedidos.filter((pedido) => clienteIds.has(pedido.cliente_id)),
       orderAutomation: this.db.clienteOrderAutomation,
+      favoriteHubIds: this.db.favoriteHubIds,
+      favoriteStoreIds: this.db.favoriteStoreIds,
       qa: this.db.clienteQaState,
     });
   }

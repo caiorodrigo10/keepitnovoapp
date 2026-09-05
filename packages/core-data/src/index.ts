@@ -6,6 +6,7 @@ import type { AnalyticsPort } from './ports/analytics.port';
 import type { AuthPort, PasswordRecoveryState } from './ports/auth.port';
 import type { DemoScenarioPort } from './ports/demo-scenario.port';
 import type { EstabelecimentoCadastroPort } from './ports/estabelecimento-cadastro.port';
+import type { HubFavoritesPort, StoreFavoritesPort } from './ports/favorites.port';
 import type { HubPort } from './ports/hub.port';
 import type { LojistaAuthPort } from './ports/lojista-auth.port';
 import type { OrderPort } from './ports/order.port';
@@ -21,6 +22,7 @@ import type { ClienteMockStorage } from './mock/cliente-state';
 import { ClienteMockStateStore } from './mock/cliente-state-store';
 import { createMockDb } from './mock/db';
 import { createEstabelecimentoCadastroMock } from './mock/estabelecimento-cadastro.mock';
+import { createFavoritesMock } from './mock/favorites.mock';
 import { createHubMock } from './mock/hub.mock';
 import { createLojistaAuthMock } from './mock/lojista-auth.mock';
 import { createOrderMock } from './mock/order.mock';
@@ -33,6 +35,7 @@ import { createAdminSupabase } from './supabase/admin.supabase';
 import { createAnalyticsSupabase } from './supabase/analytics.supabase';
 import { createAuthSupabase } from './supabase/auth.supabase';
 import { createEstabelecimentoCadastroSupabase } from './supabase/estabelecimento-cadastro.supabase';
+import { createFavoritesSupabase } from './supabase/favorites.supabase';
 import { createHubSupabase } from './supabase/hub.supabase';
 import { createLojistaAuthSupabase } from './supabase/lojista-auth.supabase';
 import { createOrderSupabase } from './supabase/order.supabase';
@@ -105,6 +108,8 @@ export interface DataClient {
    * (tipado no domínio público de Descoberta do Cliente).
    */
   estabelecimentoCadastro: EstabelecimentoCadastroPort;
+  favoriteHubs: HubFavoritesPort;
+  favoriteStores: StoreFavoritesPort;
   /** Disponível somente no datasource mock. */
   demoScenario?: DemoScenarioPort;
 }
@@ -165,6 +170,7 @@ export function createDataClient(options: CreateDataClientOptions = {}): DataCli
     // Quando omitido, cada factory mantém seu comportamento anterior
     // (`client?` undefined → cria/memoiza o próprio client).
     const client = options.supabaseClient;
+    const favorites = createFavoritesSupabase(client);
     return {
       auth: options.passwordRecoveryState
         ? createAuthSupabase(client, options.passwordRecoveryState)
@@ -179,10 +185,12 @@ export function createDataClient(options: CreateDataClientOptions = {}): DataCli
       analytics: createAnalyticsSupabase(client),
       lojistaAuth: createLojistaAuthSupabase(client),
       estabelecimentoCadastro: createEstabelecimentoCadastroSupabase(client),
+      ...favorites,
     };
   }
 
   const db = createMockDb();
+  const favorites = createFavoritesMock(db);
 
   const client: DataClient = {
     auth: createAuthMock(db),
@@ -196,6 +204,7 @@ export function createDataClient(options: CreateDataClientOptions = {}): DataCli
     analytics: createAnalyticsMock(db),
     lojistaAuth: createLojistaAuthMock(db),
     estabelecimentoCadastro: createEstabelecimentoCadastroMock(db),
+    ...favorites,
   };
 
   const stateStore = new ClienteMockStateStore(db, options.clienteMockStorage ?? createVolatileClienteMockStorage());
@@ -265,6 +274,7 @@ export * from './ports/analytics.port';
 export * from './ports/auth.port';
 export * from './ports/demo-scenario.port';
 export * from './ports/estabelecimento-cadastro.port';
+export * from './ports/favorites.port';
 export * from './ports/hub.port';
 export * from './ports/lojista-auth.port';
 export * from './ports/order.port';

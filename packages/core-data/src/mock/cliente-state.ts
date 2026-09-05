@@ -421,6 +421,8 @@ export function applyClienteSnapshot(db: MockDb, snapshot: ClienteMockSnapshotV3
   );
   db.pedidos.push(...structuredClone(snapshot.orders.filter((pedido) => clienteIds.has(pedido.cliente_id))));
   db.sessionClienteId = snapshot.sessionClienteId;
+  db.favoriteHubIds = structuredClone(snapshot.favoriteHubIds);
+  db.favoriteStoreIds = structuredClone(snapshot.favoriteStoreIds);
   db.clienteQaState = structuredClone(snapshot.qa);
   db.clienteOrderAutomation = structuredClone(snapshot.orderAutomation);
 }

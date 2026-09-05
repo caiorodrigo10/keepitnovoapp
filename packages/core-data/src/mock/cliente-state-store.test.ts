@@ -240,6 +240,25 @@ describe('ClienteMockStateStore', () => {
     await expect(reopened.auth.currentUser({ delayMs: 0 })).resolves.toMatchObject({ id: 'cliente-ana' });
   });
 
+  it('persiste favoritos separados após reabertura e limpa ambos no reset', async () => {
+    const storage = memoryStorage();
+    const first = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await first.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
+    await first.favoriteHubs.favorite('hub-centro', { delayMs: 0 });
+    await first.favoriteStores.favorite('estab-farmacia-vida', { delayMs: 0 });
+    await first.demoScenario!.flush();
+
+    __resetDataClientForTests();
+    const reopened = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await expect(reopened.favoriteHubs.list({ delayMs: 0 })).resolves.toEqual(['hub-centro']);
+    await expect(reopened.favoriteStores.list({ delayMs: 0 })).resolves.toEqual(['estab-farmacia-vida']);
+
+    await reopened.demoScenario!.reset();
+    await reopened.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
+    await expect(reopened.favoriteHubs.list({ delayMs: 0 })).resolves.toEqual([]);
+    await expect(reopened.favoriteStores.list({ delayMs: 0 })).resolves.toEqual([]);
+  });
+
   it('persiste simulação por port e restaura após reabertura', async () => {
     const storage = memoryStorage();
     const first = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
