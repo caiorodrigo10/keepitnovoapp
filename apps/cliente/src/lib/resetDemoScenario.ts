@@ -14,6 +14,8 @@ export type ResetDemoScenarioResult =
 export interface ResetDemoScenarioOptions {
   /** Limpa o estado do CartProvider sem acoplar este coordenador ao React. */
   clearLiveCart?: () => void | Promise<void>;
+  /** Limpa snapshots compartilhados de pedidos após restaurar o cenário. */
+  clearOrders?: () => void;
 }
 
 /**
@@ -34,6 +36,7 @@ export async function resetDemoScenario(
   }
 
   const scenario = await client.demoScenario.reset();
+  options.clearOrders?.();
   const cart = await clearCartState();
 
   const failures: Array<'scenario-persistence' | 'cart-persistence' | 'cart-live-state'> = [];

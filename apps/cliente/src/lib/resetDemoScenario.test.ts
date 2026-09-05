@@ -29,11 +29,14 @@ describe('resetDemoScenario', () => {
 
   it('não altera nada sem confirmação explícita', async () => {
     const { client, reset } = createFakeClient();
+    const clearOrders = vi.fn();
+    const options = { clearOrders };
 
-    await expect(resetDemoScenario(client, false)).resolves.toEqual({ status: 'cancelled' });
+    await expect(resetDemoScenario(client, false, options)).resolves.toEqual({ status: 'cancelled' });
 
     expect(reset).not.toHaveBeenCalled();
     expect(asyncStorageMock.removeItem).not.toHaveBeenCalled();
+    expect(clearOrders).not.toHaveBeenCalled();
   });
 
   it('reseta core-data e carrinho quando confirmado', async () => {
@@ -86,17 +89,21 @@ describe('resetDemoScenario', () => {
     reset.mockReturnValue(resetPending);
     asyncStorageMock.removeItem.mockResolvedValue(undefined);
     const clearLiveCart = vi.fn();
+    const clearOrders = vi.fn();
+    const options = { clearLiveCart, clearOrders };
 
-    const result = resetDemoScenario(client, true, { clearLiveCart });
+    const result = resetDemoScenario(client, true, options);
     await Promise.resolve();
 
     expect(asyncStorageMock.removeItem).not.toHaveBeenCalled();
     expect(clearLiveCart).not.toHaveBeenCalled();
+    expect(clearOrders).not.toHaveBeenCalled();
 
     resolveReset({ status: 'reset' });
     await expect(result).resolves.toEqual({ status: 'reset' });
     expect(asyncStorageMock.removeItem).toHaveBeenCalledWith('@keepit/cliente:carrinho');
     expect(clearLiveCart).toHaveBeenCalledOnce();
+    expect(clearOrders).toHaveBeenCalledOnce();
   });
 
   it('informa indisponibilidade fora do mock', async () => {

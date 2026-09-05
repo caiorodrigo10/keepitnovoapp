@@ -16,6 +16,7 @@ import { useQaScenario } from '../../context/QaScenarioContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useCurrentEmail } from '../../hooks/useCurrentEmail';
 import { usePedidosMine } from '../../hooks/usePedidosMine';
+import { clearPedidosResource } from '../../lib/ordersResource';
 import { advanceOrderForQa, getNextQaOrderAction } from '../../lib/qaOrderActions';
 import { resetDemoScenario } from '../../lib/resetDemoScenario';
 import type { PerfilStackParamList } from '../../navigation/types';
@@ -113,7 +114,10 @@ export default function PainelQA({ navigation }: Props) {
     setResetting(true);
     setNotice(null);
     try {
-      const result = await resetDemoScenario(client, true, { clearLiveCart: resetDemoCart });
+      const result = await resetDemoScenario(client, true, {
+        clearLiveCart: resetDemoCart,
+        clearOrders: clearPedidosResource,
+      });
       const feedback = getQaResetFeedback(result);
       if (feedback) {
         Alert.alert(feedback.title, feedback.message);

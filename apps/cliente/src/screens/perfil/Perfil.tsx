@@ -5,7 +5,6 @@ import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 
 import type { Cliente } from '@keepit/core-data';
 import { getDataClient } from '@keepit/core-data';
-import { useOrders } from '@keepit/core-data/hooks';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { BuildMetadata } from '../../components/qa/BuildMetadata';
@@ -14,6 +13,8 @@ import { QA_BUILD_ENABLED } from '../../config/buildInfo';
 import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useCurrentEmail } from '../../hooks/useCurrentEmail';
+import { usePedidosMine } from '../../hooks/usePedidosMine';
+import { partitionPedidos } from '../../lib/pedidoStatus';
 import { isQaRuntimeEnabled, registerVersionTap } from '../../lib/qaAccess';
 import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
 import { isTelefoneBRValido, maskTelefoneBR } from '../../lib/telefoneMask';
@@ -80,9 +81,9 @@ const MSG_ERRO_SAIR = 'Não foi possível sair agora. Tente novamente em instant
  * ainda não salvo — só sucesso ou cancelamento explícito saem do modo de
  * edição.
  *
- * **Cards de pedidos/hubs (AC1):** o card "Pedidos" mostra `pedidos.length`
- * quando `useOrders` resolve sem erro (mock, ou Supabase quando a Story de
- * pedidos existir) e um traço neutro (`—`) quando `useOrders` erra — hoje
+ * **Cards de pedidos/hubs (AC1):** o card "Pedidos" mostra o total derivado
+ * do snapshot compartilhado quando `usePedidosMine` resolve sem erro (mock,
+ * ou Supabase quando a Story de pedidos existir) e um traço neutro (`—`) quando erra — hoje
  * sempre o caso em `DATA_SOURCE=supabase`, porque `order.supabase.ts#listMine`
  * ainda não está implementado (fora do escopo desta story). Essa checagem é
  * por estado de erro, não por `DATA_SOURCE` — a tela não teria como saber a
@@ -102,7 +103,8 @@ export default function Perfil({ navigation }: Props) {
   const profileOptions = simulationToAsyncCallOptions(profileSimulation);
   const { data: cliente, loading: clienteLoading, error: clienteError } = useCurrentCliente();
   const { data: email, loading: emailLoading, error: emailError } = useCurrentEmail();
-  const { data: pedidos, error: pedidosError } = useOrders(cliente?.id ?? '');
+  const { data: pedidos, error: pedidosError } = usePedidosMine(cliente?.id ?? null);
+  const orderSummary = partitionPedidos(pedidos);
 
   const loading = clienteLoading || emailLoading || isForcedLoading(profileSimulation);
   const loadError = clienteError ?? emailError ?? (profileOptions.forceError ? MSG_ERRO_PERFIL : null);
@@ -358,7 +360,7 @@ export default function Perfil({ navigation }: Props) {
         <>
           <View style={styles.statsRow}>
             <View style={styles.statCard}>
-              <Text style={styles.statValue}>{pedidosError ? '—' : pedidos.length}</Text>
+              <Text style={styles.statValue}>{pedidosError ? '—' : orderSummary.total}</Text>
               <Text style={styles.statLabel}>Pedidos</Text>
             </View>
             <View style={styles.statCard}>

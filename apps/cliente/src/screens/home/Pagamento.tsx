@@ -14,6 +14,7 @@ import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useStoreDetail } from '../../hooks/useStoreDetail';
 import { computeCheckoutTotals } from '../../lib/checkoutTotals';
 import { isSupabaseDataSource } from '../../lib/dataSource';
+import { invalidatePedidos } from '../../lib/ordersResource';
 import type { HomeStackParamList, RootStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Pagamento'>;
@@ -106,6 +107,7 @@ export default function Pagamento({ navigation }: Props) {
         total_pago_reais: totalReais,
         nf_solicitada: cart.nfSolicitada,
       });
+      void invalidatePedidos(cliente.id);
 
       // Story 7.2 (AC5) — best-effort, só em DATA_SOURCE=supabase: cria a
       // cobrança PIX real no Asaas para este pedido, em paralelo ao fluxo

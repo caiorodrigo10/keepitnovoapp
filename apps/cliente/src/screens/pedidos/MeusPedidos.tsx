@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -10,8 +10,9 @@ import { AsyncStateBlock } from '../../components/discovery';
 import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { usePedidosMine } from '../../hooks/usePedidosMine';
-import { isPedidoConcluido, isPedidoEmAndamento } from '../../lib/pedidoStatus';
-import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
+import { getPedidoNavigationTarget } from '../../lib/pedidoNavigation';
+import { partitionPedidos } from '../../lib/pedidoStatus';
+import { resolveOrdersViewState } from '../../lib/ordersViewState';
 import { Screen } from '../../components/ui';
 import type { PedidosStackParamList, RootStackParamList } from '../../navigation/types';
 import { MeusPedidosRow } from './MeusPedidosRow';
@@ -34,23 +35,20 @@ export default function MeusPedidos(_props: Props) {
   const ordersSimulation = useQaSimulation('orders');
   const [tab, setTab] = useState<Tab>('andamento');
 
-  const { data: pedidos, loading: ordersLoading, error } = usePedidosMine(
-    cliente?.id ?? null,
-    simulationToAsyncCallOptions(ordersSimulation),
-  );
-  const loading = ordersLoading || isForcedLoading(ordersSimulation);
-
-  const emAndamento = useMemo(() => pedidos.filter((p) => isPedidoEmAndamento(p.status)), [pedidos]);
-  const concluidos = useMemo(() => pedidos.filter((p) => isPedidoConcluido(p.status)), [pedidos]);
-
-  const listaAtual = tab === 'andamento' ? emAndamento : concluidos;
+  const resourceState = usePedidosMine(cliente?.id ?? null);
+  const viewState = resolveOrdersViewState(resourceState, ordersSimulation);
+  const summary = partitionPedidos(viewState.kind === 'content' ? viewState.pedidos : []);
+  const listaAtual = tab === 'andamento' ? summary.emAndamento : summary.concluidos;
+  const loading = viewState.kind === 'loading';
+  const error = viewState.kind === 'error';
 
   const handlePress = (pedido: Pedido) => {
-    if (isPedidoConcluido(pedido.status)) {
-      navigation.navigate('Recibo', { pedidoId: pedido.id });
+    const target = getPedidoNavigationTarget(pedido);
+    if (target.navigator === 'pedidos') {
+      navigation.navigate(target.route, target.params);
       return;
     }
-    rootNavigation.navigate('ModalConfirmarPin', { pedidoId: pedido.id });
+    rootNavigation.navigate(target.route, target.params);
   };
 
   return (

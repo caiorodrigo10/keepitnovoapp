@@ -1,20 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
 
-import { getDataClient } from '@keepit/core-data';
-import type { AsyncCallOptions, Pedido } from '@keepit/core-data';
-import { useAsyncResource, type AsyncResourceState } from '@keepit/core-data/hooks';
-
 import { existePedidoEmAndamento, startPedidoPolling } from '../lib/pedidoPolling';
+import {
+  getOrdersResource,
+  invalidatePedidos,
+  type OrdersSnapshot,
+} from '../lib/ordersResource';
+
+const EMPTY_ORDERS_SNAPSHOT: OrdersSnapshot = { data: [], loading: false, error: null };
 
 /**
- * [IDS] CREATE — `useOrders(clienteId)` de `@keepit/core-data/hooks` (Story
- * 0.2) NÃO aceita `AsyncCallOptions` (assinatura fixa, sem 2º parâmetro),
- * então não dá para injetar `forceEmpty`/`forceError`/`delayMs` exigidos
- * pelo AC3 (loading/vazio/erro) via aquele hook. Mesmo padrão de
- * `useHubDetail`/`useCurrentCliente` (Stories 0.4/0.5): hook local que
- * compõe `useAsyncResource` (já exportado por `@keepit/core-data/hooks`)
- * com `getDataClient().order`, sem tocar `packages/core-data`.
+ * Snapshot canônico compartilhado entre todas as telas de pedidos. Estados
+ * simulados de QA são derivados apenas na apresentação e nunca entram nesta
+ * coleção.
  *
  * Expõe `refresh()` (via `refreshKey`) para recarregar a lista após
  * mutações reais na port (`accept`/`confirmPin`/`cancel`) chamadas por
@@ -31,26 +30,31 @@ import { existePedidoEmAndamento, startPedidoPolling } from '../lib/pedidoPollin
  * `MeusPedidos` e `Recibo` herdam o comportamento automaticamente por
  * compartilharem este hook (direto ou via `usePedidoDetail`).
  */
-export function usePedidosMine(clienteId: string | null, options?: AsyncCallOptions): AsyncResourceState<Pedido[]> & {
+export function usePedidosMine(clienteId: string | null): OrdersSnapshot & {
   refresh: () => void;
 } {
-  const client = getDataClient();
-  const [refreshKey, setRefreshKey] = useState(0);
-
-  const state = useAsyncResource<Pedido[]>(
-    () => (clienteId ? client.order.listMine(clienteId, options) : Promise.resolve([])),
-    [],
-    [clienteId, options?.forceEmpty, options?.forceError, options?.delayMs, refreshKey],
+  const resource = getOrdersResource();
+  const subscribe = useCallback(
+    (listener: () => void) => (clienteId ? resource.subscribe(clienteId, listener) : () => undefined),
+    [clienteId, resource],
   );
+  const getSnapshot = useCallback(
+    () => (clienteId ? resource.getSnapshot(clienteId) : EMPTY_ORDERS_SNAPSHOT),
+    [clienteId, resource],
+  );
+  const state = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
-  const refresh = useCallback(() => setRefreshKey((key) => key + 1), []);
+  useEffect(() => {
+    if (clienteId) {
+      void resource.load(clienteId);
+    }
+  }, [clienteId, resource]);
 
-  // Evita recriar o efeito de polling a cada render só porque `refresh`
-  // mudou de identidade — o `useEffect` abaixo só precisa reagir a
-  // `temPedidoEmAndamento` (AC1/AC3), nunca reiniciar o intervalo por causa
-  // de uma nova referência de função.
-  const refreshRef = useRef(refresh);
-  refreshRef.current = refresh;
+  const refresh = useCallback(() => {
+    if (clienteId) {
+      void invalidatePedidos(clienteId);
+    }
+  }, [clienteId]);
 
   const temPedidoEmAndamento = existePedidoEmAndamento(state.data);
 
@@ -59,20 +63,27 @@ export function usePedidosMine(clienteId: string | null, options?: AsyncCallOpti
       return undefined;
     }
 
-    const controller = startPedidoPolling(() => refreshRef.current(), {
-      // [FIX] Passar `setInterval`/`clearInterval` soltos faz `deps.setInterval(...)`
-      // rodar com `this = deps` no web (react-native-web) — o browser exige
-      // `this === window` e lança "Illegal invocation". Envolver em arrow que
-      // chama o global diretamente resolve no web sem alterar o comportamento
-      // no nativo (RN não tem essa checagem de `this`).
-      setInterval: (handler, ms) => setInterval(handler, ms),
-      clearInterval: (id) => clearInterval(id),
-      getAppState: () => AppState.currentState,
-      addAppStateListener: (callback) => AppState.addEventListener('change', callback),
-    });
+    const controller = startPedidoPolling(
+      () => {
+        if (clienteId) {
+          void invalidatePedidos(clienteId);
+        }
+      },
+      {
+        // [FIX] Passar `setInterval`/`clearInterval` soltos faz `deps.setInterval(...)`
+        // rodar com `this = deps` no web (react-native-web) — o browser exige
+        // `this === window` e lança "Illegal invocation". Envolver em arrow que
+        // chama o global diretamente resolve no web sem alterar o comportamento
+        // no nativo (RN não tem essa checagem de `this`).
+        setInterval: (handler, ms) => setInterval(handler, ms),
+        clearInterval: (id) => clearInterval(id),
+        getAppState: () => AppState.currentState,
+        addAppStateListener: (callback) => AppState.addEventListener('change', callback),
+      },
+    );
 
     return () => controller.stop();
-  }, [temPedidoEmAndamento]);
+  }, [clienteId, temPedidoEmAndamento]);
 
   return { ...state, refresh };
 }
