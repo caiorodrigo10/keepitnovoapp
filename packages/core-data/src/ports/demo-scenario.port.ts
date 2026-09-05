@@ -12,9 +12,12 @@ export type QaSimulationDomain = (typeof QA_SIMULATION_DOMAINS)[number];
 
 export type QaSimulationState = 'normal' | 'loading' | 'empty' | 'error';
 
+export type QaOrderProgressionDelaysMs = Record<'aceito' | 'em_preparo' | 'saindo_hub' | 'no_hub', number>;
+
 export interface QaScenarioState {
   clockOffsetMs: number;
   autoProgressOrders: boolean;
+  orderProgressionDelaysMs: QaOrderProgressionDelaysMs | null;
   simulations: Record<QaSimulationDomain, QaSimulationState>;
 }
 
