@@ -81,7 +81,7 @@ describe('dataClientBootstrap', () => {
     });
   });
 
-  it('EXPO_PUBLIC_DATA_SOURCE=supabase: cria o client com AsyncStorage/persistSession/autoRefreshToken e aguarda sua inicialização', async () => {
+  it('EXPO_PUBLIC_DATA_SOURCE=supabase: cria o client móvel em PKCE persistente e aguarda sua inicialização', async () => {
     process.env.EXPO_PUBLIC_DATA_SOURCE = 'supabase';
     createClientMock.mockReturnValue('fake-supabase-client');
     initializeDataClientMock.mockResolvedValue('supabase-client');
@@ -91,11 +91,12 @@ describe('dataClientBootstrap', () => {
     await expect(module.dataClientReady).resolves.toBe('supabase-client');
     expect(createClientMock).toHaveBeenCalledTimes(1);
     const [options] = createClientMock.mock.calls[0] as [
-      { storage: unknown; persistSession: boolean; autoRefreshToken: boolean },
+      { storage: unknown; persistSession: boolean; autoRefreshToken: boolean; flowType: string },
     ];
     expect(options.storage).toBeDefined();
     expect(options.persistSession).toBe(true);
     expect(options.autoRefreshToken).toBe(true);
+    expect(options.flowType).toBe('pkce');
 
     expect(initializeDataClientMock).toHaveBeenCalledWith(
       expect.objectContaining({

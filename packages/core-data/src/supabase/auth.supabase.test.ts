@@ -336,16 +336,26 @@ describe('auth.supabase.ts — recuperação de senha (Story 2.7, AC1, AC3, AC5,
     expect(resetPasswordForEmail).toHaveBeenCalledTimes(2);
   });
 
-  it('establishPasswordRecoverySession cria sessão a partir dos tokens do callback (fluxo implícito), só dentro do adapter (AC3, AC5)', async () => {
-    const setSession = vi.fn(async () => ({ data: { session: {} }, error: null }));
-    const client = { auth: { setSession } } as unknown as SupabaseClient<Database>;
-    const port = createAuthSupabase(client);
+  it('establishPasswordRecoverySession rejeita callback implícito legado sem restaurar tokens revogáveis (AC3, AC5)', async () => {
+    const setSession = vi.fn();
+    const exchangeCodeForSession = vi.fn();
+    const signOut = vi.fn(async () => ({ error: null }));
+    const state = createRecoveryState(true);
+    const client = {
+      auth: { setSession, exchangeCodeForSession, signOut },
+    } as unknown as SupabaseClient<Database>;
+    const port = createAuthSupabase(client, state);
 
-    await port.establishPasswordRecoverySession(
-      `${PASSWORD_RECOVERY_REDIRECT_TO}#access_token=access-secret&refresh_token=refresh-secret&type=recovery`,
-    );
+    await expect(
+      port.establishPasswordRecoverySession(
+        `${PASSWORD_RECOVERY_REDIRECT_TO}#access_token=access-secret&refresh_token=refresh-secret&type=recovery`,
+      ),
+    ).rejects.toEqual(new Error(GENERIC_PASSWORD_RECOVERY_ERROR));
 
-    expect(setSession).toHaveBeenCalledWith({ access_token: 'access-secret', refresh_token: 'refresh-secret' });
+    expect(setSession).not.toHaveBeenCalled();
+    expect(exchangeCodeForSession).not.toHaveBeenCalled();
+    expect(signOut).toHaveBeenCalledWith({ scope: 'local' });
+    expect(state.active()).toBe(false);
   });
 
   it('establishPasswordRecoverySession troca o code por sessão no fluxo PKCE (AC3)', async () => {
@@ -407,18 +417,16 @@ describe('auth.supabase.ts — recuperação de senha (Story 2.7, AC1, AC3, AC5,
 
   it('establishPasswordRecoverySession desfaz a marca de recuperação se a troca de sessão falhar', async () => {
     const state = createRecoveryState();
-    const setSession = vi.fn(async () => ({
+    const exchangeCodeForSession = vi.fn(async () => ({
       data: { session: null },
-      error: { message: 'access_token=provider-secret&refresh_token=provider-refresh' },
+      error: { message: 'provider rejected the authorization code' },
     }));
     const signOut = vi.fn(async () => ({ error: null }));
-    const client = { auth: { setSession, signOut } } as unknown as SupabaseClient<Database>;
+    const client = { auth: { exchangeCodeForSession, signOut } } as unknown as SupabaseClient<Database>;
     const port = createAuthSupabase(client, state);
 
     await expect(
-      port.establishPasswordRecoverySession(
-        `${PASSWORD_RECOVERY_REDIRECT_TO}#access_token=a&refresh_token=b&type=recovery`,
-      ),
+      port.establishPasswordRecoverySession(`${PASSWORD_RECOVERY_REDIRECT_TO}?code=pkce-code-rejeitado`),
     ).rejects.toEqual(new Error(GENERIC_PASSWORD_RECOVERY_ERROR));
     expect(signOut).toHaveBeenCalledWith({ scope: 'local' });
     expect(state.active()).toBe(false);
@@ -426,15 +434,13 @@ describe('auth.supabase.ts — recuperação de senha (Story 2.7, AC1, AC3, AC5,
 
   it('establishPasswordRecoverySession trata resposta sem sessão como falha e limpa sessão parcial/marcador', async () => {
     const state = createRecoveryState();
-    const setSession = vi.fn(async () => ({ data: { session: null }, error: null }));
+    const exchangeCodeForSession = vi.fn(async () => ({ data: { session: null }, error: null }));
     const signOut = vi.fn(async () => ({ error: null }));
-    const client = { auth: { setSession, signOut } } as unknown as SupabaseClient<Database>;
+    const client = { auth: { exchangeCodeForSession, signOut } } as unknown as SupabaseClient<Database>;
     const port = createAuthSupabase(client, state);
 
     await expect(
-      port.establishPasswordRecoverySession(
-        `${PASSWORD_RECOVERY_REDIRECT_TO}#access_token=a&refresh_token=b&type=recovery`,
-      ),
+      port.establishPasswordRecoverySession(`${PASSWORD_RECOVERY_REDIRECT_TO}?code=pkce-code-sem-sessao`),
     ).rejects.toEqual(new Error(GENERIC_PASSWORD_RECOVERY_ERROR));
     expect(signOut).toHaveBeenCalledWith({ scope: 'local' });
     expect(state.active()).toBe(false);
@@ -450,20 +456,77 @@ describe('auth.supabase.ts — recuperação de senha (Story 2.7, AC1, AC3, AC5,
   });
 
   it('updatePassword atualiza a senha e encerra a sessão de recuperação (AC3, AC4, AC5)', async () => {
-    const setSession = vi.fn(async () => ({ data: { session: {} }, error: null }));
+    const exchangeCodeForSession = vi.fn(async () => ({ data: { session: {} }, error: null }));
     const updateUser = vi.fn(async () => ({ data: { user: {} }, error: null }));
     const signOut = vi.fn(async () => ({ error: null }));
-    const client = { auth: { setSession, updateUser, signOut } } as unknown as SupabaseClient<Database>;
+    const client = {
+      auth: { exchangeCodeForSession, updateUser, signOut },
+    } as unknown as SupabaseClient<Database>;
     const port = createAuthSupabase(client);
 
-    await port.establishPasswordRecoverySession(
-      `${PASSWORD_RECOVERY_REDIRECT_TO}#access_token=access-secret&refresh_token=refresh-secret&type=recovery`,
-    );
+    await port.establishPasswordRecoverySession(`${PASSWORD_RECOVERY_REDIRECT_TO}?code=pkce-code-secret`);
 
     await expect(port.updatePassword('nova-senha')).resolves.toBeUndefined();
     expect(updateUser).toHaveBeenCalledWith({ password: 'nova-senha' });
     expect(signOut).toHaveBeenCalledOnce();
     await expect(port.updatePassword('replay-sem-nova-sessao')).rejects.toThrow(/nenhuma sessão de recuperação ativa/);
+    expect(updateUser).toHaveBeenCalledTimes(1);
+  });
+
+  it('callback PKCE já consumido não reabre a troca nem permite um segundo updateUser', async () => {
+    let consumed = false;
+    const exchangeCodeForSession = vi.fn(async () => {
+      if (consumed) {
+        return { data: { session: null }, error: { message: 'authorization code already consumed' } };
+      }
+      consumed = true;
+      return { data: { session: {} }, error: null };
+    });
+    const updateUser = vi.fn(async () => ({ data: { user: {} }, error: null }));
+    const signOut = vi.fn(async () => ({ error: null }));
+    const state = createRecoveryState();
+    const client = {
+      auth: { exchangeCodeForSession, updateUser, signOut },
+    } as unknown as SupabaseClient<Database>;
+    const port = createAuthSupabase(client, state);
+    const callbackUrl = `${PASSWORD_RECOVERY_REDIRECT_TO}?code=pkce-consumido`;
+
+    await port.establishPasswordRecoverySession(callbackUrl);
+    await port.updatePassword('primeira-senha');
+
+    await expect(port.establishPasswordRecoverySession(callbackUrl)).rejects.toEqual(
+      new Error(GENERIC_PASSWORD_RECOVERY_ERROR),
+    );
+    await expect(port.updatePassword('segunda-senha')).rejects.toThrow(/nenhuma sessão de recuperação ativa/);
+
+    expect(exchangeCodeForSession).toHaveBeenCalledTimes(2);
+    expect(updateUser).toHaveBeenCalledTimes(1);
+    expect(state.active()).toBe(false);
+  });
+
+  it('updatePassword admite somente um updateUser enquanto a mesma sessão está em voo', async () => {
+    const updateGate = deferred<{ data: { user: {} }; error: null }>();
+    const updateStarted = deferred<void>();
+    const updateUser = vi.fn(() => {
+      updateStarted.resolve(undefined);
+      return updateGate.promise;
+    });
+    const signOut = vi.fn(async () => ({ error: null }));
+    const state = createRecoveryState(true);
+    const client = { auth: { updateUser, signOut } } as unknown as SupabaseClient<Database>;
+    const port = createAuthSupabase(client, state);
+
+    const firstUpdate = port.updatePassword('primeira-senha');
+    await updateStarted.promise;
+    const concurrentUpdate = port.updatePassword('segunda-senha');
+    await Promise.resolve();
+    const callsBeforeRelease = updateUser.mock.calls.length;
+
+    updateGate.resolve({ data: { user: {} }, error: null });
+
+    await expect(firstUpdate).resolves.toBeUndefined();
+    await expect(concurrentUpdate).rejects.toThrow(/nenhuma sessão de recuperação ativa/);
+    expect(callsBeforeRelease).toBe(1);
     expect(updateUser).toHaveBeenCalledTimes(1);
   });
 
@@ -483,15 +546,15 @@ describe('auth.supabase.ts — recuperação de senha (Story 2.7, AC1, AC3, AC5,
         active = false;
       },
     };
-    const setSession = vi.fn(async () => ({ data: { session: {} }, error: null }));
+    const exchangeCodeForSession = vi.fn(async () => ({ data: { session: {} }, error: null }));
     const updateUser = vi.fn(async () => ({ data: { user: {} }, error: null }));
     const signOut = vi.fn(() => signOutGate.promise);
-    const client = { auth: { setSession, updateUser, signOut } } as unknown as SupabaseClient<Database>;
+    const client = {
+      auth: { exchangeCodeForSession, updateUser, signOut },
+    } as unknown as SupabaseClient<Database>;
     const port = createAuthSupabase(client, state);
 
-    await port.establishPasswordRecoverySession(
-      `${PASSWORD_RECOVERY_REDIRECT_TO}#access_token=access-secret&refresh_token=refresh-secret&type=recovery`,
-    );
+    await port.establishPasswordRecoverySession(`${PASSWORD_RECOVERY_REDIRECT_TO}?code=pkce-code-secret`);
 
     let settled = false;
     const update = port.updatePassword('nova-senha').finally(() => {
@@ -515,15 +578,15 @@ describe('auth.supabase.ts — recuperação de senha (Story 2.7, AC1, AC3, AC5,
 
   it('updatePassword mantém a marca ativa se updateUser funcionar mas signOut falhar (nunca libera Main com sessão inconsistente)', async () => {
     const state = createRecoveryState();
-    const setSession = vi.fn(async () => ({ data: { session: {} }, error: null }));
+    const exchangeCodeForSession = vi.fn(async () => ({ data: { session: {} }, error: null }));
     const updateUser = vi.fn(async () => ({ data: { user: {} }, error: null }));
     const signOut = vi.fn(async () => ({ error: { message: 'logout failed' } }));
-    const client = { auth: { setSession, updateUser, signOut } } as unknown as SupabaseClient<Database>;
+    const client = {
+      auth: { exchangeCodeForSession, updateUser, signOut },
+    } as unknown as SupabaseClient<Database>;
     const port = createAuthSupabase(client, state);
 
-    await port.establishPasswordRecoverySession(
-      `${PASSWORD_RECOVERY_REDIRECT_TO}#access_token=access-secret&refresh_token=refresh-secret&type=recovery`,
-    );
+    await port.establishPasswordRecoverySession(`${PASSWORD_RECOVERY_REDIRECT_TO}?code=pkce-code-secret`);
 
     await expect(port.updatePassword('nova-senha')).rejects.toEqual({ message: 'logout failed' });
     expect(state.active()).toBe(true);

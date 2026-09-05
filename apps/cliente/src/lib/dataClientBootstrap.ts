@@ -103,6 +103,9 @@ export async function bootstrapDataClient(
       storage: AsyncStorage,
       persistSession: true,
       autoRefreshToken: true,
+      // O verifier fica no storage do SDK; o callback expõe só um code
+      // descartável, que `exchangeCodeForSession` consome uma única vez.
+      flowType: 'pkce',
     });
     return await settleWithin(
       initializeDataClient({ source: 'supabase', supabaseClient, passwordRecoveryState }),

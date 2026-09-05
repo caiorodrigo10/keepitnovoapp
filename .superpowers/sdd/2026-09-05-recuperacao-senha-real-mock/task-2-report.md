@@ -11,10 +11,14 @@ Base da task: `f372548 fix(core-data): serialize mock scenario reset`
   sessão ausente ou troca rejeitada — tentam encerrar a sessão parcial com
   `signOut({ scope: 'local' })`, limpam o marcador de recovery e expõem somente
   um erro genérico.
-- Os fluxos implícito e PKCE exigem uma sessão não nula na resposta do SDK.
+- O app Cliente agora cria o Supabase Auth com `flowType: 'pkce'`; o wrapper
+  encaminha essa opção ao SDK e o adapter aceita somente callback com `code`.
+  Callbacks implícitos legados são recusados sem entregar seus tokens a
+  `setSession`, fechando a restauração de JWT ainda válido após `signOut`.
 - A troca de senha continua aguardando `updateUser`, `signOut` e a limpeza do
-  recovery state antes de resolver. Sem uma nova sessão de recovery, uma
-  segunda troca é rejeitada localmente.
+  recovery state antes de resolver. Uma guarda adquirida antes do primeiro
+  `await` admite somente um `updateUser` em voo por adapter; chamadas
+  concorrentes e uma segunda troca sem nova sessão são rejeitadas localmente.
 - O linking aceita o callback canônico real ou mock, rejeita userinfo e devolve
   exclusivamente `?recovery=ready|invalid`; `access_token`, `refresh_token`,
   `code` e `requestId` não chegam ao estado de navegação.
@@ -27,6 +31,13 @@ Foram relidos o changelog, o guia atual de password recovery e as referências
 de `resetPasswordForEmail`, `onAuthStateChange`, `updateUser` e `signOut`. O
 lockfile instala `@supabase/supabase-js@2.111.0`; o código instalado confirma as
 mesmas APIs e o evento `PASSWORD_RECOVERY`.
+
+A recuperação efetiva usa PKCE: o SDK guarda o verifier no storage já
+injetado pelo app, envia o challenge em `resetPasswordForEmail` e troca o
+`code` via `exchangeCodeForSession`. O provider consome o authorization code;
+reapresentar o mesmo callback falha sem reativar o estado nem chamar um segundo
+`updateUser`. Nenhum fingerprint, token, code ou URL bruta foi persistido ou
+registrado pela aplicação.
 
 A documentação confirma links de autenticação de uso único e que
 `resetPasswordForEmail` pode ser chamado novamente para reenviar a recuperação,
@@ -76,27 +87,81 @@ Tests       10 passed (10)
 Exit 0
 ```
 
+### Remediação da revisão — RED
+
+```text
+pnpm --filter @keepit/core-data test -- src/supabase/auth.supabase.test.ts
+
+Test Files  1 failed (1)
+Tests       2 failed | 45 passed (47)
+Exit 1
+```
+
+As falhas reproduziram a restauração pelo callback implícito legado e duas
+chamadas concorrentes chegando a `updateUser`.
+
+```text
+pnpm --filter @keepit/supabase-client test -- src/index.test.ts
+
+Test Files  1 failed (1)
+Tests       1 failed | 8 passed (9)
+Exit 1
+
+pnpm --filter @keepit/cliente test -- src/lib/dataClientBootstrap.test.ts
+
+Test Files  1 failed (1)
+Tests       1 failed | 9 passed (10)
+Exit 1
+```
+
+O wrapper mantinha o default `implicit` do SDK e o bootstrap não solicitava
+PKCE.
+
+### Remediação da revisão — GREEN focado
+
+```text
+pnpm --filter @keepit/core-data test -- src/supabase/auth.supabase.test.ts
+Tests       47 passed (47)
+Exit 0
+
+pnpm --filter @keepit/supabase-client test -- src/index.test.ts
+Tests       9 passed (9)
+Exit 0
+
+pnpm --filter @keepit/cliente test -- src/lib/dataClientBootstrap.test.ts
+Tests       10 passed (10)
+Exit 0
+```
+
+O caso de replay reapresenta o mesmo callback PKCE depois de uma troca completa:
+o provider fake recusa o `code` consumido, o adapter executa cleanup genérico e
+`updateUser` permanece com uma única chamada. O caso concorrente mantém o
+primeiro `updateUser` pendente e prova que o segundo não cruza a guarda.
+
 ## Typecheck e revisão
 
 ```text
 pnpm --filter @keepit/core-data typecheck
 Exit 0
 
+pnpm --filter @keepit/supabase-client typecheck
+Exit 0
+
 pnpm --filter @keepit/cliente typecheck
 Exit 0
 ```
 
-Os dois typechecks passaram juntos após a implementação. Na verificação fresca
-pré-commit, mudanças concorrentes fora da Task 2 passaram a produzir 17 erros
-em `src/mock/cliente-state-store.ts:186` e `src/mock/order.mock.ts` (chamadas
-com aridade incompatível). Nenhum erro aponta para os arquivos desta task. Por
-orientação do coordenador, esses arquivos mock concorrentes não foram tocados e
-o typecheck amplo será repetido depois que a rodada responsável estabilizar.
+Os typechecks de `@keepit/core-data`, `@keepit/supabase-client` e
+`@keepit/cliente` foram executados em paralelo depois da remediação e os três
+retornaram exit 0. Os dois typechecks originalmente exigidos (`core-data` e
+`cliente`) também haviam passado juntos antes das alterações concorrentes da
+Task 1; nenhum arquivo de state store/mock foi tocado nesta task.
 
-- `git diff --check` dos cinco arquivos da task passou.
+- `git diff --check` dos arquivos rastreados da task passou.
 - A mutação mental confirma cobertura para retorno vazio, callback fora do
-  `try`, cleanup/sign-out ausentes, sessão nula aceita, replay liberado e URL
-  bruta devolvida.
+  `try`, cleanup/sign-out ausentes, sessão nula aceita, reativação por callback
+  implícito, `flowType` não encaminhado, corrida concorrente e URL bruta
+  devolvida.
 - O CodeRabbit CLI não está instalado neste ambiente. A restrição explícita de
   não usar subagentes foi respeitada; a revisão foi local contra o brief e o
   diff.

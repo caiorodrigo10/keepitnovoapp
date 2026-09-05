@@ -121,6 +121,16 @@ describe('createClient — options aditivas (Story 2.5.1, AC2)', () => {
       }),
     ).not.toThrow();
   });
+
+  it('encaminha flowType=pkce ao GoTrueClient para callbacks de código de uso único', () => {
+    clearEnv();
+    process.env.SUPABASE_URL = 'https://pkce.supabase.co';
+    process.env.SUPABASE_ANON_KEY = 'anon-key';
+
+    const client = createClient({ flowType: 'pkce' });
+
+    expect((client.auth as unknown as { flowType: string }).flowType).toBe('pkce');
+  });
 });
 
 describe('createServiceRoleClient — não muda nesta story (Story 2.5.1, escopo)', () => {
