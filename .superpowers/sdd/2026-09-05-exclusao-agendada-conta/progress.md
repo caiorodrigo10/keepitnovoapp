@@ -87,3 +87,28 @@ Task 1 fix: complete (commit `2dac830`)
   of those files are included in this task.
 
 Task 3: complete (commit: enclosing Task 3 commit)
+
+### Task 3 review fix
+
+- Review: FAIL com um HIGH (prazo vencido podia ser cancelado sem
+  `advanceClock`) e um MEDIUM (snapshot/mock guardava somente uma solicitação
+  para todas as contas).
+- O snapshot mock avançou de V6 para V7 com
+  `accountDeletionsByClienteId`. Payloads V1–V6 continuam legíveis; o registro
+  singleton V6 é migrado para a chave do seu `clienteId` sem alterar prazo ou
+  estado.
+- Uma reconciliação única usa `Date.now() + clockOffsetMs`, conclui todos os
+  `scheduled` com `deleteAt <= now` e bloqueia os respectivos perfis. Hydrate,
+  `status`, `cancel`, `schedule` e `advanceClock` reutilizam essa operação.
+- Em hydrate, a conclusão e o bloqueio são persistidos antes da exposição do
+  client; falha de storage reverte ambos. Em `status`/`cancel`, a operação passa
+  pela fila serializada rollbackable e falha fechada, impedindo cancelamento no
+  instante limite quando a reconciliação não pôde ser persistida.
+- Agendamentos de duas contas sobrevivem ao restart e mutações de uma conta não
+  substituem a outra. Reset limpa o mapa inteiro e restaura o baseline.
+- TDD RED: 4 falhas direcionadas confirmaram migração ausente, falta de
+  reconciliação em reopen/boundary e perda multi-conta.
+- Gate focado: 5 arquivos / 94 testes PASS. Suíte completa do core-data: 35
+  arquivos / 671 testes PASS. Typecheck e diff-check PASS.
+
+Task 3 fix: complete (commit: enclosing Task 3 fix commit)

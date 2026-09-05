@@ -33,7 +33,7 @@ describe('cliente-state', () => {
       orders: [],
       orderAutomation: {},
       passwordRecovery: null,
-      accountDeletion: null,
+      accountDeletionsByClienteId: {},
       qa: { clockOffsetMs: 0, autoProgressOrders: false, orderProgressionDelaysMs: null },
     });
     expect(state.accounts).toEqual([
@@ -46,7 +46,7 @@ describe('cliente-state', () => {
     (raw) => expect(parseClienteSnapshot(raw)).toEqual(createClienteBaseline()),
   );
 
-  it('migra V1 para V6 preservando dados e normalizando simulações', () => {
+  it('migra V1 para V7 preservando dados e normalizando simulações', () => {
     const current = createClienteBaseline();
     const legacy: Record<string, unknown> = {
       ...current,
@@ -54,6 +54,7 @@ describe('cliente-state', () => {
       sessionClienteId: 'cliente-ana',
       favoriteHubIds: [],
       favoriteStoreIds: [],
+      accountDeletion: null,
       qa: { clockOffsetMs: 3_600_000, autoProgressOrders: false },
     };
     delete legacy.favoriteHubIdsByClienteId;
@@ -61,7 +62,7 @@ describe('cliente-state', () => {
     delete legacy.passwordRecovery;
 
     expect(parseClienteSnapshot(JSON.stringify(legacy))).toMatchObject({
-      schemaVersion: 6,
+      schemaVersion: 7,
       sessionClienteId: 'cliente-ana',
       orderAutomation: {},
       qa: {
@@ -95,6 +96,7 @@ describe('cliente-state', () => {
       schemaVersion: 2,
       favoriteHubIds: [],
       favoriteStoreIds: [],
+      accountDeletion: null,
       qa: { ...current.qa, autoProgressOrders: true, orderProgressionDelaysMs: undefined },
     };
     delete legacy.favoriteHubIdsByClienteId;
@@ -104,7 +106,7 @@ describe('cliente-state', () => {
     expect(decodeClienteSnapshot(JSON.stringify(legacy))).toMatchObject({
       status: 'migrated',
       snapshot: {
-        schemaVersion: 6,
+        schemaVersion: 7,
         orderAutomation: {},
         accounts: [{ profile: { nome: 'Ana V2' } }],
         orders: [{ id: pedido.id }],
@@ -124,6 +126,7 @@ describe('cliente-state', () => {
       schemaVersion: 3,
       favoriteHubIds: ['hub-legado'],
       favoriteStoreIds: ['store-legada'],
+      accountDeletion: null,
     };
     delete legacy.favoriteHubIdsByClienteId;
     delete legacy.favoriteStoreIdsByClienteId;
@@ -132,7 +135,7 @@ describe('cliente-state', () => {
     expect(decodeClienteSnapshot(JSON.stringify(legacy))).toMatchObject({
       status: 'migrated',
       snapshot: {
-        schemaVersion: 6,
+        schemaVersion: 7,
         favoriteHubIdsByClienteId: { 'cliente-ana': ['hub-legado'] },
         favoriteStoreIdsByClienteId: { 'cliente-ana': ['store-legada'] },
         passwordRecovery: null,
@@ -140,17 +143,17 @@ describe('cliente-state', () => {
     });
   });
 
-  it('migra V4 para V6 sem perder favoritos isolados por conta', () => {
+  it('migra V4 para V7 sem perder favoritos isolados por conta', () => {
     const current = createClienteBaseline();
     current.favoriteHubIdsByClienteId = { 'cliente-ana': ['hub-v4'] };
     current.favoriteStoreIdsByClienteId = { 'cliente-ana': ['store-v4'] };
-    const legacy: Record<string, unknown> = { ...current, schemaVersion: 4 };
+    const legacy: Record<string, unknown> = { ...current, schemaVersion: 4, accountDeletion: null };
     delete legacy.passwordRecovery;
 
     expect(decodeClienteSnapshot(JSON.stringify(legacy))).toMatchObject({
       status: 'migrated',
       snapshot: {
-        schemaVersion: 6,
+        schemaVersion: 7,
         favoriteHubIdsByClienteId: { 'cliente-ana': ['hub-v4'] },
         favoriteStoreIdsByClienteId: { 'cliente-ana': ['store-v4'] },
         passwordRecovery: null,
@@ -168,12 +171,42 @@ describe('cliente-state', () => {
     expect(decodeClienteSnapshot(JSON.stringify(legacy))).toMatchObject({
       status: 'migrated',
       snapshot: {
-        schemaVersion: 6,
-        accountDeletion: {
-          clienteId: 'cliente-ana',
-          status: 'scheduled',
-          requestedAt: '2026-09-05T12:00:00.000Z',
-          deleteAt: '2026-09-12T12:00:00.000Z',
+        schemaVersion: 7,
+        accountDeletionsByClienteId: {
+          'cliente-ana': {
+            status: 'scheduled',
+            requestedAt: '2026-09-05T12:00:00.000Z',
+            deleteAt: '2026-09-12T12:00:00.000Z',
+          },
+        },
+      },
+    });
+  });
+
+  it('migra V6 isolando o agendamento legado no mapa da própria conta', () => {
+    const current = createClienteBaseline();
+    const legacy: Record<string, unknown> = {
+      ...current,
+      schemaVersion: 6,
+      accountDeletion: {
+        clienteId: 'cliente-ana',
+        status: 'scheduled',
+        requestedAt: '2026-09-05T12:00:00.000Z',
+        deleteAt: '2026-09-12T12:00:00.000Z',
+      },
+    };
+    delete legacy.accountDeletionsByClienteId;
+
+    expect(decodeClienteSnapshot(JSON.stringify(legacy))).toMatchObject({
+      status: 'migrated',
+      snapshot: {
+        schemaVersion: 7,
+        accountDeletionsByClienteId: {
+          'cliente-ana': {
+            status: 'scheduled',
+            requestedAt: '2026-09-05T12:00:00.000Z',
+            deleteAt: '2026-09-12T12:00:00.000Z',
+          },
         },
       },
     });

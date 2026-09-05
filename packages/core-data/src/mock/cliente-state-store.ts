@@ -12,11 +12,11 @@ import {
   connectMockPasswordRecoveryMutation,
   createClienteBaseline,
   decodeClienteSnapshot,
-  readMockAccountDeletion,
+  readMockAccountDeletions,
   readMockPasswordRecovery,
-  type ClienteMockSnapshotV6,
+  reconcileDueMockAccountDeletions,
+  type ClienteMockSnapshotV7,
   type ClienteMockStorage,
-  writeMockAccountDeletion,
   writeMockPasswordRecovery,
 } from './cliente-state';
 import type { MockDb } from './db';
@@ -56,14 +56,19 @@ export class ClienteMockStateStore {
       this.lastSnapshot = structuredClone(snapshot);
       applyClienteSnapshot(this.db, snapshot);
       const caughtUp = this.reconcileHydratedOrders();
-      if (caughtUp) {
+      const rollbackDeletionReconciliation = reconcileDueMockAccountDeletions(this.db);
+      if (caughtUp || rollbackDeletionReconciliation) {
         this.lastSnapshot = this.captureSnapshot();
       }
       this.hydrated = true;
       this.status = { hydrated: true, persistence: 'ready', lastError: null };
 
-      if (decoded.status !== 'valid' || caughtUp) {
-        await this.enqueueSnapshot(this.lastSnapshot, 'write');
+      if (decoded.status !== 'valid' || caughtUp || rollbackDeletionReconciliation) {
+        const persisted = await this.enqueueSnapshot(this.lastSnapshot, 'write');
+        if (!persisted && rollbackDeletionReconciliation) {
+          rollbackDeletionReconciliation();
+          this.lastSnapshot = this.captureSnapshot();
+        }
       }
       this.connectMutationPersistence();
     } catch {
@@ -150,37 +155,16 @@ export class ClienteMockStateStore {
 
     const persisted = await this.runRollbackableStateMutation(() => {
       const previousQa = structuredClone(this.db.clienteQaState);
-      const previousDeletion = readMockAccountDeletion(this.db);
-      const previousProfile = previousDeletion
-        ? this.db.clientes.find((cliente) => cliente.id === previousDeletion.clienteId)
-        : undefined;
-      const previousBlocked = previousProfile?.bloqueado;
-      const previousBlockReason = previousProfile?.motivo_bloqueio;
 
       this.db.clienteQaState = {
         ...this.db.clienteQaState,
         clockOffsetMs: this.db.clienteQaState.clockOffsetMs + ms,
       };
-
-      const nowMs = Date.now() + this.db.clienteQaState.clockOffsetMs;
-      if (
-        previousDeletion?.status === 'scheduled' &&
-        Date.parse(previousDeletion.deleteAt) <= nowMs
-      ) {
-        writeMockAccountDeletion(this.db, { ...previousDeletion, status: 'completed' });
-        if (previousProfile) {
-          previousProfile.bloqueado = true;
-          previousProfile.motivo_bloqueio = 'Conta excluída após o prazo de recuperação.';
-        }
-      }
+      const rollbackDeletionReconciliation = reconcileDueMockAccountDeletions(this.db);
 
       return () => {
+        rollbackDeletionReconciliation?.();
         this.db.clienteQaState = previousQa;
-        writeMockAccountDeletion(this.db, previousDeletion);
-        if (previousProfile) {
-          previousProfile.bloqueado = previousBlocked;
-          previousProfile.motivo_bloqueio = previousBlockReason;
-        }
       };
     });
 
@@ -202,7 +186,7 @@ export class ClienteMockStateStore {
     return persisted ? { status: 'expired' } : { status: 'degraded' };
   }
 
-  private captureSnapshot(): ClienteMockSnapshotV6 {
+  private captureSnapshot(): ClienteMockSnapshotV7 {
     this.rememberCurrentClienteIds();
     const accounts = this.db.clienteCredenciais.flatMap((credential) => {
       const profile = this.db.clientes.find((cliente) => cliente.id === credential.clienteId);
@@ -223,13 +207,13 @@ export class ClienteMockStateStore {
       favoriteStoreIdsByClienteId: Object.fromEntries(
         Object.entries(this.db.favoriteStoreIdsByClienteId).filter(([clienteId]) => clienteIds.has(clienteId)),
       ),
-      accountDeletion: readMockAccountDeletion(this.db),
+      accountDeletionsByClienteId: readMockAccountDeletions(this.db),
       passwordRecovery: readMockPasswordRecovery(this.db),
       qa: this.db.clienteQaState,
     });
   }
 
-  private enqueueSnapshot(snapshot: ClienteMockSnapshotV6, error: PersistenceError): Promise<boolean> {
+  private enqueueSnapshot(snapshot: ClienteMockSnapshotV7, error: PersistenceError): Promise<boolean> {
     const payload = JSON.stringify(structuredClone(snapshot));
     const writeResult = this.writeQueue.then(async () => {
       try {
@@ -286,7 +270,7 @@ export class ClienteMockStateStore {
     this.db.clienteCredenciais.forEach((credential) => this.managedClienteIds.add(credential.clienteId));
   }
 
-  private rememberSnapshotClienteIds(snapshot: ClienteMockSnapshotV6): void {
+  private rememberSnapshotClienteIds(snapshot: ClienteMockSnapshotV7): void {
     snapshot.accounts.forEach((account) => this.managedClienteIds.add(account.id));
   }
 

@@ -10,7 +10,7 @@ import { clientesCredenciaisFixture, clientesFixture } from './fixtures';
 import type { MockDb } from './db';
 import type { OrderAutomationRuntime } from './order-auto-progress';
 
-export const CLIENTE_MOCK_SCHEMA_VERSION = 6 as const;
+export const CLIENTE_MOCK_SCHEMA_VERSION = 7 as const;
 export const CLIENTE_MOCK_STATE_KEY = '@keepit/cliente:mock-state';
 export const CLIENTE_DEMO_INITIAL_PASSWORD = 'keepit123';
 
@@ -36,7 +36,9 @@ export type MockPasswordRecovery = {
   state: 'requested' | 'ready' | 'expired' | 'consumed';
 } | null;
 
-export type MockAccountDeletion = (AccountDeletionRecord & { clienteId: string }) | null;
+type MockAccountDeletionV6 = (AccountDeletionRecord & { clienteId: string }) | null;
+export type MockAccountDeletion = AccountDeletionRecord | null;
+export type MockAccountDeletionsByClienteId = Record<string, AccountDeletionRecord>;
 
 interface ClienteMockSnapshotV1 {
   schemaVersion: 1;
@@ -111,34 +113,115 @@ export interface ClienteMockSnapshotV6 {
   favoriteHubIdsByClienteId: Record<string, string[]>;
   favoriteStoreIdsByClienteId: Record<string, string[]>;
   selectedHubId: string | null;
-  accountDeletion: MockAccountDeletion;
+  accountDeletion: MockAccountDeletionV6;
+  passwordRecovery: MockPasswordRecovery;
+  qa: QaScenarioState;
+}
+
+export interface ClienteMockSnapshotV7 {
+  schemaVersion: 7;
+  accounts: ClienteMockAccount[];
+  sessionClienteId: string | null;
+  orders: Pedido[];
+  orderAutomation: Record<string, OrderAutomationRuntime>;
+  favoriteHubIdsByClienteId: Record<string, string[]>;
+  favoriteStoreIdsByClienteId: Record<string, string[]>;
+  selectedHubId: string | null;
+  accountDeletionsByClienteId: MockAccountDeletionsByClienteId;
   passwordRecovery: MockPasswordRecovery;
   qa: QaScenarioState;
 }
 
 export type ClienteMockSnapshotDecodeResult =
-  | { status: 'valid'; snapshot: ClienteMockSnapshotV6 }
-  | { status: 'migrated'; snapshot: ClienteMockSnapshotV6 }
-  | { status: 'recovered'; reason: 'missing' | 'invalid'; snapshot: ClienteMockSnapshotV6 };
+  | { status: 'valid'; snapshot: ClienteMockSnapshotV7 }
+  | { status: 'migrated'; snapshot: ClienteMockSnapshotV7 }
+  | { status: 'recovered'; reason: 'missing' | 'invalid'; snapshot: ClienteMockSnapshotV7 };
 
-const accountDeletionByDb = new WeakMap<MockDb, NonNullable<MockAccountDeletion>>();
+const accountDeletionsByDb = new WeakMap<MockDb, MockAccountDeletionsByClienteId>();
 type MockAccountDeletionMutation = () => (() => void) | null;
 const accountDeletionMutationByDb = new WeakMap<
   MockDb,
   (mutate: MockAccountDeletionMutation) => Promise<boolean>
 >();
 
-export function readMockAccountDeletion(db: MockDb): MockAccountDeletion {
-  const deletion = accountDeletionByDb.get(db);
+export function readMockAccountDeletion(db: MockDb, clienteId: string): MockAccountDeletion {
+  const deletion = accountDeletionsByDb.get(db)?.[clienteId];
   return deletion ? structuredClone(deletion) : null;
 }
 
-export function writeMockAccountDeletion(db: MockDb, deletion: MockAccountDeletion): void {
+export function readMockAccountDeletions(db: MockDb): MockAccountDeletionsByClienteId {
+  return structuredClone(accountDeletionsByDb.get(db) ?? {});
+}
+
+export function writeMockAccountDeletion(
+  db: MockDb,
+  clienteId: string,
+  deletion: MockAccountDeletion,
+): void {
+  const deletions = readMockAccountDeletions(db);
   if (deletion === null) {
-    accountDeletionByDb.delete(db);
+    delete deletions[clienteId];
+  } else {
+    deletions[clienteId] = structuredClone(deletion);
+  }
+  writeMockAccountDeletions(db, deletions);
+}
+
+export function writeMockAccountDeletions(
+  db: MockDb,
+  deletions: MockAccountDeletionsByClienteId,
+): void {
+  if (Object.keys(deletions).length === 0) {
+    accountDeletionsByDb.delete(db);
     return;
   }
-  accountDeletionByDb.set(db, structuredClone(deletion));
+  accountDeletionsByDb.set(db, structuredClone(deletions));
+}
+
+export function reconcileDueMockAccountDeletions(db: MockDb): (() => void) | null {
+  const previousDeletions = readMockAccountDeletions(db);
+  const nextDeletions = structuredClone(previousDeletions);
+  const nowMs = Date.now() + db.clienteQaState.clockOffsetMs;
+  let changed = false;
+  const previousProfiles: Array<{
+    profile: Cliente;
+    bloqueado: boolean | undefined;
+    motivoBloqueio: string | null | undefined;
+    hadBloqueado: boolean;
+    hadMotivoBloqueio: boolean;
+  }> = [];
+
+  for (const [clienteId, deletion] of Object.entries(nextDeletions)) {
+    if (deletion.status !== 'scheduled' || Date.parse(deletion.deleteAt) > nowMs) continue;
+
+    changed = true;
+    nextDeletions[clienteId] = { ...deletion, status: 'completed' };
+    const profile = db.clientes.find((cliente) => cliente.id === clienteId);
+    if (profile) {
+      previousProfiles.push({
+        profile,
+        bloqueado: profile.bloqueado,
+        motivoBloqueio: profile.motivo_bloqueio,
+        hadBloqueado: Object.prototype.hasOwnProperty.call(profile, 'bloqueado'),
+        hadMotivoBloqueio: Object.prototype.hasOwnProperty.call(profile, 'motivo_bloqueio'),
+      });
+      profile.bloqueado = true;
+      profile.motivo_bloqueio = 'Conta excluída após o prazo de recuperação.';
+    }
+  }
+
+  if (!changed) return null;
+
+  writeMockAccountDeletions(db, nextDeletions);
+  return () => {
+    writeMockAccountDeletions(db, previousDeletions);
+    previousProfiles.forEach(({ profile, bloqueado, motivoBloqueio, hadBloqueado, hadMotivoBloqueio }) => {
+      if (hadBloqueado) profile.bloqueado = bloqueado;
+      else delete profile.bloqueado;
+      if (hadMotivoBloqueio) profile.motivo_bloqueio = motivoBloqueio;
+      else delete profile.motivo_bloqueio;
+    });
+  };
 }
 
 export function connectMockAccountDeletionMutation(
@@ -351,17 +434,20 @@ function isPedido(value: unknown): value is Pedido {
   );
 }
 
-type ClienteMockSnapshotCommon = {
+type ClienteMockSnapshotBase = {
   schemaVersion: number;
   accounts: ClienteMockAccount[];
   sessionClienteId: string | null;
   orders: Pedido[];
   selectedHubId: string | null;
-  accountDeletion: { requestedAt: string } | null;
   qa: Record<string, unknown>;
 } & Record<string, unknown>;
 
-function hasValidCommonSnapshotShape(value: unknown): value is ClienteMockSnapshotCommon {
+type ClienteMockSnapshotCommon = ClienteMockSnapshotBase & {
+  accountDeletion: { requestedAt: string } | null;
+};
+
+function hasValidSnapshotBaseShape(value: unknown): value is ClienteMockSnapshotBase {
   return (
     isRecord(value) &&
     Array.isArray(value.accounts) &&
@@ -378,9 +464,15 @@ function hasValidCommonSnapshotShape(value: unknown): value is ClienteMockSnapsh
     Array.isArray(value.orders) &&
     value.orders.every(isPedido) &&
     isNullableString(value.selectedHubId) &&
-    (value.accountDeletion === null ||
-      (isRecord(value.accountDeletion) && typeof value.accountDeletion.requestedAt === 'string')) &&
     isRecord(value.qa)
+  );
+}
+
+function hasValidCommonSnapshotShape(value: unknown): value is ClienteMockSnapshotCommon {
+  return (
+    hasValidSnapshotBaseShape(value) &&
+    (value.accountDeletion === null ||
+      (isRecord(value.accountDeletion) && typeof value.accountDeletion.requestedAt === 'string'))
   );
 }
 
@@ -401,7 +493,8 @@ function hasValidClienteIdentity(
     | ClienteMockSnapshotV3
     | ClienteMockSnapshotV4
     | ClienteMockSnapshotV5
-    | ClienteMockSnapshotV6,
+    | ClienteMockSnapshotV6
+    | ClienteMockSnapshotV7,
 ): boolean {
   const accountIds = snapshot.accounts.map((account) => account.id);
   const accountEmails = snapshot.accounts.map((account) => account.email.trim().toLowerCase());
@@ -547,10 +640,10 @@ const accountDeletionStatuses = new Set<AccountDeletionStatus>([
   'failed',
 ]);
 
-function isMockAccountDeletion(
+function isMockAccountDeletionV6(
   value: unknown,
   accountIds: ReadonlySet<string>,
-): value is MockAccountDeletion {
+): value is MockAccountDeletionV6 {
   if (value === null) return true;
   if (!isRecord(value) || Object.keys(value).length !== 4) return false;
   if (
@@ -567,7 +660,7 @@ function isMockAccountDeletion(
 }
 
 function isClienteMockSnapshotV6(value: unknown): value is ClienteMockSnapshotV6 {
-  if (!hasValidCommonSnapshotShape(value) || value.schemaVersion !== CLIENTE_MOCK_SCHEMA_VERSION) return false;
+  if (!hasValidCommonSnapshotShape(value) || value.schemaVersion !== 6) return false;
 
   const accountIds = new Set(value.accounts.map((account) => account.id));
   const hasValidShape =
@@ -576,9 +669,55 @@ function isClienteMockSnapshotV6(value: unknown): value is ClienteMockSnapshotV6
     hasValidFavoritesByClienteId(value.favoriteHubIdsByClienteId, accountIds) &&
     hasValidFavoritesByClienteId(value.favoriteStoreIdsByClienteId, accountIds) &&
     isMockPasswordRecovery(value.passwordRecovery, accountIds) &&
-    isMockAccountDeletion(value.accountDeletion, accountIds);
+    isMockAccountDeletionV6(value.accountDeletion, accountIds);
 
   return hasValidShape && hasValidClienteIdentity(value as unknown as ClienteMockSnapshotV6);
+}
+
+function isMockAccountDeletion(value: unknown): value is AccountDeletionRecord {
+  if (!isRecord(value) || Object.keys(value).length !== 3) return false;
+  if (
+    !accountDeletionStatuses.has(value.status as AccountDeletionStatus) ||
+    !isIsoInstant(value.requestedAt) ||
+    !isIsoInstant(value.deleteAt)
+  ) {
+    return false;
+  }
+
+  return Date.parse(value.deleteAt) - Date.parse(value.requestedAt) === 7 * 24 * 60 * 60 * 1_000;
+}
+
+function hasValidAccountDeletionsByClienteId(
+  value: unknown,
+  accountIds: ReadonlySet<string>,
+): value is MockAccountDeletionsByClienteId {
+  return (
+    isRecord(value) &&
+    Object.entries(value).every(
+      ([clienteId, deletion]) => accountIds.has(clienteId) && isMockAccountDeletion(deletion),
+    )
+  );
+}
+
+function isClienteMockSnapshotV7(value: unknown): value is ClienteMockSnapshotV7 {
+  if (
+    !hasValidSnapshotBaseShape(value) ||
+    value.schemaVersion !== CLIENTE_MOCK_SCHEMA_VERSION ||
+    value.accountDeletion !== undefined
+  ) {
+    return false;
+  }
+
+  const accountIds = new Set(value.accounts.map((account) => account.id));
+  const hasValidShape =
+    isQaScenarioState(value.qa) &&
+    hasValidOrderAutomation(value.orderAutomation, new Set(value.orders.map((order) => order.id))) &&
+    hasValidFavoritesByClienteId(value.favoriteHubIdsByClienteId, accountIds) &&
+    hasValidFavoritesByClienteId(value.favoriteStoreIdsByClienteId, accountIds) &&
+    isMockPasswordRecovery(value.passwordRecovery, accountIds) &&
+    hasValidAccountDeletionsByClienteId(value.accountDeletionsByClienteId, accountIds);
+
+  return hasValidShape && hasValidClienteIdentity(value as unknown as ClienteMockSnapshotV7);
 }
 
 export function createDefaultQaScenarioState(): QaScenarioState {
@@ -636,7 +775,7 @@ function migrateClienteSnapshotToV5(
   return { ...v4, schemaVersion: 5, passwordRecovery: null };
 }
 
-function migrateClienteSnapshot(
+function migrateClienteSnapshotToV6(
   snapshot:
     | ClienteMockSnapshotV1
     | ClienteMockSnapshotV2
@@ -648,7 +787,7 @@ function migrateClienteSnapshot(
   const requestedAt = v5.accountDeletion?.requestedAt;
   return {
     ...v5,
-    schemaVersion: CLIENTE_MOCK_SCHEMA_VERSION,
+    schemaVersion: 6,
     accountDeletion: isIsoInstant(requestedAt)
       ? {
           clienteId: CLIENTE_DEMO_ID,
@@ -660,7 +799,34 @@ function migrateClienteSnapshot(
   };
 }
 
-export function createClienteBaseline(): ClienteMockSnapshotV6 {
+function migrateClienteSnapshotToV7(
+  snapshot:
+    | ClienteMockSnapshotV1
+    | ClienteMockSnapshotV2
+    | ClienteMockSnapshotV3
+    | ClienteMockSnapshotV4
+    | ClienteMockSnapshotV5
+    | ClienteMockSnapshotV6,
+): ClienteMockSnapshotV7 {
+  const v6 = snapshot.schemaVersion === 6 ? structuredClone(snapshot) : migrateClienteSnapshotToV6(snapshot);
+  const { accountDeletion, ...currentFields } = v6;
+  if (!accountDeletion) {
+    return {
+      ...currentFields,
+      schemaVersion: CLIENTE_MOCK_SCHEMA_VERSION,
+      accountDeletionsByClienteId: {},
+    };
+  }
+
+  const { clienteId, ...record } = accountDeletion;
+  return {
+    ...currentFields,
+    schemaVersion: CLIENTE_MOCK_SCHEMA_VERSION,
+    accountDeletionsByClienteId: { [clienteId]: record },
+  };
+}
+
+export function createClienteBaseline(): ClienteMockSnapshotV7 {
   const profile = clientesFixture.find((cliente) => cliente.id === CLIENTE_DEMO_ID);
   const credential = clientesCredenciaisFixture.find((item) => item.clienteId === CLIENTE_DEMO_ID);
 
@@ -684,7 +850,7 @@ export function createClienteBaseline(): ClienteMockSnapshotV6 {
     favoriteHubIdsByClienteId: {},
     favoriteStoreIdsByClienteId: {},
     selectedHubId: null,
-    accountDeletion: null,
+    accountDeletionsByClienteId: {},
     passwordRecovery: null,
     qa: createDefaultQaScenarioState(),
   };
@@ -697,23 +863,26 @@ export function decodeClienteSnapshot(raw: string | null): ClienteMockSnapshotDe
 
   try {
     const value: unknown = JSON.parse(raw);
-    if (isClienteMockSnapshotV6(value)) {
+    if (isClienteMockSnapshotV7(value)) {
       return { status: 'valid', snapshot: structuredClone(value) };
     }
+    if (isClienteMockSnapshotV6(value)) {
+      return { status: 'migrated', snapshot: migrateClienteSnapshotToV7(value) };
+    }
     if (isClienteMockSnapshotV5(value)) {
-      return { status: 'migrated', snapshot: migrateClienteSnapshot(value) };
+      return { status: 'migrated', snapshot: migrateClienteSnapshotToV7(value) };
     }
     if (isClienteMockSnapshotV4(value)) {
-      return { status: 'migrated', snapshot: migrateClienteSnapshot(value) };
+      return { status: 'migrated', snapshot: migrateClienteSnapshotToV7(value) };
     }
     if (isClienteMockSnapshotV3(value)) {
-      return { status: 'migrated', snapshot: migrateClienteSnapshot(value) };
+      return { status: 'migrated', snapshot: migrateClienteSnapshotToV7(value) };
     }
     if (isClienteMockSnapshotV2(value)) {
-      return { status: 'migrated', snapshot: migrateClienteSnapshot(value) };
+      return { status: 'migrated', snapshot: migrateClienteSnapshotToV7(value) };
     }
     if (isClienteMockSnapshotV1(value)) {
-      return { status: 'migrated', snapshot: migrateClienteSnapshot(value) };
+      return { status: 'migrated', snapshot: migrateClienteSnapshotToV7(value) };
     }
     return { status: 'recovered', reason: 'invalid', snapshot: createClienteBaseline() };
   } catch {
@@ -721,11 +890,11 @@ export function decodeClienteSnapshot(raw: string | null): ClienteMockSnapshotDe
   }
 }
 
-export function parseClienteSnapshot(raw: string | null): ClienteMockSnapshotV6 {
+export function parseClienteSnapshot(raw: string | null): ClienteMockSnapshotV7 {
   return decodeClienteSnapshot(raw).snapshot;
 }
 
-export function applyClienteSnapshot(db: MockDb, snapshot: ClienteMockSnapshotV6): void {
+export function applyClienteSnapshot(db: MockDb, snapshot: ClienteMockSnapshotV7): void {
   const clienteIds = new Set(snapshot.accounts.map((account) => account.id));
   db.clientes = db.clientes.filter((cliente) => !clienteIds.has(cliente.id));
   db.clienteCredenciais = db.clienteCredenciais.filter((credential) => !clienteIds.has(credential.clienteId));
@@ -747,6 +916,6 @@ export function applyClienteSnapshot(db: MockDb, snapshot: ClienteMockSnapshotV6
   db.favoriteStoreIdsByClienteId = structuredClone(snapshot.favoriteStoreIdsByClienteId);
   db.clienteQaState = structuredClone(snapshot.qa);
   db.clienteOrderAutomation = structuredClone(snapshot.orderAutomation);
-  writeMockAccountDeletion(db, snapshot.accountDeletion);
+  writeMockAccountDeletions(db, snapshot.accountDeletionsByClienteId);
   writeMockPasswordRecovery(db, snapshot.passwordRecovery);
 }

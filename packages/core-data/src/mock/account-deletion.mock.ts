@@ -4,6 +4,7 @@ import type {
 } from '../ports/account-deletion.port';
 import {
   readMockAccountDeletion,
+  reconcileDueMockAccountDeletions,
   runMockAccountDeletionMutation,
   writeMockAccountDeletion,
 } from './cliente-state';
@@ -12,11 +13,14 @@ import type { MockDb } from './db';
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1_000;
 const PERSISTENCE_ERROR = '[mock] Não foi possível persistir a exclusão da conta.';
 
-function publicRecord(
-  record: NonNullable<ReturnType<typeof readMockAccountDeletion>>,
-): AccountDeletionRecord {
-  const { clienteId: _clienteId, ...result } = record;
-  return structuredClone(result);
+function publicRecord(record: AccountDeletionRecord): AccountDeletionRecord {
+  return structuredClone(record);
+}
+
+function combineRollbacks(...rollbacks: Array<(() => void) | null>): (() => void) | null {
+  const available = rollbacks.filter((rollback): rollback is () => void => rollback !== null);
+  if (available.length === 0) return null;
+  return () => available.slice().reverse().forEach((rollback) => rollback());
 }
 
 export function createAccountDeletionMock(db: MockDb): AccountDeletionPort {
@@ -29,11 +33,17 @@ export function createAccountDeletionMock(db: MockDb): AccountDeletionPort {
 
   return {
     async status() {
-      return db.runClienteMutation(async () => {
+      let result: AccountDeletionRecord | null = null;
+      const persisted = await runMockAccountDeletionMutation(db, () => {
         const clienteId = requireSession();
-        const record = readMockAccountDeletion(db);
-        return record?.clienteId === clienteId ? publicRecord(record) : null;
+        const rollbackReconciliation = reconcileDueMockAccountDeletions(db);
+        const record = readMockAccountDeletion(db, clienteId);
+        result = record ? publicRecord(record) : null;
+        return rollbackReconciliation;
       });
+
+      if (!persisted) throw new Error(PERSISTENCE_ERROR);
+      return result;
     },
 
     async schedule(currentPassword) {
@@ -45,25 +55,28 @@ export function createAccountDeletionMock(db: MockDb): AccountDeletionPort {
           throw new Error('[mock] Senha atual inválida.');
         }
 
-        const previous = readMockAccountDeletion(db);
+        const rollbackReconciliation = reconcileDueMockAccountDeletions(db);
+        const previous = readMockAccountDeletion(db, clienteId);
         if (
-          previous?.clienteId === clienteId &&
+          previous &&
           (previous.status === 'scheduled' || previous.status === 'processing')
         ) {
           result = publicRecord(previous);
-          return null;
+          return rollbackReconciliation;
         }
 
         const requestedAtMs = Date.now() + db.clienteQaState.clockOffsetMs;
         const next = {
-          clienteId,
           status: 'scheduled' as const,
           requestedAt: new Date(requestedAtMs).toISOString(),
           deleteAt: new Date(requestedAtMs + SEVEN_DAYS_MS).toISOString(),
         };
-        writeMockAccountDeletion(db, next);
+        writeMockAccountDeletion(db, clienteId, next);
         result = publicRecord(next);
-        return () => writeMockAccountDeletion(db, previous);
+        return combineRollbacks(
+          rollbackReconciliation,
+          () => writeMockAccountDeletion(db, clienteId, previous),
+        );
       });
 
       if (!persisted) throw new Error(PERSISTENCE_ERROR);
@@ -75,17 +88,21 @@ export function createAccountDeletionMock(db: MockDb): AccountDeletionPort {
       let result: AccountDeletionRecord | null = null;
       const persisted = await runMockAccountDeletionMutation(db, () => {
         const clienteId = requireSession();
-        const previous = readMockAccountDeletion(db);
-        if (!previous || previous.clienteId !== clienteId) return null;
+        const rollbackReconciliation = reconcileDueMockAccountDeletions(db);
+        const previous = readMockAccountDeletion(db, clienteId);
+        if (!previous) return rollbackReconciliation;
         if (previous.status !== 'scheduled') {
           result = publicRecord(previous);
-          return null;
+          return rollbackReconciliation;
         }
 
         const next = { ...previous, status: 'cancelled' as const };
-        writeMockAccountDeletion(db, next);
+        writeMockAccountDeletion(db, clienteId, next);
         result = publicRecord(next);
-        return () => writeMockAccountDeletion(db, previous);
+        return combineRollbacks(
+          rollbackReconciliation,
+          () => writeMockAccountDeletion(db, clienteId, previous),
+        );
       });
 
       if (!persisted) throw new Error(PERSISTENCE_ERROR);

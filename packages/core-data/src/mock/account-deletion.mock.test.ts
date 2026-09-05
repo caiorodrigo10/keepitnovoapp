@@ -32,6 +32,26 @@ function memoryStorage(initial = JSON.stringify(createClienteBaseline())): Memor
   };
 }
 
+function scheduledSnapshot(options: {
+  clienteId?: string;
+  requestedAt?: string;
+  deleteAt?: string;
+} = {}): ReturnType<typeof createClienteBaseline> {
+  const snapshot = createClienteBaseline();
+  const clienteId = options.clienteId ?? 'cliente-ana';
+  Object.assign(snapshot, {
+    sessionClienteId: clienteId,
+    accountDeletionsByClienteId: {
+      [clienteId]: {
+        status: 'scheduled',
+        requestedAt: options.requestedAt ?? '2026-08-29T12:00:00.000Z',
+        deleteAt: options.deleteAt ?? '2026-09-05T12:00:00.000Z',
+      },
+    },
+  });
+  return snapshot;
+}
+
 describe('account-deletion.mock', () => {
   beforeEach(() => {
     __resetDataClientForTests();
@@ -129,5 +149,82 @@ describe('account-deletion.mock', () => {
       reopened.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 }),
     ).resolves.toMatchObject({ id: 'cliente-ana', bloqueado: false });
     await expect(reopened.accountDeletion.status()).resolves.toBeNull();
+  });
+
+  it('reconcilia um prazo vencido ao reabrir sem depender de advanceClock', async () => {
+    const storage = memoryStorage(JSON.stringify(scheduledSnapshot()));
+
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+
+    await expect(client.accountDeletion.status()).resolves.toMatchObject({ status: 'completed' });
+    await expect(client.accountDeletion.cancel()).resolves.toMatchObject({ status: 'completed' });
+    await expect(client.auth.currentUser({ delayMs: 0 })).resolves.toMatchObject({
+      id: 'cliente-ana',
+      bloqueado: true,
+    });
+    expect(JSON.parse(storage.peek()!).accountDeletionsByClienteId['cliente-ana']).toMatchObject({
+      status: 'completed',
+    });
+  });
+
+  it('não permite cancelamento no limite quando a reconciliação não persiste e aceita retry limpo', async () => {
+    let value: string | null = JSON.stringify(scheduledSnapshot());
+    let writes = 0;
+    const storage: ClienteMockStorage = {
+      async getItem() {
+        return value;
+      },
+      async setItem(_key, next) {
+        writes += 1;
+        if (writes <= 2) throw new Error('disk full');
+        value = next;
+      },
+      async removeItem() {
+        value = null;
+      },
+    };
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+
+    expect(client.demoScenario!.getStatus()).toMatchObject({ persistence: 'degraded', lastError: 'write' });
+    await expect(client.accountDeletion.cancel()).rejects.toThrow(/persistir/i);
+    expect(JSON.parse(value!).accountDeletionsByClienteId['cliente-ana']).toMatchObject({
+      status: 'scheduled',
+    });
+
+    await expect(client.accountDeletion.status()).resolves.toMatchObject({ status: 'completed' });
+    await expect(client.accountDeletion.cancel()).resolves.toMatchObject({ status: 'completed' });
+  });
+
+  it('preserva agendamentos isolados de duas contas após reabrir', async () => {
+    const storage = memoryStorage();
+    const first = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await first.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
+    const ana = await first.accountDeletion.schedule('keepit123');
+
+    vi.mocked(Date.now).mockReturnValue(NOW + 60 * 60 * 1_000);
+    const bruno = await first.auth.signUp(
+      { nome: 'Bruno', email: 'bruno@example.com', senha: 'senha-bruno', telefone: null },
+      { delayMs: 0 },
+    );
+    const brunoDeletion = await first.accountDeletion.schedule('senha-bruno');
+    await first.auth.signOut({ delayMs: 0 });
+    await first.demoScenario!.flush();
+
+    __resetDataClientForTests();
+    const reopened = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await reopened.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
+    await expect(reopened.accountDeletion.status()).resolves.toEqual(ana);
+    await reopened.auth.signOut({ delayMs: 0 });
+    await reopened.auth.signIn('bruno@example.com', 'senha-bruno', { delayMs: 0 });
+    await expect(reopened.accountDeletion.status()).resolves.toEqual(brunoDeletion);
+    await expect(reopened.accountDeletion.cancel()).resolves.toMatchObject({ status: 'cancelled' });
+    await reopened.auth.signOut({ delayMs: 0 });
+    await reopened.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
+    await expect(reopened.accountDeletion.status()).resolves.toEqual(ana);
+
+    expect(bruno.id).not.toBe('cliente-ana');
+    await expect(reopened.demoScenario!.reset()).resolves.toEqual({ status: 'reset' });
+    await expect(reopened.accountDeletion.status()).rejects.toThrow(/sessão/i);
+    expect(JSON.parse(storage.peek()!).accountDeletionsByClienteId).toEqual({});
   });
 });

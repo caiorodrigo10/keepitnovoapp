@@ -901,7 +901,7 @@ describe('ClienteMockStateStore', () => {
     const baseline = createClienteBaseline();
     const reordered = JSON.stringify({
       qa: baseline.qa,
-      accountDeletion: baseline.accountDeletion,
+      accountDeletionsByClienteId: baseline.accountDeletionsByClienteId,
       selectedHubId: baseline.selectedHubId,
       favoriteStoreIdsByClienteId: baseline.favoriteStoreIdsByClienteId,
       favoriteHubIdsByClienteId: baseline.favoriteHubIdsByClienteId,
@@ -1023,7 +1023,9 @@ describe('ClienteMockStateStore', () => {
     await expect(cancel).resolves.toMatchObject({ status: 'cancelled' });
     await client.demoScenario!.flush();
 
-    expect(JSON.parse(values.get(CLIENTE_MOCK_STATE_KEY)!).accountDeletion.status).toBe('cancelled');
+    expect(
+      JSON.parse(values.get(CLIENTE_MOCK_STATE_KEY)!).accountDeletionsByClienteId['cliente-ana'].status,
+    ).toBe('cancelled');
   });
 
   it('não oferece cenário mock no datasource supabase', () => {
