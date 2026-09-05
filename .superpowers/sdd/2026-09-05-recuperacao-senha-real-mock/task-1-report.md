@@ -169,3 +169,54 @@ Exit 0
 O typecheck permanece com somente a falha já registrada e pertencente à Task
 2 em `src/supabase/auth.supabase.ts:160`; a correção de concorrência não criou
 outros erros de tipo.
+
+## Correção após segundo re-review
+
+O segundo re-review mostrou que `reset()` ainda alterava a memória e
+enfileirava o baseline fora da barreira. Um rollback de recovery podia então
+ser capturado por uma persistência comum depois da escrita do reset,
+ressuscitando `ready` somente no storage.
+
+A barreira agora representa mutações de estado serializadas e inclui o reset
+completo: captura do estado anterior, aplicação do baseline, gravação e
+callback de limpeza. Persistências comuns só capturam depois do commit ou do
+rollback. Quando a gravação do reset falha, contas, sessão, QA, recovery,
+snapshot auxiliar e IDs gerenciados voltam ao estado anterior; o resultado é
+`{ status: 'degraded' }` e nenhum evento de reset é publicado.
+
+### RED do segundo re-review
+
+```text
+pnpm --filter @keepit/core-data test -- src/mock/cliente-state-store.test.ts
+
+Test Files  1 failed (1)
+Tests       2 failed | 29 passed (31)
+Exit 1
+```
+
+Foi adicionado um único teste adversarial: a primeira gravação de
+`updatePassword` fica pendente e falha, enquanto reset e `signOut` já foram
+iniciados; a gravação do reset também é controlada antes do restart. Sem a
+correção, a memória terminava com recovery `null`, mas o storage terminava em
+`ready`. A segunda falha veio da atualização do teste existente de reset
+degradado, que passou a exigir rollback coerente do estado anterior.
+
+### GREEN após segundo re-review
+
+```text
+pnpm --filter @keepit/core-data test -- src/mock/auth.mock.test.ts src/mock/cliente-state.test.ts src/mock/cliente-state-store.test.ts
+
+Test Files  3 passed (3)
+Tests       99 passed (99)
+Exit 0
+
+pnpm --filter @keepit/core-data test
+
+Test Files  32 passed (32)
+Tests       643 passed (643)
+Exit 0
+```
+
+O typecheck continua apontando exclusivamente a integração da Task 2 em
+`src/supabase/auth.supabase.ts:160` (`Promise<void>` versus
+`Promise<PasswordResetRequestResult>`).

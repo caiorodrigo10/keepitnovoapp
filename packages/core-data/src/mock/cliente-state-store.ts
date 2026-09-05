@@ -29,7 +29,7 @@ export class ClienteMockStateStore {
     lastError: null,
   };
   private writeQueue: Promise<void> = Promise.resolve();
-  private passwordRecoveryMutationBarrier: Promise<void> = Promise.resolve();
+  private stateMutationBarrier: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly db: MockDb,
@@ -73,7 +73,7 @@ export class ClienteMockStateStore {
   }
 
   persist(): Promise<boolean> {
-    return this.passwordRecoveryMutationBarrier.then(() => this.persistNow());
+    return this.stateMutationBarrier.then(() => this.persistNow());
   }
 
   private persistNow(): Promise<boolean> {
@@ -83,12 +83,17 @@ export class ClienteMockStateStore {
   }
 
   flush(): Promise<void> {
-    return this.passwordRecoveryMutationBarrier.then(() => this.writeQueue);
+    return this.stateMutationBarrier.then(() => this.writeQueue);
   }
 
-  async reset(): Promise<DemoScenarioResetResult> {
+  reset(): Promise<DemoScenarioResetResult> {
+    return this.runSerializedStateMutation(() => this.resetNow());
+  }
+
+  private async resetNow(): Promise<DemoScenarioResetResult> {
+    const previousSnapshot = this.captureSnapshot();
+    const previousManagedClienteIds = [...this.managedClienteIds];
     const baseline = createClienteBaseline();
-    this.rememberCurrentClienteIds();
     const resetClienteIds = [...this.managedClienteIds];
     this.removeManagedClienteDomain();
     this.lastSnapshot = structuredClone(baseline);
@@ -96,13 +101,22 @@ export class ClienteMockStateStore {
     this.managedClienteIds.clear();
     this.rememberSnapshotClienteIds(baseline);
     const persisted = await this.enqueueSnapshot(baseline, 'reset');
+    if (!persisted) {
+      this.removeManagedClienteDomain();
+      this.managedClienteIds.clear();
+      previousManagedClienteIds.forEach((clienteId) => this.managedClienteIds.add(clienteId));
+      this.lastSnapshot = structuredClone(previousSnapshot);
+      applyClienteSnapshot(this.db, previousSnapshot);
+      return { status: 'degraded' };
+    }
+
     await this.db.onClienteStateReset();
     resetClienteIds.forEach((clienteId) => {
       this.db.clienteOrderChangeListeners.forEach((listener) => {
         listener({ clienteId, reason: 'reset' });
       });
     });
-    return persisted ? { status: 'reset' } : { status: 'degraded' };
+    return { status: 'reset' };
   }
 
   getStatus(): DemoScenarioStatus {
@@ -169,7 +183,7 @@ export class ClienteMockStateStore {
   }
 
   private runPasswordRecoveryMutation(mutate: () => () => void): Promise<boolean> {
-    const result = this.passwordRecoveryMutationBarrier.then(async () => {
+    return this.runSerializedStateMutation(async () => {
       const rollback = mutate();
       try {
         const persisted = await this.persistNow();
@@ -180,7 +194,11 @@ export class ClienteMockStateStore {
         return false;
       }
     });
-    this.passwordRecoveryMutationBarrier = result.then(
+  }
+
+  private runSerializedStateMutation<T>(run: () => Promise<T>): Promise<T> {
+    const result = this.stateMutationBarrier.then(run);
+    this.stateMutationBarrier = result.then(
       () => undefined,
       () => undefined,
     );
