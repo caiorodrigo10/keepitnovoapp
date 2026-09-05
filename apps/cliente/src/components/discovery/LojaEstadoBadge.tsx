@@ -13,6 +13,12 @@ const LABEL: Record<LojaEstado, string> = {
   pausada: 'Pausado',
 };
 
+const ACCESSIBILITY_LABEL: Record<LojaEstado, string> = {
+  aberta: 'Loja aberta',
+  fechada: 'Loja fechada',
+  pausada: 'Loja pausada',
+};
+
 /**
  * [IDS] CREATE — pill de estado da loja (AC1: Aberta/Fechada/Pausada),
  * fiel ao badge "Aberto" verde de `cliente-03-loja-catalogo.png`. Fechada e
@@ -23,6 +29,8 @@ const LABEL: Record<LojaEstado, string> = {
 export function LojaEstadoBadge({ estado }: LojaEstadoBadgeProps) {
   return (
     <View
+      accessibilityRole="text"
+      accessibilityLabel={ACCESSIBILITY_LABEL[estado]}
       style={[
         styles.badge,
         estado === 'aberta' && styles.aberta,

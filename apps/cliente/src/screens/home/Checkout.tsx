@@ -4,6 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { businessConfig } from '@keepit/config';
+import { resolveLojaDisponibilidade } from '@keepit/core-data';
 import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 
 import { CartItemRow, SummaryLinkRow } from '../../components/checkout';
@@ -15,6 +16,7 @@ import { useStoreDetail } from '../../hooks/useStoreDetail';
 import { computeCheckoutTotals } from '../../lib/checkoutTotals';
 import {
   calcularTicketMinimo,
+  canCheckoutStore,
   deveSincronizarCpfCollected,
   faltaParaTicketMinimo,
   podeFinalizarNoHorario,
@@ -48,7 +50,7 @@ export default function Checkout({ navigation }: Props) {
   const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   const { data: hub } = useHubDetail(cart.hubId ?? '', {});
-  const { data: loja } = useStoreDetail(cart.estabelecimentoId ?? '', {});
+  const { data: loja, loading: storeLoading } = useStoreDetail(cart.estabelecimentoId ?? '', {});
   const { data: cliente } = useCurrentCliente();
 
   // Pré-seleciona apenas o cartão default. O hub precisa ser uma escolha
@@ -90,6 +92,11 @@ export default function Checkout({ navigation }: Props) {
   const ticketMinimo = calcularTicketMinimo(loja);
   const abaixoDoTicketMinimo = cart.subtotalReais < ticketMinimo;
   const faltaParaMinimo = faltaParaTicketMinimo(cart.subtotalReais, ticketMinimo);
+  const lojaDisponivelParaCompra = canCheckoutStore(loja);
+  const disponibilidadeLoja = loja ? resolveLojaDisponibilidade(loja) : null;
+  const lojaIndisponivelMensagem = disponibilidadeLoja?.estado === 'pausada'
+    ? 'Esta loja está pausada no momento'
+    : 'Esta loja está fechada agora';
 
   const payment = cart.payment;
   const cartaoSelecionado =
@@ -98,6 +105,11 @@ export default function Checkout({ navigation }: Props) {
     payment?.type === 'pix' ? 'PIX' : cartaoSelecionado ? `Cartão •••• ${cartaoSelecionado.ultimo4}` : 'Escolher';
 
   const handlePagar = () => {
+    if (!canCheckoutStore(loja)) {
+      Alert.alert('Loja indisponível', lojaIndisponivelMensagem);
+      return;
+    }
+
     if (!cart.hubId) {
       return;
     }
@@ -189,10 +201,16 @@ export default function Checkout({ navigation }: Props) {
         </Text>
       )}
 
+      {!storeLoading && !lojaDisponivelParaCompra && (
+        <Text accessibilityRole="alert" style={styles.avisoLojaIndisponivel}>
+          {lojaIndisponivelMensagem}
+        </Text>
+      )}
+
       <Button
         title={`Pagar ${formatReais(totalReais)}`}
         onPress={handlePagar}
-        disabled={cart.items.length === 0 || !cart.hubId || abaixoDoTicketMinimo}
+        disabled={cart.items.length === 0 || !cart.hubId || abaixoDoTicketMinimo || !lojaDisponivelParaCompra}
       />
     </Screen>
   );
@@ -225,6 +243,12 @@ const styles = StyleSheet.create({
     marginBottom: spacing['5'],
   },
   avisoTicketMinimo: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.accent.warning,
+    marginBottom: spacing['3'],
+  },
+  avisoLojaIndisponivel: {
     fontFamily: 'HankenGrotesk-Regular',
     fontSize: typography.sizes.sm.fontSize,
     color: lightColors.accent.warning,

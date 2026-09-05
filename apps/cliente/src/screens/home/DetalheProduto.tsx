@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
+import { resolveLojaDisponibilidade } from '@keepit/core-data';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { FloatingCartButton } from '../../components/checkout';
@@ -51,6 +52,13 @@ export default function DetalheProduto({ route, navigation }: Props) {
   );
   const loadingProduto = productLoading || isForcedLoading(storesSimulation);
   const { data: loja } = useStoreDetail(produto?.estabelecimento_id ?? '', {});
+  const disponibilidade = loja ? resolveLojaDisponibilidade(loja) : null;
+  const compraDisponivel = disponibilidade?.disponivelParaCompra ?? false;
+  const motivoIndisponibilidade = disponibilidade && !disponibilidade.disponivelParaCompra
+    ? disponibilidade.estado === 'pausada'
+      ? 'Esta loja está pausada no momento'
+      : 'Esta loja está fechada agora'
+    : null;
 
   const showPersistenceError = () => {
     Alert.alert(
@@ -65,7 +73,7 @@ export default function DetalheProduto({ route, navigation }: Props) {
   };
 
   const handleAddItem = async (confirmed = false) => {
-    if (!produto) {
+    if (!produto || !loja || !resolveLojaDisponibilidade(loja).disponivelParaCompra) {
       finishAddIntent();
       return;
     }
@@ -180,9 +188,18 @@ export default function DetalheProduto({ route, navigation }: Props) {
               </View>
             </View>
 
+            {motivoIndisponibilidade && (
+              <Text accessibilityRole="alert" style={styles.avisoIndisponibilidade}>
+                {motivoIndisponibilidade}
+              </Text>
+            )}
+
             <Pressable
-              disabled={addPending}
-              style={[styles.addButton, addPending && styles.addButtonDisabled]}
+              accessibilityRole="button"
+              accessibilityLabel="Adicionar ao carrinho"
+              accessibilityState={{ disabled: addPending || !compraDisponivel, busy: addPending }}
+              disabled={addPending || !compraDisponivel}
+              style={[styles.addButton, (addPending || !compraDisponivel) && styles.addButtonDisabled]}
               onPress={beginAddItem}
             >
               <Text style={styles.addButtonLabel}>Adicionar ao carrinho</Text>
@@ -325,7 +342,15 @@ const styles = StyleSheet.create({
     color: lightColors.text.primary,
   },
   addButtonDisabled: {
-    opacity: 0.55,
+    backgroundColor: lightColors.bg.muted,
+    borderColor: lightColors.border.default,
+    borderWidth: 1,
+  },
+  avisoIndisponibilidade: {
+    fontFamily: 'HankenGrotesk-Medium',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.accent.warning,
+    marginTop: spacing['4'],
   },
   addButtonPreco: {
     fontFamily: 'HankenGrotesk-Bold',

@@ -1,4 +1,4 @@
-import type { Estabelecimento, Hub } from '@keepit/core-data';
+import { resolveLojaDisponibilidade, type Estabelecimento, type Hub } from '@keepit/core-data';
 import { businessConfig } from '@keepit/config';
 
 /**
@@ -16,6 +16,18 @@ import { businessConfig } from '@keepit/config';
 function paraMinutos(hora: string): number {
   const [h, m] = hora.split(':').map(Number);
   return h * 60 + m;
+}
+
+/**
+ * Story 12.10 (Task 4). Defesa em profundidade do checkout: somente uma
+ * loja pública aberta aceita compra. A regra permanece integralmente na
+ * projeção central de domínio, sem uma segunda tabela de verdade na tela.
+ */
+export function canCheckoutStore(
+  loja: Estabelecimento | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  return loja ? resolveLojaDisponibilidade(loja, now).disponivelParaCompra : false;
 }
 
 /**
