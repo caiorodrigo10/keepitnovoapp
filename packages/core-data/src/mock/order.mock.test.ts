@@ -1,10 +1,50 @@
 import { businessConfig } from '@keepit/config';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { OrderPort } from '../ports/order.port';
+import type { CreatePedidoInput, OrderPort } from '../ports/order.port';
 import { OrderTransitionError, PinBloqueadoError, PinIncorretoError } from '../ports/order.port';
+import { createDefaultQaScenarioState } from './cliente-state';
+import { ClienteMockStateStore } from './cliente-state-store';
 import { createMockDb, type MockDb } from './db';
 import { createOrderMock } from './order.mock';
+
+const validInput: CreatePedidoInput = {
+  cliente_id: 'cliente-ana',
+  estabelecimento_id: 'estab-farmacia-vida',
+  hub_id: 'hub-centro',
+  itens: [
+    {
+      produto_id: 'produto-dipirona',
+      nome_snapshot: 'Dipirona Monoidratada 500mg',
+      preco_unitario_reais: 14.9,
+      quantidade: 2,
+    },
+  ],
+  forma_pagamento: 'pix',
+  subtotal_produtos_reais: 29.8,
+  taxa_deslocamento_reais: 5,
+  taxa_keepit_reais: (29.8 * businessConfig.taxaKeepitPercent) / 100,
+  taxa_servico_comprador_reais: businessConfig.taxaServicoCompradorReais,
+  total_pago_reais: 29.8 + 5 + businessConfig.taxaServicoCompradorReais,
+  nf_solicitada: false,
+};
+
+function qaComAtrasosDeUmSegundo() {
+  const qa = createDefaultQaScenarioState();
+  qa.autoProgressOrders = true;
+  qa.orderProgressionDelaysMs = {
+    aceito: 1_000,
+    em_preparo: 1_000,
+    saindo_hub: 1_000,
+    no_hub: 1_000,
+  };
+  return qa;
+}
+
+async function settleMock<T>(promise: Promise<T>): Promise<T> {
+  await vi.runAllTimersAsync();
+  return promise;
+}
 
 describe('order.mock (contract)', () => {
   let db: MockDb;
@@ -15,39 +55,23 @@ describe('order.mock (contract)', () => {
     port = createOrderMock(db);
   });
 
-  it('create persiste o snapshot de itens e os totais de cabeçalho recebidos (Story 6.6, AC1/AC7 — sem recalcular a partir do catálogo)', async () => {
-    const subtotal = 29.8; // 2x produto-dipirona a R$ 14,90 (mesmo valor do catálogo, calculado por quem chama)
-    const taxaKeepit = (subtotal * businessConfig.taxaKeepitPercent) / 100;
-    const taxaDeslocamento = 5;
-    const taxaServico = businessConfig.taxaServicoCompradorReais;
-    const total = subtotal + taxaDeslocamento + taxaServico;
+  afterEach(() => {
+    vi.useRealTimers();
+  });
 
-    const pedido = await port.create(
-      {
-        cliente_id: 'cliente-ana',
-        estabelecimento_id: 'estab-farmacia-vida',
-        hub_id: 'hub-centro',
-        itens: [
-          { produto_id: 'produto-dipirona', nome_snapshot: 'Dipirona Monoidratada 500mg', preco_unitario_reais: 14.9, quantidade: 2 },
-        ],
-        forma_pagamento: 'pix',
-        subtotal_produtos_reais: subtotal,
-        taxa_deslocamento_reais: taxaDeslocamento,
-        taxa_keepit_reais: taxaKeepit,
-        taxa_servico_comprador_reais: taxaServico,
-        total_pago_reais: total,
-        nf_solicitada: false,
-      },
-      { delayMs: 1 },
-    );
+  it('create persiste o snapshot de itens e os totais de cabeçalho recebidos (Story 6.6, AC1/AC7 — sem recalcular a partir do catálogo)', async () => {
+    const pedido = await port.create(validInput, { delayMs: 1 });
 
     expect(pedido.subtotal_produtos_reais).toBeCloseTo(29.8, 2);
     expect(pedido.taxa_keepit_reais).toBeCloseTo((29.8 * businessConfig.taxaKeepitPercent) / 100, 2);
-    expect(pedido.taxa_deslocamento_reais).toBeCloseTo(taxaDeslocamento, 2);
+    expect(pedido.taxa_deslocamento_reais).toBeCloseTo(5, 2);
     // Story 6.16 (AC1, AC3): campo que faltava no read model — volta a
     // aparecer no `Pedido` retornado por `create`, como o resto dos totais.
-    expect(pedido.taxa_servico_comprador_reais).toBeCloseTo(taxaServico, 2);
-    expect(pedido.total_pago_reais).toBeCloseTo(total, 2);
+    expect(pedido.taxa_servico_comprador_reais).toBeCloseTo(businessConfig.taxaServicoCompradorReais, 2);
+    expect(pedido.total_pago_reais).toBeCloseTo(
+      29.8 + 5 + businessConfig.taxaServicoCompradorReais,
+      2,
+    );
     // Story 6.7.1 (AC5): status inicial volta a ser `aguardando_pagamento` —
     // a transição para `aguardando_aceite` passa a ser feita por
     // `confirmarPagamento`, chamada automaticamente pela UI (ver testes abaixo).
@@ -149,6 +173,153 @@ describe('order.mock (contract)', () => {
     // `aceito_em` continua exclusivo de `accept` (Story 6.9) — confirmarPagamento
     // só confirma o PAGAMENTO, não o aceite da loja.
     expect(confirmado.aceito_em).toBeNull();
+  });
+
+  it('agenda após pagamento, reconcilia leituras e emite cada transição uma vez', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-09-05T10:00:00.000Z');
+    db.clienteQaState = qaComAtrasosDeUmSegundo();
+    const event = vi.fn();
+    port.subscribeChanges!(event);
+
+    const created = await settleMock(port.create(validInput, { delayMs: 0 }));
+    await settleMock(port.confirmarPagamento(created.id, { delayMs: 0 }));
+
+    expect(db.clienteOrderAutomation[created.id]).toEqual({
+      enteredStatusAt: '2026-09-05T10:00:00.000Z',
+    });
+
+    vi.setSystemTime('2026-09-05T10:00:05.000Z');
+    const current = (await settleMock(port.listMine('cliente-ana', { delayMs: 0 }))).find(
+      (pedido) => pedido.id === created.id,
+    );
+    expect(current?.status).toBe('no_hub');
+    expect(event.mock.calls.filter(([value]) => value.reason === 'auto-progress')).toEqual(
+      Array.from({ length: 4 }, () => [
+        { clienteId: 'cliente-ana', pedidoId: created.id, reason: 'auto-progress' },
+      ]),
+    );
+    expect(event.mock.calls.filter(([value]) => value.reason === 'mutation')).toHaveLength(2);
+
+    const sameCurrent = (await settleMock(port.listMine('cliente-ana', { delayMs: 0 }))).find(
+      (pedido) => pedido.id === created.id,
+    );
+    expect(sameCurrent?.status).toBe('no_hub');
+    expect(event.mock.calls.filter(([value]) => value.reason === 'auto-progress')).toHaveLength(4);
+  });
+
+  it('não agenda antes do pagamento e mantém o pedido aguardando pagamento', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-09-05T10:00:00.000Z');
+    db.clienteQaState = qaComAtrasosDeUmSegundo();
+
+    const created = await settleMock(port.create(validInput, { delayMs: 0 }));
+    vi.setSystemTime('2026-09-05T10:00:05.000Z');
+    const current = await settleMock(port.getById(created.id, { delayMs: 0 }));
+
+    expect(current?.status).toBe('aguardando_pagamento');
+    expect(db.clienteOrderAutomation[created.id]).toBeUndefined();
+  });
+
+  it('reconcilia a progressão automática também em getById', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-09-05T10:00:00.000Z');
+    db.clienteQaState = qaComAtrasosDeUmSegundo();
+    const created = await settleMock(port.create(validInput, { delayMs: 0 }));
+    await settleMock(port.confirmarPagamento(created.id, { delayMs: 0 }));
+
+    vi.setSystemTime('2026-09-05T10:00:05.000Z');
+    const current = await settleMock(port.getById(created.id, { delayMs: 0 }));
+
+    expect(current?.status).toBe('no_hub');
+  });
+
+  it('deixa de notificar um listener após unsubscribe', async () => {
+    vi.useFakeTimers();
+    const event = vi.fn();
+    const unsubscribe = port.subscribeChanges!(event);
+    await settleMock(port.create(validInput, { delayMs: 0 }));
+    expect(event).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+    await settleMock(port.create(validInput, { delayMs: 0 }));
+
+    expect(event).toHaveBeenCalledTimes(1);
+  });
+
+  it('emite reset para cada conta removida do domínio Cliente', async () => {
+    const stateStore = new ClienteMockStateStore(db, {
+      async getItem() {
+        return null;
+      },
+      async setItem() {},
+      async removeItem() {},
+    });
+    await stateStore.hydrate();
+    const event = vi.fn();
+    port.subscribeChanges!(event);
+
+    await stateStore.reset();
+
+    expect(event).toHaveBeenCalledWith({ clienteId: 'cliente-ana', reason: 'reset' });
+  });
+
+  it.each([
+    ['pausada', false, qaComAtrasosDeUmSegundo().orderProgressionDelaysMs],
+    ['sem configuração de atrasos', true, null],
+  ] as const)('não progride quando a automação está %s', async (_label, autoProgressOrders, delays) => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-09-05T10:00:00.000Z');
+    db.clienteQaState = qaComAtrasosDeUmSegundo();
+    const created = await settleMock(port.create(validInput, { delayMs: 0 }));
+    await settleMock(port.confirmarPagamento(created.id, { delayMs: 0 }));
+
+    db.clienteQaState.autoProgressOrders = autoProgressOrders;
+    db.clienteQaState.orderProgressionDelaysMs = delays;
+    vi.setSystemTime('2026-09-05T10:00:05.000Z');
+
+    const current = await settleMock(port.getById(created.id, { delayMs: 0 }));
+    expect(current?.status).toBe('aguardando_aceite');
+  });
+
+  it.each(['cancel', 'refuse', 'deliver'] as const)(
+    'remove a âncora após %s terminal',
+    async (terminalAction) => {
+      vi.useFakeTimers();
+      vi.setSystemTime('2026-09-05T10:00:00.000Z');
+      db.clienteQaState = qaComAtrasosDeUmSegundo();
+      const created = await settleMock(port.create(validInput, { delayMs: 0 }));
+      await settleMock(port.confirmarPagamento(created.id, { delayMs: 0 }));
+
+      if (terminalAction === 'cancel') {
+        await settleMock(port.cancel(created.id, 'Mudei de ideia', { delayMs: 0 }));
+      } else if (terminalAction === 'refuse') {
+        await settleMock(port.refuse(created.id, 'Sem estoque', { delayMs: 0 }));
+      } else {
+        await settleMock(port.confirmPin(created.id, created.pin_texto, { delayMs: 0 }));
+      }
+
+      expect(db.clienteOrderAutomation[created.id]).toBeUndefined();
+    },
+  );
+
+  it('reancora uma transição manual no relógio QA', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-09-05T10:00:00.000Z');
+    db.clienteQaState = qaComAtrasosDeUmSegundo();
+    db.clienteQaState.clockOffsetMs = 10_000;
+    const created = await settleMock(port.create(validInput, { delayMs: 0 }));
+    await settleMock(port.confirmarPagamento(created.id, { delayMs: 0 }));
+
+    vi.setSystemTime('2026-09-05T10:00:00.500Z');
+    await settleMock(port.accept(created.id, 25, { delayMs: 0 }));
+    vi.setSystemTime('2026-09-05T10:00:01.250Z');
+
+    const current = await settleMock(port.getById(created.id, { delayMs: 0 }));
+    expect(current?.status).toBe('aceito');
+    expect(db.clienteOrderAutomation[created.id]).toEqual({
+      enteredStatusAt: '2026-09-05T10:00:10.500Z',
+    });
   });
 
   it('confirmarPagamento rejects with OrderTransitionError from any other status (Story 6.7.1, AC4)', async () => {

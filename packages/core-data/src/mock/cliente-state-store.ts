@@ -82,6 +82,7 @@ export class ClienteMockStateStore {
   async reset(): Promise<DemoScenarioResetResult> {
     const baseline = createClienteBaseline();
     this.rememberCurrentClienteIds();
+    const resetClienteIds = [...this.managedClienteIds];
     this.removeManagedClienteDomain();
     this.lastSnapshot = structuredClone(baseline);
     applyClienteSnapshot(this.db, baseline);
@@ -89,6 +90,11 @@ export class ClienteMockStateStore {
     this.rememberSnapshotClienteIds(baseline);
     const persisted = await this.enqueueSnapshot(baseline, 'reset');
     await this.db.onClienteStateReset();
+    resetClienteIds.forEach((clienteId) => {
+      this.db.clienteOrderChangeListeners.forEach((listener) => {
+        listener({ clienteId, reason: 'reset' });
+      });
+    });
     return persisted ? { status: 'reset' } : { status: 'degraded' };
   }
 

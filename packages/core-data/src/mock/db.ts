@@ -2,7 +2,7 @@ import type { Cliente } from '../ports/auth.port';
 import type { Hub } from '../ports/hub.port';
 import type { Estabelecimento, EstabelecimentoHorario } from '../ports/store.port';
 import type { Produto } from '../ports/product.port';
-import type { Pedido } from '../ports/order.port';
+import type { OrderChangeEvent, Pedido } from '../ports/order.port';
 import type { Saque } from '../ports/wallet.port';
 import type { EstabelecimentoFalha, ReembolsoPendente } from '../ports/admin.port';
 import type { QaScenarioState } from '../ports/demo-scenario.port';
@@ -49,6 +49,8 @@ export interface MockDb {
   clienteQaState: QaScenarioState;
   /** Âncoras persistidas da progressão automática dos pedidos do Cliente. */
   clienteOrderAutomation: Record<string, OrderAutomationRuntime>;
+  /** Assinantes em memória para invalidação reativa dos recursos de pedido do Cliente. */
+  clienteOrderChangeListeners: Set<(event: OrderChangeEvent) => void>;
   /**
    * Story 2.3 (Task 5) — índice mock-only e-mail → cliente, usado só por
    * `auth.mock.ts#signIn`/`signUp`. Não faz parte de nenhuma port
@@ -171,6 +173,7 @@ export function createMockDb(): MockDb {
     sessionClienteId: null,
     clienteQaState: createDefaultQaScenarioState(),
     clienteOrderAutomation: {},
+    clienteOrderChangeListeners: new Set(),
     clienteCredenciais: structuredClone(
       clientesCredenciaisFixture.map((credential) => ({
         ...credential,

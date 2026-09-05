@@ -3,6 +3,7 @@ import { businessConfig } from '@keepit/config';
 import type {
   AdvanceableStatus,
   CreatePedidoInput,
+  OrderChangeEvent,
   OrderPort,
   Pedido,
   PedidoItem,
@@ -13,6 +14,7 @@ import type { AsyncCallOptions } from '../types';
 import { generateMockId, generatePin, simulateAsync } from './async-helpers';
 import type { MockDb } from './db';
 import { registrarFalha } from './falha-helpers';
+import { reconcileAutomaticOrder } from './order-auto-progress';
 import { registrarReembolso } from './refund-helpers';
 
 function roundReais(value: number): number {
@@ -41,7 +43,72 @@ export function createOrderMock(db: MockDb): OrderPort {
     }
   }
 
+  function emitChange(event: OrderChangeEvent): void {
+    db.clienteOrderChangeListeners.forEach((listener) => listener(event));
+  }
+
+  async function persistMutation(pedido: Pedido): Promise<void> {
+    await db.onClienteMutation();
+    emitChange({ clienteId: pedido.cliente_id, pedidoId: pedido.id, reason: 'mutation' });
+  }
+
+  function automationAnchorNow(): { enteredStatusAt: string } {
+    return {
+      enteredStatusAt: new Date(Date.now() + db.clienteQaState.clockOffsetMs).toISOString(),
+    };
+  }
+
+  function reanchorAutomation(pedido: Pedido): void {
+    if (db.clienteQaState.orderProgressionDelaysMs !== null) {
+      db.clienteOrderAutomation[pedido.id] = automationAnchorNow();
+    }
+  }
+
+  function stopAutomation(pedidoId: string): void {
+    delete db.clienteOrderAutomation[pedidoId];
+  }
+
+  async function reconcileEligibleOrders(): Promise<void> {
+    const nowMs = Date.now() + db.clienteQaState.clockOffsetMs;
+
+    for (const [pedidoId, runtime] of Object.entries(db.clienteOrderAutomation)) {
+      const pedidoIndex = db.pedidos.findIndex((pedido) => pedido.id === pedidoId);
+      if (pedidoIndex < 0) continue;
+
+      const reconciled = reconcileAutomaticOrder(
+        db.pedidos[pedidoIndex]!,
+        runtime,
+        db.clienteQaState,
+        nowMs,
+      );
+      if (reconciled.transitions.length === 0) continue;
+
+      db.pedidos[pedidoIndex] = reconciled.pedido;
+      if (reconciled.runtime === null) {
+        stopAutomation(pedidoId);
+      } else {
+        db.clienteOrderAutomation[pedidoId] = reconciled.runtime;
+      }
+
+      for (const _transition of reconciled.transitions) {
+        await db.onClienteMutation();
+        emitChange({
+          clienteId: reconciled.pedido.cliente_id,
+          pedidoId,
+          reason: 'auto-progress',
+        });
+      }
+    }
+  }
+
   return {
+    subscribeChanges(listener): () => void {
+      db.clienteOrderChangeListeners.add(listener);
+      return () => {
+        db.clienteOrderChangeListeners.delete(listener);
+      };
+    },
+
     /**
      * Story 6.6 (AC1, AC4, AC6) — [IDS] ADAPT. `CreatePedidoInput` agora
      * carrega o snapshot dos itens (`nome_snapshot`/`preco_unitario_reais`)
@@ -137,7 +204,7 @@ export function createOrderMock(db: MockDb): OrderPort {
           };
 
           db.pedidos.push(pedido);
-          await db.onClienteMutation();
+          await persistMutation(pedido);
           return pedido;
         },
         {} as Pedido,
@@ -146,7 +213,14 @@ export function createOrderMock(db: MockDb): OrderPort {
     },
 
     listMine(clienteId: string, options?: AsyncCallOptions): Promise<Pedido[]> {
-      return simulateAsync(() => db.pedidos.filter((p) => p.cliente_id === clienteId), [], options);
+      return simulateAsync(
+        async () => {
+          await reconcileEligibleOrders();
+          return db.pedidos.filter((p) => p.cliente_id === clienteId);
+        },
+        [],
+        options,
+      );
     },
 
     /**
@@ -164,7 +238,8 @@ export function createOrderMock(db: MockDb): OrderPort {
           pedido.status = 'aceito';
           pedido.tempo_estimado_min = tempoEstimadoMin;
           pedido.aceito_em = new Date().toISOString();
-          await db.onClienteMutation();
+          reanchorAutomation(pedido);
+          await persistMutation(pedido);
           return pedido;
         },
         {} as Pedido,
@@ -186,8 +261,9 @@ export function createOrderMock(db: MockDb): OrderPort {
           assertStatus(pedido, 'refuse', ['aguardando_aceite']);
           pedido.status = 'recusado';
           pedido.motivo_recusa = motivo;
+          stopAutomation(pedido.id);
           registrarReembolso(db, pedido, 'recusa_lojista');
-          await db.onClienteMutation();
+          await persistMutation(pedido);
           return pedido;
         },
         {} as Pedido,
@@ -222,10 +298,10 @@ export function createOrderMock(db: MockDb): OrderPort {
               const bloqueadoAte = new Date(Date.now() + businessConfig.pinBloqueioMin * 60 * 1000).toISOString();
               pedido.pin_bloqueado_ate = bloqueadoAte;
               pedido.tentativas_pin = 0;
-              await db.onClienteMutation();
+              await persistMutation(pedido);
               throw new PinBloqueadoError(bloqueadoAte);
             }
-            await db.onClienteMutation();
+            await persistMutation(pedido);
             throw new PinIncorretoError(businessConfig.pinTentativasMax - pedido.tentativas_pin);
           }
 
@@ -233,7 +309,8 @@ export function createOrderMock(db: MockDb): OrderPort {
           pedido.entregue_em = new Date().toISOString();
           pedido.tentativas_pin = 0;
           pedido.pin_bloqueado_ate = null;
-          await db.onClienteMutation();
+          stopAutomation(pedido.id);
+          await persistMutation(pedido);
           return pedido;
         },
         {} as Pedido,
@@ -257,7 +334,8 @@ export function createOrderMock(db: MockDb): OrderPort {
           const pedido = findOrThrow(pedidoId);
           assertStatus(pedido, 'confirmarPagamento', ['aguardando_pagamento']);
           pedido.status = 'aguardando_aceite';
-          await db.onClienteMutation();
+          reanchorAutomation(pedido);
+          await persistMutation(pedido);
           return pedido;
         },
         {} as Pedido,
@@ -274,8 +352,9 @@ export function createOrderMock(db: MockDb): OrderPort {
             pedido.status = 'cancelado';
             pedido.motivo_cancelamento = motivo;
             pedido.cancelado_em = new Date().toISOString();
+            stopAutomation(pedido.id);
             registrarReembolso(db, pedido, 'cancelamento_cliente_pre_aceite');
-            await db.onClienteMutation();
+            await persistMutation(pedido);
             return pedido;
           }
 
@@ -283,8 +362,9 @@ export function createOrderMock(db: MockDb): OrderPort {
             pedido.status = 'cancelado';
             pedido.motivo_cancelamento = motivo;
             pedido.cancelado_em = new Date().toISOString();
+            stopAutomation(pedido.id);
             registrarReembolso(db, pedido, 'cancelamento_cliente_pos_aceite');
-            await db.onClienteMutation();
+            await persistMutation(pedido);
             return pedido;
           }
 
@@ -307,7 +387,14 @@ export function createOrderMock(db: MockDb): OrderPort {
     // -----------------------------------------------------------------
 
     getById(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido | null> {
-      return simulateAsync(() => db.pedidos.find((p) => p.id === pedidoId) ?? null, null, options);
+      return simulateAsync(
+        async () => {
+          await reconcileEligibleOrders();
+          return db.pedidos.find((p) => p.id === pedidoId) ?? null;
+        },
+        null,
+        options,
+      );
     },
 
     listByEstabelecimento(estabelecimentoId: string, options?: AsyncCallOptions): Promise<Pedido[]> {
@@ -325,7 +412,8 @@ export function createOrderMock(db: MockDb): OrderPort {
           assertStatus(pedido, 'markReadyForHub', ['aceito', 'em_preparo']);
           pedido.status = 'saindo_hub';
           pedido.saiu_hub_em = new Date().toISOString();
-          await db.onClienteMutation();
+          reanchorAutomation(pedido);
+          await persistMutation(pedido);
           return pedido;
         },
         {} as Pedido,
@@ -340,7 +428,8 @@ export function createOrderMock(db: MockDb): OrderPort {
           assertStatus(pedido, 'markArrivedAtHub', ['saindo_hub']);
           pedido.status = 'no_hub';
           pedido.lojista_chegou_em = new Date().toISOString();
-          await db.onClienteMutation();
+          stopAutomation(pedido.id);
+          await persistMutation(pedido);
           return pedido;
         },
         {} as Pedido,
@@ -355,8 +444,9 @@ export function createOrderMock(db: MockDb): OrderPort {
           assertStatus(pedido, 'markCustomerNoShow', ['no_hub']);
           pedido.status = 'nao_retirado';
           pedido.motivo_nao_retirado = motivo;
+          stopAutomation(pedido.id);
           registrarReembolso(db, pedido, 'nao_retirado_cliente');
-          await db.onClienteMutation();
+          await persistMutation(pedido);
           return pedido;
         },
         {} as Pedido,
@@ -381,7 +471,12 @@ export function createOrderMock(db: MockDb): OrderPort {
           if (nextStatus === 'no_hub' && !pedido.lojista_chegou_em) {
             pedido.lojista_chegou_em = new Date().toISOString();
           }
-          await db.onClienteMutation();
+          if (nextStatus === 'no_hub') {
+            stopAutomation(pedido.id);
+          } else {
+            reanchorAutomation(pedido);
+          }
+          await persistMutation(pedido);
           return pedido;
         },
         {} as Pedido,
@@ -395,7 +490,8 @@ export function createOrderMock(db: MockDb): OrderPort {
           const pedido = findOrThrow(pedidoId);
           assertStatus(pedido, 'markClienteChegou', ['no_hub']);
           pedido.cliente_chegou_em = new Date().toISOString();
-          await db.onClienteMutation();
+          stopAutomation(pedido.id);
+          await persistMutation(pedido);
           return pedido;
         },
         {} as Pedido,
@@ -435,6 +531,7 @@ export function createOrderMock(db: MockDb): OrderPort {
           }
 
           pedido.status = 'nao_entregue_lojista';
+          stopAutomation(pedido.id);
           registrarReembolso(db, pedido, 'nao_entregue_lojista');
           registrarFalha(
             db,
@@ -442,7 +539,7 @@ export function createOrderMock(db: MockDb): OrderPort {
             'lojista_nao_apareceu',
             `Pedido #${pedido.numero} — lojista não compareceu ao hub dentro do prazo.`,
           );
-          await db.onClienteMutation();
+          await persistMutation(pedido);
           return pedido;
         },
         {} as Pedido,
@@ -481,6 +578,7 @@ export function createOrderMock(db: MockDb): OrderPort {
 
           pedido.status = 'cancelado_atraso';
           pedido.cancelado_em = new Date().toISOString();
+          stopAutomation(pedido.id);
           registrarReembolso(db, pedido, 'cancelamento_atraso');
           registrarFalha(
             db,
@@ -488,7 +586,7 @@ export function createOrderMock(db: MockDb): OrderPort {
             'atraso_grave',
             `Pedido #${pedido.numero} — cancelado pelo cliente por atraso além de 2x o tempo estimado.`,
           );
-          await db.onClienteMutation();
+          await persistMutation(pedido);
           return pedido;
         },
         {} as Pedido,
