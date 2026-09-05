@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import type { PedidoStatus } from '@keepit/core-data';
+import type { Pedido, PedidoStatus } from '@keepit/core-data';
 
-import { isPedidoConcluido, isPedidoEmAndamento, PEDIDO_STATUS_LABEL, timelineStepIndex } from './pedidoStatus';
+import {
+  isPedidoConcluido,
+  isPedidoEmAndamento,
+  partitionPedidos,
+  PEDIDO_STATUS_LABEL,
+  timelineStepIndex,
+} from './pedidoStatus';
 
 /**
  * Story 6.17 (AC3, AC5) — [GAP DE INFRA, já documentado nas Stories
@@ -56,6 +62,22 @@ const TERMINAIS_DE_EXCECAO: PedidoStatus[] = [
 ];
 
 describe('isPedidoEmAndamento / isPedidoConcluido (Story 6.17, AC3, AC5)', () => {
+  it('mantém total = Em andamento + Concluídos para os 15 status', () => {
+    const pedidos = TODOS_OS_STATUS.map((status, index) => ({ id: String(index), status }) as Pedido);
+    const result = partitionPedidos(pedidos);
+
+    expect(result.total).toBe(15);
+    expect(result.total).toBe(result.emAndamento.length + result.concluidos.length);
+    expect(result.emAndamento.map(({ status }) => status)).toEqual([
+      'aguardando_pagamento',
+      'aguardando_aceite',
+      'aceito',
+      'em_preparo',
+      'saindo_hub',
+      'no_hub',
+    ]);
+  });
+
   it('classifica o fluxo feliz completo (aguardando_aceite → aceito → em_preparo → saindo_hub → no_hub) como "Em andamento"', () => {
     for (const status of FLUXO_FELIZ_EM_ANDAMENTO) {
       expect(isPedidoEmAndamento(status)).toBe(true);
