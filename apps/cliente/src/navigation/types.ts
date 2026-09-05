@@ -91,6 +91,7 @@ export type MainTabParamList = {
 export type RootStackParamList = {
   Auth: NavigatorScreenParams<AuthStackParamList>;
   Main: NavigatorScreenParams<MainTabParamList>;
+  ScheduledDeletion: undefined;
   /**
    * `onSubmit` adicionado pela Story 0.6 (Task 4) — callback opcional
    * chamado após o cliente confirmar o CPF, permitindo à tela de origem

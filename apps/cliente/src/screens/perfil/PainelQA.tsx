@@ -64,6 +64,8 @@ const PROGRESSION_FIELDS: ReadonlyArray<{
   { key: 'no_hub', label: 'Chegar ao hub após (segundos)' },
 ];
 
+const EIGHT_DAYS_MS = 8 * 24 * 60 * 60 * 1_000;
+
 export default function PainelQA({ navigation }: Props) {
   const client = getDataClient();
   const { resetDemoCart } = useCart();
@@ -87,7 +89,7 @@ export default function PainelQA({ navigation }: Props) {
   const [advancingOrderId, setAdvancingOrderId] = useState<string | null>(null);
   const [orderOutcomePending, setOrderOutcomePending] = useState<string | null>(null);
   const [scenarioMutationPending, setScenarioMutationPending] = useState<
-    'save' | 'pause' | 'clock' | 'recovery' | null
+    'save' | 'pause' | 'clock' | 'recovery' | 'deletion' | null
   >(null);
   const [progressionValues, setProgressionValues] = useState<QaOrderProgressionValues>(() =>
     qaOrderProgressionValuesFrom(state),
@@ -255,6 +257,38 @@ export default function PainelQA({ navigation }: Props) {
       }
     } catch {
       setNotice('Não foi possível expirar a recuperação pendente.');
+    } finally {
+      setScenarioMutationPending(null);
+      finishOperation();
+    }
+  }
+
+  async function handleCompleteAccountDeletion() {
+    if (busy || !beginOperation()) return;
+
+    setScenarioMutationPending('deletion');
+    setNotice(null);
+    try {
+      const result = await client.demoScenario!.advanceClock(EIGHT_DAYS_MS);
+      syncFromClient();
+      if (result.status === 'degraded') {
+        setNotice('Não foi possível persistir o avanço do prazo de exclusão.');
+        return;
+      }
+
+      const completed = await client.accountDeletion.status();
+      if (completed?.status !== 'completed') {
+        setNotice('Relógio QA avançado em oito dias.');
+        return;
+      }
+
+      try {
+        await client.auth.signOut();
+      } catch {
+        setNotice('Exclusão concluída, mas não foi possível sair da conta.');
+      }
+    } catch {
+      setNotice('Não foi possível concluir o cenário de exclusão.');
     } finally {
       setScenarioMutationPending(null);
       finishOperation();
@@ -455,6 +489,19 @@ export default function PainelQA({ navigation }: Props) {
           loading={scenarioMutationPending === 'recovery'}
           onPress={() => void handleExpirePasswordRecovery()}
           title="Expirar recuperação pendente"
+          variant="outline"
+        />
+      </Section>
+
+      <Section title="Exclusão agendada">
+        <Text style={styles.resetDescription}>
+          Avança oito dias, conclui uma exclusão mock agendada e encerra a sessão bloqueada.
+        </Text>
+        <Button
+          disabled={busy}
+          loading={scenarioMutationPending === 'deletion'}
+          onPress={() => void handleCompleteAccountDeletion()}
+          title="Avançar prazo de exclusão"
           variant="outline"
         />
       </Section>

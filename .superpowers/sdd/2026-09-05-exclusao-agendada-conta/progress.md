@@ -112,3 +112,32 @@ Task 3: complete (commit: enclosing Task 3 commit)
   arquivos / 671 testes PASS. Typecheck e diff-check PASS.
 
 Task 3 fix: complete (commit: enclosing Task 3 fix commit)
+
+## Task 4
+
+- O guard raiz agora consulta `AccountDeletionPort.status()` antes de montar
+  `Main`: loading, erro e qualquer estado não cancelado falham fechados na
+  rota `ScheduledDeletion`. Resultados antigos são invalidados quando a sessão
+  muda e refreshes de token da mesma conta não causam nova montagem/flicker.
+- `ExcluirConta` explica o prazo de sete dias, exige confirmação explícita e
+  senha atual, persiste o agendamento e somente depois encerra a sessão. Se o
+  agendamento persistiu mas o sign-out falhou, a própria tela fica bloqueada e
+  oferece apenas nova tentativa de saída.
+- Novo login de uma conta agendada expõe apenas o prazo, recuperação e saída;
+  cancelamento só libera `Main` quando a port confirma `cancelled`/ausência da
+  solicitação. Estados vencidos/terminais continuam restritos.
+- O `PainelQA` avança o relógio mock em oito dias pela port de cenário, sem
+  finalizador real ou cron.
+- A rota pública `/conta/exclusao` usa e-mail/senha e a mesma
+  `AccountDeletionPort` para consultar, agendar com confirmação de senha ou
+  cancelar. Toda ação encerra a sessão após persistir; falha de sign-out
+  bloqueia novas ações. A página não importa service key e informa somente que
+  o canal de suporte ainda não está disponível.
+- TDD RED: o primeiro stub do resolver deixou 8 cenários de autorização
+  falhando; o stub posterior de orquestração deixou falhar a prova de sign-out
+  após persistência. GREEN: 11/11 testes focados.
+- Gate final: teste focado e typechecks de cliente, admin, core-data e Supabase
+  PASS; `git diff --check` PASS. Sem renderer, dependências, APK, finalizador ou
+  cron, conforme escopo MVP.
+
+Task 4: complete (commit: enclosing Task 4 commit)

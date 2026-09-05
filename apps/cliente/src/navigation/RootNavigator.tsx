@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
@@ -7,9 +7,11 @@ import { getDataClient } from '@keepit/core-data';
 import { darkColors } from '@keepit/ui-tokens';
 
 import { FavoritesProvider } from '../context/FavoritesContext';
+import { resolveAccountRoute, type AccountDeletionLookup } from '../lib/accountDeletionRoute';
 import type { RootStackParamList } from './types';
 import { AuthStack } from './AuthStack';
 import { MainTabs } from './MainTabs';
+import ExclusaoAgendada from '../screens/auth/ExclusaoAgendada';
 import ModalCPF from '../screens/modals/ModalCPF';
 import ModalConfirmarPin from '../screens/modals/ModalConfirmarPin';
 import ModalPagamentoPix from '../screens/modals/ModalPagamentoPix';
@@ -36,7 +38,9 @@ const SESSION_TIMEOUT_MS = 5000;
  * `cliente === undefined` = estado inicial, ainda não se sabe se há sessão
  * (AC4: nem `Auth` nem `Main` montam — tela transitória em branco, mesmo
  * padrão de `AuthStack.tsx` para a flag de onboarding). `cliente === null`
- * = sem sessão → `Auth`. `cliente` truthy = com sessão → `Main`.
+ * = sem sessão → `Auth`. Uma sessão só monta `Main` depois que
+ * `accountDeletion.status()` resolve sem exclusão ativa; loading, erro e
+ * qualquer estado não cancelado montam apenas `ScheduledDeletion`.
  *
  * **AC7 — falha ao assinar não pode travar o app numa tela em branco.**
  * `onAuthStateChange` pode lançar de forma síncrona (`createClient()` de
@@ -72,6 +76,25 @@ const SESSION_TIMEOUT_MS = 5000;
  */
 export function RootNavigator() {
   const [cliente, setCliente] = useState<Cliente | null | undefined>(undefined);
+  const [deletionLookup, setDeletionLookup] = useState<AccountDeletionLookup>({ status: 'loading' });
+  const deletionRequestRef = useRef(0);
+  const activeClienteIdRef = useRef<string | null>(null);
+
+  const loadAccountDeletion = useCallback(async () => {
+    const requestId = deletionRequestRef.current + 1;
+    deletionRequestRef.current = requestId;
+    setDeletionLookup({ status: 'loading' });
+    try {
+      const deletion = await getDataClient().accountDeletion.status();
+      if (deletionRequestRef.current === requestId) {
+        setDeletionLookup({ status: 'resolved', deletion });
+      }
+    } catch {
+      if (deletionRequestRef.current === requestId) {
+        setDeletionLookup({ status: 'failed' });
+      }
+    }
+  }, []);
 
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
@@ -82,6 +105,8 @@ export function RootNavigator() {
     const timeoutId = setTimeout(() => {
       if (settled) return;
       settled = true;
+      deletionRequestRef.current += 1;
+      setDeletionLookup({ status: 'loading' });
       console.warn('[RootNavigator] onAuthStateChange não emitiu o primeiro estado em ~5s — assumindo sem sessão.');
       setCliente(null);
     }, SESSION_TIMEOUT_MS);
@@ -95,7 +120,21 @@ export function RootNavigator() {
         settled = true;
         clearTimeout(timeoutId);
       }
+      const previousClienteId = activeClienteIdRef.current;
+      activeClienteIdRef.current = next?.id ?? null;
       setCliente(next);
+      if (next) {
+        // O adapter também encaminha TOKEN_REFRESHED/USER_UPDATED. A mesma
+        // sessão já foi autorizada; não remonte a tela restrita nem repita a
+        // Edge Function a cada refresh do token. Login/relogin sempre passa
+        // por `null` (signOut) ou por outro id e revalida antes de montar Main.
+        if (previousClienteId !== next.id) {
+          void loadAccountDeletion();
+        }
+      } else {
+        deletionRequestRef.current += 1;
+        setDeletionLookup({ status: 'loading' });
+      }
     }
 
     try {
@@ -105,40 +144,62 @@ export function RootNavigator() {
       console.warn('[RootNavigator] falha ao assinar onAuthStateChange:', error);
       settled = true;
       clearTimeout(timeoutId);
+      deletionRequestRef.current += 1;
+      setDeletionLookup({ status: 'loading' });
       setCliente(null);
     }
 
     return () => {
       clearTimeout(timeoutId);
+      deletionRequestRef.current += 1;
       unsubscribe?.();
     };
-  }, []);
+  }, [loadAccountDeletion]);
 
   if (cliente === undefined) {
     return <View style={{ flex: 1, backgroundColor: darkColors.bg.primary }} />;
   }
 
-  const navigator = (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
-      {cliente ? (
-        <Stack.Screen name="Main" component={MainTabs} />
-      ) : (
-        <Stack.Screen name="Auth" component={AuthStack} />
-      )}
-      <Stack.Group screenOptions={{ presentation: 'modal' }}>
-        <Stack.Screen name="ModalCPF" component={ModalCPF} />
-        <Stack.Screen name="ModalConfirmarPin" component={ModalConfirmarPin} />
-        {/* Story 6.7.1 — feedback visual de pagamento (PIX/cartão), entre "Pagar" e ModalConfirmarPin. */}
-        <Stack.Screen name="ModalPagamentoPix" component={ModalPagamentoPix} />
-        <Stack.Screen name="ModalProcessandoPagamento" component={ModalProcessandoPagamento} />
-        <Stack.Screen name="ModalPermissaoPush" component={ModalPermissaoPush} />
-      </Stack.Group>
-    </Stack.Navigator>
-  );
+  const route = resolveAccountRoute(cliente, deletionLookup);
 
-  return cliente ? (
-    <FavoritesProvider key={cliente.id}>{navigator}</FavoritesProvider>
-  ) : (
-    navigator
+  if (route === 'Auth' || !cliente) {
+    return (
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="Auth" component={AuthStack} />
+      </Stack.Navigator>
+    );
+  }
+
+  if (route === 'ScheduledDeletion') {
+    return (
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="ScheduledDeletion">
+          {(props) => (
+            <ExclusaoAgendada
+              {...props}
+              lookup={deletionLookup}
+              onDeletionChange={(deletion) => setDeletionLookup({ status: 'resolved', deletion })}
+              onRetry={() => void loadAccountDeletion()}
+            />
+          )}
+        </Stack.Screen>
+      </Stack.Navigator>
+    );
+  }
+
+  return (
+    <FavoritesProvider key={cliente.id}>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="Main" component={MainTabs} />
+        <Stack.Group screenOptions={{ presentation: 'modal' }}>
+          <Stack.Screen name="ModalCPF" component={ModalCPF} />
+          <Stack.Screen name="ModalConfirmarPin" component={ModalConfirmarPin} />
+          {/* Story 6.7.1 — feedback visual de pagamento (PIX/cartão), entre "Pagar" e ModalConfirmarPin. */}
+          <Stack.Screen name="ModalPagamentoPix" component={ModalPagamentoPix} />
+          <Stack.Screen name="ModalProcessandoPagamento" component={ModalProcessandoPagamento} />
+          <Stack.Screen name="ModalPermissaoPush" component={ModalPermissaoPush} />
+        </Stack.Group>
+      </Stack.Navigator>
+    </FavoritesProvider>
   );
 }
