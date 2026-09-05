@@ -27,6 +27,7 @@ import {
 } from '../../lib/qaOrderActions';
 import {
   parseQaOrderProgression,
+  qaOrderProgressionValuesFrom,
   type QaOrderProgressionValues,
 } from '../../lib/qaOrderProgression';
 import { resetDemoScenario } from '../../lib/resetDemoScenario';
@@ -63,19 +64,16 @@ const PROGRESSION_FIELDS: ReadonlyArray<{
   { key: 'no_hub', label: 'Chegar ao hub após (segundos)' },
 ];
 
-function progressionValuesFrom(delays: QaOrderProgressionDelaysMs | null): QaOrderProgressionValues {
-  return {
-    aceito: delays ? String(delays.aceito / 1_000) : '',
-    em_preparo: delays ? String(delays.em_preparo / 1_000) : '',
-    saindo_hub: delays ? String(delays.saindo_hub / 1_000) : '',
-    no_hub: delays ? String(delays.no_hub / 1_000) : '',
-  };
-}
-
 export default function PainelQA({ navigation }: Props) {
   const client = getDataClient();
   const { resetDemoCart } = useCart();
-  const { advanceClockBy, configureOrderProgression, state, setSimulation } = useQaScenario();
+  const {
+    advanceClockBy,
+    configureOrderProgression,
+    setSimulation,
+    state,
+    syncFromClient,
+  } = useQaScenario();
   const { data: cliente, loading: clienteLoading } = useCurrentCliente();
   const { data: email, loading: emailLoading } = useCurrentEmail();
   const {
@@ -92,7 +90,7 @@ export default function PainelQA({ navigation }: Props) {
     'save' | 'pause' | 'clock' | null
   >(null);
   const [progressionValues, setProgressionValues] = useState<QaOrderProgressionValues>(() =>
-    progressionValuesFrom(state.orderProgressionDelaysMs),
+    qaOrderProgressionValuesFrom(state),
   );
   const [clockMinutes, setClockMinutes] = useState('');
   const [resetting, setResetting] = useState(false);
@@ -250,6 +248,9 @@ export default function PainelQA({ navigation }: Props) {
         clearLiveCart: resetDemoCart,
         clearOrders: clearPedidosResource,
       });
+      const nextQaState = syncFromClient();
+      setProgressionValues(qaOrderProgressionValuesFrom(nextQaState));
+      setClockMinutes('');
       const feedback = getQaResetFeedback(result);
       if (feedback) {
         Alert.alert(feedback.title, feedback.message);

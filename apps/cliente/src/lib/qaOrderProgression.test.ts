@@ -6,6 +6,7 @@ import {
   advanceQaClock,
   configureQaOrderProgression,
   parseQaOrderProgression,
+  qaOrderProgressionValuesFrom,
 } from './qaOrderProgression';
 
 const delays: QaOrderProgressionDelaysMs = {
@@ -130,5 +131,34 @@ describe('advanceQaClock', () => {
     expect(() => advanceQaClock(normalState, offsetMs)).toThrow(
       'O avanço do relógio deve ser positivo.',
     );
+  });
+});
+
+describe('qaOrderProgressionValuesFrom', () => {
+  it('usa o baseline pós-reset para limpar o draft e a próxima mutação', () => {
+    const previous = configureQaOrderProgression(normalState, delays, true);
+    const postReset: QaScenarioState = {
+      ...normalState,
+      clockOffsetMs: 0,
+      orderProgressionDelaysMs: null,
+    };
+
+    expect(previous.autoProgressOrders).toBe(true);
+    expect(qaOrderProgressionValuesFrom(previous)).toEqual({
+      aceito: '5',
+      em_preparo: '10',
+      saindo_hub: '15',
+      no_hub: '20',
+    });
+    expect(qaOrderProgressionValuesFrom(postReset)).toEqual({
+      aceito: '',
+      em_preparo: '',
+      saindo_hub: '',
+      no_hub: '',
+    });
+    expect(advanceQaClock(postReset, 60_000)).toEqual({
+      ...postReset,
+      clockOffsetMs: 60_000,
+    });
   });
 });

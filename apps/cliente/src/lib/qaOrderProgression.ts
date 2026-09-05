@@ -6,6 +6,18 @@ export type QaOrderProgressionParseResult =
   | { status: 'valid'; delays: QaOrderProgressionDelaysMs }
   | { status: 'invalid'; message: string };
 
+export function qaOrderProgressionValuesFrom(
+  state: QaScenarioState,
+): QaOrderProgressionValues {
+  const delays = state.orderProgressionDelaysMs;
+  return {
+    aceito: delays ? String(delays.aceito / 1_000) : '',
+    em_preparo: delays ? String(delays.em_preparo / 1_000) : '',
+    saindo_hub: delays ? String(delays.saindo_hub / 1_000) : '',
+    no_hub: delays ? String(delays.no_hub / 1_000) : '',
+  };
+}
+
 const ORDER_PROGRESSION_KEYS: ReadonlyArray<keyof QaOrderProgressionDelaysMs> = [
   'aceito',
   'em_preparo',

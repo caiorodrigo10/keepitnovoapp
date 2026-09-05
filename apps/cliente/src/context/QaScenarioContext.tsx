@@ -32,7 +32,7 @@ export interface QaScenarioContextValue {
     enabled: boolean,
   ): Promise<DemoScenarioMutationResult>;
   advanceClockBy(offsetMs: number): Promise<DemoScenarioMutationResult>;
-  syncFromClient(): void;
+  syncFromClient(): QaScenarioState;
 }
 
 const QaScenarioContext = createContext<QaScenarioContextValue | null>(null);
@@ -111,6 +111,7 @@ export function QaScenarioProvider({ children }: { children: ReactNode }) {
     stateRef.current = next;
     setState(next);
     setPersistence(scenario.getStatus());
+    return next;
   }, [scenario]);
 
   const value = useMemo<QaScenarioContextValue>(
