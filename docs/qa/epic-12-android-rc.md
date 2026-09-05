@@ -2,11 +2,13 @@
 
 ## Estado do gate
 
-**PENDING — artefato gerado; smoke Android da Task 3 ainda não executado.**
+**FAIL — artefato válido, mas o smoke Android obrigatório ficou bloqueado por
+ausência de dispositivo/emulador acessível.**
 
-Este documento registra somente o gate automatizado e o APK inicial da Task
-14.2. A decisão RC PASS/FAIL será emitida depois do smoke curto no único
-aparelho/emulador, sem gerar outro APK.
+O gate automatizado e o build passaram, mas um RC só pode receber PASS após a
+instalação e observação do APK em Android. Nenhum defeito funcional novo foi
+identificado nesta etapa; o FAIL é de evidência/infraestrutura e pode ser
+reavaliado usando este mesmo APK, sem nova compilação.
 
 ## Gate automatizado
 
@@ -68,6 +70,39 @@ antes do build efetivo, e o EAS aplicou o incremento 7 ao APK.
 
 ## Smoke da Task 3
 
-Ainda não executado. Dispositivo/Android, sete cenários agrupados,
-acessibilidade rápida, capturas, defeitos e decisão final serão adicionados
-sem nova compilação.
+### Ambiente disponível
+
+- `adb`: não instalado (`command not found`).
+- `emulator` e `avdmanager`: ausentes.
+- `ANDROID_HOME` e `ANDROID_SDK_ROOT`: não definidos.
+- SDK/AVD nos caminhos padrão: não encontrado.
+- Dispositivo/processo Android conectado: não encontrado.
+- `/dev/kvm`: ausente.
+
+Não foi instalado SDK pesado, criado emulador, gerada matriz ou iniciado outro
+build. A instalação do APK não pôde ser tentada porque não existe transport
+ADB nem alvo Android neste executor.
+
+### Checklist agrupado
+
+| Grupo | Estado | Evidência |
+|---|---|---|
+| 1. Instalação limpa e seis metadados | BLOCKED | Sem dispositivo/ADB; metadados do job EAS estão registrados acima, mas não foram conferidos na UI. |
+| 2. Onboarding, login e teclado | NOT RUN | Depende da instalação. |
+| 3. Hub, loja, busca, carrinho e “Frete” | NOT RUN | Depende da instalação. |
+| 4. Pedido, avanço automático, abas/contador e recibo | NOT RUN | Depende da instalação. |
+| 5. Favoritos, rollback e indisponível | NOT RUN | Depende da instalação. |
+| 6. Recuperação demo | NOT RUN | Depende da instalação. |
+| 7. Exclusão, recuperação, prazo, bloqueio e reset/restart | NOT RUN | Depende da instalação. |
+| Fonte ampliada e TalkBack | NOT RUN | Depende de Android acessível. |
+
+### Decisão
+
+**RC FAIL por falta do smoke obrigatório.** O gate não atribui PASS com base
+apenas em testes automatizados/build. Não há CRITICAL/HIGH funcional conhecido
+aberto após o fix `f6a82e2`; o bloqueio pertence ao ambiente de QA Android.
+
+Próxima ação mínima: instalar o APK de build
+`9ed5f830-46f3-44f6-a359-3daac0af86fb` em um único aparelho/emulador Android,
+executar os sete grupos e a checagem acessível acima, e atualizar somente este
+documento. Não é necessário gerar outro APK.
