@@ -68,19 +68,23 @@ Aplicado nas tabelas mutáveis via `CREATE TRIGGER trg_{tabela}_atualizado BEFOR
 auth.users (Supabase Auth)
 ├── clientes (1:1)
 │   ├── clientes_cartoes (1:N)
+│   ├── clientes_hubs_favoritos (1:N — favoritos privados)
+│   ├── clientes_estabelecimentos_favoritos (1:N — favoritos privados)
 │   └── carrinho (1:N por estabelecimento)
 │       └── carrinho_itens (1:N)
 ├── estabelecimentos (1:1 dono)
 │   ├── estabelecimentos_horarios (1:N — 7 dias)
 │   ├── estabelecimentos_falhas (1:N)
 │   ├── estabelecimentos_hubs (1:N — hubs que esta loja atende)
+│   ├── clientes_estabelecimentos_favoritos (1:N — clientes que favoritaram)
 │   ├── produtos (1:N)
 │   └── lancamentos_financeiros (1:N — ledger financeiro do piloto)
 └── admin_users (1:1)
 
 hubs (independente)
 ├── hubs_horarios (1:N — 7 dias)
-└── estabelecimentos_hubs (1:N — lojas que aparecem ao escolher este hub)
+├── estabelecimentos_hubs (1:N — lojas que aparecem ao escolher este hub)
+└── clientes_hubs_favoritos (1:N — clientes que favoritaram)
 
 estabelecimentos_hubs (N:N loja↔hub — junção; base da descoberta por lista, sem geo)
 
@@ -125,7 +129,7 @@ CREATE TABLE clientes (
   bloqueado boolean NOT NULL DEFAULT false,
   motivo_bloqueio text,
   bloqueado_em timestamptz,                          -- NULL enquanto não bloqueado; RPC-only (Bloco 09)
-  hub_padrao_id uuid,                                -- reservado para v2 ("hub favorito"); no MVP fica NULL
+  hub_padrao_id uuid,                                -- reservado para hub padrão; distinto da relação N:N de favoritos
   criado_em timestamptz NOT NULL DEFAULT NOW(),
   atualizado_em timestamptz NOT NULL DEFAULT NOW(),
   excluido_em timestamptz
@@ -460,6 +464,40 @@ rejeita o pedido.
 > operacionalmente indesejável. Por isso preferimos a **validação server-side na
 > criação** (não bloqueia manutenção da relação nem a evolução pós-piloto do modelo
 > geo). Registrada como invariante, não como FK.
+
+### 2.4 Favoritos do cliente
+
+As relações de favoritos são junções privadas, sem `id` artificial. A PK composta
+garante unicidade e permite ao consumidor repetir `INSERT ... ON CONFLICT DO NOTHING`.
+O primeiro campo da PK cobre a listagem por cliente; o índice adicional cobre a
+direção reversa das FKs e o lookup de visibilidade de hubs favoritados.
+
+```sql
+CREATE TABLE clientes_hubs_favoritos (
+  cliente_id uuid NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+  hub_id uuid NOT NULL REFERENCES hubs(id) ON DELETE CASCADE,
+  criado_em timestamptz NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (cliente_id, hub_id)
+);
+
+CREATE INDEX idx_clientes_hubs_favoritos_hub
+  ON clientes_hubs_favoritos(hub_id);
+
+CREATE TABLE clientes_estabelecimentos_favoritos (
+  cliente_id uuid NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+  estabelecimento_id uuid NOT NULL REFERENCES estabelecimentos(id) ON DELETE CASCADE,
+  criado_em timestamptz NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (cliente_id, estabelecimento_id)
+);
+
+CREATE INDEX idx_clientes_estabelecimentos_favoritos_estabelecimento
+  ON clientes_estabelecimentos_favoritos(estabelecimento_id);
+```
+
+Apagamentos físicos do cliente ou do recurso removem os favoritos por
+`ON DELETE CASCADE`. A relação não possui `UPDATE`: favoritar e desfavoritar são,
+respectivamente, `INSERT` e `DELETE`. O acesso é isolado por cliente via RLS
+(ver `05-security.md` §3.8.1).
 
 ---
 

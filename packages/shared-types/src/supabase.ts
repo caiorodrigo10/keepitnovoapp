@@ -12,6 +12,13 @@
 // `apps/supabase/supabase/migrations/` e nos arquivos de Story em
 // `docs/stories/`, não precisa ser duplicado aqui.
 //
+// Story 12.11 (2026-09-05) — overlay de drift derivado do output oficial
+// `mcp__codex_apps__supabase_generate_typescript_types`: adiciona somente
+// `clientes_hubs_favoritos` e `clientes_estabelecimentos_favoritos`.
+// O keepit-dev ainda não recebeu as migrations locais 20260814000004–00006;
+// por isso, suas colunas/RPCs forward-schema permanecem verbatim abaixo.
+// Regenerar o arquivo inteiro assim que o histórico remoto alcançar o repo.
+//
 // NÃO editar à mão — regenerar via `generate_typescript_types` quando o
 // schema mudar. As seções abaixo de `DatabaseWithoutInternals` (Tables<>,
 // TablesInsert<>, TablesUpdate<>, Enums<>, CompositeTypes<>, Constants) são
@@ -99,6 +106,79 @@ export type Database = {
           telefone?: string | null
         }
         Relationships: []
+      }
+      clientes_estabelecimentos_favoritos: {
+        Row: {
+          cliente_id: string
+          criado_em: string
+          estabelecimento_id: string
+        }
+        Insert: {
+          cliente_id: string
+          criado_em?: string
+          estabelecimento_id: string
+        }
+        Update: {
+          cliente_id?: string
+          criado_em?: string
+          estabelecimento_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "clientes_estabelecimentos_favoritos_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "clientes_estabelecimentos_favoritos_estabelecimento_id_fkey"
+            columns: ["estabelecimento_id"]
+            isOneToOne: false
+            referencedRelation: "carteira_lojista"
+            referencedColumns: ["estabelecimento_id"]
+          },
+          {
+            foreignKeyName: "clientes_estabelecimentos_favoritos_estabelecimento_id_fkey"
+            columns: ["estabelecimento_id"]
+            isOneToOne: false
+            referencedRelation: "estabelecimentos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      clientes_hubs_favoritos: {
+        Row: {
+          cliente_id: string
+          criado_em: string
+          hub_id: string
+        }
+        Insert: {
+          cliente_id: string
+          criado_em?: string
+          hub_id: string
+        }
+        Update: {
+          cliente_id?: string
+          criado_em?: string
+          hub_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "clientes_hubs_favoritos_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "clientes_hubs_favoritos_hub_id_fkey"
+            columns: ["hub_id"]
+            isOneToOne: false
+            referencedRelation: "hubs"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       estabelecimentos: {
         Row: {

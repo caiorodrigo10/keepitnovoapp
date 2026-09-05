@@ -355,28 +355,128 @@ CREATE POLICY sem_insert_direto_admins ON admin_users
 ALTER TABLE hubs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE hubs FORCE ROW LEVEL SECURITY;
 
--- Público (autenticado) lê hubs ativos
+-- Anon continua lendo somente hubs ativos; não consulta a relação privada.
 CREATE POLICY publico_ve_hubs ON hubs
   FOR SELECT
-  USING (ativo = true OR is_admin());
+  TO anon
+  USING (ativo = true);
+
+-- Authenticated lê hubs ativos, qualquer hub se admin, e um hub inativo somente
+-- quando o próprio cliente já o favoritou.
+CREATE POLICY autenticado_ve_hubs ON hubs
+  FOR SELECT
+  TO authenticated
+  USING (
+    ativo = true
+    OR is_admin()
+    OR EXISTS (
+      SELECT 1
+      FROM clientes_hubs_favoritos favorito
+      WHERE favorito.hub_id = hubs.id
+        AND favorito.cliente_id = (SELECT auth.uid())
+    )
+  );
 
 CREATE POLICY admin_gerencia_hubs ON hubs
   FOR ALL
   USING (is_admin())
   WITH CHECK (is_admin());
 
--- Mesma coisa para hubs_horarios
 ALTER TABLE hubs_horarios ENABLE ROW LEVEL SECURITY;
 ALTER TABLE hubs_horarios FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY publico_ve_hubs_horarios ON hubs_horarios
-  FOR SELECT USING (true);
+  FOR SELECT
+  TO anon
+  USING (
+    EXISTS (
+      SELECT 1 FROM hubs hub
+      WHERE hub.id = hubs_horarios.hub_id
+        AND hub.ativo = true
+    )
+  );
+
+CREATE POLICY autenticado_ve_hubs_horarios ON hubs_horarios
+  FOR SELECT
+  TO authenticated
+  USING (
+    is_admin()
+    OR EXISTS (
+      SELECT 1 FROM hubs hub
+      WHERE hub.id = hubs_horarios.hub_id
+        AND hub.ativo = true
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM clientes_hubs_favoritos favorito
+      WHERE favorito.hub_id = hubs_horarios.hub_id
+        AND favorito.cliente_id = (SELECT auth.uid())
+    )
+  );
 
 CREATE POLICY admin_gerencia_hubs_horarios ON hubs_horarios
   FOR ALL
   USING (is_admin())
   WITH CHECK (is_admin());
 ```
+
+Separar as policies de `anon` e `authenticated` evita que a descoberta pública
+precise de privilégio na relação privada de favoritos. `hubs` consulta somente
+`clientes_hubs_favoritos`; as policies dessa relação consultam somente
+`auth.uid()`, portanto não há dependência circular entre policies.
+
+### 3.8.1 `clientes_hubs_favoritos` e `clientes_estabelecimentos_favoritos`
+
+As duas relações pertencem ao cliente autenticado. `anon` não recebe privilégio
+de tabela. `authenticated` recebe apenas `SELECT`, `INSERT` e `DELETE`; não há
+grant nem policy de `UPDATE`.
+
+```sql
+ALTER TABLE clientes_hubs_favoritos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE clientes_hubs_favoritos FORCE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE clientes_hubs_favoritos FROM anon, authenticated;
+GRANT SELECT, INSERT, DELETE ON TABLE clientes_hubs_favoritos TO authenticated;
+
+CREATE POLICY cliente_le_hubs_favoritos ON clientes_hubs_favoritos
+  FOR SELECT TO authenticated
+  USING ((SELECT auth.uid()) = cliente_id);
+
+CREATE POLICY cliente_insere_hubs_favoritos ON clientes_hubs_favoritos
+  FOR INSERT TO authenticated
+  WITH CHECK ((SELECT auth.uid()) = cliente_id);
+
+CREATE POLICY cliente_remove_hubs_favoritos ON clientes_hubs_favoritos
+  FOR DELETE TO authenticated
+  USING ((SELECT auth.uid()) = cliente_id);
+
+ALTER TABLE clientes_estabelecimentos_favoritos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE clientes_estabelecimentos_favoritos FORCE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE clientes_estabelecimentos_favoritos FROM anon, authenticated;
+GRANT SELECT, INSERT, DELETE
+  ON TABLE clientes_estabelecimentos_favoritos
+  TO authenticated;
+
+CREATE POLICY cliente_le_estabelecimentos_favoritos
+  ON clientes_estabelecimentos_favoritos
+  FOR SELECT TO authenticated
+  USING ((SELECT auth.uid()) = cliente_id);
+
+CREATE POLICY cliente_insere_estabelecimentos_favoritos
+  ON clientes_estabelecimentos_favoritos
+  FOR INSERT TO authenticated
+  WITH CHECK ((SELECT auth.uid()) = cliente_id);
+
+CREATE POLICY cliente_remove_estabelecimentos_favoritos
+  ON clientes_estabelecimentos_favoritos
+  FOR DELETE TO authenticated
+  USING ((SELECT auth.uid()) = cliente_id);
+```
+
+As predicates combinam papel explícito (`TO authenticated`) e ownership. A PK
+composta atende a consulta por `cliente_id`; índices nos IDs dos recursos
+atendem a direção reversa e evitam scans nos cascades das FKs.
 
 ### 3.9 `produtos`
 
