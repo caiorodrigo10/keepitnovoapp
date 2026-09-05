@@ -1,4 +1,5 @@
 import type { Cliente } from '../ports/auth.port';
+import type { AccountDeletionRecord, AccountDeletionStatus } from '../ports/account-deletion.port';
 import {
   QA_SIMULATION_DOMAINS,
   type QaScenarioState,
@@ -9,7 +10,7 @@ import { clientesCredenciaisFixture, clientesFixture } from './fixtures';
 import type { MockDb } from './db';
 import type { OrderAutomationRuntime } from './order-auto-progress';
 
-export const CLIENTE_MOCK_SCHEMA_VERSION = 5 as const;
+export const CLIENTE_MOCK_SCHEMA_VERSION = 6 as const;
 export const CLIENTE_MOCK_STATE_KEY = '@keepit/cliente:mock-state';
 export const CLIENTE_DEMO_INITIAL_PASSWORD = 'keepit123';
 
@@ -34,6 +35,8 @@ export type MockPasswordRecovery = {
   clienteId: string;
   state: 'requested' | 'ready' | 'expired' | 'consumed';
 } | null;
+
+export type MockAccountDeletion = (AccountDeletionRecord & { clienteId: string }) | null;
 
 interface ClienteMockSnapshotV1 {
   schemaVersion: 1;
@@ -99,10 +102,69 @@ export interface ClienteMockSnapshotV5 {
   qa: QaScenarioState;
 }
 
+export interface ClienteMockSnapshotV6 {
+  schemaVersion: 6;
+  accounts: ClienteMockAccount[];
+  sessionClienteId: string | null;
+  orders: Pedido[];
+  orderAutomation: Record<string, OrderAutomationRuntime>;
+  favoriteHubIdsByClienteId: Record<string, string[]>;
+  favoriteStoreIdsByClienteId: Record<string, string[]>;
+  selectedHubId: string | null;
+  accountDeletion: MockAccountDeletion;
+  passwordRecovery: MockPasswordRecovery;
+  qa: QaScenarioState;
+}
+
 export type ClienteMockSnapshotDecodeResult =
-  | { status: 'valid'; snapshot: ClienteMockSnapshotV5 }
-  | { status: 'migrated'; snapshot: ClienteMockSnapshotV5 }
-  | { status: 'recovered'; reason: 'missing' | 'invalid'; snapshot: ClienteMockSnapshotV5 };
+  | { status: 'valid'; snapshot: ClienteMockSnapshotV6 }
+  | { status: 'migrated'; snapshot: ClienteMockSnapshotV6 }
+  | { status: 'recovered'; reason: 'missing' | 'invalid'; snapshot: ClienteMockSnapshotV6 };
+
+const accountDeletionByDb = new WeakMap<MockDb, NonNullable<MockAccountDeletion>>();
+type MockAccountDeletionMutation = () => (() => void) | null;
+const accountDeletionMutationByDb = new WeakMap<
+  MockDb,
+  (mutate: MockAccountDeletionMutation) => Promise<boolean>
+>();
+
+export function readMockAccountDeletion(db: MockDb): MockAccountDeletion {
+  const deletion = accountDeletionByDb.get(db);
+  return deletion ? structuredClone(deletion) : null;
+}
+
+export function writeMockAccountDeletion(db: MockDb, deletion: MockAccountDeletion): void {
+  if (deletion === null) {
+    accountDeletionByDb.delete(db);
+    return;
+  }
+  accountDeletionByDb.set(db, structuredClone(deletion));
+}
+
+export function connectMockAccountDeletionMutation(
+  db: MockDb,
+  run: (mutate: MockAccountDeletionMutation) => Promise<boolean>,
+): void {
+  accountDeletionMutationByDb.set(db, run);
+}
+
+export async function runMockAccountDeletionMutation(
+  db: MockDb,
+  mutate: MockAccountDeletionMutation,
+): Promise<boolean> {
+  const run = accountDeletionMutationByDb.get(db);
+  if (run) return run(mutate);
+
+  const rollback = mutate();
+  if (!rollback) return true;
+  try {
+    await db.onClienteMutation();
+    return true;
+  } catch {
+    rollback();
+    return false;
+  }
+}
 
 const passwordRecoveryByDb = new WeakMap<MockDb, NonNullable<MockPasswordRecovery>>();
 type MockPasswordRecoveryMutation = () => () => void;
@@ -338,7 +400,8 @@ function hasValidClienteIdentity(
     | ClienteMockSnapshotV2
     | ClienteMockSnapshotV3
     | ClienteMockSnapshotV4
-    | ClienteMockSnapshotV5,
+    | ClienteMockSnapshotV5
+    | ClienteMockSnapshotV6,
 ): boolean {
   const accountIds = snapshot.accounts.map((account) => account.id);
   const accountEmails = snapshot.accounts.map((account) => account.email.trim().toLowerCase());
@@ -463,7 +526,7 @@ function isMockPasswordRecovery(
 }
 
 function isClienteMockSnapshotV5(value: unknown): value is ClienteMockSnapshotV5 {
-  if (!hasValidCommonSnapshotShape(value) || value.schemaVersion !== CLIENTE_MOCK_SCHEMA_VERSION) return false;
+  if (!hasValidCommonSnapshotShape(value) || value.schemaVersion !== 5) return false;
 
   const accountIds = new Set(value.accounts.map((account) => account.id));
   const hasValidShape =
@@ -474,6 +537,48 @@ function isClienteMockSnapshotV5(value: unknown): value is ClienteMockSnapshotV5
     isMockPasswordRecovery(value.passwordRecovery, accountIds);
 
   return hasValidShape && hasValidClienteIdentity(value as unknown as ClienteMockSnapshotV5);
+}
+
+const accountDeletionStatuses = new Set<AccountDeletionStatus>([
+  'scheduled',
+  'cancelled',
+  'processing',
+  'completed',
+  'failed',
+]);
+
+function isMockAccountDeletion(
+  value: unknown,
+  accountIds: ReadonlySet<string>,
+): value is MockAccountDeletion {
+  if (value === null) return true;
+  if (!isRecord(value) || Object.keys(value).length !== 4) return false;
+  if (
+    typeof value.clienteId !== 'string' ||
+    !accountIds.has(value.clienteId) ||
+    !accountDeletionStatuses.has(value.status as AccountDeletionStatus) ||
+    !isIsoInstant(value.requestedAt) ||
+    !isIsoInstant(value.deleteAt)
+  ) {
+    return false;
+  }
+
+  return Date.parse(value.deleteAt) - Date.parse(value.requestedAt) === 7 * 24 * 60 * 60 * 1_000;
+}
+
+function isClienteMockSnapshotV6(value: unknown): value is ClienteMockSnapshotV6 {
+  if (!hasValidCommonSnapshotShape(value) || value.schemaVersion !== CLIENTE_MOCK_SCHEMA_VERSION) return false;
+
+  const accountIds = new Set(value.accounts.map((account) => account.id));
+  const hasValidShape =
+    isQaScenarioState(value.qa) &&
+    hasValidOrderAutomation(value.orderAutomation, new Set(value.orders.map((order) => order.id))) &&
+    hasValidFavoritesByClienteId(value.favoriteHubIdsByClienteId, accountIds) &&
+    hasValidFavoritesByClienteId(value.favoriteStoreIdsByClienteId, accountIds) &&
+    isMockPasswordRecovery(value.passwordRecovery, accountIds) &&
+    isMockAccountDeletion(value.accountDeletion, accountIds);
+
+  return hasValidShape && hasValidClienteIdentity(value as unknown as ClienteMockSnapshotV6);
 }
 
 export function createDefaultQaScenarioState(): QaScenarioState {
@@ -524,14 +629,38 @@ function migrateLegacyClienteSnapshotToV4(
   };
 }
 
-function migrateClienteSnapshot(
+function migrateClienteSnapshotToV5(
   snapshot: ClienteMockSnapshotV1 | ClienteMockSnapshotV2 | ClienteMockSnapshotV3 | ClienteMockSnapshotV4,
 ): ClienteMockSnapshotV5 {
   const v4 = snapshot.schemaVersion === 4 ? structuredClone(snapshot) : migrateLegacyClienteSnapshotToV4(snapshot);
-  return { ...v4, schemaVersion: CLIENTE_MOCK_SCHEMA_VERSION, passwordRecovery: null };
+  return { ...v4, schemaVersion: 5, passwordRecovery: null };
 }
 
-export function createClienteBaseline(): ClienteMockSnapshotV5 {
+function migrateClienteSnapshot(
+  snapshot:
+    | ClienteMockSnapshotV1
+    | ClienteMockSnapshotV2
+    | ClienteMockSnapshotV3
+    | ClienteMockSnapshotV4
+    | ClienteMockSnapshotV5,
+): ClienteMockSnapshotV6 {
+  const v5 = snapshot.schemaVersion === 5 ? structuredClone(snapshot) : migrateClienteSnapshotToV5(snapshot);
+  const requestedAt = v5.accountDeletion?.requestedAt;
+  return {
+    ...v5,
+    schemaVersion: CLIENTE_MOCK_SCHEMA_VERSION,
+    accountDeletion: isIsoInstant(requestedAt)
+      ? {
+          clienteId: CLIENTE_DEMO_ID,
+          status: 'scheduled',
+          requestedAt,
+          deleteAt: new Date(Date.parse(requestedAt) + 7 * 24 * 60 * 60 * 1_000).toISOString(),
+        }
+      : null,
+  };
+}
+
+export function createClienteBaseline(): ClienteMockSnapshotV6 {
   const profile = clientesFixture.find((cliente) => cliente.id === CLIENTE_DEMO_ID);
   const credential = clientesCredenciaisFixture.find((item) => item.clienteId === CLIENTE_DEMO_ID);
 
@@ -568,8 +697,11 @@ export function decodeClienteSnapshot(raw: string | null): ClienteMockSnapshotDe
 
   try {
     const value: unknown = JSON.parse(raw);
-    if (isClienteMockSnapshotV5(value)) {
+    if (isClienteMockSnapshotV6(value)) {
       return { status: 'valid', snapshot: structuredClone(value) };
+    }
+    if (isClienteMockSnapshotV5(value)) {
+      return { status: 'migrated', snapshot: migrateClienteSnapshot(value) };
     }
     if (isClienteMockSnapshotV4(value)) {
       return { status: 'migrated', snapshot: migrateClienteSnapshot(value) };
@@ -589,11 +721,11 @@ export function decodeClienteSnapshot(raw: string | null): ClienteMockSnapshotDe
   }
 }
 
-export function parseClienteSnapshot(raw: string | null): ClienteMockSnapshotV5 {
+export function parseClienteSnapshot(raw: string | null): ClienteMockSnapshotV6 {
   return decodeClienteSnapshot(raw).snapshot;
 }
 
-export function applyClienteSnapshot(db: MockDb, snapshot: ClienteMockSnapshotV5): void {
+export function applyClienteSnapshot(db: MockDb, snapshot: ClienteMockSnapshotV6): void {
   const clienteIds = new Set(snapshot.accounts.map((account) => account.id));
   db.clientes = db.clientes.filter((cliente) => !clienteIds.has(cliente.id));
   db.clienteCredenciais = db.clienteCredenciais.filter((credential) => !clienteIds.has(credential.clienteId));
@@ -615,5 +747,6 @@ export function applyClienteSnapshot(db: MockDb, snapshot: ClienteMockSnapshotV5
   db.favoriteStoreIdsByClienteId = structuredClone(snapshot.favoriteStoreIdsByClienteId);
   db.clienteQaState = structuredClone(snapshot.qa);
   db.clienteOrderAutomation = structuredClone(snapshot.orderAutomation);
+  writeMockAccountDeletion(db, snapshot.accountDeletion);
   writeMockPasswordRecovery(db, snapshot.passwordRecovery);
 }

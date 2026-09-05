@@ -7,12 +7,15 @@ import type {
 import {
   CLIENTE_MOCK_STATE_KEY,
   applyClienteSnapshot,
+  connectMockAccountDeletionMutation,
   connectMockPasswordRecoveryMutation,
   createClienteBaseline,
   decodeClienteSnapshot,
+  readMockAccountDeletion,
   readMockPasswordRecovery,
-  type ClienteMockSnapshotV5,
+  type ClienteMockSnapshotV6,
   type ClienteMockStorage,
+  writeMockAccountDeletion,
 } from './cliente-state';
 import type { MockDb } from './db';
 import { connectMockFavoriteMutation } from './favorites.mock';
@@ -138,7 +141,51 @@ export class ClienteMockStateStore {
     });
   }
 
-  private captureSnapshot(): ClienteMockSnapshotV5 {
+  async advanceClock(ms: number): Promise<DemoScenarioMutationResult> {
+    if (!Number.isFinite(ms) || ms < 0) {
+      throw new Error('[mock] advanceClock exige milissegundos finitos e não negativos.');
+    }
+
+    const persisted = await this.runRollbackableStateMutation(() => {
+      const previousQa = structuredClone(this.db.clienteQaState);
+      const previousDeletion = readMockAccountDeletion(this.db);
+      const previousProfile = previousDeletion
+        ? this.db.clientes.find((cliente) => cliente.id === previousDeletion.clienteId)
+        : undefined;
+      const previousBlocked = previousProfile?.bloqueado;
+      const previousBlockReason = previousProfile?.motivo_bloqueio;
+
+      this.db.clienteQaState = {
+        ...this.db.clienteQaState,
+        clockOffsetMs: this.db.clienteQaState.clockOffsetMs + ms,
+      };
+
+      const nowMs = Date.now() + this.db.clienteQaState.clockOffsetMs;
+      if (
+        previousDeletion?.status === 'scheduled' &&
+        Date.parse(previousDeletion.deleteAt) <= nowMs
+      ) {
+        writeMockAccountDeletion(this.db, { ...previousDeletion, status: 'completed' });
+        if (previousProfile) {
+          previousProfile.bloqueado = true;
+          previousProfile.motivo_bloqueio = 'Conta excluída após o prazo de recuperação.';
+        }
+      }
+
+      return () => {
+        this.db.clienteQaState = previousQa;
+        writeMockAccountDeletion(this.db, previousDeletion);
+        if (previousProfile) {
+          previousProfile.bloqueado = previousBlocked;
+          previousProfile.motivo_bloqueio = previousBlockReason;
+        }
+      };
+    });
+
+    return persisted ? { status: 'updated' } : { status: 'degraded' };
+  }
+
+  private captureSnapshot(): ClienteMockSnapshotV6 {
     this.rememberCurrentClienteIds();
     const accounts = this.db.clienteCredenciais.flatMap((credential) => {
       const profile = this.db.clientes.find((cliente) => cliente.id === credential.clienteId);
@@ -159,12 +206,13 @@ export class ClienteMockStateStore {
       favoriteStoreIdsByClienteId: Object.fromEntries(
         Object.entries(this.db.favoriteStoreIdsByClienteId).filter(([clienteId]) => clienteIds.has(clienteId)),
       ),
+      accountDeletion: readMockAccountDeletion(this.db),
       passwordRecovery: readMockPasswordRecovery(this.db),
       qa: this.db.clienteQaState,
     });
   }
 
-  private enqueueSnapshot(snapshot: ClienteMockSnapshotV5, error: PersistenceError): Promise<boolean> {
+  private enqueueSnapshot(snapshot: ClienteMockSnapshotV6, error: PersistenceError): Promise<boolean> {
     const payload = JSON.stringify(structuredClone(snapshot));
     const writeResult = this.writeQueue.then(async () => {
       try {
@@ -184,6 +232,7 @@ export class ClienteMockStateStore {
     this.db.onClienteMutation = () => this.persist().then(() => undefined);
     this.db.runClienteMutation = (run) =>
       this.runSerializedStateMutation(() => run(() => this.persistNow()));
+    connectMockAccountDeletionMutation(this.db, (mutate) => this.runRollbackableStateMutation(mutate));
     connectMockPasswordRecoveryMutation(this.db, (mutate) => this.runRollbackableStateMutation(mutate));
     connectMockFavoriteMutation(this.db, (mutate) => this.runRollbackableStateMutation(mutate));
   }
@@ -194,10 +243,14 @@ export class ClienteMockStateStore {
       if (!rollback) return true;
       try {
         const persisted = await this.persistNow();
-        if (!persisted) rollback();
+        if (!persisted) {
+          rollback();
+          this.lastSnapshot = this.captureSnapshot();
+        }
         return persisted;
       } catch {
         rollback();
+        this.lastSnapshot = this.captureSnapshot();
         return false;
       }
     });
@@ -216,7 +269,7 @@ export class ClienteMockStateStore {
     this.db.clienteCredenciais.forEach((credential) => this.managedClienteIds.add(credential.clienteId));
   }
 
-  private rememberSnapshotClienteIds(snapshot: ClienteMockSnapshotV5): void {
+  private rememberSnapshotClienteIds(snapshot: ClienteMockSnapshotV6): void {
     snapshot.accounts.forEach((account) => this.managedClienteIds.add(account.id));
   }
 

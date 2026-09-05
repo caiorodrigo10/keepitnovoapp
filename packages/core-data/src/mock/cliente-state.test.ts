@@ -46,7 +46,7 @@ describe('cliente-state', () => {
     (raw) => expect(parseClienteSnapshot(raw)).toEqual(createClienteBaseline()),
   );
 
-  it('migra V1 para V5 preservando dados e normalizando simulações', () => {
+  it('migra V1 para V6 preservando dados e normalizando simulações', () => {
     const current = createClienteBaseline();
     const legacy: Record<string, unknown> = {
       ...current,
@@ -61,7 +61,7 @@ describe('cliente-state', () => {
     delete legacy.passwordRecovery;
 
     expect(parseClienteSnapshot(JSON.stringify(legacy))).toMatchObject({
-      schemaVersion: 5,
+      schemaVersion: 6,
       sessionClienteId: 'cliente-ana',
       orderAutomation: {},
       qa: {
@@ -104,7 +104,7 @@ describe('cliente-state', () => {
     expect(decodeClienteSnapshot(JSON.stringify(legacy))).toMatchObject({
       status: 'migrated',
       snapshot: {
-        schemaVersion: 5,
+        schemaVersion: 6,
         orderAutomation: {},
         accounts: [{ profile: { nome: 'Ana V2' } }],
         orders: [{ id: pedido.id }],
@@ -132,7 +132,7 @@ describe('cliente-state', () => {
     expect(decodeClienteSnapshot(JSON.stringify(legacy))).toMatchObject({
       status: 'migrated',
       snapshot: {
-        schemaVersion: 5,
+        schemaVersion: 6,
         favoriteHubIdsByClienteId: { 'cliente-ana': ['hub-legado'] },
         favoriteStoreIdsByClienteId: { 'cliente-ana': ['store-legada'] },
         passwordRecovery: null,
@@ -140,7 +140,7 @@ describe('cliente-state', () => {
     });
   });
 
-  it('migra V4 para V5 sem perder favoritos isolados por conta', () => {
+  it('migra V4 para V6 sem perder favoritos isolados por conta', () => {
     const current = createClienteBaseline();
     current.favoriteHubIdsByClienteId = { 'cliente-ana': ['hub-v4'] };
     current.favoriteStoreIdsByClienteId = { 'cliente-ana': ['store-v4'] };
@@ -150,10 +150,31 @@ describe('cliente-state', () => {
     expect(decodeClienteSnapshot(JSON.stringify(legacy))).toMatchObject({
       status: 'migrated',
       snapshot: {
-        schemaVersion: 5,
+        schemaVersion: 6,
         favoriteHubIdsByClienteId: { 'cliente-ana': ['hub-v4'] },
         favoriteStoreIdsByClienteId: { 'cliente-ana': ['store-v4'] },
         passwordRecovery: null,
+      },
+    });
+  });
+
+  it('migra V5 convertendo o agendamento legado para sete dias exatos', () => {
+    const legacy = {
+      ...createClienteBaseline(),
+      schemaVersion: 5,
+      accountDeletion: { requestedAt: '2026-09-05T12:00:00.000Z' },
+    };
+
+    expect(decodeClienteSnapshot(JSON.stringify(legacy))).toMatchObject({
+      status: 'migrated',
+      snapshot: {
+        schemaVersion: 6,
+        accountDeletion: {
+          clienteId: 'cliente-ana',
+          status: 'scheduled',
+          requestedAt: '2026-09-05T12:00:00.000Z',
+          deleteAt: '2026-09-12T12:00:00.000Z',
+        },
       },
     });
   });

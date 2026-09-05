@@ -29,4 +29,6 @@ export interface DemoScenarioPort {
   getStatus(): DemoScenarioStatus;
   getQaState(): QaScenarioState;
   setQaState(next: QaScenarioState): Promise<DemoScenarioMutationResult>;
+  /** Avança apenas o relógio persistido do cenário mock/QA. */
+  advanceClock(ms: number): Promise<DemoScenarioMutationResult>;
 }

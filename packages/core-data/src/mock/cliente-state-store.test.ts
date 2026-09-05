@@ -949,6 +949,83 @@ describe('ClienteMockStateStore', () => {
     });
   });
 
+  it('reverte relógio, conclusão e bloqueio quando advanceClock não persiste', async () => {
+    const snapshot = createClienteBaseline();
+    snapshot.sessionClienteId = 'cliente-ana';
+    const values = new Map([[CLIENTE_MOCK_STATE_KEY, JSON.stringify(snapshot)]]);
+    let writes = 0;
+    const storage: ClienteMockStorage = {
+      async getItem(key) {
+        return values.get(key) ?? null;
+      },
+      async setItem(key, value) {
+        writes += 1;
+        if (writes === 2) throw new Error('disk full');
+        values.set(key, value);
+      },
+      async removeItem(key) {
+        values.delete(key);
+      },
+    };
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await client.accountDeletion.schedule('keepit123');
+
+    await expect(client.demoScenario!.advanceClock(7 * 24 * 60 * 60 * 1_000)).resolves.toEqual({
+      status: 'degraded',
+    });
+
+    expect(client.demoScenario!.getQaState().clockOffsetMs).toBe(0);
+    await expect(client.accountDeletion.status()).resolves.toMatchObject({ status: 'scheduled' });
+    await expect(client.auth.currentUser({ delayMs: 0 })).resolves.toMatchObject({ bloqueado: false });
+
+    await expect(client.demoScenario!.advanceClock(7 * 24 * 60 * 60 * 1_000)).resolves.toEqual({
+      status: 'updated',
+    });
+    await expect(client.accountDeletion.status()).resolves.toMatchObject({ status: 'completed' });
+  });
+
+  it('serializa cancelamento iniciado enquanto o schedule ainda persiste', async () => {
+    const snapshot = createClienteBaseline();
+    snapshot.sessionClienteId = 'cliente-ana';
+    const values = new Map([[CLIENTE_MOCK_STATE_KEY, JSON.stringify(snapshot)]]);
+    const scheduleWriteStarted = deferred<void>();
+    const releaseScheduleWrite = deferred<void>();
+    let writes = 0;
+    const storage: ClienteMockStorage = {
+      async getItem(key) {
+        return values.get(key) ?? null;
+      },
+      async setItem(key, value) {
+        writes += 1;
+        if (writes === 1) {
+          scheduleWriteStarted.resolve(undefined);
+          await releaseScheduleWrite.promise;
+        }
+        values.set(key, value);
+      },
+      async removeItem(key) {
+        values.delete(key);
+      },
+    };
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+
+    const schedule = client.accountDeletion.schedule('keepit123');
+    await scheduleWriteStarted.promise;
+    let cancelSettled = false;
+    const cancel = client.accountDeletion.cancel().finally(() => {
+      cancelSettled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(cancelSettled).toBe(false);
+
+    releaseScheduleWrite.resolve(undefined);
+    await schedule;
+    await expect(cancel).resolves.toMatchObject({ status: 'cancelled' });
+    await client.demoScenario!.flush();
+
+    expect(JSON.parse(values.get(CLIENTE_MOCK_STATE_KEY)!).accountDeletion.status).toBe('cancelled');
+  });
+
   it('não oferece cenário mock no datasource supabase', () => {
     expect(createDataClient({ source: 'supabase' }).demoScenario).toBeUndefined();
   });

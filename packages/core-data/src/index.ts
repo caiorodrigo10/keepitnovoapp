@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@keepit/shared-types';
 
 import type { AdminPort } from './ports/admin.port';
+import type { AccountDeletionPort } from './ports/account-deletion.port';
 import type { AnalyticsPort } from './ports/analytics.port';
 import type { AuthPort, PasswordRecoveryState } from './ports/auth.port';
 import type { DemoScenarioPort } from './ports/demo-scenario.port';
@@ -16,6 +17,7 @@ import type { StorePort } from './ports/store.port';
 import type { WalletPort } from './ports/wallet.port';
 
 import { createAdminMock } from './mock/admin.mock';
+import { createAccountDeletionMock } from './mock/account-deletion.mock';
 import { createAnalyticsMock } from './mock/analytics.mock';
 import { createAuthMock } from './mock/auth.mock';
 import type { ClienteMockStorage } from './mock/cliente-state';
@@ -32,6 +34,7 @@ import { createStoreMock } from './mock/store.mock';
 import { createWalletMock } from './mock/wallet.mock';
 
 import { createAdminSupabase } from './supabase/admin.supabase';
+import { createAccountDeletionSupabase } from './supabase/account-deletion.supabase';
 import { createAnalyticsSupabase } from './supabase/analytics.supabase';
 import { createAuthSupabase } from './supabase/auth.supabase';
 import { createEstabelecimentoCadastroSupabase } from './supabase/estabelecimento-cadastro.supabase';
@@ -77,6 +80,7 @@ export interface CreateDataClientOptions {
  * SÓ a port, nunca a implementação mock/Supabase diretamente.
  */
 export interface DataClient {
+  accountDeletion: AccountDeletionPort;
   auth: AuthPort;
   hub: HubPort;
   store: StorePort;
@@ -172,6 +176,7 @@ export function createDataClient(options: CreateDataClientOptions = {}): DataCli
     const client = options.supabaseClient;
     const favorites = createFavoritesSupabase(client);
     return {
+      accountDeletion: createAccountDeletionSupabase(client),
       auth: options.passwordRecoveryState
         ? createAuthSupabase(client, options.passwordRecoveryState)
         : createAuthSupabase(client),
@@ -193,6 +198,7 @@ export function createDataClient(options: CreateDataClientOptions = {}): DataCli
   const favorites = createFavoritesMock(db);
 
   const client: DataClient = {
+    accountDeletion: createAccountDeletionMock(db),
     auth: createAuthMock(db),
     hub: createHubMock(db),
     store: createStoreMock(db),
@@ -215,6 +221,7 @@ export function createDataClient(options: CreateDataClientOptions = {}): DataCli
     getStatus: () => stateStore.getStatus(),
     getQaState: () => stateStore.getQaState(),
     setQaState: (next) => stateStore.setQaState(next),
+    advanceClock: (ms) => stateStore.advanceClock(ms),
   };
   return client;
 }
@@ -270,6 +277,7 @@ export function __resetDataClientForTests(): void {
 }
 
 export * from './ports/admin.port';
+export * from './ports/account-deletion.port';
 export * from './ports/analytics.port';
 export * from './ports/auth.port';
 export * from './ports/demo-scenario.port';

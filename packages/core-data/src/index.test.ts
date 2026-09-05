@@ -20,6 +20,8 @@ describe('createDataClient', () => {
     expect(client.lojistaAuth).toBeDefined();
     expect(client.favoriteHubs).toBeDefined();
     expect(client.favoriteStores).toBeDefined();
+    expect(client.accountDeletion).toBeDefined();
+    expect(client.demoScenario?.advanceClock).toBeTypeOf('function');
 
     const hubs = await client.hub.listNearby();
     expect(hubs.length).toBeGreaterThan(0);
@@ -39,6 +41,8 @@ describe('createDataClient', () => {
     expect(client.lojistaAuth).toBeDefined();
     expect(client.favoriteHubs).toBeDefined();
     expect(client.favoriteStores).toBeDefined();
+    expect(client.accountDeletion).toBeDefined();
+    expect(client.demoScenario).toBeUndefined();
 
     // `hub.listNearby` era o sentinela histórico deste teste; `admin.refundQueue.list`
     // (Épico 8) virou implementação real no Bloco 09 — `store.getCatalog`
