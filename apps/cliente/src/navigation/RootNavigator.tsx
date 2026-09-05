@@ -6,6 +6,7 @@ import type { Cliente } from '@keepit/core-data';
 import { getDataClient } from '@keepit/core-data';
 import { darkColors } from '@keepit/ui-tokens';
 
+import { FavoritesProvider } from '../context/FavoritesContext';
 import type { RootStackParamList } from './types';
 import { AuthStack } from './AuthStack';
 import { MainTabs } from './MainTabs';
@@ -117,7 +118,7 @@ export function RootNavigator() {
     return <View style={{ flex: 1, backgroundColor: darkColors.bg.primary }} />;
   }
 
-  return (
+  const navigator = (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       {cliente ? (
         <Stack.Screen name="Main" component={MainTabs} />
@@ -133,5 +134,11 @@ export function RootNavigator() {
         <Stack.Screen name="ModalPermissaoPush" component={ModalPermissaoPush} />
       </Stack.Group>
     </Stack.Navigator>
+  );
+
+  return cliente ? (
+    <FavoritesProvider key={cliente.id}>{navigator}</FavoritesProvider>
+  ) : (
+    navigator
   );
 }
