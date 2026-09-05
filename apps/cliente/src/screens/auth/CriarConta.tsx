@@ -174,11 +174,15 @@ export default function CriarConta({ navigation }: Props) {
       />
 
       <View style={styles.checkboxBlock}>
-        <Checkbox checked={aceiteTermos} onToggle={() => setAceiteTermos((previous) => !previous)}>
+        <Checkbox
+          checked={aceiteTermos}
+          onToggle={() => setAceiteTermos((previous) => !previous)}
+          label="Aceito os Termos e a Política de Privacidade"
+          error={errors.termos}
+        >
           Aceito os <Text style={styles.bold}>Termos</Text> e a{' '}
           <Text style={styles.bold}>Política de Privacidade</Text>.
         </Checkbox>
-        {!!errors.termos && <Text style={styles.termsError}>{errors.termos}</Text>}
       </View>
 
       <Button title="Criar conta" onPress={handleCriarConta} loading={loading} />
@@ -225,13 +229,6 @@ const styles = StyleSheet.create({
   bold: {
     fontFamily: 'HankenGrotesk-Bold',
     color: lightColors.text.primary,
-  },
-  termsError: {
-    marginTop: spacing['1'],
-    marginLeft: spacing['5'] + spacing['3'],
-    fontFamily: 'HankenGrotesk-Regular',
-    fontSize: typography.sizes.sm.fontSize,
-    color: lightColors.accent.warning,
   },
   loginRow: {
     alignItems: 'center',

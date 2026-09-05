@@ -3,9 +3,13 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
+import { getCheckboxAccessibilityProps } from './formContracts';
+
 interface CheckboxProps {
   checked: boolean;
   onToggle: () => void;
+  label: string;
+  error?: string;
   children: ReactNode;
 }
 
@@ -14,14 +18,26 @@ interface CheckboxProps {
  * em Criar conta). `children` aceita texto rico (ex.: partes em negrito via
  * `<Text>` aninhado) para reproduzir "Aceito os **Termos** e a **Política**".
  */
-export function Checkbox({ checked, onToggle, children }: CheckboxProps) {
+export function Checkbox({ checked, onToggle, label, error, children }: CheckboxProps) {
   return (
-    <Pressable style={styles.row} onPress={onToggle} hitSlop={8}>
-      <View style={[styles.box, checked && styles.boxChecked]}>
-        {checked && <Text style={styles.check}>✓</Text>}
-      </View>
-      <Text style={styles.text}>{children}</Text>
-    </Pressable>
+    <View>
+      <Pressable
+        {...getCheckboxAccessibilityProps(label, checked, error)}
+        style={styles.row}
+        onPress={onToggle}
+        hitSlop={8}
+      >
+        <View style={[styles.box, checked && styles.boxChecked]}>
+          {checked && <Text style={styles.check}>✓</Text>}
+        </View>
+        <Text style={styles.text}>{children}</Text>
+      </Pressable>
+      {error ? (
+        <Text accessibilityRole="alert" accessibilityLiveRegion="polite" style={styles.error}>
+          {error}
+        </Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -57,5 +73,12 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.md.fontSize,
     lineHeight: typography.sizes.md.lineHeight,
     color: lightColors.text.secondary,
+  },
+  error: {
+    marginTop: spacing['1'],
+    marginLeft: 22 + spacing['3'],
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.accent.warning,
   },
 });

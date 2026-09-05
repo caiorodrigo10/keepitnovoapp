@@ -181,7 +181,11 @@ export default function Checkout({ navigation }: Props) {
       </View>
 
       <View style={styles.nfRow}>
-        <Checkbox checked={cart.nfSolicitada} onToggle={() => cart.setNfSolicitada(!cart.nfSolicitada)}>
+        <Checkbox
+          checked={cart.nfSolicitada}
+          onToggle={() => cart.setNfSolicitada(!cart.nfSolicitada)}
+          label="Solicitar nota fiscal"
+        >
           Solicitar nota fiscal
         </Checkbox>
       </View>
