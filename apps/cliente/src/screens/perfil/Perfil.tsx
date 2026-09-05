@@ -9,7 +9,7 @@ import { useOrders } from '@keepit/core-data/hooks';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { BuildMetadata } from '../../components/qa/BuildMetadata';
-import { Button, Screen, TextField } from '../../components/ui';
+import { Button, FormScreen, Screen, TextField } from '../../components/ui';
 import { QA_BUILD_ENABLED } from '../../config/buildInfo';
 import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
@@ -289,7 +289,7 @@ export default function Perfil({ navigation }: Props) {
   const showSummary = !editingProfile && !editingEmail;
 
   return (
-    <Screen>
+    <FormScreen>
       <Text style={styles.title}>Perfil</Text>
       <BuildMetadata onVersionPress={qaEnabled ? handleVersionPress : undefined} />
 
@@ -381,7 +381,7 @@ export default function Perfil({ navigation }: Props) {
           </View>
         </>
       )}
-    </Screen>
+    </FormScreen>
   );
 }
 

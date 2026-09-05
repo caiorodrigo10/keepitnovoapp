@@ -5,7 +5,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { getDataClient } from '@keepit/core-data';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
-import { Button, Screen, TextField } from '../../components/ui';
+import { Button, FormScreen, Screen, TextField } from '../../components/ui';
 import type { AuthStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'EsqueciSenha'>;
@@ -72,7 +72,9 @@ export default function EsqueciSenha({ navigation }: Props) {
   }
 
   return (
-    <Screen>
+    <FormScreen
+      footer={<Button title="Enviar" onPress={handleEnviar} loading={loading} disabled={!email.trim()} />}
+    >
       <Text style={styles.brand}>KEEPITHUB</Text>
       <Text style={styles.title}>Esqueci a senha</Text>
       <Text style={styles.subtitle}>Informe seu e-mail para receber o link de redefinição.</Text>
@@ -88,8 +90,7 @@ export default function EsqueciSenha({ navigation }: Props) {
         autoCapitalize="none"
       />
 
-      <Button title="Enviar" onPress={handleEnviar} loading={loading} disabled={!email.trim()} />
-    </Screen>
+    </FormScreen>
   );
 }
 

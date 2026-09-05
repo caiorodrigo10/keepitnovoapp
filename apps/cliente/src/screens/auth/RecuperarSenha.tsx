@@ -5,7 +5,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { getDataClient } from '@keepit/core-data';
 import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 
-import { Button, Screen, TextField } from '../../components/ui';
+import { Button, FormScreen, Screen, TextField } from '../../components/ui';
 import type { AuthStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'RecuperarSenha'>;
@@ -83,7 +83,16 @@ export default function RecuperarSenha({ navigation, route }: Props) {
   }
 
   return (
-    <Screen>
+    <FormScreen
+      footer={
+        <Button
+          title="Redefinir senha"
+          onPress={handleRedefinir}
+          loading={loading}
+          disabled={!senha || !confirmacao}
+        />
+      }
+    >
       <Text style={styles.title}>Defina uma nova senha</Text>
       <Text style={styles.subtitle}>Crie uma senha nova para voltar a acessar sua conta.</Text>
 
@@ -106,13 +115,7 @@ export default function RecuperarSenha({ navigation, route }: Props) {
         autoCapitalize="none"
       />
 
-      <Button
-        title="Redefinir senha"
-        onPress={handleRedefinir}
-        loading={loading}
-        disabled={!senha || !confirmacao}
-      />
-    </Screen>
+    </FormScreen>
   );
 }
 

@@ -4,7 +4,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
-import { Button, Screen, TextField } from '../../components/ui';
+import { Button, FormScreen, TextField } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
 import type { HomeStackParamList } from '../../navigation/types';
 
@@ -52,7 +52,9 @@ export default function AdicionarCartao({ navigation }: Props) {
   };
 
   return (
-    <Screen>
+    <FormScreen
+      footer={<Button title="Adicionar cartão" onPress={handleAdicionar} disabled={!podeAdicionar} />}
+    >
       <View style={styles.topBar}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={8} style={styles.roundButton}>
           <Text style={styles.roundButtonIcon}>‹</Text>
@@ -95,8 +97,7 @@ export default function AdicionarCartao({ navigation }: Props) {
         </View>
       </View>
 
-      <Button title="Adicionar cartão" onPress={handleAdicionar} disabled={!podeAdicionar} />
-    </Screen>
+    </FormScreen>
   );
 }
 

@@ -7,7 +7,7 @@ import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { SelectableRow } from '../../components/checkout';
 import { AsyncStateBlock } from '../../components/discovery';
-import { Button, Screen, TextField } from '../../components/ui';
+import { Button, FormScreen, TextField } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
 import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useHubsList } from '../../hooks/useHubsList';
@@ -136,7 +136,7 @@ export default function EscolhaRetirada({ navigation }: Props) {
   };
 
   return (
-    <Screen>
+    <FormScreen>
       <View style={styles.topBar}>
         <Pressable onPress={() => navigation.goBack()} hitSlop={8} style={styles.roundButton}>
           <Text style={styles.roundButtonIcon}>‹</Text>
@@ -190,7 +190,7 @@ export default function EscolhaRetirada({ navigation }: Props) {
           <Button title="Confirmar ponto" onPress={handleConfirmar} />
         </>
       )}
-    </Screen>
+    </FormScreen>
   );
 }
 

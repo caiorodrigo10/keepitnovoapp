@@ -5,7 +5,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { getDataClient } from '@keepit/core-data';
 import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 
-import { Button, Screen, TextField } from '../../components/ui';
+import { Button, FormScreen, TextField } from '../../components/ui';
 import type { AuthStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
@@ -74,7 +74,9 @@ export default function Login({ navigation, route }: Props) {
   }
 
   return (
-    <Screen>
+    <FormScreen
+      footer={<Button title="Entrar" onPress={handleEntrar} loading={loading} disabled={!email || !senha} />}
+    >
       <Text style={styles.brand}>KEEPITHUB</Text>
       <Text style={styles.title}>Bem-vindo de volta</Text>
       <Text style={styles.subtitle}>Entre para continuar comprando.</Text>
@@ -104,14 +106,12 @@ export default function Login({ navigation, route }: Props) {
         </Pressable>
       </View>
 
-      <Button title="Entrar" onPress={handleEntrar} loading={loading} disabled={!email || !senha} />
-
       <Pressable style={styles.signupRow} onPress={() => navigation.navigate('CriarConta')} hitSlop={8}>
         <Text style={styles.signupText}>
           Novo por aqui? <Text style={styles.signupTextBold}>Criar conta</Text>
         </Text>
       </Pressable>
-    </Screen>
+    </FormScreen>
   );
 }
 

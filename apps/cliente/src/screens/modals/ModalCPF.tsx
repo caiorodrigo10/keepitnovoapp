@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { getDataClient } from '@keepit/core-data';
-import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
+import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 
-import { Button, TextField } from '../../components/ui';
+import { Button, FormSheet, TextField } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { apenasDigitosCpf, isCpfValido } from '../../lib/cpf';
@@ -69,37 +69,32 @@ export default function ModalCPF({ navigation, route }: Props) {
   };
 
   return (
-    <View style={styles.overlay}>
-      <View style={styles.card}>
-        <Text style={styles.title}>Confirme seu CPF</Text>
-        <Text style={styles.subtitle}>
-          Precisamos do seu CPF na primeira compra para emitir a nota fiscal e prevenir fraudes. Não pedimos de
-          novo nos próximos pedidos.
-        </Text>
-        <TextField
-          label="CPF"
-          value={cpf}
-          onChangeText={(value) => setCpf(maskCpf(value))}
-          placeholder="000.000.000-00"
-          keyboardType="number-pad"
+    <FormSheet
+      footer={
+        <Button
+          title={salvando ? 'Confirmando...' : 'Confirmar'}
+          onPress={handleConfirmar}
+          disabled={!podeConfirmar}
         />
-        <Button title={salvando ? 'Confirmando...' : 'Confirmar'} onPress={handleConfirmar} disabled={!podeConfirmar} />
-      </View>
-    </View>
+      }
+    >
+      <Text style={styles.title}>Confirme seu CPF</Text>
+      <Text style={styles.subtitle}>
+        Precisamos do seu CPF na primeira compra para emitir a nota fiscal e prevenir fraudes. Não pedimos de
+        novo nos próximos pedidos.
+      </Text>
+      <TextField
+        label="CPF"
+        value={cpf}
+        onChangeText={(value) => setCpf(maskCpf(value))}
+        placeholder="000.000.000-00"
+        keyboardType="number-pad"
+      />
+    </FormSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  card: {
-    backgroundColor: lightColors.bg.primary,
-    borderTopLeftRadius: radii.modal,
-    borderTopRightRadius: radii.modal,
-    padding: spacing['6'],
-  },
   title: {
     fontFamily: 'HankenGrotesk-Bold',
     fontSize: typography.sizes.xl.fontSize,
