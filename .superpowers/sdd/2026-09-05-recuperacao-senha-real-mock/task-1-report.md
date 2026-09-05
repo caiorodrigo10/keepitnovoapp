@@ -77,3 +77,47 @@ Essa é a integração deliberadamente pertencente à Task 2: o adapter real
 ainda precisa retornar `{ delivery: 'email' }`. Os arquivos da Task 1 não
 produziram outro erro de tipo. A restrição de não usar subagentes impediu a
 revisão externa prevista pelo workflow; foi feito self-review contra o brief.
+
+## Correções após review
+
+O review de `cfe1891` identificou dois gaps, corrigidos numa rodada TDD focada:
+
+- As mutações de recovery agora usam uma capacidade de persistência que
+  preserva o resultado booleano do state store. Falha ao gravar `requested`,
+  `ready` ou senha + `consumed` rejeita com erro genérico e restaura o estado
+  anterior em memória; nenhuma dessas operações reporta sucesso degradado.
+- O parser recusa `username` e `password` em `userinfo`, mantendo utilizável a
+  solicitação canônica que não chegou a ser consumida.
+
+### RED do review
+
+```text
+pnpm --filter @keepit/core-data test -- src/mock/auth.mock.test.ts src/mock/cliente-state-store.test.ts
+
+Test Files  2 failed (2)
+Tests       4 failed | 57 passed (61)
+Exit 1
+```
+
+As quatro falhas reproduziram exatamente os findings: callback com `userinfo`
+aceito e sucesso incorreto nas três transições quando `setItem` falhava.
+
+### GREEN após review
+
+```text
+pnpm --filter @keepit/core-data test -- src/mock/auth.mock.test.ts src/mock/cliente-state.test.ts src/mock/cliente-state-store.test.ts
+
+Test Files  3 passed (3)
+Tests       97 passed (97)
+Exit 0
+
+pnpm --filter @keepit/core-data test
+
+Test Files  32 passed (32)
+Tests       641 passed (641)
+Exit 0
+```
+
+Os testes de falha usam o storage real em memória do arquivo de integração,
+com uma rejeição controlada de `setItem`, e provam retry no mesmo processo e
+consumo durável após restart.

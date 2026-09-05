@@ -11,6 +11,7 @@ import type { AsyncCallOptions } from '../types';
 import { generateMockId, simulateAsync } from './async-helpers';
 import {
   CLIENTE_DEMO_INITIAL_PASSWORD,
+  persistMockPasswordRecovery,
   readMockPasswordRecovery,
   writeMockPasswordRecovery,
 } from './cliente-state';
@@ -20,6 +21,8 @@ const PASSWORD_RECOVERY_CALLBACK = 'com.keepithub.cliente://auth/reset';
 const NO_ACTIVE_PASSWORD_RECOVERY_ERROR = '[mock] Nenhuma sessão de recuperação ativa.';
 const INVALID_PASSWORD_RECOVERY_CALLBACK_ERROR =
   '[mock] auth.establishPasswordRecoverySession — link inválido ou sessão indisponível.';
+const PASSWORD_RECOVERY_PERSISTENCE_ERROR =
+  '[mock] Não foi possível persistir a recuperação de senha.';
 let passwordRecoveryRequestSequence = 0;
 
 function createPasswordRecoveryRequestId(): string {
@@ -49,6 +52,17 @@ export function createAuthMock(db: MockDb): AuthPort {
     listeners.forEach((listener) => listener(cliente));
   }
 
+  async function persistPasswordRecoveryOrRollback(rollback: () => void): Promise<void> {
+    try {
+      if (await persistMockPasswordRecovery(db)) return;
+    } catch {
+      // A fronteira mock não expõe detalhes do storage ao chamador.
+    }
+
+    rollback();
+    throw new Error(PASSWORD_RECOVERY_PERSISTENCE_ERROR);
+  }
+
   function parsePasswordRecoveryRequestId(callbackUrl: string): string {
     let url: URL;
     try {
@@ -63,6 +77,8 @@ export function createAuthMock(db: MockDb): AuthPort {
 
     const requestIds = url.searchParams.getAll('requestId');
     if (
+      url.username !== '' ||
+      url.password !== '' ||
       url.hash !== '' ||
       [...url.searchParams.keys()].some((key) => key !== 'requestId') ||
       requestIds.length !== 1 ||
@@ -140,11 +156,12 @@ export function createAuthMock(db: MockDb): AuthPort {
         async () => {
           const requestId = createPasswordRecoveryRequestId();
           const clienteId = db.clienteCredenciais.find((credential) => credential.email === email)?.clienteId;
+          const previousRecovery = readMockPasswordRecovery(db);
           writeMockPasswordRecovery(
             db,
             clienteId ? { requestId, clienteId, state: 'requested' } : null,
           );
-          await db.onClienteMutation();
+          await persistPasswordRecoveryOrRollback(() => writeMockPasswordRecovery(db, previousRecovery));
           return { delivery: 'demo' as const, callbackUrl: createPasswordRecoveryCallback(requestId) };
         },
         emptyResult,
@@ -162,7 +179,7 @@ export function createAuthMock(db: MockDb): AuthPort {
             throw new Error(INVALID_PASSWORD_RECOVERY_CALLBACK_ERROR);
           }
           writeMockPasswordRecovery(db, { ...recovery, state: 'ready' });
-          await db.onClienteMutation();
+          await persistPasswordRecoveryOrRollback(() => writeMockPasswordRecovery(db, recovery));
         },
         undefined,
         options,
@@ -181,9 +198,13 @@ export function createAuthMock(db: MockDb): AuthPort {
           if (!credencial) {
             throw new Error(NO_ACTIVE_PASSWORD_RECOVERY_ERROR);
           }
+          const previousPassword = credencial.password;
           credencial.password = password;
           writeMockPasswordRecovery(db, { ...recovery, state: 'consumed' });
-          await db.onClienteMutation();
+          await persistPasswordRecoveryOrRollback(() => {
+            credencial.password = previousPassword;
+            writeMockPasswordRecovery(db, recovery);
+          });
         },
         undefined,
         options,

@@ -247,6 +247,17 @@ describe('auth.mock (contract)', () => {
       expect(result.callbackUrl).not.toContain(password);
     });
 
+    it('rejeita callback com userinfo e preserva a solicitação canônica', async () => {
+      const result = await port.requestPasswordReset('ana.souza@example.com', { delayMs: 1 });
+      if (result.delivery !== 'demo') throw new Error('O adapter mock deve devolver callback demo.');
+      const callbackWithUserinfo = result.callbackUrl.replace('://', '://user:secret@');
+
+      await expect(port.establishPasswordRecoverySession(callbackWithUserinfo, { delayMs: 1 })).rejects.toThrow(
+        /link inválido|callback/i,
+      );
+      await expect(port.establishPasswordRecoverySession(result.callbackUrl, { delayMs: 1 })).resolves.toBeUndefined();
+    });
+
     it('establishPasswordRecoverySession rejeita callback de outra rota e não ativa recuperação', async () => {
       const result = await port.requestPasswordReset('ana.souza@example.com', { delayMs: 1 });
       expect(result.delivery).toBe('demo');

@@ -7,6 +7,7 @@ import type {
 import {
   CLIENTE_MOCK_STATE_KEY,
   applyClienteSnapshot,
+  connectMockPasswordRecoveryPersistence,
   createClienteBaseline,
   decodeClienteSnapshot,
   readMockPasswordRecovery,
@@ -159,6 +160,7 @@ export class ClienteMockStateStore {
 
   private connectMutationPersistence(): void {
     this.db.onClienteMutation = () => this.persist().then(() => undefined);
+    connectMockPasswordRecoveryPersistence(this.db, () => this.persist());
   }
 
   private rememberCurrentClienteIds(): void {

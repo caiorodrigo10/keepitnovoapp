@@ -105,6 +105,7 @@ export type ClienteMockSnapshotDecodeResult =
   | { status: 'recovered'; reason: 'missing' | 'invalid'; snapshot: ClienteMockSnapshotV5 };
 
 const passwordRecoveryByDb = new WeakMap<MockDb, NonNullable<MockPasswordRecovery>>();
+const passwordRecoveryPersistenceByDb = new WeakMap<MockDb, () => Promise<boolean>>();
 
 export function readMockPasswordRecovery(db: MockDb): MockPasswordRecovery {
   const recovery = passwordRecoveryByDb.get(db);
@@ -117,6 +118,21 @@ export function writeMockPasswordRecovery(db: MockDb, recovery: MockPasswordReco
     return;
   }
   passwordRecoveryByDb.set(db, structuredClone(recovery));
+}
+
+export function connectMockPasswordRecoveryPersistence(
+  db: MockDb,
+  persist: () => Promise<boolean>,
+): void {
+  passwordRecoveryPersistenceByDb.set(db, persist);
+}
+
+export async function persistMockPasswordRecovery(db: MockDb): Promise<boolean> {
+  const persist = passwordRecoveryPersistenceByDb.get(db);
+  if (persist) return persist();
+
+  await db.onClienteMutation();
+  return true;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

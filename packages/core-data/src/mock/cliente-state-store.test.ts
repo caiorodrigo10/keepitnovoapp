@@ -371,6 +371,80 @@ describe('ClienteMockStateStore', () => {
     ).resolves.toMatchObject({ id: 'cliente-ana' });
   });
 
+  it('rejeita requestPasswordReset e restaura a solicitação anterior quando requested não persiste', async () => {
+    const baseline = createClienteBaseline();
+    baseline.passwordRecovery = {
+      requestId: 'recovery-anterior123',
+      clienteId: 'cliente-ana',
+      state: 'requested',
+    };
+    const storage = memoryStorage({
+      initialValue: JSON.stringify(baseline),
+      setItemErrors: [new Error('disk full')],
+    });
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+
+    await expect(
+      client.auth.requestPasswordReset('ana.souza@example.com', { delayMs: 0 }),
+    ).rejects.toThrow(/persist/i);
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!)).toEqual(baseline);
+    await expect(
+      client.auth.establishPasswordRecoverySession(
+        'com.keepithub.cliente://auth/reset?requestId=recovery-anterior123',
+        { delayMs: 0 },
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('restaura requested quando ready não pode ser persistido e permite tentar o callback novamente', async () => {
+    const snapshot = createClienteBaseline();
+    snapshot.passwordRecovery = {
+      requestId: 'recovery-opaque123',
+      clienteId: 'cliente-ana',
+      state: 'requested',
+    };
+    const storage = memoryStorage({
+      initialValue: JSON.stringify(snapshot),
+      setItemErrors: [new Error('disk full')],
+    });
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    const callbackUrl = 'com.keepithub.cliente://auth/reset?requestId=recovery-opaque123';
+
+    await expect(client.auth.establishPasswordRecoverySession(callbackUrl, { delayMs: 0 })).rejects.toThrow(
+      /persist/i,
+    );
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!).passwordRecovery.state).toBe('requested');
+    await expect(client.auth.establishPasswordRecoverySession(callbackUrl, { delayMs: 0 })).resolves.toBeUndefined();
+  });
+
+  it('rejeita updatePassword, restaura senha/ready e só consome após uma escrita bem-sucedida', async () => {
+    const snapshot = createClienteBaseline();
+    snapshot.passwordRecovery = {
+      requestId: 'recovery-opaque123',
+      clienteId: 'cliente-ana',
+      state: 'ready',
+    };
+    const storage = memoryStorage({
+      initialValue: JSON.stringify(snapshot),
+      setItemErrors: [new Error('disk full')],
+    });
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+
+    await expect(client.auth.updatePassword('senha-nao-persistida', { delayMs: 0 })).rejects.toThrow(/persist/i);
+    const afterFailure = JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!);
+    expect(afterFailure.passwordRecovery.state).toBe('ready');
+    expect(afterFailure.accounts[0].password).toBe('keepit123');
+
+    await expect(client.auth.updatePassword('senha-persistida', { delayMs: 0 })).resolves.toBeUndefined();
+    __resetDataClientForTests();
+    const reopened = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await expect(reopened.auth.updatePassword('replay', { delayMs: 0 })).rejects.toThrow(/nenhuma sessão/i);
+    await expect(reopened.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 })).rejects.toThrow();
+    await expect(
+      reopened.auth.signIn('ana.souza@example.com', 'senha-persistida', { delayMs: 0 }),
+    ).resolves.toMatchObject({ id: 'cliente-ana' });
+  });
+
   it.each(['expired', 'consumed'] as const)(
     'rejeita callback %s persistido sem alterar a credencial',
     async (state) => {
