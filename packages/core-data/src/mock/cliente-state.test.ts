@@ -67,6 +67,13 @@ describe('cliente-state', () => {
     expect(parseClienteSnapshot(JSON.stringify(snapshot))).toEqual(createClienteBaseline());
   });
 
+  it('rejeita snapshot V2 com domínio de simulação extra', () => {
+    const snapshot = createClienteBaseline();
+    (snapshot.qa.simulations as Record<string, string>).checkout = 'error';
+
+    expect(parseClienteSnapshot(JSON.stringify(snapshot))).toEqual(createClienteBaseline());
+  });
+
   it.each(['cliente-bruno', 'cliente-carla', 'cliente-diego'])(
     'rejeita o ID auxiliar real %s no snapshot Cliente',
     (reservedId) => {

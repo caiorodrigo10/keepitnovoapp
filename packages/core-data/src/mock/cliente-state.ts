@@ -85,7 +85,10 @@ function isQaScenarioState(value: unknown): value is QaScenarioState {
   }
 
   const simulations = value.simulations;
-  return QA_SIMULATION_DOMAINS.every((domain) => qaSimulationStates.has(simulations[domain] as QaSimulationState));
+  return (
+    Object.keys(simulations).length === QA_SIMULATION_DOMAINS.length &&
+    QA_SIMULATION_DOMAINS.every((domain) => qaSimulationStates.has(simulations[domain] as QaSimulationState))
+  );
 }
 
 const pedidoStatuses = new Set<PedidoStatus>([

@@ -86,6 +86,28 @@ describe('ClienteMockStateStore', () => {
     expect(reopened.demoScenario!.getQaState().simulations.orders).toBe('error');
   });
 
+  it('não altera o store ao mutar o estado devolvido por getQaState', async () => {
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: memoryStorage() });
+    const qa = client.demoScenario!.getQaState();
+
+    qa.simulations.orders = 'error';
+
+    expect(client.demoScenario!.getQaState().simulations.orders).toBe('normal');
+  });
+
+  it('isola estado e payload de mutações posteriores ao setQaState', async () => {
+    const storage = memoryStorage();
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    const next = client.demoScenario!.getQaState();
+    next.simulations.orders = 'error';
+
+    await client.demoScenario!.setQaState(next);
+    next.simulations.orders = 'normal';
+
+    expect(client.demoScenario!.getQaState().simulations.orders).toBe('error');
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!).qa.simulations.orders).toBe('error');
+  });
+
   it('degrada honestamente quando a persistência do estado QA falha', async () => {
     const storage = memoryStorage({
       initialValue: JSON.stringify(createClienteBaseline()),
