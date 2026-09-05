@@ -14,7 +14,7 @@ import type { AsyncCallOptions } from '../types';
 import { generateMockId, generatePin, simulateAsync } from './async-helpers';
 import type { MockDb } from './db';
 import { registrarFalha } from './falha-helpers';
-import { reconcileAutomaticOrder } from './order-auto-progress';
+import { reconcileAutomaticOrder, type OrderAutoTransition } from './order-auto-progress';
 import { registrarReembolso } from './refund-helpers';
 
 function roundReais(value: number): number {
@@ -68,6 +68,25 @@ export function createOrderMock(db: MockDb): OrderPort {
     delete db.clienteOrderAutomation[pedidoId];
   }
 
+  function applyAutomaticTransition(
+    pedido: Pedido,
+    transition: OrderAutoTransition,
+    reconciledPedido: Pedido,
+  ): Pedido {
+    const nextPedido = { ...pedido, status: transition.to };
+
+    if (transition.to === 'aceito') {
+      nextPedido.aceito_em = transition.occurredAt;
+      nextPedido.tempo_estimado_min = reconciledPedido.tempo_estimado_min;
+    } else if (transition.to === 'saindo_hub') {
+      nextPedido.saiu_hub_em = transition.occurredAt;
+    } else if (transition.to === 'no_hub') {
+      nextPedido.lojista_chegou_em = transition.occurredAt;
+    }
+
+    return nextPedido;
+  }
+
   async function reconcileEligibleOrders(): Promise<void> {
     const nowMs = Date.now() + db.clienteQaState.clockOffsetMs;
 
@@ -83,17 +102,18 @@ export function createOrderMock(db: MockDb): OrderPort {
       );
       if (reconciled.transitions.length === 0) continue;
 
-      db.pedidos[pedidoIndex] = reconciled.pedido;
-      if (reconciled.runtime === null) {
-        stopAutomation(pedidoId);
-      } else {
-        db.clienteOrderAutomation[pedidoId] = reconciled.runtime;
-      }
-
-      for (const _transition of reconciled.transitions) {
+      let currentPedido = db.pedidos[pedidoIndex]!;
+      for (const transition of reconciled.transitions) {
+        currentPedido = applyAutomaticTransition(currentPedido, transition, reconciled.pedido);
+        db.pedidos[pedidoIndex] = currentPedido;
+        if (transition.to === 'no_hub') {
+          stopAutomation(pedidoId);
+        } else {
+          db.clienteOrderAutomation[pedidoId] = { enteredStatusAt: transition.occurredAt };
+        }
         await db.onClienteMutation();
         emitChange({
-          clienteId: reconciled.pedido.cliente_id,
+          clienteId: currentPedido.cliente_id,
           pedidoId,
           reason: 'auto-progress',
         });
@@ -287,6 +307,7 @@ export function createOrderMock(db: MockDb): OrderPort {
       return simulateAsync(
         async () => {
           const pedido = findOrThrow(pedidoId);
+          assertStatus(pedido, 'confirmPin', ['no_hub']);
 
           if (pedido.pin_bloqueado_ate && new Date(pedido.pin_bloqueado_ate) > new Date()) {
             throw new PinBloqueadoError(pedido.pin_bloqueado_ate);

@@ -1,7 +1,7 @@
 import { businessConfig } from '@keepit/config';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { CreatePedidoInput, OrderPort } from '../ports/order.port';
+import type { CreatePedidoInput, OrderChangeEvent, OrderPort } from '../ports/order.port';
 import { OrderTransitionError, PinBloqueadoError, PinIncorretoError } from '../ports/order.port';
 import { createDefaultQaScenarioState } from './cliente-state';
 import { ClienteMockStateStore } from './cliente-state-store';
@@ -179,7 +179,14 @@ describe('order.mock (contract)', () => {
     vi.useFakeTimers();
     vi.setSystemTime('2026-09-05T10:00:00.000Z');
     db.clienteQaState = qaComAtrasosDeUmSegundo();
-    const event = vi.fn();
+    const eventSnapshots: { status: string; enteredStatusAt: string | null }[] = [];
+    const event = vi.fn((value: OrderChangeEvent) => {
+      if (value.reason !== 'auto-progress') return;
+      eventSnapshots.push({
+        status: db.pedidos.find((pedido) => pedido.id === value.pedidoId)?.status ?? 'missing',
+        enteredStatusAt: db.clienteOrderAutomation[value.pedidoId!]?.enteredStatusAt ?? null,
+      });
+    });
     port.subscribeChanges!(event);
 
     const created = await settleMock(port.create(validInput, { delayMs: 0 }));
@@ -189,6 +196,13 @@ describe('order.mock (contract)', () => {
       enteredStatusAt: '2026-09-05T10:00:00.000Z',
     });
 
+    const persistedSnapshots: { status: string; enteredStatusAt: string | null }[] = [];
+    db.onClienteMutation = () => {
+      persistedSnapshots.push({
+        status: db.pedidos.find((pedido) => pedido.id === created.id)?.status ?? 'missing',
+        enteredStatusAt: db.clienteOrderAutomation[created.id]?.enteredStatusAt ?? null,
+      });
+    };
     vi.setSystemTime('2026-09-05T10:00:05.000Z');
     const current = (await settleMock(port.listMine('cliente-ana', { delayMs: 0 }))).find(
       (pedido) => pedido.id === created.id,
@@ -200,6 +214,14 @@ describe('order.mock (contract)', () => {
       ]),
     );
     expect(event.mock.calls.filter(([value]) => value.reason === 'mutation')).toHaveLength(2);
+    const expectedSnapshots = [
+      { status: 'aceito', enteredStatusAt: '2026-09-05T10:00:01.000Z' },
+      { status: 'em_preparo', enteredStatusAt: '2026-09-05T10:00:02.000Z' },
+      { status: 'saindo_hub', enteredStatusAt: '2026-09-05T10:00:03.000Z' },
+      { status: 'no_hub', enteredStatusAt: null },
+    ];
+    expect(persistedSnapshots).toEqual(expectedSnapshots);
+    expect(eventSnapshots).toEqual(expectedSnapshots);
 
     const sameCurrent = (await settleMock(port.listMine('cliente-ana', { delayMs: 0 }))).find(
       (pedido) => pedido.id === created.id,
@@ -282,7 +304,7 @@ describe('order.mock (contract)', () => {
     expect(current?.status).toBe('aguardando_aceite');
   });
 
-  it.each(['cancel', 'refuse', 'deliver'] as const)(
+  it.each(['cancel', 'refuse'] as const)(
     'remove a âncora após %s terminal',
     async (terminalAction) => {
       vi.useFakeTimers();
@@ -293,15 +315,24 @@ describe('order.mock (contract)', () => {
 
       if (terminalAction === 'cancel') {
         await settleMock(port.cancel(created.id, 'Mudei de ideia', { delayMs: 0 }));
-      } else if (terminalAction === 'refuse') {
-        await settleMock(port.refuse(created.id, 'Sem estoque', { delayMs: 0 }));
       } else {
-        await settleMock(port.confirmPin(created.id, created.pin_texto, { delayMs: 0 }));
+        await settleMock(port.refuse(created.id, 'Sem estoque', { delayMs: 0 }));
       }
 
       expect(db.clienteOrderAutomation[created.id]).toBeUndefined();
     },
   );
+
+  it('remove uma âncora residual após entrega válida em no_hub', async () => {
+    vi.useFakeTimers();
+    const pedido = db.pedidos.find((candidate) => candidate.id === 'lj-pedido-2045')!;
+    db.clienteOrderAutomation[pedido.id] = { enteredStatusAt: '2026-09-05T10:00:00.000Z' };
+
+    const delivered = await settleMock(port.confirmPin(pedido.id, pedido.pin_texto, { delayMs: 0 }));
+
+    expect(delivered.status).toBe('entregue');
+    expect(db.clienteOrderAutomation[pedido.id]).toBeUndefined();
+  });
 
   it('reancora uma transição manual no relógio QA', async () => {
     vi.useFakeTimers();
@@ -328,6 +359,35 @@ describe('order.mock (contract)', () => {
     await expect(port.confirmarPagamento('pedido-2049', { delayMs: 1 })).rejects.toBeInstanceOf(OrderTransitionError);
   });
 
+  it('rejeita qualquer tentativa de PIN antes de no_hub sem efeitos colaterais', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-09-05T10:00:00.000Z');
+    db.clienteQaState = qaComAtrasosDeUmSegundo();
+    const created = await settleMock(port.create(validInput, { delayMs: 0 }));
+    await settleMock(port.confirmarPagamento(created.id, { delayMs: 0 }));
+    const before = structuredClone(created);
+    const runtimeBefore = structuredClone(db.clienteOrderAutomation[created.id]);
+    const persistence = vi.fn();
+    const event = vi.fn();
+    db.onClienteMutation = persistence;
+    port.subscribeChanges!(event);
+
+    const correctAttempt = port.confirmPin(created.id, created.pin_texto, { delayMs: 0 });
+    const correctRejection = expect(correctAttempt).rejects.toBeInstanceOf(OrderTransitionError);
+    await vi.runAllTimersAsync();
+    await correctRejection;
+
+    const wrongAttempt = port.confirmPin(created.id, '0000', { delayMs: 0 });
+    const wrongRejection = expect(wrongAttempt).rejects.toBeInstanceOf(OrderTransitionError);
+    await vi.runAllTimersAsync();
+    await wrongRejection;
+
+    expect(created).toEqual(before);
+    expect(db.clienteOrderAutomation[created.id]).toEqual(runtimeBefore);
+    expect(persistence).not.toHaveBeenCalled();
+    expect(event).not.toHaveBeenCalled();
+  });
+
   it('listMine resolves with only the pedidos of the given cliente', async () => {
     const pedidos = await port.listMine('cliente-ana', { delayMs: 1 });
     expect(pedidos.length).toBeGreaterThan(0);
@@ -335,7 +395,7 @@ describe('order.mock (contract)', () => {
   });
 
   it('confirmPin blocks after businessConfig.pinTentativasMax wrong attempts (Story 6.15, AC3, AC8) — rejects with PinIncorretoError then PinBloqueadoError, mesmas classes do adapter Supabase', async () => {
-    const pedidoId = 'pedido-2049';
+    const pedidoId = 'lj-pedido-2045';
 
     for (let i = 0; i < businessConfig.pinTentativasMax - 1; i += 1) {
       const promise = port.confirmPin(pedidoId, '0000', { delayMs: 1 });
@@ -351,7 +411,7 @@ describe('order.mock (contract)', () => {
 
     // Tentativa (mesmo com PIN correto) durante o bloqueio ativo continua bloqueada,
     // sem consumir/incrementar tentativa.
-    await expect(port.confirmPin(pedidoId, '7734', { delayMs: 1 })).rejects.toBeInstanceOf(PinBloqueadoError);
+    await expect(port.confirmPin(pedidoId, '4567', { delayMs: 1 })).rejects.toBeInstanceOf(PinBloqueadoError);
   });
 
   it('confirmPin incorreto rejeita, mas notifica persistência porque incrementa tentativas', async () => {
@@ -360,14 +420,14 @@ describe('order.mock (contract)', () => {
       mutationCount += 1;
     };
 
-    await expect(port.confirmPin('pedido-2049', '0000', { delayMs: 1 })).rejects.toBeInstanceOf(PinIncorretoError);
+    await expect(port.confirmPin('lj-pedido-2045', '0000', { delayMs: 1 })).rejects.toBeInstanceOf(PinIncorretoError);
 
-    expect(db.pedidos.find((pedido) => pedido.id === 'pedido-2049')?.tentativas_pin).toBe(1);
+    expect(db.pedidos.find((pedido) => pedido.id === 'lj-pedido-2045')?.tentativas_pin).toBe(1);
     expect(mutationCount).toBe(1);
   });
 
   it('confirmPin with the correct PIN transitions status to "entregue" and zeroes tentativas_pin/pin_bloqueado_ate', async () => {
-    const pedido = await port.confirmPin('pedido-2049', '7734', { delayMs: 1 });
+    const pedido = await port.confirmPin('lj-pedido-2045', '4567', { delayMs: 1 });
     expect(pedido.status).toBe('entregue');
     expect(pedido.entregue_em).not.toBeNull();
     expect(pedido.tentativas_pin).toBe(0);
