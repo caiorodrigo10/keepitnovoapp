@@ -14,7 +14,7 @@ type SnapshotCorruption = {
   orderId?: string;
 };
 
-const invalidV3Cases: Array<[string, SnapshotCorruption]> = [
+const invalidV4Cases: Array<[string, SnapshotCorruption]> = [
   ['atraso negativo', { delays: { aceito: -1, em_preparo: 1, saindo_hub: 1, no_hub: 1 } }],
   ['atraso não finito', { delays: { aceito: 1e999, em_preparo: 1, saindo_hub: 1, no_hub: 1 } }],
   ['âncora inválida', { anchor: 'não-é-uma-data' }],
@@ -28,8 +28,8 @@ describe('cliente-state', () => {
       schemaVersion: CLIENTE_MOCK_SCHEMA_VERSION,
       sessionClienteId: null,
       selectedHubId: null,
-      favoriteHubIds: [],
-      favoriteStoreIds: [],
+      favoriteHubIdsByClienteId: {},
+      favoriteStoreIdsByClienteId: {},
       orders: [],
       orderAutomation: {},
       accountDeletion: null,
@@ -45,17 +45,21 @@ describe('cliente-state', () => {
     (raw) => expect(parseClienteSnapshot(raw)).toEqual(createClienteBaseline()),
   );
 
-  it('migra V1 para V3 preservando dados e normalizando simulações', () => {
+  it('migra V1 para V4 preservando dados e normalizando simulações', () => {
     const current = createClienteBaseline();
-    const legacy = {
+    const legacy: Record<string, unknown> = {
       ...current,
       schemaVersion: 1,
       sessionClienteId: 'cliente-ana',
+      favoriteHubIds: [],
+      favoriteStoreIds: [],
       qa: { clockOffsetMs: 3_600_000, autoProgressOrders: false },
     };
+    delete legacy.favoriteHubIdsByClienteId;
+    delete legacy.favoriteStoreIdsByClienteId;
 
     expect(parseClienteSnapshot(JSON.stringify(legacy))).toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
       sessionClienteId: 'cliente-ana',
       orderAutomation: {},
       qa: {
@@ -84,16 +88,20 @@ describe('cliente-state', () => {
     current.qa.clockOffsetMs = 3_600_000;
     current.qa.simulations.orders = 'error';
     const { orderAutomation: _automation, ...withoutAutomation } = current;
-    const legacy = {
+    const legacy: Record<string, unknown> = {
       ...withoutAutomation,
       schemaVersion: 2,
+      favoriteHubIds: [],
+      favoriteStoreIds: [],
       qa: { ...current.qa, autoProgressOrders: true, orderProgressionDelaysMs: undefined },
     };
+    delete legacy.favoriteHubIdsByClienteId;
+    delete legacy.favoriteStoreIdsByClienteId;
 
     expect(decodeClienteSnapshot(JSON.stringify(legacy))).toMatchObject({
       status: 'migrated',
       snapshot: {
-        schemaVersion: 3,
+        schemaVersion: 4,
         orderAutomation: {},
         accounts: [{ profile: { nome: 'Ana V2' } }],
         orders: [{ id: pedido.id }],
@@ -107,7 +115,27 @@ describe('cliente-state', () => {
     });
   });
 
-  it.each(invalidV3Cases)('rejeita snapshot V3 com %s', (_case, corruption) => {
+  it('migra favoritos globais V3 para a conta demo sem perder dados', () => {
+    const legacy: Record<string, unknown> = {
+      ...createClienteBaseline(),
+      schemaVersion: 3,
+      favoriteHubIds: ['hub-legado'],
+      favoriteStoreIds: ['store-legada'],
+    };
+    delete legacy.favoriteHubIdsByClienteId;
+    delete legacy.favoriteStoreIdsByClienteId;
+
+    expect(decodeClienteSnapshot(JSON.stringify(legacy))).toMatchObject({
+      status: 'migrated',
+      snapshot: {
+        schemaVersion: 4,
+        favoriteHubIdsByClienteId: { 'cliente-ana': ['hub-legado'] },
+        favoriteStoreIdsByClienteId: { 'cliente-ana': ['store-legada'] },
+      },
+    });
+  });
+
+  it.each(invalidV4Cases)('rejeita snapshot V4 com %s', (_case, corruption) => {
     const snapshot = createClienteBaseline();
     const pedido = structuredClone(
       createMockDb().pedidos.find((item) => item.cliente_id === 'cliente-ana')!,
@@ -139,7 +167,7 @@ describe('cliente-state', () => {
     expect(parseClienteSnapshot(JSON.stringify(snapshot))).toEqual(createClienteBaseline());
   });
 
-  it('rejeita snapshot V3 com domínio de simulação extra', () => {
+  it('rejeita snapshot V4 com domínio de simulação extra', () => {
     const snapshot = createClienteBaseline();
     (snapshot.qa.simulations as Record<string, string>).checkout = 'error';
 

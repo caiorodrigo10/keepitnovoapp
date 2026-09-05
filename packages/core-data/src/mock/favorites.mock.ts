@@ -5,37 +5,38 @@ import type { MockDb } from './db';
 
 type FavoritePort = HubFavoritesPort | StoreFavoritesPort;
 
-function requireClienteSession(db: MockDb): void {
+function requireClienteSession(db: MockDb): string {
   if (!db.sessionClienteId || !db.clientes.some((cliente) => cliente.id === db.sessionClienteId)) {
     throw new Error('[mock] Favoritos exigem uma sessão de cliente autenticada.');
   }
+  return db.sessionClienteId;
 }
 
 function simulateAuthenticated<T>(
   db: MockDb,
-  resultFactory: () => T | Promise<T>,
+  resultFactory: (clienteId: string) => T | Promise<T>,
   emptyValue: T,
   options?: AsyncCallOptions,
 ): Promise<T> {
   return simulateAsync(
     () => {
-      requireClienteSession(db);
+      const clienteId = requireClienteSession(db);
       if (options?.forceError) {
         throw new Error('[mock] Erro simulado via AsyncCallOptions.forceError');
       }
-      return options?.forceEmpty ? emptyValue : resultFactory();
+      return options?.forceEmpty ? emptyValue : resultFactory(clienteId);
     },
     emptyValue,
     options ? { ...options, forceError: false, forceEmpty: false } : undefined,
   );
 }
 
-function createFavoritePort(db: MockDb, values: () => string[]): FavoritePort {
+function createFavoritePort(db: MockDb, valuesByClienteId: () => Record<string, string[]>): FavoritePort {
   return {
     list(options?: AsyncCallOptions): Promise<string[]> {
       return simulateAuthenticated(
         db,
-        () => [...values()],
+        (clienteId) => [...(valuesByClienteId()[clienteId] ?? [])],
         [],
         options,
       );
@@ -44,7 +45,7 @@ function createFavoritePort(db: MockDb, values: () => string[]): FavoritePort {
     has(resourceId: string, options?: AsyncCallOptions): Promise<boolean> {
       return simulateAuthenticated(
         db,
-        () => values().includes(resourceId),
+        (clienteId) => valuesByClienteId()[clienteId]?.includes(resourceId) ?? false,
         false,
         options,
       );
@@ -53,9 +54,10 @@ function createFavoritePort(db: MockDb, values: () => string[]): FavoritePort {
     favorite(resourceId: string, options?: AsyncCallOptions): Promise<void> {
       return simulateAuthenticated(
         db,
-        async () => {
-          if (values().includes(resourceId)) return;
-          values().push(resourceId);
+        async (clienteId) => {
+          const values = valuesByClienteId()[clienteId] ?? [];
+          if (values.includes(resourceId)) return;
+          valuesByClienteId()[clienteId] = [...values, resourceId];
           await db.onClienteMutation();
         },
         undefined,
@@ -66,10 +68,16 @@ function createFavoritePort(db: MockDb, values: () => string[]): FavoritePort {
     unfavorite(resourceId: string, options?: AsyncCallOptions): Promise<void> {
       return simulateAuthenticated(
         db,
-        async () => {
-          const index = values().indexOf(resourceId);
+        async (clienteId) => {
+          const values = valuesByClienteId()[clienteId] ?? [];
+          const index = values.indexOf(resourceId);
           if (index < 0) return;
-          values().splice(index, 1);
+          const next = values.filter((id) => id !== resourceId);
+          if (next.length === 0) {
+            delete valuesByClienteId()[clienteId];
+          } else {
+            valuesByClienteId()[clienteId] = next;
+          }
           await db.onClienteMutation();
         },
         undefined,
@@ -84,7 +92,7 @@ export function createFavoritesMock(db: MockDb): {
   favoriteStores: StoreFavoritesPort;
 } {
   return {
-    favoriteHubs: createFavoritePort(db, () => db.favoriteHubIds),
-    favoriteStores: createFavoritePort(db, () => db.favoriteStoreIds),
+    favoriteHubs: createFavoritePort(db, () => db.favoriteHubIdsByClienteId),
+    favoriteStores: createFavoritePort(db, () => db.favoriteStoreIdsByClienteId),
   };
 }

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { AuthPort } from '../ports/auth.port';
 import type { HubFavoritesPort, StoreFavoritesPort } from '../ports/favorites.port';
 import { createAuthMock } from './auth.mock';
 import { createMockDb, type MockDb } from './db';
@@ -9,13 +10,15 @@ type FavoritePort = HubFavoritesPort | StoreFavoritesPort;
 
 describe('favorites.mock (contrato comum) — Story 12.11', () => {
   let db: MockDb;
+  let auth: AuthPort;
   let favoriteHubs: HubFavoritesPort;
   let favoriteStores: StoreFavoritesPort;
 
   beforeEach(async () => {
     db = createMockDb();
     ({ favoriteHubs, favoriteStores } = createFavoritesMock(db));
-    await createAuthMock(db).signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
+    auth = createAuthMock(db);
+    await auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
     db.onClienteMutation = vi.fn(async () => undefined);
   });
 
@@ -41,6 +44,28 @@ describe('favorites.mock (contrato comum) — Story 12.11', () => {
 
     expect(await favoriteHubs.list({ delayMs: 0 })).toEqual(['hub-centro']);
     expect(await favoriteStores.list({ delayMs: 0 })).toEqual(['estab-farmacia-vida']);
+  });
+
+  it('isola leitura e mutação quando a sessão alterna entre duas contas válidas', async () => {
+    await favoriteHubs.favorite('hub-ana', { delayMs: 0 });
+    await favoriteStores.favorite('store-ana', { delayMs: 0 });
+
+    await auth.signUp(
+      { nome: 'Bea', email: 'bea@example.com', senha: 'senha1234', telefone: null },
+      { delayMs: 0 },
+    );
+    await favoriteHubs.favorite('hub-bea', { delayMs: 0 });
+    await favoriteStores.favorite('store-bea', { delayMs: 0 });
+    await favoriteHubs.unfavorite('hub-ana', { delayMs: 0 });
+
+    expect(await favoriteHubs.list({ delayMs: 0 })).toEqual(['hub-bea']);
+    expect(await favoriteStores.list({ delayMs: 0 })).toEqual(['store-bea']);
+
+    await auth.signOut({ delayMs: 0 });
+    await auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
+
+    expect(await favoriteHubs.list({ delayMs: 0 })).toEqual(['hub-ana']);
+    expect(await favoriteStores.list({ delayMs: 0 })).toEqual(['store-ana']);
   });
 
   it('devolve clones e persiste somente mutações efetivas', async () => {

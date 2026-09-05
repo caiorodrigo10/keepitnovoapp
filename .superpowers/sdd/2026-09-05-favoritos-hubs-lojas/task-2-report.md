@@ -10,11 +10,12 @@ Base de schema/tipos: `cbe43e0 feat(supabase): secure cliente favorites`
 - `DataClient.favoriteHubs` e `DataClient.favoriteStores` estão conectados nos
   datasources mock e Supabase por uma factory própria de cada datasource.
 - O mock exige sessão de Cliente em todas as operações, mantém hubs e lojas em
-  arrays separados, devolve cópia nas leituras e chama a persistência somente
-  quando a coleção realmente muda.
+  coleções separadas por `cliente_id`, devolve cópia nas leituras e chama a
+  persistência somente quando a coleção da conta atual realmente muda.
 - `MockDb`, `applyClienteSnapshot` e `ClienteMockStateStore.captureSnapshot`
-  hidratam/gravam os dois arrays já previstos no snapshot V3. O baseline e o
-  reset permanecem vazios.
+  hidratam/gravam mapas de favoritos com ownership no snapshot V4. Snapshots
+  V1–V3 são migrados e os favoritos globais legados são preservados sob a
+  conta demo `cliente-ana`. O baseline e o reset permanecem vazios.
 - O adapter Supabase chama `auth.getUser()` em toda operação, consulta por
   `cliente_id`, usa `upsert` com `ignoreDuplicates: true` e a PK composta como
   `onConflict`, e restringe `DELETE` por usuário + recurso.
@@ -66,9 +67,38 @@ Exit 0
 Após o caso adicional de segurança, `favorites.mock.test.ts` passou com 9/9
 testes.
 
+### RED do review — isolamento entre contas
+
+```text
+pnpm --filter @keepit/core-data test -- src/mock/favorites.mock.test.ts src/mock/cliente-state-store.test.ts src/mock/cliente-state.test.ts
+
+Test Files  3 failed (3)
+Tests       3 failed | 57 passed (60)
+
+expected [ "store-ana", "store-bea" ] to deeply equal [ "store-bea" ]
+expected [ "hub-ana", "hub-bea" ] to deeply equal [ "hub-bea" ]
+snapshot V3 retornou status "valid" em vez de migrar para V4
+Exit 1
+```
+
+### GREEN do review
+
+```text
+pnpm --filter @keepit/core-data test -- src/mock/favorites.mock.test.ts src/mock/cliente-state-store.test.ts src/mock/cliente-state.test.ts
+
+Test Files  3 passed (3)
+Tests       60 passed (60)
+Exit 0
+```
+
+Os regressions alternam entre duas contas válidas, provam que uma não lê nem
+remove favoritos da outra, reabrem o snapshot com a segunda sessão ativa,
+voltam à conta demo e confirmam reset integral. Um caso separado prova a
+migração V3 → V4 sem perda dos favoritos demo.
+
 ## Verificação final
 
-- `pnpm --filter @keepit/core-data test` — PASS, 32 arquivos e 621 testes.
+- `pnpm --filter @keepit/core-data test` — PASS, 32 arquivos e 623 testes.
 - `pnpm --filter @keepit/core-data typecheck` — PASS.
 - `git diff --check` — PASS.
 - O Vitest emitiu somente o aviso preexistente de depreciação da API CJS do
@@ -95,6 +125,9 @@ Referências:
 ## Escopo e preocupações
 
 - Nenhum arquivo da Story 12.10 ou dos apps foi alterado por esta task.
+- O HIGH de isolamento registrado em `task-2-review.md` foi corrigido na
+  origem: todas as leituras/mutações mock resolvem o mapa pela sessão atual, e
+  o snapshot só aceita/persiste owners presentes em `accounts`.
 - A instância do SDK Supabase continua com resolução lazy para preservar
   `createDataClient({ source: 'supabase' })` sem exigir env até a primeira
   operação. Isso não é cache de favoritos; nenhum dado de domínio é mantido

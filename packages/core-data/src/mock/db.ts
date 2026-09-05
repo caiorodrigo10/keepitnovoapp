@@ -45,9 +45,9 @@ export interface MockDb {
   falhas: EstabelecimentoFalha[];
   /** Sessão de auth mock atual (id do cliente logado, ou `null`). */
   sessionClienteId: string | null;
-  /** Favoritos privados da sessão Cliente, persistidos no snapshot mock. */
-  favoriteHubIds: string[];
-  favoriteStoreIds: string[];
+  /** Favoritos privados por conta Cliente, persistidos no snapshot mock. */
+  favoriteHubIdsByClienteId: Record<string, string[]>;
+  favoriteStoreIdsByClienteId: Record<string, string[]>;
   /** Configuração QA exclusiva do domínio Cliente, aplicada ao adapter mock em memória. */
   clienteQaState: QaScenarioState;
   /** Âncoras persistidas da progressão automática dos pedidos do Cliente. */
@@ -174,8 +174,8 @@ export function createMockDb(): MockDb {
     reembolsos: structuredClone(reembolsosFixture),
     falhas: structuredClone(estabelecimentosFalhasFixture),
     sessionClienteId: null,
-    favoriteHubIds: [],
-    favoriteStoreIds: [],
+    favoriteHubIdsByClienteId: {},
+    favoriteStoreIdsByClienteId: {},
     clienteQaState: createDefaultQaScenarioState(),
     clienteOrderAutomation: {},
     clienteOrderChangeListeners: new Set(),

@@ -9,7 +9,7 @@ import {
   applyClienteSnapshot,
   createClienteBaseline,
   decodeClienteSnapshot,
-  type ClienteMockSnapshotV3,
+  type ClienteMockSnapshotV4,
   type ClienteMockStorage,
 } from './cliente-state';
 import type { MockDb } from './db';
@@ -114,7 +114,7 @@ export class ClienteMockStateStore {
     return persisted ? { status: 'updated' } : { status: 'degraded' };
   }
 
-  private captureSnapshot(): ClienteMockSnapshotV3 {
+  private captureSnapshot(): ClienteMockSnapshotV4 {
     this.rememberCurrentClienteIds();
     const accounts = this.db.clienteCredenciais.flatMap((credential) => {
       const profile = this.db.clientes.find((cliente) => cliente.id === credential.clienteId);
@@ -129,13 +129,17 @@ export class ClienteMockStateStore {
       sessionClienteId: this.db.sessionClienteId,
       orders: this.db.pedidos.filter((pedido) => clienteIds.has(pedido.cliente_id)),
       orderAutomation: this.db.clienteOrderAutomation,
-      favoriteHubIds: this.db.favoriteHubIds,
-      favoriteStoreIds: this.db.favoriteStoreIds,
+      favoriteHubIdsByClienteId: Object.fromEntries(
+        Object.entries(this.db.favoriteHubIdsByClienteId).filter(([clienteId]) => clienteIds.has(clienteId)),
+      ),
+      favoriteStoreIdsByClienteId: Object.fromEntries(
+        Object.entries(this.db.favoriteStoreIdsByClienteId).filter(([clienteId]) => clienteIds.has(clienteId)),
+      ),
       qa: this.db.clienteQaState,
     });
   }
 
-  private enqueueSnapshot(snapshot: ClienteMockSnapshotV3, error: PersistenceError): Promise<boolean> {
+  private enqueueSnapshot(snapshot: ClienteMockSnapshotV4, error: PersistenceError): Promise<boolean> {
     const payload = JSON.stringify(structuredClone(snapshot));
     const writeResult = this.writeQueue.then(async () => {
       try {
@@ -159,7 +163,7 @@ export class ClienteMockStateStore {
     this.db.clienteCredenciais.forEach((credential) => this.managedClienteIds.add(credential.clienteId));
   }
 
-  private rememberSnapshotClienteIds(snapshot: ClienteMockSnapshotV3): void {
+  private rememberSnapshotClienteIds(snapshot: ClienteMockSnapshotV4): void {
     snapshot.accounts.forEach((account) => this.managedClienteIds.add(account.id));
   }
 

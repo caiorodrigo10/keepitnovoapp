@@ -240,20 +240,32 @@ describe('ClienteMockStateStore', () => {
     await expect(reopened.auth.currentUser({ delayMs: 0 })).resolves.toMatchObject({ id: 'cliente-ana' });
   });
 
-  it('persiste favoritos separados após reabertura e limpa ambos no reset', async () => {
+  it('preserva favoritos isolados de duas contas após reabertura e limpa todos no reset', async () => {
     const storage = memoryStorage();
     const first = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
     await first.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
-    await first.favoriteHubs.favorite('hub-centro', { delayMs: 0 });
-    await first.favoriteStores.favorite('estab-farmacia-vida', { delayMs: 0 });
+    await first.favoriteHubs.favorite('hub-ana', { delayMs: 0 });
+    await first.favoriteStores.favorite('store-ana', { delayMs: 0 });
+    await first.auth.signUp(
+      { nome: 'Bea', email: 'bea@example.com', senha: 'senha1234', telefone: null },
+      { delayMs: 0 },
+    );
+    await first.favoriteHubs.favorite('hub-bea', { delayMs: 0 });
+    await first.favoriteStores.favorite('store-bea', { delayMs: 0 });
     await first.demoScenario!.flush();
 
     __resetDataClientForTests();
     const reopened = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
-    await expect(reopened.favoriteHubs.list({ delayMs: 0 })).resolves.toEqual(['hub-centro']);
-    await expect(reopened.favoriteStores.list({ delayMs: 0 })).resolves.toEqual(['estab-farmacia-vida']);
+    await expect(reopened.favoriteHubs.list({ delayMs: 0 })).resolves.toEqual(['hub-bea']);
+    await expect(reopened.favoriteStores.list({ delayMs: 0 })).resolves.toEqual(['store-bea']);
+
+    await reopened.auth.signOut({ delayMs: 0 });
+    await reopened.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
+    await expect(reopened.favoriteHubs.list({ delayMs: 0 })).resolves.toEqual(['hub-ana']);
+    await expect(reopened.favoriteStores.list({ delayMs: 0 })).resolves.toEqual(['store-ana']);
 
     await reopened.demoScenario!.reset();
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!)).toEqual(createClienteBaseline());
     await reopened.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
     await expect(reopened.favoriteHubs.list({ delayMs: 0 })).resolves.toEqual([]);
     await expect(reopened.favoriteStores.list({ delayMs: 0 })).resolves.toEqual([]);
@@ -548,8 +560,8 @@ describe('ClienteMockStateStore', () => {
       qa: baseline.qa,
       accountDeletion: baseline.accountDeletion,
       selectedHubId: baseline.selectedHubId,
-      favoriteStoreIds: baseline.favoriteStoreIds,
-      favoriteHubIds: baseline.favoriteHubIds,
+      favoriteStoreIdsByClienteId: baseline.favoriteStoreIdsByClienteId,
+      favoriteHubIdsByClienteId: baseline.favoriteHubIdsByClienteId,
       orderAutomation: baseline.orderAutomation,
       orders: baseline.orders,
       sessionClienteId: baseline.sessionClienteId,
