@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolvePasswordResetConfirmation } from './passwordRecoveryPresentation';
+import {
+  createPasswordRecoveryDemoCallbackAction,
+  resolvePasswordResetConfirmation,
+} from './passwordRecoveryPresentation';
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
 
 describe('resolvePasswordResetConfirmation', () => {
   it('mantém confirmação neutra e não oferece callback quando a capacidade entrega e-mail', () => {
@@ -37,5 +48,50 @@ describe('resolvePasswordResetConfirmation', () => {
 
     expect(confirmation.message).not.toContain(sensitiveValue);
     expect(confirmation.message).not.toContain(callbackUrl);
+  });
+});
+
+describe('createPasswordRecoveryDemoCallbackAction', () => {
+  it('ignora uma segunda abertura depois que o callback de uso único começou', async () => {
+    const firstOpenGate = deferred<void>();
+    const openedUrls: string[] = [];
+    let openAttempt = 0;
+    const action = createPasswordRecoveryDemoCallbackAction({
+      async openUrl(url) {
+        openedUrls.push(url);
+        openAttempt += 1;
+        if (openAttempt === 1) await firstOpenGate.promise;
+      },
+      onOpening: () => undefined,
+    });
+    const callbackUrl = 'com.keepithub.cliente://auth/reset?requestId=recovery-single-use';
+
+    const firstOpen = action.open(callbackUrl);
+    const duplicateOpen = action.open(callbackUrl);
+
+    await expect(duplicateOpen).resolves.toBe('ignored');
+    expect(openedUrls).toEqual([callbackUrl]);
+
+    firstOpenGate.resolve(undefined);
+    await expect(firstOpen).resolves.toBe('started');
+
+    await expect(action.open(callbackUrl)).resolves.toBe('ignored');
+    expect(openedUrls).toEqual([callbackUrl]);
+  });
+
+  it('marca loading antes de iniciar a abertura do callback', async () => {
+    const events: string[] = [];
+    const action = createPasswordRecoveryDemoCallbackAction({
+      async openUrl() {
+        events.push('open');
+      },
+      onOpening() {
+        events.push('loading');
+      },
+    });
+
+    await action.open('com.keepithub.cliente://auth/reset?requestId=recovery-loading');
+
+    expect(events).toEqual(['loading', 'open']);
   });
 });

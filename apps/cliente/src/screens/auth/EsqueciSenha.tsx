@@ -6,7 +6,10 @@ import { getDataClient, type PasswordResetRequestResult } from '@keepit/core-dat
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { Button, FormScreen, Screen, TextField } from '../../components/ui';
-import { resolvePasswordResetConfirmation } from '../../lib/passwordRecoveryPresentation';
+import {
+  createPasswordRecoveryDemoCallbackAction,
+  resolvePasswordResetConfirmation,
+} from '../../lib/passwordRecoveryPresentation';
 import type { AuthStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'EsqueciSenha'>;
@@ -40,6 +43,13 @@ export default function EsqueciSenha({ navigation }: Props) {
   const [resetResult, setResetResult] = useState<PasswordResetRequestResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [openingDemoCallback, setOpeningDemoCallback] = useState(false);
+  const [demoCallbackAction] = useState(() =>
+    createPasswordRecoveryDemoCallbackAction({
+      openUrl: (callbackUrl) => Linking.openURL(callbackUrl),
+      onOpening: () => setOpeningDemoCallback(true),
+    }),
+  );
 
   async function handleEnviar() {
     setError(null);
@@ -60,7 +70,7 @@ export default function EsqueciSenha({ navigation }: Props) {
     try {
       // O custom scheme volta pelo `subscribe` de passwordRecoveryLinking,
       // que consome a URL bruta e entrega somente recovery=ready|invalid.
-      await Linking.openURL(callbackUrl);
+      await demoCallbackAction.open(callbackUrl);
     } catch {
       navigation.navigate('RecuperarSenha', { recovery: 'invalid' });
     }
@@ -82,6 +92,8 @@ export default function EsqueciSenha({ navigation }: Props) {
           <Button
             title="Abrir callback de demonstração"
             onPress={() => void handleAbrirCallbackDemo(resetResult.callbackUrl)}
+            loading={openingDemoCallback}
+            disabled={openingDemoCallback}
           />
         )}
         <Button

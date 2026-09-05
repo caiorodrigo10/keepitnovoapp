@@ -12,6 +12,37 @@ export type PasswordResetConfirmation =
       showDemoAction: true;
     };
 
+interface PasswordRecoveryDemoCallbackActionOptions {
+  openUrl(callbackUrl: string): Promise<void>;
+  onOpening(): void;
+}
+
+export interface PasswordRecoveryDemoCallbackAction {
+  open(callbackUrl: string): Promise<'started' | 'ignored'>;
+}
+
+/**
+ * Guarda one-shot do CTA demo. A trava é adquirida antes de notificar loading
+ * ou chamar o sistema operacional e não é reaberta: o callback é consumível
+ * uma única vez, e a tela navega para `ready` ou `invalid` depois da abertura.
+ */
+export function createPasswordRecoveryDemoCallbackAction(
+  options: PasswordRecoveryDemoCallbackActionOptions,
+): PasswordRecoveryDemoCallbackAction {
+  let started = false;
+
+  return {
+    async open(callbackUrl) {
+      if (started) return 'ignored';
+
+      started = true;
+      options.onOpening();
+      await options.openUrl(callbackUrl);
+      return 'started';
+    },
+  };
+}
+
 /**
  * Resolve a confirmação pela capacidade devolvida pela port. O texto nunca
  * incorpora endereço informado, callback ou detalhes técnicos do provider.
