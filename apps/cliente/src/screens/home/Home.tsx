@@ -16,7 +16,7 @@ import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useHubsList } from '../../hooks/useHubsList';
 import { useStoresList } from '../../hooks/useStoresList';
-import { CATEGORIAS_HOME, DEFAULT_HUB_ID, isFavorito } from '../../lib/discoveryDisplay';
+import { CATEGORIAS_HOME, isFavorito } from '../../lib/discoveryDisplay';
 import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
 import type { HomeStackParamList } from '../../navigation/types';
 
@@ -59,11 +59,10 @@ export default function Home({ navigation }: Props) {
   );
   const loadingHubs = hubsLoading || isForcedLoading(hubsSimulation);
   // AC1 (Story 5.1.1): Home reflete o hub SELECIONADO (`cart.hubId`), não mais sempre `hubs[0]` fixo.
-  const hubAtual = hubs.find((hub) => hub.id === cart.hubId) ?? hubs[0];
-  const hubId = hubAtual?.id ?? DEFAULT_HUB_ID;
+  const hubAtual = hubs.find((hub) => hub.id === cart.hubId);
 
   const { data: lojas, loading: storesLoading, error: errorLojas } = useStoresList(
-    hubId,
+    cart.hubId ?? '',
     simulationToAsyncCallOptions(storesSimulation),
   );
   const loadingLojas = storesLoading || isForcedLoading(storesSimulation);
@@ -90,7 +89,7 @@ export default function Home({ navigation }: Props) {
           <Text style={styles.retirarEmLabel}>RETIRAR EM</Text>
           <Pressable style={styles.hubSelector} onPress={() => navigation.navigate('EscolhaRetirada')}>
             <Text style={styles.hubNome}>{hubAtual?.nome ?? (loadingHubs ? 'Carregando…' : 'Selecionar hub')}</Text>
-            <Text style={styles.hubChevron}>⌄</Text>
+            {!!hubAtual && <Text style={styles.hubAction}>Alterar</Text>}
           </Pressable>
         </View>
         <View style={styles.avatar}>
@@ -202,9 +201,10 @@ const styles = StyleSheet.create({
     fontSize: typography.sizes.xl.fontSize,
     color: lightColors.text.primary,
   },
-  hubChevron: {
-    fontSize: typography.sizes.lg.fontSize,
-    color: lightColors.text.secondary,
+  hubAction: {
+    fontFamily: 'HankenGrotesk-Medium',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.accent.successFg,
   },
   avatar: {
     width: 40,

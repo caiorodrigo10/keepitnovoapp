@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import type { Hub } from '@keepit/core-data';
@@ -11,7 +11,6 @@ import { AppHeader, Button, FormScreen, TextField } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
 import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useHubsList } from '../../hooks/useHubsList';
-import { DEFAULT_HUB_ID } from '../../lib/discoveryDisplay';
 import { formatDistanceKm, haversineKm, type LatLng } from '../../lib/distance';
 import { geocodeCep } from '../../lib/geocodeCep';
 import { getCurrentCoords } from '../../lib/geolocation';
@@ -84,7 +83,6 @@ export default function EscolhaRetirada({ navigation }: Props) {
     simulationToAsyncCallOptions(hubsSimulation),
   );
   const loading = hubsLoading || isForcedLoading(hubsSimulation);
-  const [selecionado, setSelecionado] = useState<string>(cart.hubId ?? DEFAULT_HUB_ID);
 
   const [origin, setOrigin] = useState<LatLng | null>(null);
   const [mostrarInputCep, setMostrarInputCep] = useState(false);
@@ -130,9 +128,34 @@ export default function EscolhaRetirada({ navigation }: Props) {
     }
   };
 
-  const handleConfirmar = () => {
-    cart.setHubId(selecionado);
-    navigation.goBack();
+  const selectHub = async (hub: Hub, confirmed = false) => {
+    const result = await cart.selectHub(hub, confirmed);
+
+    if (result.status === 'committed' || result.status === 'unchanged') {
+      navigation.goBack();
+      return;
+    }
+
+    if (result.status === 'persistence_error') {
+      Alert.alert('Não foi possível salvar sua seleção. Tente novamente.');
+      return;
+    }
+
+    if (result.status === 'blocked') {
+      Alert.alert('Este hub não está disponível para novos pedidos.');
+      return;
+    }
+
+    Alert.alert('Limpar carrinho?', 'Ao trocar de hub ou loja, os itens atuais serão removidos.', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Continuar',
+        style: 'destructive',
+        onPress: () => {
+          void selectHub(hub, true);
+        },
+      },
+    ]);
   };
 
   return (
@@ -173,18 +196,19 @@ export default function EscolhaRetirada({ navigation }: Props) {
 
           <View style={styles.list}>
             {hubsComDistancia.map(({ hub, distanciaKm }) => (
-              <SelectableRow
-                key={hub.id}
-                selected={hub.id === selecionado}
-                title={hub.nome}
-                subtitle={distanciaKm != null ? `${hub.endereco} · ${formatDistanceKm(distanciaKm)}` : hub.endereco}
-                highlight={formatAbertoAte(hub)}
-                onPress={() => setSelecionado(hub.id)}
-              />
+              <View key={hub.id} pointerEvents={hub.ativo ? 'auto' : 'none'} style={!hub.ativo && styles.hubDisabled}>
+                <SelectableRow
+                  selected={hub.id === cart.hubId}
+                  title={hub.nome}
+                  subtitle={distanciaKm != null ? `${hub.endereco} · ${formatDistanceKm(distanciaKm)}` : hub.endereco}
+                  highlight={formatAbertoAte(hub)}
+                  onPress={() => {
+                    void selectHub(hub);
+                  }}
+                />
+              </View>
             ))}
           </View>
-
-          <Button title="Confirmar ponto" onPress={handleConfirmar} />
         </>
       )}
     </FormScreen>
@@ -195,6 +219,9 @@ const styles = StyleSheet.create({
   list: {
     marginTop: spacing['2'],
     marginBottom: spacing['5'],
+  },
+  hubDisabled: {
+    opacity: 0.45,
   },
   cepBlock: {
     marginTop: spacing['2'],

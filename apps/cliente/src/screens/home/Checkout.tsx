@@ -19,7 +19,6 @@ import {
   faltaParaTicketMinimo,
   podeFinalizarNoHorario,
 } from '../../lib/checkoutValidation';
-import { DEFAULT_HUB_ID } from '../../lib/discoveryDisplay';
 import { formatReais } from '../../lib/format';
 import type { HomeStackParamList, RootStackParamList } from '../../navigation/types';
 
@@ -48,19 +47,15 @@ export default function Checkout({ navigation }: Props) {
   const cart = useCart();
   const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
-  const hubId = cart.hubId ?? DEFAULT_HUB_ID;
-  const { data: hub } = useHubDetail(hubId, {});
+  const { data: hub } = useHubDetail(cart.hubId ?? '', {});
   const { data: loja } = useStoreDetail(cart.estabelecimentoId ?? '', {});
   const { data: cliente } = useCurrentCliente();
 
-  // Pré-seleciona o hub/cartão default (Épico 0 não tem "hub atual" salvo no
-  // perfil do cliente) — mesmo padrão de fallback usado pela Home (Story 0.5).
+  // Pré-seleciona apenas o cartão default. O hub precisa ser uma escolha
+  // explícita do cliente e nunca é preenchido por fallback.
   useEffect(() => {
-    if (!cart.hubId) {
-      cart.setHubId(DEFAULT_HUB_ID);
-    }
     if (!cart.payment && cart.cards.length > 0) {
-      cart.setPayment({ type: 'cartao', cardId: cart.cards[0].id });
+      void cart.setPayment({ type: 'cartao', cardId: cart.cards[0].id });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -103,6 +98,10 @@ export default function Checkout({ navigation }: Props) {
     payment?.type === 'pix' ? 'PIX' : cartaoSelecionado ? `Cartão •••• ${cartaoSelecionado.ultimo4}` : 'Escolher';
 
   const handlePagar = () => {
+    if (!cart.hubId) {
+      return;
+    }
+
     // Story 6.3 (AC1-AC3): validação temporal SÍNCRONA client-side, ANTES de
     // qualquer outra validação/navegação — fail-closed (sem hub/loja
     // carregados ou hub fechado hoje, a validação nunca passa por omissão).
@@ -193,7 +192,7 @@ export default function Checkout({ navigation }: Props) {
       <Button
         title={`Pagar ${formatReais(totalReais)}`}
         onPress={handlePagar}
-        disabled={cart.items.length === 0 || abaixoDoTicketMinimo}
+        disabled={cart.items.length === 0 || !cart.hubId || abaixoDoTicketMinimo}
       />
     </Screen>
   );
