@@ -12,10 +12,13 @@ import {
   getDataClient,
   type DemoScenarioMutationResult,
   type DemoScenarioStatus,
+  type QaOrderProgressionDelaysMs,
   type QaScenarioState,
   type QaSimulationDomain,
   type QaSimulationState,
 } from '@keepit/core-data';
+
+import { advanceQaClock, configureQaOrderProgression } from '../lib/qaOrderProgression';
 
 export interface QaScenarioContextValue {
   state: QaScenarioState;
@@ -24,13 +27,24 @@ export interface QaScenarioContextValue {
     domain: QaSimulationDomain,
     value: QaSimulationState,
   ): Promise<DemoScenarioMutationResult>;
+  configureOrderProgression(
+    delays: QaOrderProgressionDelaysMs | null,
+    enabled: boolean,
+  ): Promise<DemoScenarioMutationResult>;
+  advanceClockBy(offsetMs: number): Promise<DemoScenarioMutationResult>;
   syncFromClient(): void;
 }
 
 const QaScenarioContext = createContext<QaScenarioContextValue | null>(null);
 
 function copyQaState(state: QaScenarioState): QaScenarioState {
-  return { ...state, simulations: { ...state.simulations } };
+  return {
+    ...state,
+    orderProgressionDelaysMs: state.orderProgressionDelaysMs
+      ? { ...state.orderProgressionDelaysMs }
+      : null,
+    simulations: { ...state.simulations },
+  };
 }
 
 export function QaScenarioProvider({ children }: { children: ReactNode }) {
@@ -62,6 +76,36 @@ export function QaScenarioProvider({ children }: { children: ReactNode }) {
     [scenario],
   );
 
+  const configureOrderProgression = useCallback(
+    async (delays: QaOrderProgressionDelaysMs | null, enabled: boolean) => {
+      const next = configureQaOrderProgression(stateRef.current, delays, enabled);
+      stateRef.current = next;
+      setState(next);
+
+      try {
+        return await scenario.setQaState(next);
+      } finally {
+        setPersistence(scenario.getStatus());
+      }
+    },
+    [scenario],
+  );
+
+  const advanceClockBy = useCallback(
+    async (offsetMs: number) => {
+      const next = advanceQaClock(stateRef.current, offsetMs);
+      stateRef.current = next;
+      setState(next);
+
+      try {
+        return await scenario.setQaState(next);
+      } finally {
+        setPersistence(scenario.getStatus());
+      }
+    },
+    [scenario],
+  );
+
   const syncFromClient = useCallback(() => {
     const next = copyQaState(scenario.getQaState());
     stateRef.current = next;
@@ -70,8 +114,22 @@ export function QaScenarioProvider({ children }: { children: ReactNode }) {
   }, [scenario]);
 
   const value = useMemo<QaScenarioContextValue>(
-    () => ({ state, persistence, setSimulation, syncFromClient }),
-    [persistence, setSimulation, state, syncFromClient],
+    () => ({
+      state,
+      persistence,
+      setSimulation,
+      configureOrderProgression,
+      advanceClockBy,
+      syncFromClient,
+    }),
+    [
+      advanceClockBy,
+      configureOrderProgression,
+      persistence,
+      setSimulation,
+      state,
+      syncFromClient,
+    ],
   );
 
   return <QaScenarioContext.Provider value={value}>{children}</QaScenarioContext.Provider>;

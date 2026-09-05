@@ -6,6 +6,7 @@ import { isAnySimulationActive, isForcedLoading, simulationToAsyncCallOptions } 
 const normalState: QaScenarioState = {
   clockOffsetMs: 0,
   autoProgressOrders: true,
+  orderProgressionDelaysMs: null,
   simulations: {
     orders: 'normal',
     stores: 'normal',

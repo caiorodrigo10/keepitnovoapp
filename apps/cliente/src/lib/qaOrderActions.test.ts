@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { DataClient, Pedido } from '@keepit/core-data';
 
-import { advanceOrderForQa, getNextQaOrderAction } from './qaOrderActions';
+import {
+  advanceOrderForQa,
+  canRunQaOrderOutcome,
+  getNextQaOrderAction,
+  runQaOrderOutcome,
+} from './qaOrderActions';
 
 function pedido(status: Pedido['status']): Pedido {
   return { id: 'pedido-qa', status, pin_texto: '7734' } as Pedido;
@@ -71,5 +76,56 @@ describe('advanceOrderForQa', () => {
     expect(order.accept).not.toHaveBeenCalled();
     expect(order.advanceStatus).not.toHaveBeenCalled();
     expect(order.confirmPin).not.toHaveBeenCalled();
+  });
+});
+
+describe('runQaOrderOutcome', () => {
+  it('recusa somente enquanto o pedido aguarda aceite', async () => {
+    const refuse = vi.fn().mockResolvedValue(pedido('recusado'));
+    const cancel = vi.fn();
+    const client = { order: { refuse, cancel } } as unknown as DataClient;
+
+    await expect(runQaOrderOutcome(client, pedido('aguardando_aceite'), 'refuse')).resolves.toEqual(
+      pedido('recusado'),
+    );
+    await expect(runQaOrderOutcome(client, pedido('aceito'), 'refuse')).resolves.toBeNull();
+
+    expect(refuse).toHaveBeenCalledOnce();
+    expect(refuse).toHaveBeenCalledWith('pedido-qa', 'Recusa acionada pelo Painel QA');
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it.each(['aguardando_pagamento', 'aguardando_aceite', 'aceito', 'em_preparo'] as const)(
+    'cancela por meio da port antes de saindo_hub em %s',
+    async (status) => {
+      const cancel = vi.fn().mockResolvedValue(pedido('cancelado'));
+      const client = { order: { cancel } } as unknown as DataClient;
+
+      await expect(runQaOrderOutcome(client, pedido(status), 'cancel')).resolves.toEqual(
+        pedido('cancelado'),
+      );
+
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(cancel).toHaveBeenCalledWith('pedido-qa', 'Cancelamento acionado pelo Painel QA');
+    },
+  );
+
+  it.each([
+    ['saindo_hub', 'cancel'],
+    ['no_hub', 'cancel'],
+    ['no_hub', 'refuse'],
+    ['entregue', 'cancel'],
+    ['cancelado', 'refuse'],
+    ['recusado', 'cancel'],
+  ] as const)('não contorna a máquina em %s com outcome %s', async (status, outcome) => {
+    const order = { cancel: vi.fn(), refuse: vi.fn() };
+
+    await expect(
+      runQaOrderOutcome({ order } as unknown as DataClient, pedido(status), outcome),
+    ).resolves.toBeNull();
+
+    expect(order.cancel).not.toHaveBeenCalled();
+    expect(order.refuse).not.toHaveBeenCalled();
+    expect(canRunQaOrderOutcome(pedido(status), outcome)).toBe(false);
   });
 });

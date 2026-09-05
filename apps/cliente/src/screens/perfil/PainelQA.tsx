@@ -4,20 +4,31 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import {
   getDataClient,
+  type QaOrderProgressionDelaysMs,
   type QaSimulationDomain,
   type QaSimulationState,
 } from '@keepit/core-data';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { BuildMetadata } from '../../components/qa/BuildMetadata';
-import { AppHeader, Button, Screen } from '../../components/ui';
+import { AppHeader, Button, Screen, TextField } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
 import { useQaScenario } from '../../context/QaScenarioContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useCurrentEmail } from '../../hooks/useCurrentEmail';
 import { usePedidosMine } from '../../hooks/usePedidosMine';
 import { clearPedidosResource } from '../../lib/ordersResource';
-import { advanceOrderForQa, getNextQaOrderAction } from '../../lib/qaOrderActions';
+import {
+  advanceOrderForQa,
+  canRunQaOrderOutcome,
+  getNextQaOrderAction,
+  runQaOrderOutcome,
+  type QaOrderOutcome,
+} from '../../lib/qaOrderActions';
+import {
+  parseQaOrderProgression,
+  type QaOrderProgressionValues,
+} from '../../lib/qaOrderProgression';
 import { resetDemoScenario } from '../../lib/resetDemoScenario';
 import type { PerfilStackParamList } from '../../navigation/types';
 import { getQaResetFeedback } from './painelQaFeedback';
@@ -42,10 +53,29 @@ const SIMULATION_STATES: ReadonlyArray<{ key: QaSimulationState; label: string }
   { key: 'error', label: 'Erro' },
 ];
 
+const PROGRESSION_FIELDS: ReadonlyArray<{
+  key: keyof QaOrderProgressionDelaysMs;
+  label: string;
+}> = [
+  { key: 'aceito', label: 'Aceitar após (segundos)' },
+  { key: 'em_preparo', label: 'Iniciar preparo após (segundos)' },
+  { key: 'saindo_hub', label: 'Sair para o hub após (segundos)' },
+  { key: 'no_hub', label: 'Chegar ao hub após (segundos)' },
+];
+
+function progressionValuesFrom(delays: QaOrderProgressionDelaysMs | null): QaOrderProgressionValues {
+  return {
+    aceito: delays ? String(delays.aceito / 1_000) : '',
+    em_preparo: delays ? String(delays.em_preparo / 1_000) : '',
+    saindo_hub: delays ? String(delays.saindo_hub / 1_000) : '',
+    no_hub: delays ? String(delays.no_hub / 1_000) : '',
+  };
+}
+
 export default function PainelQA({ navigation }: Props) {
   const client = getDataClient();
   const { resetDemoCart } = useCart();
-  const { state, setSimulation } = useQaScenario();
+  const { advanceClockBy, configureOrderProgression, state, setSimulation } = useQaScenario();
   const { data: cliente, loading: clienteLoading } = useCurrentCliente();
   const { data: email, loading: emailLoading } = useCurrentEmail();
   const {
@@ -57,13 +87,22 @@ export default function PainelQA({ navigation }: Props) {
 
   const [simulationPending, setSimulationPending] = useState<string | null>(null);
   const [advancingOrderId, setAdvancingOrderId] = useState<string | null>(null);
+  const [orderOutcomePending, setOrderOutcomePending] = useState<string | null>(null);
+  const [scenarioMutationPending, setScenarioMutationPending] = useState<
+    'save' | 'pause' | 'clock' | null
+  >(null);
+  const [progressionValues, setProgressionValues] = useState<QaOrderProgressionValues>(() =>
+    progressionValuesFrom(state.orderProgressionDelaysMs),
+  );
+  const [clockMinutes, setClockMinutes] = useState('');
   const [resetting, setResetting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const operationInFlightRef = useRef(false);
 
   const updatingSimulation = simulationPending !== null;
-  const advancingOrder = advancingOrderId !== null;
-  const busy = resetting || updatingSimulation || advancingOrder;
+  const mutatingOrder = advancingOrderId !== null || orderOutcomePending !== null;
+  const mutatingScenario = scenarioMutationPending !== null;
+  const busy = resetting || updatingSimulation || mutatingOrder || mutatingScenario;
 
   function beginOperation(): boolean {
     if (operationInFlightRef.current) return false;
@@ -105,6 +144,99 @@ export default function PainelQA({ navigation }: Props) {
       setNotice(`Não foi possível avançar o pedido #${pedido.numero}.`);
     } finally {
       setAdvancingOrderId(null);
+      finishOperation();
+    }
+  }
+
+  async function handleOrderOutcome(pedidoId: string, outcome: QaOrderOutcome) {
+    const pedido = pedidos.find((candidate) => candidate.id === pedidoId);
+    if (!pedido || !canRunQaOrderOutcome(pedido, outcome) || busy || !beginOperation()) return;
+
+    setOrderOutcomePending(`${pedido.id}:${outcome}`);
+    setNotice(null);
+    try {
+      await runQaOrderOutcome(client, pedido, outcome);
+      refreshPedidos();
+    } catch {
+      const action = outcome === 'refuse' ? 'recusar' : 'cancelar';
+      setNotice(`Não foi possível ${action} o pedido #${pedido.numero}.`);
+    } finally {
+      setOrderOutcomePending(null);
+      finishOperation();
+    }
+  }
+
+  async function handleSaveProgression() {
+    if (busy) return;
+    const parsed = parseQaOrderProgression(progressionValues);
+    if (parsed.status === 'invalid') {
+      setNotice(parsed.message);
+      return;
+    }
+    if (!beginOperation()) return;
+
+    setScenarioMutationPending('save');
+    setNotice(null);
+    try {
+      const result = await configureOrderProgression(parsed.delays, true);
+      refreshPedidos();
+      if (result.status === 'degraded') {
+        setNotice('Avanço automático ativado em memória, mas não foi persistido.');
+      }
+    } catch {
+      setNotice('Não foi possível configurar o avanço automático.');
+    } finally {
+      setScenarioMutationPending(null);
+      finishOperation();
+    }
+  }
+
+  async function handlePauseProgression() {
+    if (busy || !beginOperation()) return;
+
+    setScenarioMutationPending('pause');
+    setNotice(null);
+    try {
+      const result = await configureOrderProgression(state.orderProgressionDelaysMs, false);
+      refreshPedidos();
+      if (result.status === 'degraded') {
+        setNotice('Avanço automático pausado em memória, mas não foi persistido.');
+      }
+    } catch {
+      setNotice('Não foi possível pausar o avanço automático.');
+    } finally {
+      setScenarioMutationPending(null);
+      finishOperation();
+    }
+  }
+
+  async function handleAdvanceClock() {
+    if (busy) return;
+    const minutes = Number(clockMinutes.trim());
+    if (
+      !/^\d+$/.test(clockMinutes.trim()) ||
+      !Number.isSafeInteger(minutes) ||
+      minutes <= 0 ||
+      minutes > Number.MAX_SAFE_INTEGER / 60_000
+    ) {
+      setNotice('Informe um número inteiro positivo de minutos.');
+      return;
+    }
+    if (!beginOperation()) return;
+
+    setScenarioMutationPending('clock');
+    setNotice(null);
+    try {
+      const result = await advanceClockBy(minutes * 60_000);
+      refreshPedidos();
+      setClockMinutes('');
+      if (result.status === 'degraded') {
+        setNotice('Relógio avançado em memória, mas não foi persistido.');
+      }
+    } catch {
+      setNotice('Não foi possível avançar o relógio QA.');
+    } finally {
+      setScenarioMutationPending(null);
       finishOperation();
     }
   }
@@ -193,6 +325,55 @@ export default function PainelQA({ navigation }: Props) {
         ))}
       </Section>
 
+      <Section title="Avanço automático de pedidos">
+        <Text style={styles.secondaryText}>
+          Estado: {state.autoProgressOrders ? 'ativo' : 'pausado'}
+        </Text>
+        <View style={styles.progressionFields}>
+          {PROGRESSION_FIELDS.map((field) => (
+            <TextField
+              key={field.key}
+              keyboardType="number-pad"
+              label={field.label}
+              onChangeText={(value) =>
+                setProgressionValues((current) => ({ ...current, [field.key]: value }))
+              }
+              value={progressionValues[field.key]}
+            />
+          ))}
+        </View>
+        <View style={styles.actionStack}>
+          <Button
+            disabled={busy}
+            loading={scenarioMutationPending === 'save'}
+            onPress={() => void handleSaveProgression()}
+            title="Salvar e ativar"
+          />
+          <Button
+            disabled={busy || !state.autoProgressOrders}
+            loading={scenarioMutationPending === 'pause'}
+            onPress={() => void handlePauseProgression()}
+            title="Pausar avanço automático"
+            variant="outline"
+          />
+        </View>
+        <View style={styles.clockControls}>
+          <TextField
+            keyboardType="number-pad"
+            label="Avançar relógio (minutos)"
+            onChangeText={setClockMinutes}
+            value={clockMinutes}
+          />
+          <Button
+            disabled={busy}
+            loading={scenarioMutationPending === 'clock'}
+            onPress={() => void handleAdvanceClock()}
+            title="Avançar relógio"
+            variant="outline"
+          />
+        </View>
+      </Section>
+
       <Section title="Pedidos">
         {pedidosLoading && <Text style={styles.secondaryText}>Carregando pedidos…</Text>}
         {pedidosError && <Text style={styles.errorText}>Não foi possível carregar os pedidos reais.</Text>}
@@ -208,15 +389,35 @@ export default function PainelQA({ navigation }: Props) {
                   <Text style={styles.itemTitle}>Pedido #{pedido.numero}</Text>
                   <Text style={styles.orderStatus}>{pedido.status}</Text>
                 </View>
-                {action && (
-                  <Button
-                    disabled={busy}
-                    loading={advancingOrderId === pedido.id}
-                    onPress={() => void handleAdvanceOrder(pedido.id)}
-                    title={action.label}
-                    variant="outline"
-                  />
-                )}
+                <View style={styles.orderActions}>
+                  {action && (
+                    <Button
+                      disabled={busy}
+                      loading={advancingOrderId === pedido.id}
+                      onPress={() => void handleAdvanceOrder(pedido.id)}
+                      title={action.label}
+                      variant="outline"
+                    />
+                  )}
+                  {canRunQaOrderOutcome(pedido, 'refuse') && (
+                    <Button
+                      disabled={busy}
+                      loading={orderOutcomePending === `${pedido.id}:refuse`}
+                      onPress={() => void handleOrderOutcome(pedido.id, 'refuse')}
+                      title="Recusar"
+                      variant="outline"
+                    />
+                  )}
+                  {canRunQaOrderOutcome(pedido, 'cancel') && (
+                    <Button
+                      disabled={busy}
+                      loading={orderOutcomePending === `${pedido.id}:cancel`}
+                      onPress={() => void handleOrderOutcome(pedido.id, 'cancel')}
+                      title="Cancelar"
+                      variant="outline"
+                    />
+                  )}
+                </View>
               </View>
             );
           })}
@@ -293,6 +494,15 @@ const styles = StyleSheet.create({
   simulationBlock: {
     marginBottom: spacing['4'],
   },
+  progressionFields: {
+    marginTop: spacing['4'],
+  },
+  actionStack: {
+    gap: spacing['3'],
+  },
+  clockControls: {
+    marginTop: spacing['5'],
+  },
   itemTitle: {
     color: lightColors.text.primary,
     fontFamily: 'HankenGrotesk-SemiBold',
@@ -336,6 +546,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing['3'],
     justifyContent: 'space-between',
+  },
+  orderActions: {
+    gap: spacing['3'],
   },
   orderStatus: {
     color: lightColors.text.secondary,

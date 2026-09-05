@@ -5,6 +5,8 @@ export type QaOrderAction =
   | { kind: 'confirm-pin'; label: string }
   | { kind: 'override'; status: AdvanceableStatus; label: string };
 
+export type QaOrderOutcome = 'cancel' | 'refuse';
+
 export function getNextQaOrderAction(pedido: Pedido): QaOrderAction | null {
   switch (pedido.status) {
     case 'aguardando_aceite':
@@ -34,4 +36,33 @@ export async function advanceOrderForQa(client: DataClient, pedido: Pedido): Pro
     return client.order.confirmPin(pedido.id, pedido.pin_texto);
   }
   return client.order.advanceStatus(pedido.id, action.status);
+}
+
+export function canRunQaOrderOutcome(pedido: Pedido, outcome: QaOrderOutcome): boolean {
+  if (outcome === 'refuse') {
+    return pedido.status === 'aguardando_aceite';
+  }
+
+  return (
+    pedido.status === 'aguardando_pagamento' ||
+    pedido.status === 'aguardando_aceite' ||
+    pedido.status === 'aceito' ||
+    pedido.status === 'em_preparo'
+  );
+}
+
+export async function runQaOrderOutcome(
+  client: DataClient,
+  pedido: Pedido,
+  outcome: QaOrderOutcome,
+): Promise<Pedido | null> {
+  if (!canRunQaOrderOutcome(pedido, outcome)) {
+    return null;
+  }
+
+  if (outcome === 'refuse') {
+    return client.order.refuse(pedido.id, 'Recusa acionada pelo Painel QA');
+  }
+
+  return client.order.cancel(pedido.id, 'Cancelamento acionado pelo Painel QA');
 }
