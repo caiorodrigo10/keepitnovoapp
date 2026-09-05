@@ -1,6 +1,5 @@
 import { useRef, useState } from 'react';
 import {
-  Alert,
   Pressable,
   StyleSheet,
   type GestureResponderEvent,
@@ -45,13 +44,9 @@ export function FavoriteButton({
 
     pendingRef.current = true;
     setPending(true);
-    const result = await (kind === 'hub' ? toggleHub(resourceId) : toggleStore(resourceId));
+    await (kind === 'hub' ? toggleHub(resourceId) : toggleStore(resourceId));
     pendingRef.current = false;
     setPending(false);
-
-    if (result.status === 'reverted') {
-      Alert.alert(result.error.message);
-    }
   }
 
   return (

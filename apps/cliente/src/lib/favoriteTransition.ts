@@ -13,6 +13,15 @@ export type FavoriteMutationResult =
 export const FAVORITE_MUTATION_ERROR_MESSAGE =
   'Não foi possível atualizar seus favoritos. Tente novamente.';
 
+export function publishFavoriteError(
+  error: Error | null,
+  publish: (error: Error | null) => void,
+  notify: (message: string) => void,
+): void {
+  publish(error);
+  if (error) notify(error.message);
+}
+
 const FAVORITES_FOCUS_ROUTES = new Set(['Home', 'Perfil', 'Favoritos']);
 
 export function shouldRefreshFavoritesOnFocus(routeName: string | undefined): boolean {

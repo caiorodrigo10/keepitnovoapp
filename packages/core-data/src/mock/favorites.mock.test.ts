@@ -81,6 +81,27 @@ describe('favorites.mock (contrato comum) — Story 12.11', () => {
   });
 
   it.each([
+    ['favorite', false],
+    ['unfavorite', true],
+  ] as const)('restaura o valor anterior quando %s não persiste', async (operation, initiallyFavorite) => {
+    if (initiallyFavorite) {
+      db.favoriteHubIdsByClienteId['cliente-ana'] = ['hub-centro'];
+    }
+    db.onClienteMutation = vi.fn(async () => {
+      throw new Error('disk full');
+    });
+
+    await expect(
+      operation === 'favorite'
+        ? favoriteHubs.favorite('hub-centro', { delayMs: 0 })
+        : favoriteHubs.unfavorite('hub-centro', { delayMs: 0 }),
+    ).rejects.toThrow(/disk full|persist/i);
+    await expect(favoriteHubs.list({ delayMs: 0 })).resolves.toEqual(
+      initiallyFavorite ? ['hub-centro'] : [],
+    );
+  });
+
+  it.each([
     ['list', (port: FavoritePort) => port.list({ delayMs: 0 })],
     ['has', (port: FavoritePort) => port.has('resource-a', { delayMs: 0 })],
     ['favorite', (port: FavoritePort) => port.favorite('resource-a', { delayMs: 0 })],

@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { AppState } from 'react-native';
+import { Alert, AppState } from 'react-native';
 import {
   useNavigation,
   type NavigationContainerRef,
@@ -21,6 +21,7 @@ import {
   canApplyFavoriteRefresh,
   createFavoriteToggleExecutor,
   FAVORITE_MUTATION_ERROR_MESSAGE,
+  publishFavoriteError,
   shouldRefreshFavoritesOnFocus,
   type FavoriteMutationResult,
   type FavoriteOperation,
@@ -89,7 +90,9 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const publishError = useCallback((nextError: Error | null) => {
-    if (mountedRef.current) setError(nextError);
+    if (mountedRef.current) {
+      publishFavoriteError(nextError, setError, (message) => Alert.alert(message));
+    }
   }, []);
 
   const hubExecutor = useMemo(

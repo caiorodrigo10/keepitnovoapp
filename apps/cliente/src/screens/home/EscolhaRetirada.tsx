@@ -7,6 +7,7 @@ import { spacing } from '@keepit/ui-tokens';
 
 import { SelectableRow } from '../../components/checkout';
 import { AsyncStateBlock } from '../../components/discovery';
+import { FavoriteButton } from '../../components/discovery/FavoriteButton';
 import { AppHeader, Button, FormScreen, TextField } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
 import { useQaSimulation } from '../../context/QaScenarioContext';
@@ -217,18 +218,30 @@ export default function EscolhaRetirada({ navigation }: Props) {
             {hubsComDistancia.map(({ hub, distanciaKm }) => (
               <View
                 key={hub.id}
-                pointerEvents={hub.ativo && !selectionPending ? 'auto' : 'none'}
-                style={(!hub.ativo || selectionPending) && styles.hubDisabled}
+                style={styles.hubRow}
               >
-                <SelectableRow
-                  selected={hub.id === cart.hubId}
-                  title={hub.nome}
-                  subtitle={distanciaKm != null ? `${hub.endereco} · ${formatDistanceKm(distanciaKm)}` : hub.endereco}
-                  highlight={formatAbertoAte(hub)}
-                  onPress={() => {
-                    beginHubSelection(hub);
-                  }}
-                />
+                <View
+                  pointerEvents={hub.ativo && !selectionPending ? 'auto' : 'none'}
+                  style={[styles.hubSelection, (!hub.ativo || selectionPending) && styles.hubDisabled]}
+                >
+                  <SelectableRow
+                    selected={hub.id === cart.hubId}
+                    title={hub.nome}
+                    subtitle={distanciaKm != null ? `${hub.endereco} · ${formatDistanceKm(distanciaKm)}` : hub.endereco}
+                    highlight={formatAbertoAte(hub)}
+                    onPress={() => {
+                      beginHubSelection(hub);
+                    }}
+                  />
+                </View>
+                <View style={styles.favoriteControl}>
+                  <FavoriteButton
+                    kind="hub"
+                    resourceId={hub.id}
+                    resourceName={hub.nome}
+                    disabled={selectionPending}
+                  />
+                </View>
               </View>
             ))}
           </View>
@@ -243,8 +256,19 @@ const styles = StyleSheet.create({
     marginTop: spacing['2'],
     marginBottom: spacing['5'],
   },
+  hubRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing['2'],
+  },
+  hubSelection: {
+    flex: 1,
+  },
   hubDisabled: {
     opacity: 0.45,
+  },
+  favoriteControl: {
+    marginBottom: spacing['3'],
   },
   cepBlock: {
     marginTop: spacing['2'],

@@ -4,6 +4,7 @@ import {
   canApplyFavoriteRefresh,
   createFavoriteToggleExecutor,
   planFavoriteToggle,
+  publishFavoriteError,
   shouldRefreshFavoritesOnFocus,
 } from './favoriteTransition';
 
@@ -178,5 +179,30 @@ describe('createFavoriteToggleExecutor', () => {
     await executor.toggle('hub-a');
 
     expect(execute).toHaveBeenCalledTimes(2);
+  });
+
+  it('notifica uma vez quando dois controles compartilham a mesma mutação rejeitada', async () => {
+    let ids: ReadonlySet<string> = new Set();
+    const pending = deferred();
+    const notify = vi.fn();
+    const executor = createFavoriteToggleExecutor({
+      getCurrentIds: () => ids,
+      publish: (next) => {
+        ids = next;
+      },
+      execute: () => pending.promise,
+      publishError: (error) => publishFavoriteError(error, () => undefined, notify),
+    });
+
+    const first = executor.toggle('store-a');
+    const follower = executor.toggle('store-a');
+    pending.reject(new Error('disk full'));
+
+    await expect(Promise.all([first, follower])).resolves.toEqual([
+      expect.objectContaining({ status: 'reverted' }),
+      expect.objectContaining({ status: 'reverted' }),
+    ]);
+    expect(notify).toHaveBeenCalledOnce();
+    expect(notify).toHaveBeenCalledWith('Não foi possível atualizar seus favoritos. Tente novamente.');
   });
 });

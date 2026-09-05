@@ -15,6 +15,7 @@ import {
   type ClienteMockStorage,
 } from './cliente-state';
 import type { MockDb } from './db';
+import { connectMockFavoriteMutation } from './favorites.mock';
 import { reconcileAutomaticOrder } from './order-auto-progress';
 
 type PersistenceError = Exclude<DemoScenarioStatus['lastError'], 'read' | null>;
@@ -179,10 +180,11 @@ export class ClienteMockStateStore {
 
   private connectMutationPersistence(): void {
     this.db.onClienteMutation = () => this.persist().then(() => undefined);
-    connectMockPasswordRecoveryMutation(this.db, (mutate) => this.runPasswordRecoveryMutation(mutate));
+    connectMockPasswordRecoveryMutation(this.db, (mutate) => this.runRollbackableStateMutation(mutate));
+    connectMockFavoriteMutation(this.db, (mutate) => this.runRollbackableStateMutation(mutate));
   }
 
-  private runPasswordRecoveryMutation(mutate: () => () => void): Promise<boolean> {
+  private runRollbackableStateMutation(mutate: () => () => void): Promise<boolean> {
     return this.runSerializedStateMutation(async () => {
       const rollback = mutate();
       try {

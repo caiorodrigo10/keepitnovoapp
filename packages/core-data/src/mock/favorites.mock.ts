@@ -4,6 +4,38 @@ import { simulateAsync } from './async-helpers';
 import type { MockDb } from './db';
 
 type FavoritePort = HubFavoritesPort | StoreFavoritesPort;
+type FavoriteMutation = () => () => void;
+
+const favoriteMutationByDb = new WeakMap<
+  MockDb,
+  (mutate: FavoriteMutation) => Promise<boolean>
+>();
+
+export function connectMockFavoriteMutation(
+  db: MockDb,
+  run: (mutate: FavoriteMutation) => Promise<boolean>,
+): void {
+  favoriteMutationByDb.set(db, run);
+}
+
+async function runMockFavoriteMutation(db: MockDb, mutate: FavoriteMutation): Promise<void> {
+  const run = favoriteMutationByDb.get(db);
+  if (run) {
+    const persisted = await run(mutate);
+    if (!persisted) {
+      throw new Error('[mock] Não foi possível persistir a mutação de favoritos.');
+    }
+    return;
+  }
+
+  const rollback = mutate();
+  try {
+    await db.onClienteMutation();
+  } catch (error) {
+    rollback();
+    throw error;
+  }
+}
 
 function requireClienteSession(db: MockDb): string {
   if (!db.sessionClienteId || !db.clientes.some((cliente) => cliente.id === db.sessionClienteId)) {
@@ -57,8 +89,20 @@ function createFavoritePort(db: MockDb, valuesByClienteId: () => Record<string, 
         async (clienteId) => {
           const values = valuesByClienteId()[clienteId] ?? [];
           if (values.includes(resourceId)) return;
-          valuesByClienteId()[clienteId] = [...values, resourceId];
-          await db.onClienteMutation();
+          await runMockFavoriteMutation(db, () => {
+            const valuesByCliente = valuesByClienteId();
+            const current = valuesByCliente[clienteId] ?? [];
+            const previous = valuesByCliente[clienteId];
+            if (current.includes(resourceId)) return () => undefined;
+            valuesByCliente[clienteId] = [...current, resourceId];
+            return () => {
+              if (previous) {
+                valuesByCliente[clienteId] = previous;
+              } else {
+                delete valuesByCliente[clienteId];
+              }
+            };
+          });
         },
         undefined,
         options,
@@ -72,13 +116,21 @@ function createFavoritePort(db: MockDb, valuesByClienteId: () => Record<string, 
           const values = valuesByClienteId()[clienteId] ?? [];
           const index = values.indexOf(resourceId);
           if (index < 0) return;
-          const next = values.filter((id) => id !== resourceId);
-          if (next.length === 0) {
-            delete valuesByClienteId()[clienteId];
-          } else {
-            valuesByClienteId()[clienteId] = next;
-          }
-          await db.onClienteMutation();
+          await runMockFavoriteMutation(db, () => {
+            const valuesByCliente = valuesByClienteId();
+            const current = valuesByCliente[clienteId] ?? [];
+            const previous = valuesByCliente[clienteId];
+            const next = current.filter((id) => id !== resourceId);
+            if (next.length === current.length) return () => undefined;
+            if (next.length === 0) {
+              delete valuesByCliente[clienteId];
+            } else {
+              valuesByCliente[clienteId] = next;
+            }
+            return () => {
+              if (previous) valuesByCliente[clienteId] = previous;
+            };
+          });
         },
         undefined,
         options,

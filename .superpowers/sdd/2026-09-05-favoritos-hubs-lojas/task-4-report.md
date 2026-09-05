@@ -95,3 +95,40 @@ Promise<PasswordResetRequestResult>.
 Durante a verificação, trabalho paralelo modificou
 `packages/core-data/src/mock/auth.mock.test.ts`. Esse arquivo não pertence à
 Task 4 e será explicitamente excluído do staging/commit.
+
+## Follow-up — revisão final do plano
+
+Os três achados de `final-review.md` foram tratados em uma correção integrada:
+
+- `EscolhaRetirada` agora exibe um `FavoriteButton` irmão em cada hub, inclusive
+  quando a contagem atual é zero. O controle continua acessível durante a
+  descoberta e não interfere no bloqueio de seleção do hub.
+- Mutações de favoritos no mock agora executam dentro da mesma barreira
+  serializada usada para persistência, retornam uma closure de rollback e
+  rejeitam quando o `AsyncStorage` falha. Tanto favorito quanto desfavorito
+  restauram o estado em memória anterior à tentativa.
+- A notificação de rollback saiu de cada botão e passou para o único caminho de
+  erro do `FavoritesProvider`. Chamadores que compartilham a mesma Promise
+  recebem o mesmo resultado revertido, mas somente um alerta é publicado.
+
+### Evidência RED adicional
+
+- `favorites.mock.test.ts`: callback de persistência rejeitado deixava o ID
+  adicionado/removido em memória.
+- `cliente-state-store.test.ts`: falha de `AsyncStorage.setItem` resolvia a
+  mutação como sucesso em vez de rejeitar e reverter.
+- `favoriteTransition.test.ts`: `publishFavoriteError` ainda não existia para
+  centralizar uma única notificação entre seguidores da mesma transição.
+
+### Verificação do follow-up
+
+- Gate focado `@keepit/core-data`: PASS — 4 arquivos, 63 testes (incluindo 44
+  nos dois arquivos diretamente alterados).
+- Gate focado `@keepit/cliente`: PASS — 2 arquivos, 26 testes.
+- Suíte completa `@keepit/core-data`: PASS — 32 arquivos, 646 testes.
+- Suíte completa `@keepit/cliente`: PASS — 44 arquivos, 328 testes.
+- `git diff --check`: PASS.
+- Os dois typechecks continuam bloqueados somente pelo mesmo `TS2322` em
+  `packages/core-data/src/supabase/auth.supabase.ts:160`, fora do escopo e sem
+  alterações nesta Task.
+- Nenhum renderer, APK, dependência ou arquivo de autenticação foi alterado.

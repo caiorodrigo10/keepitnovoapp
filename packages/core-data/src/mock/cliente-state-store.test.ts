@@ -283,6 +283,20 @@ describe('ClienteMockStateStore', () => {
     await expect(reopened.favoriteStores.list({ delayMs: 0 })).resolves.toEqual([]);
   });
 
+  it('rejeita e reverte favorito quando o AsyncStorage falha', async () => {
+    const snapshot = createClienteBaseline();
+    snapshot.sessionClienteId = 'cliente-ana';
+    const storage = memoryStorage({
+      initialValue: JSON.stringify(snapshot),
+      setItemError: new Error('disk full'),
+    });
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+
+    await expect(client.favoriteHubs.favorite('hub-centro', { delayMs: 0 })).rejects.toThrow(/persist/i);
+    await expect(client.favoriteHubs.list({ delayMs: 0 })).resolves.toEqual([]);
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!)).toEqual(snapshot);
+  });
+
   it('persiste simulação por port e restaura após reabertura', async () => {
     const storage = memoryStorage();
     const first = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
