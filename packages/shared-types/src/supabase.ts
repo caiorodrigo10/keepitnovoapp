@@ -12,9 +12,9 @@
 // `apps/supabase/supabase/migrations/` e nos arquivos de Story em
 // `docs/stories/`, não precisa ser duplicado aqui.
 //
-// Story 12.11 (2026-09-05) — overlay de drift derivado do output oficial
+// Stories 12.11/12.13 (2026-09-05) — overlay de drift derivado do output oficial
 // `mcp__codex_apps__supabase_generate_typescript_types`: adiciona somente
-// `clientes_hubs_favoritos` e `clientes_estabelecimentos_favoritos`.
+// favoritos e `account_deletion_requests`.
 // O keepit-dev ainda não recebeu as migrations locais 20260814000004–00006;
 // por isso, suas colunas/RPCs forward-schema permanecem verbatim abaixo.
 // Regenerar o arquivo inteiro assim que o histórico remoto alcançar o repo.
@@ -41,6 +41,48 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_deletion_requests: {
+        Row: {
+          cancelled_at: string | null
+          completed_at: string | null
+          delete_at: string
+          failed_at: string | null
+          failure_code: string | null
+          id: string
+          processing_at: string | null
+          requested_at: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cancelled_at?: string | null
+          completed_at?: string | null
+          delete_at?: string
+          failed_at?: string | null
+          failure_code?: string | null
+          id?: string
+          processing_at?: string | null
+          requested_at?: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cancelled_at?: string | null
+          completed_at?: string | null
+          delete_at?: string
+          failed_at?: string | null
+          failure_code?: string | null
+          id?: string
+          processing_at?: string | null
+          requested_at?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       _canary: {
         Row: {
           id: number

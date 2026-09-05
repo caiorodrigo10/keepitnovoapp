@@ -911,7 +911,21 @@ Edge Functions administrativas (aprovar/rejeitar/suspender/estornar) inserem em 
 - [ ] Tentar `SELECT service_role_key` de dentro do bundle mobile — não deve existir.
 - [ ] Testar webhook Asaas com token errado — deve retornar 401.
 - [ ] Tentar `INSERT`/`UPDATE` em `clientes` com `id` de outro usuário — deve falhar (RLS).
-- [ ] Confirmar botão "excluir minha conta" abre WhatsApp com mensagem correta em iOS e Android.
+- [ ] Confirmar que "excluir minha conta" agenda por sete dias no app, encerra
+  a sessão somente após persistir e permite recuperação durante o prazo.
+
+### 8.1 Exclusão agendada
+
+- `account_deletion_requests` força RLS e concede a `authenticated` somente
+  `SELECT` da linha cujo `user_id = auth.uid()`; não existe grant direto de
+  `INSERT`, `UPDATE` ou `DELETE`.
+- A Edge Function `account-deletion` exige JWT válido, deriva dele o usuário e
+  nunca aceita ID de conta no corpo. Para agendar, reautentica e compara a
+  identidade antes de usar a service role server-side.
+- Senha, JWT e service key não entram na tabela, resposta ou logs. Falha de
+  persistência retorna erro e não encerra a sessão.
+- O finalizador/cron destrutivo está bloqueado enquanto faltar a política de
+  retenção aprovada; vencimento sozinho não apaga dados.
 
 ## 9. O que fica para depois (v2+)
 

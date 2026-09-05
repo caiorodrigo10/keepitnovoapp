@@ -1122,3 +1122,14 @@ Ordem sugerida do schema inicial:
 > "Número de hubs torna escolha manual ruim → GPS/Haversine/mapa".*
 
 Ver `docs/architecture/05-security.md` para as políticas RLS de cada tabela.
+
+## 9. Exclusão agendada de conta (MVP reversível)
+
+`account_deletion_requests` registra uma solicitação por usuário com prazo
+exatamente sete dias após `requested_at`. Os estados permitidos são
+`scheduled`, `cancelled`, `processing`, `completed` e `failed`; um índice
+parcial impede mais de uma linha `scheduled|processing` por usuário.
+
+No MVP atual somente o ciclo reversível `status/schedule/cancel` está ativo.
+O processador destrutivo e qualquer cron permanecem ausentes até Produto e
+Jurídico aprovarem, campo a campo, a matriz de apagar/anonimizar/reter.
