@@ -66,6 +66,17 @@ describe('resetDemoScenario', () => {
     });
   });
 
+  it('informa degradação quando a limpeza viva falha', async () => {
+    const { client } = createFakeClient();
+    asyncStorageMock.removeItem.mockResolvedValue(undefined);
+
+    await expect(
+      resetDemoScenario(client, true, {
+        clearLiveCart: vi.fn().mockRejectedValue(new Error('provider indisponível')),
+      }),
+    ).resolves.toEqual({ status: 'degraded', failures: ['cart-live-state'] });
+  });
+
   it('aguarda o reset do cenário antes de limpar carrinho persistido e estado vivo', async () => {
     let resolveReset!: (value: { status: 'reset' }) => void;
     const resetPending = new Promise<{ status: 'reset' }>((resolve) => {

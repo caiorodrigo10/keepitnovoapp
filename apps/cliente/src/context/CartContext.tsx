@@ -78,6 +78,8 @@ interface CartContextValue {
   addCard: (card: Omit<SavedCard, 'id' | 'padrao'>) => SavedCard;
   /** Limpa carrinho/hub/pagamento após um pedido mock ser "pago" (Task 5/AC3) — mantém `cpfCollected`/`cards` (perfil do cliente, não do pedido). */
   clearOrder: () => void;
+  /** Restaura todo o estado efêmero do carrinho para o baseline do cenário demo. */
+  resetDemoCart: () => void;
 }
 
 const CartContext = createContext<CartContextValue | null>(null);
@@ -196,6 +198,17 @@ export function CartProvider({ children }: { children: ReactNode }) {
     setPaymentState(null);
   }, []);
 
+  const resetDemoCart = useCallback(() => {
+    setEstabelecimentoId(null);
+    setItems([]);
+    setHubIdState(null);
+    setPaymentState(null);
+    setCpfCollected(false);
+    setCards([]);
+    setNfSolicitadaState(false);
+    cardIdCounter.current = 1;
+  }, []);
+
   const subtotalReais = useMemo(
     () => items.reduce((total, item) => total + item.precoSnapshotReais * item.quantidade, 0),
     [items],
@@ -254,6 +267,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       markCpfCollected,
       addCard,
       clearOrder,
+      resetDemoCart,
     }),
     [
       estabelecimentoId,
@@ -274,6 +288,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       markCpfCollected,
       addCard,
       clearOrder,
+      resetDemoCart,
     ],
   );
 

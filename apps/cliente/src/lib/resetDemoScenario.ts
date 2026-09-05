@@ -8,7 +8,7 @@ export type ResetDemoScenarioResult =
   | { status: 'reset' }
   | {
       status: 'degraded';
-      failures: Array<'scenario-persistence' | 'cart-persistence'>;
+      failures: Array<'scenario-persistence' | 'cart-persistence' | 'cart-live-state'>;
     };
 
 export interface ResetDemoScenarioOptions {
@@ -35,14 +35,18 @@ export async function resetDemoScenario(
 
   const scenario = await client.demoScenario.reset();
   const cart = await clearCartState();
-  await options.clearLiveCart?.();
 
-  const failures: Array<'scenario-persistence' | 'cart-persistence'> = [];
+  const failures: Array<'scenario-persistence' | 'cart-persistence' | 'cart-live-state'> = [];
   if (scenario.status === 'degraded') {
     failures.push('scenario-persistence');
   }
   if (cart.status === 'degraded') {
     failures.push('cart-persistence');
+  }
+  try {
+    await options.clearLiveCart?.();
+  } catch {
+    failures.push('cart-live-state');
   }
   return failures.length > 0 ? { status: 'degraded', failures } : { status: 'reset' };
 }

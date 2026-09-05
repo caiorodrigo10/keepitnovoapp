@@ -13,7 +13,10 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { getDataClient } from '@keepit/core-data';
 import { fonts } from '@keepit/ui-tokens';
 
+import { SimulatedStateBanner } from './src/components/qa/SimulatedStateBanner';
+import { QA_BUILD_ENABLED } from './src/config/buildInfo';
 import { CartProvider } from './src/context/CartContext';
+import { QaScenarioProvider } from './src/context/QaScenarioContext';
 import { canMountReadyApp } from './src/lib/appReadiness';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { createPasswordRecoveryLinking } from './src/navigation/passwordRecoveryLinking';
@@ -51,14 +54,24 @@ export default function App() {
 
 function ReadyApp() {
   const linking = useMemo(() => createPasswordRecoveryLinking(getDataClient().auth, Linking), []);
+  const navigation = (
+    <NavigationContainer linking={linking}>
+      <RootNavigator />
+    </NavigationContainer>
+  );
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <CartProvider>
-          <NavigationContainer linking={linking}>
-            <RootNavigator />
-          </NavigationContainer>
+          {QA_BUILD_ENABLED ? (
+            <QaScenarioProvider>
+              <SimulatedStateBanner />
+              {navigation}
+            </QaScenarioProvider>
+          ) : (
+            navigation
+          )}
           <StatusBar style="dark" />
         </CartProvider>
       </SafeAreaProvider>
