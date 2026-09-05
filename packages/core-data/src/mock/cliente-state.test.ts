@@ -4,8 +4,22 @@ import {
   CLIENTE_MOCK_SCHEMA_VERSION,
   applyClienteSnapshot,
   createClienteBaseline,
+  decodeClienteSnapshot,
   parseClienteSnapshot,
 } from './cliente-state';
+
+type SnapshotCorruption = {
+  delays?: NonNullable<ReturnType<typeof createClienteBaseline>['qa']['orderProgressionDelaysMs']>;
+  anchor?: string;
+  orderId?: string;
+};
+
+const invalidV3Cases: Array<[string, SnapshotCorruption]> = [
+  ['atraso negativo', { delays: { aceito: -1, em_preparo: 1, saindo_hub: 1, no_hub: 1 } }],
+  ['atraso não finito', { delays: { aceito: 1e999, em_preparo: 1, saindo_hub: 1, no_hub: 1 } }],
+  ['âncora inválida', { anchor: 'não-é-uma-data' }],
+  ['pedido inexistente', { orderId: 'pedido-ausente' }],
+];
 
 describe('cliente-state', () => {
   it('cria baseline com conta demo, mas sem dados de uso do Cliente', () => {
@@ -17,8 +31,9 @@ describe('cliente-state', () => {
       favoriteHubIds: [],
       favoriteStoreIds: [],
       orders: [],
+      orderAutomation: {},
       accountDeletion: null,
-      qa: { clockOffsetMs: 0, autoProgressOrders: true },
+      qa: { clockOffsetMs: 0, autoProgressOrders: false, orderProgressionDelaysMs: null },
     });
     expect(state.accounts).toEqual([
       expect.objectContaining({ id: 'cliente-ana', email: 'ana.souza@example.com' }),
@@ -30,7 +45,7 @@ describe('cliente-state', () => {
     (raw) => expect(parseClienteSnapshot(raw)).toEqual(createClienteBaseline()),
   );
 
-  it('migra V1 para V2 preservando dados e normalizando simulações', () => {
+  it('migra V1 para V3 preservando dados e normalizando simulações', () => {
     const current = createClienteBaseline();
     const legacy = {
       ...current,
@@ -40,11 +55,13 @@ describe('cliente-state', () => {
     };
 
     expect(parseClienteSnapshot(JSON.stringify(legacy))).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 3,
       sessionClienteId: 'cliente-ana',
+      orderAutomation: {},
       qa: {
         clockOffsetMs: 3_600_000,
         autoProgressOrders: false,
+        orderProgressionDelaysMs: null,
         simulations: {
           orders: 'normal',
           stores: 'normal',
@@ -57,6 +74,61 @@ describe('cliente-state', () => {
     });
   });
 
+  it('migra V2 sem inventar agenda nem duração', () => {
+    const current = createClienteBaseline();
+    const pedido = structuredClone(
+      createMockDb().pedidos.find((item) => item.cliente_id === 'cliente-ana')!,
+    );
+    current.accounts[0]!.profile.nome = 'Ana V2';
+    current.orders = [pedido];
+    current.qa.clockOffsetMs = 3_600_000;
+    current.qa.simulations.orders = 'error';
+    const { orderAutomation: _automation, ...withoutAutomation } = current;
+    const legacy = {
+      ...withoutAutomation,
+      schemaVersion: 2,
+      qa: { ...current.qa, autoProgressOrders: true, orderProgressionDelaysMs: undefined },
+    };
+
+    expect(decodeClienteSnapshot(JSON.stringify(legacy))).toMatchObject({
+      status: 'migrated',
+      snapshot: {
+        schemaVersion: 3,
+        orderAutomation: {},
+        accounts: [{ profile: { nome: 'Ana V2' } }],
+        orders: [{ id: pedido.id }],
+        qa: {
+          autoProgressOrders: false,
+          clockOffsetMs: 3_600_000,
+          orderProgressionDelaysMs: null,
+          simulations: { orders: 'error' },
+        },
+      },
+    });
+  });
+
+  it.each(invalidV3Cases)('rejeita snapshot V3 com %s', (_case, corruption) => {
+    const snapshot = createClienteBaseline();
+    const pedido = structuredClone(
+      createMockDb().pedidos.find((item) => item.cliente_id === 'cliente-ana')!,
+    );
+    snapshot.orders = [pedido];
+    snapshot.qa = {
+      ...snapshot.qa,
+      orderProgressionDelaysMs: corruption.delays ?? {
+        aceito: 1,
+        em_preparo: 1,
+        saindo_hub: 1,
+        no_hub: 1,
+      },
+    };
+    snapshot.orderAutomation = {
+      [corruption.orderId ?? pedido.id]: { enteredStatusAt: corruption.anchor ?? pedido.criado_em },
+    };
+
+    expect(parseClienteSnapshot(JSON.stringify(snapshot))).toEqual(createClienteBaseline());
+  });
+
   it('substitui snapshot com status de pedido inválido integralmente pelo baseline', () => {
     const db = createMockDb();
     const snapshot = createClienteBaseline();
@@ -67,7 +139,7 @@ describe('cliente-state', () => {
     expect(parseClienteSnapshot(JSON.stringify(snapshot))).toEqual(createClienteBaseline());
   });
 
-  it('rejeita snapshot V2 com domínio de simulação extra', () => {
+  it('rejeita snapshot V3 com domínio de simulação extra', () => {
     const snapshot = createClienteBaseline();
     (snapshot.qa.simulations as Record<string, string>).checkout = 'error';
 
@@ -207,6 +279,8 @@ describe('cliente-state', () => {
       password: 'senha-restaurada',
     });
     expect(db.sessionClienteId).toBe('cliente-ana');
+    expect(db.clienteQaState).toEqual(snapshot.qa);
+    expect(db.clienteOrderAutomation).toEqual(snapshot.orderAutomation);
     expect(db.pedidos.filter((item) => item.cliente_id === 'cliente-ana')).toEqual([pedido]);
     expect(db.clientes.find((cliente) => cliente.id === 'lj-cliente-thiago')).toEqual(clienteAuxiliar);
     expect(db.pedidos.filter((item) => item.cliente_id !== 'cliente-ana')).toEqual(pedidosAuxiliares);

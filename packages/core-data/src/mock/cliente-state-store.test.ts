@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   __resetDataClientForTests,
@@ -21,11 +21,13 @@ interface MemoryStorageOptions {
 
 interface MemoryStorage extends ClienteMockStorage {
   peek(key: string): string | null;
+  writeCount(): number;
 }
 
 function memoryStorage(options: MemoryStorageOptions = {}): MemoryStorage {
   const values = new Map<string, string>();
   const setItemErrors = [...(options.setItemErrors ?? [])];
+  let writes = 0;
   if (options.initialValue !== undefined) {
     values.set(CLIENTE_MOCK_STATE_KEY, options.initialValue);
   }
@@ -36,6 +38,7 @@ function memoryStorage(options: MemoryStorageOptions = {}): MemoryStorage {
       return values.get(key) ?? null;
     },
     async setItem(key, value) {
+      writes += 1;
       if (options.setItemError) throw options.setItemError;
       const error = setItemErrors.shift();
       if (error) throw error;
@@ -46,6 +49,9 @@ function memoryStorage(options: MemoryStorageOptions = {}): MemoryStorage {
     },
     peek(key) {
       return values.get(key) ?? null;
+    },
+    writeCount() {
+      return writes;
     },
   };
 }
@@ -61,6 +67,166 @@ function deferred<T>() {
 describe('ClienteMockStateStore', () => {
   beforeEach(() => {
     __resetDataClientForTests();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function progressingSnapshot(options: {
+    autoProgressOrders?: boolean;
+    clockOffsetMs?: number;
+  } = {}) {
+    const snapshot = createClienteBaseline();
+    const seeded = structuredClone(
+      createMockDb().pedidos.find((pedido) => pedido.cliente_id === 'cliente-ana')!,
+    );
+    Object.assign(seeded, {
+      status: 'aguardando_aceite',
+      aceito_em: null,
+      saiu_hub_em: null,
+      lojista_chegou_em: null,
+    });
+    snapshot.orders = [seeded];
+    snapshot.qa = {
+      ...snapshot.qa,
+      autoProgressOrders: options.autoProgressOrders ?? true,
+      clockOffsetMs: options.clockOffsetMs ?? 0,
+      orderProgressionDelaysMs: {
+        aceito: 1_000,
+        em_preparo: 1_000,
+        saindo_hub: 1_000,
+        no_hub: 1_000,
+      },
+    };
+    snapshot.orderAutomation = { [seeded.id]: { enteredStatusAt: '2026-09-05T10:00:00.000Z' } };
+    return { snapshot, seeded };
+  }
+
+  it('aplica em ordem as transições vencidas ao reabrir', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-05T10:00:05.000Z'));
+    const { snapshot } = progressingSnapshot();
+    const storage = memoryStorage({ initialValue: JSON.stringify(snapshot) });
+
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+
+    const listing = client.order.listMine('cliente-ana', { delayMs: 0 });
+    await vi.runAllTimersAsync();
+    await expect(listing).resolves.toEqual([
+      expect.objectContaining({ status: 'no_hub' }),
+    ]);
+    await client.demoScenario!.flush();
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!).orderAutomation).toEqual({});
+    expect(storage.writeCount()).toBe(1);
+  });
+
+  it('preserva pedido e âncora enquanto a progressão está pausada', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-05T10:00:05.000Z'));
+    const { snapshot, seeded } = progressingSnapshot({ autoProgressOrders: false });
+    const storage = memoryStorage({ initialValue: JSON.stringify(snapshot) });
+
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+
+    const listing = client.order.listMine('cliente-ana', { delayMs: 0 });
+    await vi.runAllTimersAsync();
+    await expect(listing).resolves.toEqual([
+      expect.objectContaining({ id: seeded.id, status: 'aguardando_aceite' }),
+    ]);
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!).orderAutomation).toEqual(
+      snapshot.orderAutomation,
+    );
+    expect(storage.writeCount()).toBe(0);
+  });
+
+  it('persiste somente as transições vencidas e a nova âncora', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-05T10:00:02.500Z'));
+    const { snapshot, seeded } = progressingSnapshot();
+    const storage = memoryStorage({ initialValue: JSON.stringify(snapshot) });
+
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await client.demoScenario!.flush();
+
+    const persisted = JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!);
+    expect(persisted.orders).toEqual([
+      expect.objectContaining({
+        id: seeded.id,
+        status: 'em_preparo',
+        aceito_em: '2026-09-05T10:00:01.000Z',
+      }),
+    ]);
+    expect(persisted.orderAutomation).toEqual({
+      [seeded.id]: { enteredStatusAt: '2026-09-05T10:00:02.000Z' },
+    });
+    expect(storage.writeCount()).toBe(1);
+  });
+
+  it('é idempotente na segunda hidratação no mesmo instante', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-05T10:00:02.500Z'));
+    const { snapshot } = progressingSnapshot();
+    const storage = memoryStorage({ initialValue: JSON.stringify(snapshot) });
+
+    const first = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await first.demoScenario!.flush();
+    const afterFirstHydration = storage.peek(CLIENTE_MOCK_STATE_KEY);
+    expect(storage.writeCount()).toBe(1);
+
+    __resetDataClientForTests();
+    const second = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await second.demoScenario!.flush();
+
+    expect(storage.peek(CLIENTE_MOCK_STATE_KEY)).toBe(afterFirstHydration);
+    expect(storage.writeCount()).toBe(1);
+  });
+
+  it('não progride quando o relógio QA fica anterior à âncora', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-05T10:00:05.000Z'));
+    const { snapshot, seeded } = progressingSnapshot({ clockOffsetMs: -10_000 });
+    const storage = memoryStorage({ initialValue: JSON.stringify(snapshot) });
+
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+
+    const listing = client.order.listMine('cliente-ana', { delayMs: 0 });
+    await vi.runAllTimersAsync();
+    await expect(listing).resolves.toEqual([
+      expect.objectContaining({ id: seeded.id, status: 'aguardando_aceite' }),
+    ]);
+    expect(JSON.parse(storage.peek(CLIENTE_MOCK_STATE_KEY)!).orderAutomation).toEqual(
+      snapshot.orderAutomation,
+    );
+    expect(storage.writeCount()).toBe(0);
+  });
+
+  it('aplica o estado QA ao banco antes de aguardar a persistência', async () => {
+    const db = createMockDb();
+    const writeStarted = deferred<void>();
+    const releaseWrite = deferred<void>();
+    const storage: ClienteMockStorage = {
+      async getItem() {
+        return JSON.stringify(createClienteBaseline());
+      },
+      async setItem() {
+        writeStarted.resolve(undefined);
+        await releaseWrite.promise;
+      },
+      async removeItem() {},
+    };
+    const stateStore = new ClienteMockStateStore(db, storage);
+    await stateStore.hydrate();
+    const next = stateStore.getQaState();
+    next.clockOffsetMs = 30_000;
+    next.autoProgressOrders = true;
+
+    const update = stateStore.setQaState(next);
+    await writeStarted.promise;
+
+    expect(db.clienteQaState).toEqual(next);
+    releaseWrite.resolve(undefined);
+    await update;
   });
 
   it('hidrata antes de devolver o client e reabre o estado persistido', async () => {
@@ -365,6 +531,7 @@ describe('ClienteMockStateStore', () => {
       selectedHubId: baseline.selectedHubId,
       favoriteStoreIds: baseline.favoriteStoreIds,
       favoriteHubIds: baseline.favoriteHubIds,
+      orderAutomation: baseline.orderAutomation,
       orders: baseline.orders,
       sessionClienteId: baseline.sessionClienteId,
       accounts: baseline.accounts,

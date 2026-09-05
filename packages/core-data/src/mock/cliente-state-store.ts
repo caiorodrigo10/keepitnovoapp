@@ -9,10 +9,11 @@ import {
   applyClienteSnapshot,
   createClienteBaseline,
   decodeClienteSnapshot,
-  type ClienteMockSnapshotV2,
+  type ClienteMockSnapshotV3,
   type ClienteMockStorage,
 } from './cliente-state';
 import type { MockDb } from './db';
+import { reconcileAutomaticOrder } from './order-auto-progress';
 
 type PersistenceError = Exclude<DemoScenarioStatus['lastError'], 'read' | null>;
 
@@ -45,11 +46,15 @@ export class ClienteMockStateStore {
       this.removeManagedClienteDomain();
       this.lastSnapshot = structuredClone(snapshot);
       applyClienteSnapshot(this.db, snapshot);
+      const caughtUp = this.reconcileHydratedOrders();
+      if (caughtUp) {
+        this.lastSnapshot = this.captureSnapshot();
+      }
       this.hydrated = true;
       this.status = { hydrated: true, persistence: 'ready', lastError: null };
 
-      if (decoded.status !== 'valid') {
-        await this.enqueueSnapshot(snapshot, 'write');
+      if (decoded.status !== 'valid' || caughtUp) {
+        await this.enqueueSnapshot(this.lastSnapshot, 'write');
       }
       this.connectMutationPersistence();
     } catch {
@@ -96,12 +101,14 @@ export class ClienteMockStateStore {
   }
 
   async setQaState(next: QaScenarioState): Promise<DemoScenarioMutationResult> {
-    this.lastSnapshot = { ...this.lastSnapshot, qa: structuredClone(next) };
+    const qa = structuredClone(next);
+    this.db.clienteQaState = qa;
+    this.lastSnapshot = { ...this.lastSnapshot, qa: structuredClone(qa) };
     const persisted = await this.persist();
     return persisted ? { status: 'updated' } : { status: 'degraded' };
   }
 
-  private captureSnapshot(): ClienteMockSnapshotV2 {
+  private captureSnapshot(): ClienteMockSnapshotV3 {
     this.rememberCurrentClienteIds();
     const accounts = this.db.clienteCredenciais.flatMap((credential) => {
       const profile = this.db.clientes.find((cliente) => cliente.id === credential.clienteId);
@@ -115,10 +122,12 @@ export class ClienteMockStateStore {
       accounts,
       sessionClienteId: this.db.sessionClienteId,
       orders: this.db.pedidos.filter((pedido) => clienteIds.has(pedido.cliente_id)),
+      orderAutomation: this.db.clienteOrderAutomation,
+      qa: this.db.clienteQaState,
     });
   }
 
-  private enqueueSnapshot(snapshot: ClienteMockSnapshotV2, error: PersistenceError): Promise<boolean> {
+  private enqueueSnapshot(snapshot: ClienteMockSnapshotV3, error: PersistenceError): Promise<boolean> {
     const payload = JSON.stringify(structuredClone(snapshot));
     const writeResult = this.writeQueue.then(async () => {
       try {
@@ -142,7 +151,7 @@ export class ClienteMockStateStore {
     this.db.clienteCredenciais.forEach((credential) => this.managedClienteIds.add(credential.clienteId));
   }
 
-  private rememberSnapshotClienteIds(snapshot: ClienteMockSnapshotV2): void {
+  private rememberSnapshotClienteIds(snapshot: ClienteMockSnapshotV3): void {
     snapshot.accounts.forEach((account) => this.managedClienteIds.add(account.id));
   }
 
@@ -152,5 +161,33 @@ export class ClienteMockStateStore {
       (credential) => !this.managedClienteIds.has(credential.clienteId),
     );
     this.db.pedidos = this.db.pedidos.filter((pedido) => !this.managedClienteIds.has(pedido.cliente_id));
+  }
+
+  private reconcileHydratedOrders(): boolean {
+    const nowMs = Date.now() + this.db.clienteQaState.clockOffsetMs;
+    let changed = false;
+
+    for (const [orderId, runtime] of Object.entries(this.db.clienteOrderAutomation)) {
+      const orderIndex = this.db.pedidos.findIndex((pedido) => pedido.id === orderId);
+      if (orderIndex < 0) continue;
+
+      const reconciled = reconcileAutomaticOrder(
+        this.db.pedidos[orderIndex]!,
+        runtime,
+        this.db.clienteQaState,
+        nowMs,
+      );
+      if (reconciled.transitions.length === 0) continue;
+
+      this.db.pedidos[orderIndex] = reconciled.pedido;
+      if (reconciled.runtime === null) {
+        delete this.db.clienteOrderAutomation[orderId];
+      } else {
+        this.db.clienteOrderAutomation[orderId] = reconciled.runtime;
+      }
+      changed = true;
+    }
+
+    return changed;
   }
 }

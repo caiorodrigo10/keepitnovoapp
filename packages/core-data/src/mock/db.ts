@@ -5,6 +5,7 @@ import type { Produto } from '../ports/product.port';
 import type { Pedido } from '../ports/order.port';
 import type { Saque } from '../ports/wallet.port';
 import type { EstabelecimentoFalha, ReembolsoPendente } from '../ports/admin.port';
+import type { QaScenarioState } from '../ports/demo-scenario.port';
 import {
   clientesCredenciaisFixture,
   clientesFixture,
@@ -18,7 +19,8 @@ import {
   reembolsosFixture,
   saquesFixture,
 } from './fixtures';
-import { CLIENTE_DEMO_INITIAL_PASSWORD } from './cliente-state';
+import { CLIENTE_DEMO_INITIAL_PASSWORD, createDefaultQaScenarioState } from './cliente-state';
+import type { OrderAutomationRuntime } from './order-auto-progress';
 
 /**
  * "Banco" in-memory compartilhado por todas as implementações mock.
@@ -43,6 +45,10 @@ export interface MockDb {
   falhas: EstabelecimentoFalha[];
   /** Sessão de auth mock atual (id do cliente logado, ou `null`). */
   sessionClienteId: string | null;
+  /** Configuração QA exclusiva do domínio Cliente, aplicada ao adapter mock em memória. */
+  clienteQaState: QaScenarioState;
+  /** Âncoras persistidas da progressão automática dos pedidos do Cliente. */
+  clienteOrderAutomation: Record<string, OrderAutomationRuntime>;
   /**
    * Story 2.3 (Task 5) — índice mock-only e-mail → cliente, usado só por
    * `auth.mock.ts#signIn`/`signUp`. Não faz parte de nenhuma port
@@ -163,6 +169,8 @@ export function createMockDb(): MockDb {
     reembolsos: structuredClone(reembolsosFixture),
     falhas: structuredClone(estabelecimentosFalhasFixture),
     sessionClienteId: null,
+    clienteQaState: createDefaultQaScenarioState(),
+    clienteOrderAutomation: {},
     clienteCredenciais: structuredClone(
       clientesCredenciaisFixture.map((credential) => ({
         ...credential,
