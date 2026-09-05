@@ -4,9 +4,9 @@ import { useAsyncResource, type AsyncResourceState } from '@keepit/core-data/hoo
 
 /**
  * [IDS] ADAPT — `@keepit/core-data/hooks` já exporta `useHubs()`, mas sem
- * aceitar `AsyncCallOptions` (necessário na Home para exercitar
- * loading/vazio/erro via `DevStateToggle` — AC3 da Story 0.5). Mesmo padrão
- * de `apps/admin/src/hooks/useAdminHubs.ts`.
+ * aceitar `AsyncCallOptions` (necessário na Home para exercitar os estados
+ * de loading/vazio/erro — AC3 da Story 0.5). Mesmo padrão de
+ * `apps/admin/src/hooks/useAdminHubs.ts`.
  */
 export function useHubsList(options?: AsyncCallOptions): AsyncResourceState<Hub[]> {
   const client = getDataClient();

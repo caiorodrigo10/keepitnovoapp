@@ -5,13 +5,15 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { FloatingCartButton } from '../../components/checkout';
-import { AsyncStateBlock, DevStateToggle, RatingLabel, toAsyncCallOptions, type DevSimState } from '../../components/discovery';
+import { AsyncStateBlock, RatingLabel } from '../../components/discovery';
 import { ImagePlaceholder } from '../../components/discovery/ImagePlaceholder';
 import { Screen } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
+import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useProductDetail } from '../../hooks/useProductDetail';
 import { useStoreDetail } from '../../hooks/useStoreDetail';
 import { getRatingPlaceholder } from '../../lib/discoveryDisplay';
+import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
 import type { HomeStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'DetalheProduto'>;
@@ -38,12 +40,15 @@ function formatPreco(preco: number): string {
  */
 export default function DetalheProduto({ route, navigation }: Props) {
   const { produtoId } = route.params;
-  const [devState, setDevState] = useState<DevSimState>('normal');
-  const options = toAsyncCallOptions(devState);
+  const storesSimulation = useQaSimulation('stores');
   const [quantidade, setQuantidade] = useState(1);
   const cart = useCart();
 
-  const { data: produto, loading: loadingProduto, error: errorProduto } = useProductDetail(produtoId, options);
+  const { data: produto, loading: productLoading, error: errorProduto } = useProductDetail(
+    produtoId,
+    simulationToAsyncCallOptions(storesSimulation),
+  );
+  const loadingProduto = productLoading || isForcedLoading(storesSimulation);
   const { data: loja } = useStoreDetail(produto?.estabelecimento_id ?? '', {});
 
   return (
@@ -57,8 +62,6 @@ export default function DetalheProduto({ route, navigation }: Props) {
             <Text style={styles.roundButtonIcon}>♡</Text>
           </View>
         </View>
-
-        <DevStateToggle value={devState} onChange={setDevState} />
 
         {errorProduto ? (
           <AsyncStateBlock kind="error" errorLabel="Não foi possível carregar este produto. Tente novamente." />

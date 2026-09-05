@@ -7,7 +7,7 @@ import { getDataClient } from '@keepit/core-data';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { AsyncStateBlock } from '../../components/discovery';
-import { OrderStatusDevAdvancer, PedidoTimeline } from '../../components/pedidos';
+import { PedidoTimeline } from '../../components/pedidos';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useHubDetail } from '../../hooks/useHubDetail';
 import { usePedidoDetail } from '../../hooks/usePedidoDetail';
@@ -211,8 +211,6 @@ export default function ModalConfirmarPin({ route, navigation }: Props) {
               />
             </View>
           )}
-
-          <OrderStatusDevAdvancer pedido={pedido} onChanged={refresh} />
 
           <Text style={styles.footer}>
             Pedido #{pedido.numero} · {formatReais(pedido.total_pago_reais)}

@@ -6,10 +6,12 @@ import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-n
 import type { Pedido } from '@keepit/core-data';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
-import { AsyncStateBlock, DevStateToggle, toAsyncCallOptions, type DevSimState } from '../../components/discovery';
+import { AsyncStateBlock } from '../../components/discovery';
+import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { usePedidosMine } from '../../hooks/usePedidosMine';
 import { isPedidoConcluido, isPedidoEmAndamento } from '../../lib/pedidoStatus';
+import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
 import { Screen } from '../../components/ui';
 import type { PedidosStackParamList, RootStackParamList } from '../../navigation/types';
 import { MeusPedidosRow } from './MeusPedidosRow';
@@ -29,10 +31,14 @@ export default function MeusPedidos(_props: Props) {
   const navigation = useNavigation<NativeStackNavigationProp<PedidosStackParamList>>();
   const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { data: cliente } = useCurrentCliente();
+  const ordersSimulation = useQaSimulation('orders');
   const [tab, setTab] = useState<Tab>('andamento');
-  const [devState, setDevState] = useState<DevSimState>('normal');
 
-  const { data: pedidos, loading, error } = usePedidosMine(cliente?.id ?? null, toAsyncCallOptions(devState));
+  const { data: pedidos, loading: ordersLoading, error } = usePedidosMine(
+    cliente?.id ?? null,
+    simulationToAsyncCallOptions(ordersSimulation),
+  );
+  const loading = ordersLoading || isForcedLoading(ordersSimulation);
 
   const emAndamento = useMemo(() => pedidos.filter((p) => isPedidoEmAndamento(p.status)), [pedidos]);
   const concluidos = useMemo(() => pedidos.filter((p) => isPedidoConcluido(p.status)), [pedidos]);
@@ -50,8 +56,6 @@ export default function MeusPedidos(_props: Props) {
   return (
     <Screen>
       <Text style={styles.title}>Pedidos</Text>
-
-      <DevStateToggle value={devState} onChange={setDevState} />
 
       <View style={styles.tabs}>
         <Pressable

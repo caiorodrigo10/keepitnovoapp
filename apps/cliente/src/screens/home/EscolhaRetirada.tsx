@@ -6,14 +6,16 @@ import type { Hub } from '@keepit/core-data';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { SelectableRow } from '../../components/checkout';
-import { AsyncStateBlock, DevStateToggle, toAsyncCallOptions, type DevSimState } from '../../components/discovery';
+import { AsyncStateBlock } from '../../components/discovery';
 import { Button, Screen, TextField } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
+import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useHubsList } from '../../hooks/useHubsList';
 import { DEFAULT_HUB_ID } from '../../lib/discoveryDisplay';
 import { formatDistanceKm, haversineKm, type LatLng } from '../../lib/distance';
 import { geocodeCep } from '../../lib/geocodeCep';
 import { getCurrentCoords } from '../../lib/geolocation';
+import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
 import type { HomeStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'EscolhaRetirada'>;
@@ -76,10 +78,12 @@ function ordenarPorDistancia(hubs: Hub[], origin: LatLng | null): HubComDistanci
  */
 export default function EscolhaRetirada({ navigation }: Props) {
   const cart = useCart();
-  const [devState, setDevState] = useState<DevSimState>('normal');
-  const options = toAsyncCallOptions(devState);
+  const hubsSimulation = useQaSimulation('hubs');
 
-  const { data: hubs, loading, error } = useHubsList(options);
+  const { data: hubs, loading: hubsLoading, error } = useHubsList(
+    simulationToAsyncCallOptions(hubsSimulation),
+  );
+  const loading = hubsLoading || isForcedLoading(hubsSimulation);
   const [selecionado, setSelecionado] = useState<string>(cart.hubId ?? DEFAULT_HUB_ID);
 
   const [origin, setOrigin] = useState<LatLng | null>(null);
@@ -140,8 +144,6 @@ export default function EscolhaRetirada({ navigation }: Props) {
         <Text style={styles.title}>Escolha o ponto de retirada</Text>
         <View style={styles.roundButton} />
       </View>
-
-      <DevStateToggle value={devState} onChange={setDevState} />
 
       {error ? (
         <AsyncStateBlock kind="error" errorLabel="Não foi possível carregar os hubs. Tente novamente." />

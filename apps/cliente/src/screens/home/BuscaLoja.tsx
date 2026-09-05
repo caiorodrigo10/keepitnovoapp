@@ -7,16 +7,15 @@ import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 import {
   AsyncStateBlock,
   CategoryChips,
-  DevStateToggle,
   SearchBar,
   StoreCard,
-  toAsyncCallOptions,
-  type DevSimState,
 } from '../../components/discovery';
 import { Button, Screen } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
+import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useSearchLojas } from '../../hooks/useSearchLojas';
 import { CATEGORIAS_BUSCA } from '../../lib/discoveryDisplay';
+import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
 import type { HomeStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'BuscaLoja'>;
@@ -29,8 +28,7 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'BuscaLoja'>;
  */
 export default function BuscaLoja({ route, navigation }: Props) {
   const cart = useCart();
-  const [devState, setDevState] = useState<DevSimState>('normal');
-  const options = toAsyncCallOptions(devState);
+  const searchSimulation = useQaSimulation('search');
 
   const [query, setQuery] = useState(route.params?.query ?? '');
   const [categoria, setCategoria] = useState(route.params?.categoria ?? 'todos');
@@ -40,7 +38,13 @@ export default function BuscaLoja({ route, navigation }: Props) {
   // decisão (ver `BuscaProduto.tsx` para o texto completo do raciocínio).
   const hubId = cart.hubId;
 
-  const { data: lojas, loading, error } = useSearchLojas(hubId ?? '', query, categoria, options);
+  const { data: lojas, loading: storesLoading, error } = useSearchLojas(
+    hubId ?? '',
+    query,
+    categoria,
+    simulationToAsyncCallOptions(searchSimulation),
+  );
+  const loading = storesLoading || isForcedLoading(searchSimulation);
 
   if (hubId === null) {
     return (
@@ -71,8 +75,6 @@ export default function BuscaLoja({ route, navigation }: Props) {
           <Text style={styles.cancelar}>Cancelar</Text>
         </Pressable>
       </View>
-
-      <DevStateToggle value={devState} onChange={setDevState} />
 
       <CategoryChips categorias={CATEGORIAS_BUSCA} selected={categoria} onSelect={setCategoria} />
 

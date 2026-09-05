@@ -7,20 +7,19 @@ import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 import { FloatingCartButton } from '../../components/checkout';
 import {
   AsyncStateBlock,
-  DevStateToggle,
   ProductRow,
   RatingLabel,
-  toAsyncCallOptions,
-  type DevSimState,
 } from '../../components/discovery';
 import { ImagePlaceholder } from '../../components/discovery/ImagePlaceholder';
 import { LojaEstadoBadge } from '../../components/discovery/LojaEstadoBadge';
 import { Screen } from '../../components/ui';
+import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useCatalogo } from '../../hooks/useCatalogo';
 import { useLojaEstado } from '../../hooks/useLojaEstado';
 import { useStoreDetail } from '../../hooks/useStoreDetail';
 import { formatReais } from '../../lib/format';
 import { getRatingPlaceholder, resolveTicketMinimoReais } from '../../lib/discoveryDisplay';
+import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
 import type { HomeStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Loja'>;
@@ -55,13 +54,13 @@ const CATEGORIA_PRODUTO_LABEL: Record<string, string> = {
  */
 export default function Loja({ route, navigation }: Props) {
   const { estabelecimentoId } = route.params;
-  const [devState, setDevState] = useState<DevSimState>('normal');
-  const options = toAsyncCallOptions(devState);
+  const storesSimulation = useQaSimulation('stores');
+  const options = simulationToAsyncCallOptions(storesSimulation);
   const [categoriaAtiva, setCategoriaAtiva] = useState('todos');
 
-  const { data: loja, loading: loadingLoja, error: errorLoja } = useStoreDetail(estabelecimentoId, options);
-  const { data: estado, loading: loadingEstado } = useLojaEstado(estabelecimentoId, options);
-  const { data: produtos, loading: loadingProdutos, error: errorProdutos } = useCatalogo(estabelecimentoId, options);
+  const { data: loja, loading: storeLoading, error: errorLoja } = useStoreDetail(estabelecimentoId, options);
+  const { data: estado, loading: stateLoading } = useLojaEstado(estabelecimentoId, options);
+  const { data: produtos, loading: catalogLoading, error: errorProdutos } = useCatalogo(estabelecimentoId, options);
 
   const categoriasProduto = useMemo(() => {
     const categorias = new Set(produtos.map((p) => p.categoria_produto));
@@ -73,6 +72,9 @@ export default function Loja({ route, navigation }: Props) {
     [produtos, categoriaAtiva],
   );
 
+  const loadingLoja = storeLoading || isForcedLoading(storesSimulation);
+  const loadingEstado = stateLoading || isForcedLoading(storesSimulation);
+  const loadingProdutos = catalogLoading || isForcedLoading(storesSimulation);
   const loading = loadingLoja || loadingProdutos || loadingEstado;
   const error = errorLoja ?? errorProdutos;
   const catalogoDesabilitado = estado === 'fechada' || estado === 'pausada';
@@ -83,8 +85,6 @@ export default function Loja({ route, navigation }: Props) {
         <Pressable onPress={() => navigation.goBack()} hitSlop={8} style={styles.backButton}>
           <Text style={styles.backIcon}>‹</Text>
         </Pressable>
-
-        <DevStateToggle value={devState} onChange={setDevState} />
 
         {error ? (
           <AsyncStateBlock kind="error" errorLabel="Não foi possível carregar esta loja. Tente novamente." />

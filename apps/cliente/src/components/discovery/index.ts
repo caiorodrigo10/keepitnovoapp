@@ -1,6 +1,5 @@
 export * from './AsyncStateBlock';
 export * from './CategoryChips';
-export * from './DevStateToggle';
 export * from './ImagePlaceholder';
 export * from './LojaEstadoBadge';
 export * from './ProductRow';

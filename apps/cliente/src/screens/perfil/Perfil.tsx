@@ -11,9 +11,11 @@ import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 import { BuildMetadata } from '../../components/qa/BuildMetadata';
 import { Button, Screen, TextField } from '../../components/ui';
 import { QA_BUILD_ENABLED } from '../../config/buildInfo';
+import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useCurrentEmail } from '../../hooks/useCurrentEmail';
 import { isQaRuntimeEnabled, registerVersionTap } from '../../lib/qaAccess';
+import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
 import { isTelefoneBRValido, maskTelefoneBR } from '../../lib/telefoneMask';
 import type { MainTabParamList, PerfilStackParamList } from '../../navigation/types';
 
@@ -96,19 +98,21 @@ const MSG_ERRO_SAIR = 'Não foi possível sair agora. Tente novamente em instant
 export default function Perfil({ navigation }: Props) {
   const client = getDataClient();
   const qaEnabled = isQaRuntimeEnabled(QA_BUILD_ENABLED, client.demoScenario);
+  const profileSimulation = useQaSimulation('profile');
+  const profileOptions = simulationToAsyncCallOptions(profileSimulation);
   const { data: cliente, loading: clienteLoading, error: clienteError } = useCurrentCliente();
   const { data: email, loading: emailLoading, error: emailError } = useCurrentEmail();
   const { data: pedidos, error: pedidosError } = useOrders(cliente?.id ?? '');
 
-  const loading = clienteLoading || emailLoading;
-  const loadError = clienteError ?? emailError;
+  const loading = clienteLoading || emailLoading || isForcedLoading(profileSimulation);
+  const loadError = clienteError ?? emailError ?? (profileOptions.forceError ? MSG_ERRO_PERFIL : null);
 
   // Story 2.8 (AC3, AC7): sobrepõe o valor retornado pela última edição
   // bem-sucedida, sem depender de refetch (os hooks de `@keepit/core-data`
   // não expõem um — mesmo padrão simples do resto do Épico 0/2).
   const [clienteOverride, setClienteOverride] = useState<Cliente | null>(null);
   const [emailOverride, setEmailOverride] = useState<string | null>(null);
-  const clienteAtual = clienteOverride ?? cliente;
+  const clienteAtual = profileOptions.forceEmpty ? null : (clienteOverride ?? cliente);
   const emailAtual = emailOverride ?? email;
 
   const [editingProfile, setEditingProfile] = useState(false);

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -7,18 +7,17 @@ import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import {
   AsyncStateBlock,
-  DevStateToggle,
   SearchBar,
   StoreCard,
-  toAsyncCallOptions,
-  type DevSimState,
 } from '../../components/discovery';
 import { Screen } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
+import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useHubsList } from '../../hooks/useHubsList';
 import { useStoresList } from '../../hooks/useStoresList';
 import { CATEGORIAS_HOME, DEFAULT_HUB_ID, isFavorito } from '../../lib/discoveryDisplay';
+import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
 import type { HomeStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Home'>;
@@ -50,17 +49,24 @@ function CategoriaIcon({ categoriaId, color, size }: { categoriaId: string; colo
  * cards de loja, adicionadas abaixo da seção principal.
  */
 export default function Home({ navigation }: Props) {
-  const [devState, setDevState] = useState<DevSimState>('normal');
-  const options = toAsyncCallOptions(devState);
+  const hubsSimulation = useQaSimulation('hubs');
+  const storesSimulation = useQaSimulation('stores');
 
   const cart = useCart();
   const { data: cliente } = useCurrentCliente();
-  const { data: hubs, loading: loadingHubs, error: errorHubs } = useHubsList(options);
+  const { data: hubs, loading: hubsLoading, error: errorHubs } = useHubsList(
+    simulationToAsyncCallOptions(hubsSimulation),
+  );
+  const loadingHubs = hubsLoading || isForcedLoading(hubsSimulation);
   // AC1 (Story 5.1.1): Home reflete o hub SELECIONADO (`cart.hubId`), não mais sempre `hubs[0]` fixo.
   const hubAtual = hubs.find((hub) => hub.id === cart.hubId) ?? hubs[0];
   const hubId = hubAtual?.id ?? DEFAULT_HUB_ID;
 
-  const { data: lojas, loading: loadingLojas, error: errorLojas } = useStoresList(hubId, options);
+  const { data: lojas, loading: storesLoading, error: errorLojas } = useStoresList(
+    hubId,
+    simulationToAsyncCallOptions(storesSimulation),
+  );
+  const loadingLojas = storesLoading || isForcedLoading(storesSimulation);
 
   const favoritas = useMemo(() => lojas.filter((loja) => isFavorito(loja.id)), [lojas]);
   const lojasPorCategoria = useMemo(() => {
@@ -91,8 +97,6 @@ export default function Home({ navigation }: Props) {
           <Text style={styles.avatarText}>{inicial}</Text>
         </View>
       </View>
-
-      <DevStateToggle value={devState} onChange={setDevState} />
 
       <SearchBar
         readOnly

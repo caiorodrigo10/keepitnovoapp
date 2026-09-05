@@ -8,18 +8,17 @@ import { FloatingCartButton } from '../../components/checkout';
 import {
   AsyncStateBlock,
   CategoryChips,
-  DevStateToggle,
   ProductRow,
   SearchBar,
   StoreCard,
-  toAsyncCallOptions,
-  type DevSimState,
 } from '../../components/discovery';
 import { Button, Screen } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
+import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useSearchLojas } from '../../hooks/useSearchLojas';
 import { useSearchProdutos } from '../../hooks/useSearchProdutos';
 import { CATEGORIAS_BUSCA } from '../../lib/discoveryDisplay';
+import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
 import type { HomeStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'BuscaProduto'>;
@@ -39,8 +38,8 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'BuscaProduto'>;
  */
 export default function BuscaProduto({ route, navigation }: Props) {
   const cart = useCart();
-  const [devState, setDevState] = useState<DevSimState>('normal');
-  const options = toAsyncCallOptions(devState);
+  const searchSimulation = useQaSimulation('search');
+  const options = simulationToAsyncCallOptions(searchSimulation);
 
   const [query, setQuery] = useState(route.params?.query ?? '');
   const [categoria, setCategoria] = useState(route.params?.categoria ?? 'todos');
@@ -53,12 +52,12 @@ export default function BuscaProduto({ route, navigation }: Props) {
 
   const {
     data: produtos,
-    loading: loadingProdutos,
+    loading: productsLoading,
     error: errorProdutos,
   } = useSearchProdutos(hubId ?? '', query, categoria, options);
   const {
     data: lojas,
-    loading: loadingLojas,
+    loading: storesLoading,
     error: errorLojas,
   } = useSearchLojas(hubId ?? '', query, categoria, options);
 
@@ -90,6 +89,8 @@ export default function BuscaProduto({ route, navigation }: Props) {
     );
   }
 
+  const loadingProdutos = productsLoading || isForcedLoading(searchSimulation);
+  const loadingLojas = storesLoading || isForcedLoading(searchSimulation);
   const loading = loadingProdutos || loadingLojas;
   const error = errorProdutos ?? errorLojas;
   const semResultados = !loading && !error && produtos.length === 0 && lojas.length === 0;
@@ -105,8 +106,6 @@ export default function BuscaProduto({ route, navigation }: Props) {
             <Text style={styles.cancelar}>Cancelar</Text>
           </Pressable>
         </View>
-
-        <DevStateToggle value={devState} onChange={setDevState} />
 
         <CategoryChips categorias={CATEGORIAS_BUSCA} selected={categoria} onSelect={setCategoria} />
 

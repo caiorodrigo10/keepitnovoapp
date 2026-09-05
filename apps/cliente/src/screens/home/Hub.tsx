@@ -1,14 +1,15 @@
-import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
-import { AsyncStateBlock, DevStateToggle, StoreCard, toAsyncCallOptions, type DevSimState } from '../../components/discovery';
+import { AsyncStateBlock, StoreCard } from '../../components/discovery';
 import { ImagePlaceholder } from '../../components/discovery/ImagePlaceholder';
 import { Screen } from '../../components/ui';
+import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useHubDetail } from '../../hooks/useHubDetail';
 import { useStoresList } from '../../hooks/useStoresList';
+import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
 import type { HomeStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Hub'>;
@@ -18,12 +19,20 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'Hub'>;
  */
 export default function Hub({ route, navigation }: Props) {
   const { hubId } = route.params;
-  const [devState, setDevState] = useState<DevSimState>('normal');
-  const options = toAsyncCallOptions(devState);
+  const hubsSimulation = useQaSimulation('hubs');
+  const storesSimulation = useQaSimulation('stores');
 
-  const { data: hub, loading: loadingHub, error: errorHub } = useHubDetail(hubId, options);
-  const { data: lojas, loading: loadingLojas, error: errorLojas } = useStoresList(hubId, options);
+  const { data: hub, loading: hubLoading, error: errorHub } = useHubDetail(
+    hubId,
+    simulationToAsyncCallOptions(hubsSimulation),
+  );
+  const { data: lojas, loading: storesLoading, error: errorLojas } = useStoresList(
+    hubId,
+    simulationToAsyncCallOptions(storesSimulation),
+  );
 
+  const loadingHub = hubLoading || isForcedLoading(hubsSimulation);
+  const loadingLojas = storesLoading || isForcedLoading(storesSimulation);
   const loading = loadingHub || loadingLojas;
   const error = errorHub ?? errorLojas;
 
@@ -32,8 +41,6 @@ export default function Hub({ route, navigation }: Props) {
       <Pressable onPress={() => navigation.goBack()} hitSlop={8} style={styles.backButton}>
         <Text style={styles.backIcon}>‹</Text>
       </Pressable>
-
-      <DevStateToggle value={devState} onChange={setDevState} />
 
       {error ? (
         <AsyncStateBlock kind="error" errorLabel="Não foi possível carregar este hub. Tente novamente." />
