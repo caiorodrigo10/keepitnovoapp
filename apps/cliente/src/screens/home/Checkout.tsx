@@ -4,7 +4,6 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { businessConfig } from '@keepit/config';
-import { resolveLojaDisponibilidade } from '@keepit/core-data';
 import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 
 import { CartItemRow, SummaryLinkRow } from '../../components/checkout';
@@ -19,6 +18,7 @@ import {
   canCheckoutStore,
   deveSincronizarCpfCollected,
   faltaParaTicketMinimo,
+  getCheckoutStoreBlockMessage,
   podeFinalizarNoHorario,
 } from '../../lib/checkoutValidation';
 import { formatReais } from '../../lib/format';
@@ -93,10 +93,7 @@ export default function Checkout({ navigation }: Props) {
   const abaixoDoTicketMinimo = cart.subtotalReais < ticketMinimo;
   const faltaParaMinimo = faltaParaTicketMinimo(cart.subtotalReais, ticketMinimo);
   const lojaDisponivelParaCompra = canCheckoutStore(loja);
-  const disponibilidadeLoja = loja ? resolveLojaDisponibilidade(loja) : null;
-  const lojaIndisponivelMensagem = disponibilidadeLoja?.estado === 'pausada'
-    ? 'Esta loja está pausada no momento'
-    : 'Esta loja está fechada agora';
+  const lojaIndisponivelMensagem = getCheckoutStoreBlockMessage(loja);
 
   const payment = cart.payment;
   const cartaoSelecionado =
@@ -106,7 +103,10 @@ export default function Checkout({ navigation }: Props) {
 
   const handlePagar = () => {
     if (!canCheckoutStore(loja)) {
-      Alert.alert('Loja indisponível', lojaIndisponivelMensagem);
+      Alert.alert(
+        'Loja indisponível',
+        getCheckoutStoreBlockMessage(loja) ?? 'Esta loja está fechada agora',
+      );
       return;
     }
 
@@ -141,6 +141,16 @@ export default function Checkout({ navigation }: Props) {
     navigation.navigate('Pagamento');
   };
 
+  const handleOpenPayment = () => {
+    const blockMessage = getCheckoutStoreBlockMessage(loja);
+    if (blockMessage) {
+      Alert.alert('Loja indisponível', blockMessage);
+      return;
+    }
+
+    navigation.navigate('Pagamento');
+  };
+
   return (
     <Screen>
       <AppHeader title="Checkout" back={{ navigation, fallback: () => navigation.navigate('Home') }} />
@@ -160,7 +170,7 @@ export default function Checkout({ navigation }: Props) {
 
       <SummaryLinkRow
         title={formaPagamentoLabel}
-        onPress={() => navigation.navigate('Pagamento')}
+        onPress={handleOpenPayment}
       />
 
       <View style={styles.totais}>
@@ -201,7 +211,7 @@ export default function Checkout({ navigation }: Props) {
         </Text>
       )}
 
-      {!storeLoading && !lojaDisponivelParaCompra && (
+      {!storeLoading && lojaIndisponivelMensagem && (
         <Text accessibilityRole="alert" style={styles.avisoLojaIndisponivel}>
           {lojaIndisponivelMensagem}
         </Text>

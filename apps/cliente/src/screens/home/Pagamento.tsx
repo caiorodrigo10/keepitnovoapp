@@ -13,6 +13,11 @@ import { useCart } from '../../context/CartContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useStoreDetail } from '../../hooks/useStoreDetail';
 import { computeCheckoutTotals } from '../../lib/checkoutTotals';
+import {
+  canCheckoutStore,
+  getCheckoutStoreBlockMessage,
+  loadCheckoutStoreForSubmission,
+} from '../../lib/checkoutValidation';
 import { isSupabaseDataSource } from '../../lib/dataSource';
 import { invalidatePedidos } from '../../lib/ordersResource';
 import { createPaymentSubmissionController } from '../../lib/paymentSubmission';
@@ -66,7 +71,7 @@ function roundReais(value: number): number {
 export default function Pagamento({ navigation }: Props) {
   const cart = useCart();
   const { data: cliente } = useCurrentCliente();
-  const { data: loja } = useStoreDetail(cart.estabelecimentoId ?? '', {});
+  const { data: loja, loading: storeLoading } = useStoreDetail(cart.estabelecimentoId ?? '', {});
   const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -74,9 +79,16 @@ export default function Pagamento({ navigation }: Props) {
   const paymentSubmissionRef = useRef(createPaymentSubmissionController());
 
   const semCartaoSalvo = cart.cards.length === 0;
+  const lojaDisponivelParaCompra = canCheckoutStore(loja);
+  const lojaIndisponivelMensagem = getCheckoutStoreBlockMessage(loja);
 
   const handlePagar = async () => {
     const pendingTarget = paymentSubmissionRef.current.getPendingTarget();
+    if (!pendingTarget && !canCheckoutStore(loja)) {
+      setErro(getCheckoutStoreBlockMessage(loja) ?? 'Esta loja está fechada agora');
+      return;
+    }
+
     if (
       !pendingTarget &&
       (!cart.payment || !cliente || !cart.estabelecimentoId || !cart.hubId || cart.items.length === 0)
@@ -96,11 +108,17 @@ export default function Pagamento({ navigation }: Props) {
         paymentType,
         clearOrder: cart.clearOrder,
         createOrder: async () => {
-          if (!cart.payment || !cliente || !cart.estabelecimentoId || !cart.hubId || cart.items.length === 0) {
+          const estabelecimentoId = cart.estabelecimentoId;
+          if (!cart.payment || !cliente || !estabelecimentoId || !cart.hubId || cart.items.length === 0) {
             throw new Error('Dados do carrinho ficaram indisponíveis antes da criação do pedido.');
           }
 
-          const taxaDeslocamentoReais = loja?.taxa_deslocamento_reais ?? 0;
+          const currentStore = await loadCheckoutStoreForSubmission(
+            estabelecimentoId,
+            (id) => client.store.getById(id),
+          );
+
+          const taxaDeslocamentoReais = currentStore.taxa_deslocamento_reais;
           const { taxaServicoReais, totalReais } = computeCheckoutTotals(
             cart.subtotalReais,
             taxaDeslocamentoReais,
@@ -110,7 +128,7 @@ export default function Pagamento({ navigation }: Props) {
 
           const pedido = await client.order.create({
             cliente_id: cliente.id,
-            estabelecimento_id: cart.estabelecimentoId,
+            estabelecimento_id: estabelecimentoId,
             hub_id: cart.hubId,
             itens: cart.items.map((item) => ({
               produto_id: item.produtoId,
@@ -203,7 +221,11 @@ export default function Pagamento({ navigation }: Props) {
         <Text style={styles.addCardLinkLabel}>+ Adicionar novo cartão</Text>
       </Pressable>
 
-      {!!erro && <Text style={styles.erro}>{erro}</Text>}
+      {!!(erro ?? (!storeLoading && !cleanupPending ? lojaIndisponivelMensagem : null)) && (
+        <Text accessibilityRole="alert" style={styles.erro}>
+          {erro ?? lojaIndisponivelMensagem}
+        </Text>
+      )}
 
       <View style={styles.footer}>
         <Button
@@ -212,7 +234,10 @@ export default function Pagamento({ navigation }: Props) {
           loading={enviando}
           disabled={
             !cleanupPending &&
-            (!cart.payment || cart.items.length === 0 || (semCartaoSalvo && cart.payment?.type === 'cartao'))
+            (!cart.payment ||
+              cart.items.length === 0 ||
+              !lojaDisponivelParaCompra ||
+              (semCartaoSalvo && cart.payment?.type === 'cartao'))
           }
         />
       </View>

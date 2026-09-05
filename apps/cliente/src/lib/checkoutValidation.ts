@@ -30,6 +30,40 @@ export function canCheckoutStore(
   return loja ? resolveLojaDisponibilidade(loja, now).disponivelParaCompra : false;
 }
 
+/** Mensagem única usada por todos os bloqueios de entrada e submissão. */
+export function getCheckoutStoreBlockMessage(
+  loja: Estabelecimento | null | undefined,
+  now: Date = new Date(),
+): string | null {
+  if (!loja) {
+    return 'Esta loja está fechada agora';
+  }
+
+  const disponibilidade = resolveLojaDisponibilidade(loja, now);
+  if (disponibilidade.disponivelParaCompra) {
+    return null;
+  }
+
+  return disponibilidade.estado === 'pausada'
+    ? 'Esta loja está pausada no momento'
+    : 'Esta loja está fechada agora';
+}
+
+/** Relê a loja no boundary final e impede que dado de tela obsoleto autorize pedido. */
+export async function loadCheckoutStoreForSubmission(
+  estabelecimentoId: string,
+  loadStore: (id: string) => Promise<Estabelecimento | null>,
+  now: Date = new Date(),
+): Promise<Estabelecimento> {
+  const loja = await loadStore(estabelecimentoId);
+  const blockMessage = getCheckoutStoreBlockMessage(loja, now);
+  if (!loja || blockMessage) {
+    throw new Error(blockMessage ?? 'Esta loja está fechada agora');
+  }
+
+  return loja;
+}
+
 /**
  * Story 6.3 (AC1, AC4). `agora + estabelecimento.tempo_medio_entrega_min +
  * businessConfig.margemHorarioPedidoMin <= hora_fecha do hub HOJE`.

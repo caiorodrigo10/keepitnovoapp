@@ -8,6 +8,8 @@ import {
   canCheckoutStore,
   deveSincronizarCpfCollected,
   faltaParaTicketMinimo,
+  getCheckoutStoreBlockMessage,
+  loadCheckoutStoreForSubmission,
   podeFinalizarNoHorario,
 } from './checkoutValidation';
 
@@ -39,6 +41,38 @@ describe('canCheckoutStore (Story 12.10, Task 4)', () => {
     [null, false],
   ])('permite checkout somente para loja pública aberta', (store, expected) => {
     expect(canCheckoutStore(store, NOW)).toBe(expected);
+  });
+
+  it.each([
+    [openStore, null],
+    [closedStore, 'Esta loja está fechada agora'],
+    [pausedStore, 'Esta loja está pausada no momento'],
+    [suspendedStore, 'Esta loja está fechada agora'],
+    [deletedStore, 'Esta loja está fechada agora'],
+    [null, 'Esta loja está fechada agora'],
+  ])('expõe um motivo uniforme no bloqueio final do pagamento', (store, expected) => {
+    expect(getCheckoutStoreBlockMessage(store, NOW)).toBe(expected);
+  });
+
+  it.each([
+    [openStore, null],
+    [closedStore, 'Esta loja está fechada agora'],
+    [pausedStore, 'Esta loja está pausada no momento'],
+    [suspendedStore, 'Esta loja está fechada agora'],
+    [deletedStore, 'Esta loja está fechada agora'],
+    [null, 'Esta loja está fechada agora'],
+  ])('relê e valida a loja atual imediatamente antes da submissão', async (store, expectedError) => {
+    const submissionStore = loadCheckoutStoreForSubmission(
+      'store-id',
+      async (id) => (id === 'store-id' ? store : null),
+      NOW,
+    );
+
+    if (expectedError) {
+      await expect(submissionStore).rejects.toThrow(expectedError);
+    } else {
+      await expect(submissionStore).resolves.toBe(openStore);
+    }
   });
 });
 
