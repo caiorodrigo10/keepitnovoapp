@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { StyleSheet, Text } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
@@ -8,26 +8,14 @@ import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 import { Button, FormSheet, TextField } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
-import { apenasDigitosCpf, isCpfValido } from '../../lib/cpf';
+import { apenasDigitosCpf, isCpfValido, maskCpf } from '../../lib/cpf';
+import { createCpfSubmissionController, type CpfSubmitResult } from '../../lib/cpfSubmission';
 import type { RootStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ModalCPF'>;
 
-/**
- * Máscara visual `000.000.000-00` — apenas formatação de exibição. A
- * validação real (dígito verificador) é feita por `isCpfValido`
- * (`apps/cliente/src/lib/cpf.ts`, Story 6.5); situação cadastral na Receita
- * (BrasilAPI) continua fora do MVP.
- */
-function maskCpf(value: string): string {
-  const digits = value.replace(/\D/g, '').slice(0, 11);
-  const parts = [digits.slice(0, 3), digits.slice(3, 6), digits.slice(6, 9)].filter(Boolean);
-  let masked = parts.join('.');
-  if (digits.length > 9) {
-    masked += `-${digits.slice(9, 11)}`;
-  }
-  return masked;
-}
+const CPF_INVALIDO = 'Digite um CPF válido.';
+const CPF_NAO_SALVO = 'Não foi possível salvar seu CPF. Tente novamente.';
 
 /**
  * Modal CPF (Task 4, AC1). Sem frame de dispositivo na referência — usa o
@@ -48,24 +36,42 @@ function maskCpf(value: string): string {
 export default function ModalCPF({ navigation, route }: Props) {
   const cart = useCart();
   const { data: cliente } = useCurrentCliente();
+  const controllerRef = useRef(createCpfSubmissionController());
   const [cpf, setCpf] = useState('');
   const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<string | undefined>();
 
   const digits = apenasDigitosCpf(cpf);
-  const podeConfirmar = isCpfValido(digits) && !salvando;
+  const invalidCpfError = digits.length === 11 && !isCpfValido(digits) ? CPF_INVALIDO : undefined;
+  const fieldError = erro ?? invalidCpfError;
 
   const handleConfirmar = async () => {
+    const controller = controllerRef.current;
+    if (controller.isPending()) return;
+    setErro(undefined);
     setSalvando(true);
-    try {
-      if (cliente?.id) {
-        await getDataClient().auth.updateCpf(cliente.id, digits);
-      }
-      cart.markCpfCollected();
-      route.params?.onSubmit?.();
-      navigation.goBack();
-    } finally {
-      setSalvando(false);
+    const result: CpfSubmitResult = await controller.submit({
+      cpf,
+      clienteId: cliente?.id,
+      updateCpf: async (clienteId, digits) => {
+        await getDataClient().auth.updateCpf(clienteId, digits);
+      },
+    });
+    setSalvando(false);
+
+    if (result.status === 'invalid') {
+      setErro(CPF_INVALIDO);
+      return;
     }
+    if (result.status === 'save-failed') {
+      setErro(CPF_NAO_SALVO);
+      return;
+    }
+    if (result.status === 'busy') return;
+
+    cart.markCpfCollected();
+    route.params?.onSubmit?.();
+    navigation.goBack();
   };
 
   return (
@@ -74,7 +80,7 @@ export default function ModalCPF({ navigation, route }: Props) {
         <Button
           title={salvando ? 'Confirmando...' : 'Confirmar'}
           onPress={handleConfirmar}
-          disabled={!podeConfirmar}
+          disabled={!isCpfValido(digits) || salvando}
         />
       }
     >
@@ -86,9 +92,14 @@ export default function ModalCPF({ navigation, route }: Props) {
       <TextField
         label="CPF"
         value={cpf}
-        onChangeText={(value) => setCpf(maskCpf(value))}
+        onChangeText={(value) => {
+          setErro(undefined);
+          setCpf(maskCpf(value));
+        }}
         placeholder="000.000.000-00"
         keyboardType="number-pad"
+        editable={!salvando}
+        error={fieldError}
       />
     </FormSheet>
   );
