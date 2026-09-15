@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Guia de Uso — Keepit</title>
+  <style>
+    @page { size: A4; margin: 14mm 14mm 16mm; @bottom-right { content: counter(page); color: #667069; font: 9pt Arial, sans-serif; } }
+    * { box-sizing: border-box; }
+    :root { --ink:#172019; --muted:#667069; --line:#dce3dc; --brand:#59bd72; --brand-dark:#173d25; --pale:#eff8f0; --paper:#ffffff; --dark:#152019; --orange:#e8833d; --blue:#3967c9; }
+    html { background:#edf1ed; }
+    body { margin:0; color:var(--ink); background:var(--paper); font-family:Arial, Helvetica, sans-serif; font-size:10.7pt; line-height:1.48; }
+    h1,h2,h3,p { margin-top:0; }
+    h1,h2,h3 { letter-spacing:-.025em; }
+    h1 { font-size:39pt; line-height:.98; margin-bottom:17pt; }
+    h2 { font-size:24pt; line-height:1.05; margin-bottom:7pt; }
+    h3 { font-size:14pt; margin:0 0 5pt; }
+    p { margin-bottom:9pt; }
+    .page { position:relative; min-height:267mm; page-break-after:always; overflow:hidden; }
+    .page:last-child { page-break-after:auto; }
+    .eyebrow { color:#438f58; font-size:8.5pt; font-weight:800; letter-spacing:.14em; text-transform:uppercase; }
+    .lede { color:var(--muted); font-size:13pt; line-height:1.5; max-width:150mm; }
+    .rule { width:100%; height:1px; background:var(--line); margin:12pt 0 18pt; }
+    .cover { display:flex; flex-direction:column; justify-content:space-between; padding:13mm; color:white; background:radial-gradient(circle at 85% 7%, #466b4d 0, transparent 29%), linear-gradient(135deg, #0f1711 0%, #1d3121 65%, #2f5637 100%); }
+    .cover .eyebrow { color:#c8f1d1; }
+    .cover h1 { max-width:130mm; font-size:49pt; }
+    .cover .lede { max-width:112mm; color:#e4eee5; font-size:15pt; }
+    .cover-mark { display:grid; place-items:center; width:35mm; height:35mm; border-radius:11mm; color:#13321d; background:#82e39a; font-size:25pt; font-weight:900; box-shadow:0 16pt 36pt rgba(0,0,0,.22); }
+    .cover-bottom { display:flex; align-items:flex-end; justify-content:space-between; border-top:1px solid rgba(255,255,255,.23); padding-top:10pt; color:#d8e6da; font-size:10pt; }
+    .grid-3 { display:grid; grid-template-columns:repeat(3,1fr); gap:10pt; margin-top:21pt; }
+    .card { border:1px solid var(--line); border-radius:12pt; padding:14pt; background:white; }
+    .card .icon { display:grid; place-items:center; width:28pt; height:28pt; border-radius:9pt; margin-bottom:17pt; background:var(--pale); font-size:14pt; }
+    .card p { margin:0; color:var(--muted); font-size:9.3pt; }
+    .journey { display:grid; grid-template-columns:repeat(4, 1fr); gap:8pt; margin:18pt 0; }
+    .journey-step { position:relative; min-height:43mm; padding:10pt; border-radius:11pt; color:white; background:var(--dark); }
+    .journey-step:not(:last-child)::after { content:'→'; position:absolute; z-index:2; top:50%; right:-10pt; color:var(--brand); font-size:18pt; transform:translateY(-52%); }
+    .journey-step .num { color:#9ce6ae; font-size:8pt; font-weight:800; letter-spacing:.12em; }
+    .journey-step strong { display:block; margin:10pt 0 4pt; font-size:12pt; }
+    .journey-step span:last-child { color:#d6dfd7; font-size:8.6pt; line-height:1.35; }
+    .guide-bar { display:flex; align-items:center; gap:8pt; margin:14pt 0 16pt; padding:9pt 12pt; border-left:4pt solid var(--brand); background:var(--pale); color:#31503a; font-size:9.5pt; }
+    .guide-bar b { color:#1e522d; }
+    .section-title { display:flex; align-items:center; gap:10pt; margin-bottom:13pt; }
+    .section-number { display:grid; place-items:center; flex:0 0 auto; width:27pt; height:27pt; border-radius:50%; color:white; background:var(--brand-dark); font-size:10pt; font-weight:800; }
+    .screen-pair { display:grid; grid-template-columns:1fr 1fr; gap:13pt; align-items:start; }
+    .screen-card { border:1px solid var(--line); border-radius:12pt; padding:8pt; background:#fafcf9; }
+    .screen-card img { display:block; width:100%; height:136mm; object-fit:contain; object-position:top; border-radius:7pt; background:#eef2ee; }
+    .screen-card h3 { margin:8pt 2pt 2pt; font-size:11pt; }
+    .screen-card p { margin:0 2pt 2pt; color:var(--muted); font-size:8.8pt; line-height:1.35; }
+    .steps { margin:0; padding:0; list-style:none; counter-reset:guide; }
+    .steps li { position:relative; min-height:26pt; margin:7pt 0; padding:6pt 7pt 6pt 33pt; border:1px solid var(--line); border-radius:8pt; background:#fff; font-size:9.2pt; }
+    .steps li::before { counter-increment:guide; content:counter(guide); position:absolute; left:7pt; top:7pt; display:grid; place-items:center; width:18pt; height:18pt; border-radius:50%; color:#255a33; background:#d6f2dc; font-size:8pt; font-weight:800; }
+    .side-by-side { display:grid; grid-template-columns:1.03fr .97fr; gap:18pt; align-items:start; }
+    .key { margin-top:11pt; padding:10pt 12pt; border-radius:9pt; color:#5f3d1b; background:#fff3e8; font-size:9pt; }
+    .key b { color:#9b541d; }
+    .admin-shell { overflow:hidden; border:1px solid #26352a; border-radius:12pt; background:#101712; color:#eef3ef; box-shadow:0 12pt 24pt rgba(10,22,13,.1); }
+    .admin-top { display:flex; align-items:center; gap:7pt; height:18pt; padding:0 8pt; color:#b5c6b8; background:#0b100c; font-size:7.5pt; }
+    .dot { width:5pt; height:5pt; border-radius:50%; background:#708676; }
+    .admin-body { display:grid; grid-template-columns:43mm 1fr; min-height:137mm; }
+    .sidebar { padding:13pt 9pt; border-right:1px solid #2a3c2e; background:#152019; }
+    .admin-logo { margin-bottom:14pt; font-weight:900; letter-spacing:.06em; font-size:11pt; }
+    .admin-logo i { color:#80e296; font-style:normal; }
+    .nav-item { margin:5pt 0; padding:6pt 7pt; border-radius:5pt; color:#b9c9bc; font-size:7.9pt; }
+    .nav-item.active { color:#142216; background:#80e296; font-weight:800; }
+    .dashboard { padding:16pt; background:#17231a; }
+    .dashboard small { color:#94aa98; }
+    .dashboard h3 { margin:3pt 0 14pt; color:white; font-size:18pt; }
+    .metric-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:7pt; }
+    .metric, .queue { padding:9pt; border:1px solid #314237; border-radius:7pt; background:#1e2c21; }
+    .metric strong { display:block; margin-top:6pt; color:#84e59a; font-size:16pt; }
+    .queue { margin-top:8pt; }
+    .queue b { display:block; margin-bottom:7pt; font-size:9pt; }
+    .queue-row { display:flex; justify-content:space-between; margin:5pt 0; padding:5pt 0; border-top:1px solid #314237; color:#c8d4c9; font-size:7.7pt; }
+    .queue-row span:last-child { color:#92e3a5; }
+    .operation-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:9pt; margin-top:15pt; }
+    .operation { padding:12pt; border:1px solid var(--line); border-radius:10pt; }
+    .operation b { display:block; margin-bottom:6pt; font-size:10pt; }
+    .operation p { margin:0; color:var(--muted); font-size:8.7pt; line-height:1.4; }
+    .list-2 { display:grid; grid-template-columns:1fr 1fr; gap:11pt; margin-top:15pt; }
+    .list-2 .card { min-height:48mm; }
+    .list-2 ul { margin:6pt 0 0; padding-left:13pt; color:var(--muted); font-size:9pt; }
+    .footer-note { position:absolute; bottom:0; left:0; right:0; padding-top:7pt; border-top:1px solid var(--line); color:#78827a; font-size:8pt; }
+    .closing { display:flex; flex-direction:column; justify-content:space-between; padding:17mm 13mm; color:white; background:linear-gradient(135deg,#163121,#2a7040); }
+    .closing h2 { max-width:125mm; color:white; font-size:36pt; }
+    .closing p { max-width:112mm; color:#e2f2e5; font-size:13pt; }
+    .checklist { display:grid; grid-template-columns:1fr 1fr; gap:9pt; margin-top:17pt; }
+    .check { display:flex; gap:8pt; align-items:flex-start; padding:9pt; border:1px solid rgba(255,255,255,.24); border-radius:9pt; color:#e9f4ea; font-size:9pt; }
+    .check::before { content:'✓'; display:grid; place-items:center; flex:0 0 17pt; height:17pt; border-radius:50%; color:#164420; background:#9eedad; font-weight:900; }
+  </style>
+</head>
+<body>
+  <section class="page cover">
+    <div>
+      <div class="cover-mark">K</div>
+      <div class="eyebrow" style="margin-top:26mm">Guia de uso</div>
+      <h1>Keepit<br>por inteiro.</h1>
+      <p class="lede">Um guia direto para descobrir, vender e operar — do primeiro acesso à conclusão de cada pedido.</p>
+    </div>
+    <div class="cover-bottom"><b>Cliente · Parceiro · Admin</b><span>Versão 1.0</span></div>
+  </section>
+
+  <section class="page" id="visao-geral">
+    <div class="eyebrow">Como a Keepit funciona</div>
+    <h2>Uma jornada. Três experiências.</h2>
+    <p class="lede">A Keepit aproxima clientes, parceiros e operação em torno do mesmo pedido. Cada ambiente mostra as informações e as ações necessárias para aquele momento.</p>
+    <div class="grid-3">
+      <article class="card"><div class="icon">🛍️</div><h3>Cliente</h3><p>Escolhe o hub, encontra lojas e produtos, realiza o pagamento e acompanha a retirada.</p></article>
+      <article class="card"><div class="icon">🏪</div><h3>Parceiro</h3><p>Organiza catálogo, aceita pedidos, prepara itens, coordena a retirada e acompanha resultados.</p></article>
+      <article class="card"><div class="icon">◫</div><h3>Admin</h3><p>Conduz as rotinas de operação, acompanha pedidos e organiza as atividades da plataforma.</p></article>
+    </div>
+    <div class="guide-bar"><b>Como ler este guia:</b> cada capítulo apresenta o objetivo da área, as telas principais e a sequência recomendada para concluir uma tarefa.</div>
+    <div class="journey">
+      <article class="journey-step"><span class="num">01</span><strong>Descobrir</strong><span>O cliente seleciona o hub e encontra o que precisa.</span></article>
+      <article class="journey-step"><span class="num">02</span><strong>Comprar</strong><span>Produtos, retirada e pagamento são confirmados.</span></article>
+      <article class="journey-step"><span class="num">03</span><strong>Preparar</strong><span>O parceiro recebe o pedido e organiza os itens.</span></article>
+      <article class="journey-step"><span class="num">04</span><strong>Retirar</strong><span>Cliente e parceiro se encontram no hub para concluir.</span></article>
+    </div>
+    <div class="footer-note">O ponto de partida é sempre simples: escolha o perfil que corresponde à sua atividade e siga o fluxo da tarefa.</div>
+  </section>
+
+  <section class="page" id="cliente-hub">
+    <div class="section-title"><span class="section-number">1</span><div><div class="eyebrow">App Cliente</div><h2>Encontre o que precisa perto de você.</h2></div></div>
+    <p class="lede">No app Cliente, o hub escolhido organiza a sua experiência de compra. A partir dele, você encontra lojas, produtos e opções de retirada.</p>
+    <div class="screen-pair">
+      <article class="screen-card"><img src="../design-refs/cliente-02-home-hub.png" alt="Tela inicial do app Cliente" /><h3>Home</h3><p>Veja o hub atual, explore categorias e encontre lojas próximas.</p></article>
+      <article class="screen-card"><img src="../design-refs/cliente-05-escolha-ponto-retirada.png" alt="Tela de escolha de ponto de retirada" /><h3>Escolha do hub</h3><p>Selecione o ponto de retirada que funciona melhor para sua rotina.</p></article>
+    </div>
+    <div class="footer-note">Dica: confirme o hub antes de começar a compra. Assim, a disponibilidade e a retirada ficam alinhadas desde o início.</div>
+  </section>
+
+  <section class="page" id="cliente-compra">
+    <div class="section-title"><span class="section-number">2</span><div><div class="eyebrow">App Cliente</div><h2>Escolha, revise e pague.</h2></div></div>
+    <div class="side-by-side">
+      <div>
+        <p>Ao abrir uma loja, navegue pelo catálogo e toque em um produto para ver seus detalhes. Ajuste a quantidade e adicione ao carrinho quando estiver pronto.</p>
+        <ol class="steps">
+          <li>Use a busca ou as categorias para localizar lojas e produtos.</li>
+          <li>Abra a loja e escolha os itens que deseja retirar.</li>
+          <li>Revise o carrinho, incluindo ponto de retirada e valores.</li>
+          <li>Escolha a forma de pagamento e confirme o pedido.</li>
+        </ol>
+        <div class="key"><b>Antes de confirmar:</b> confira os itens, a quantidade e o hub de retirada. O resumo apresenta todos os dados da compra em um só lugar.</div>
+      </div>
+      <article class="screen-card"><img src="../design-refs/cliente-03-loja-catalogo.png" alt="Catálogo de uma loja" /><h3>Loja e catálogo</h3><p>Produtos organizados para você escolher com clareza.</p></article>
+    </div>
+    <div class="screen-pair" style="margin-top:12pt">
+      <article class="screen-card"><img src="../design-refs/cliente-04-carrinho.png" alt="Carrinho do Cliente" /><h3>Carrinho</h3><p>Revise itens, taxas e o total antes de avançar.</p></article>
+      <article class="screen-card"><img src="../design-refs/cliente-13-pagamento.png" alt="Pagamento do pedido" /><h3>Pagamento</h3><p>Escolha PIX ou cartão e confirme a compra.</p></article>
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="section-title"><span class="section-number">3</span><div><div class="eyebrow">App Cliente</div><h2>Acompanhe até a retirada.</h2></div></div>
+    <p class="lede">Depois de confirmar a compra, a aba <b>Meus Pedidos</b> concentra o acompanhamento. Ali você vê a etapa atual e sabe quando agir.</p>
+    <div class="screen-pair">
+      <article class="screen-card"><img src="../design-refs/cliente-07-pedidos.png" alt="Lista de pedidos do Cliente" /><h3>Meus Pedidos</h3><p>Alterne entre pedidos em andamento e concluídos.</p></article>
+      <article class="screen-card"><img src="../design-refs/cliente-06-seu-pedido-pin.png" alt="Detalhe de pedido com PIN" /><h3>Retirada no hub</h3><p>Ao chegar, siga as orientações da tela e apresente o PIN para concluir a retirada.</p></article>
+    </div>
+    <div class="guide-bar"><b>Para retirar:</b> abra o pedido em andamento, confirme sua chegada ao hub e apresente o código de retirada ao parceiro.</div>
+    <div class="footer-note">Seu histórico permanece disponível em Meus Pedidos, junto com o recibo de cada compra concluída.</div>
+  </section>
+
+  <section class="page">
+    <div class="section-title"><span class="section-number">4</span><div><div class="eyebrow">App Parceiro</div><h2>Tenha a operação da sua loja na mão.</h2></div></div>
+    <p class="lede">O app Parceiro reúne os pedidos, catálogo, dados financeiros e perfil da loja. A navegação principal organiza tudo em quatro áreas: Pedidos, Catálogo, Financeiro e Perfil.</p>
+    <div class="screen-pair">
+      <article class="screen-card"><img src="../design-refs/lojista-01-painel.png" alt="Painel do Parceiro" /><h3>Painel financeiro</h3><p>Acompanhe saldo disponível, valores a receber e o resumo de vendas.</p></article>
+      <article class="screen-card"><img src="../design-refs/lojista-06-cadastro-passo1.png" alt="Cadastro da loja" /><h3>Dados da loja</h3><p>Preencha os dados da operação para apresentar sua loja na plataforma.</p></article>
+    </div>
+    <div class="footer-note">Use o Perfil para consultar dados da loja, horários, formas de recebimento e informações da conta.</div>
+  </section>
+
+  <section class="page">
+    <div class="section-title"><span class="section-number">5</span><div><div class="eyebrow">App Parceiro</div><h2>Do novo pedido à entrega.</h2></div></div>
+    <div class="side-by-side">
+      <div>
+        <p>Pedidos ativos aparecem na área <b>Pedidos</b>. Cada cartão mostra o status atual e oferece a ação adequada para seguir com a operação.</p>
+        <ol class="steps">
+          <li>Abra o novo pedido e confirme o atendimento.</li>
+          <li>Separe os itens e marque cada um no checklist.</li>
+          <li>Quando tudo estiver pronto, siga para o hub de retirada.</li>
+          <li>Confirme a chegada e valide o PIN apresentado pelo cliente.</li>
+        </ol>
+        <div class="key"><b>Organização:</b> mantenha o pedido aberto enquanto separa os itens. O checklist ajuda a conferir tudo antes da retirada.</div>
+      </div>
+      <article class="screen-card"><img src="../design-refs/lojista-02-pedidos.png" alt="Pedidos ativos no app Parceiro" /><h3>Pedidos ativos</h3><p>Veja os pedidos que precisam de atenção e acompanhe cada etapa.</p></article>
+    </div>
+    <div class="screen-pair" style="margin-top:12pt">
+      <article class="screen-card"><img src="../design-refs/lojista-08-pedido-detalhe-separar.png" alt="Separação de pedido" /><h3>Separação</h3><p>Confira os itens e marque o pedido como pronto.</p></article>
+      <article class="screen-card"><img src="../design-refs/lojista-03-confirmar-retirada-pin.png" alt="Confirmação de retirada por PIN" /><h3>Confirmação</h3><p>Digite o PIN apresentado pelo cliente para concluir a retirada.</p></article>
+    </div>
+  </section>
+
+  <section class="page">
+    <div class="section-title"><span class="section-number">6</span><div><div class="eyebrow">App Parceiro</div><h2>Cuide do catálogo e do financeiro.</h2></div></div>
+    <p class="lede">Mantenha produtos, disponibilidade e informações financeiras atualizados para uma operação organizada todos os dias.</p>
+    <div class="screen-pair">
+      <article class="screen-card"><img src="../design-refs/lojista-07-catalogo.png" alt="Catálogo do Parceiro" /><h3>Catálogo</h3><p>Cadastre, edite e gerencie os produtos que ficam disponíveis para compra.</p></article>
+      <article class="screen-card"><img src="../design-refs/lojista-09-horarios.png" alt="Horários e disponibilidade" /><h3>Horários</h3><p>Configure os horários e mantenha a disponibilidade da loja alinhada à operação.</p></article>
+    </div>
+    <div class="screen-pair" style="margin-top:12pt">
+      <article class="screen-card"><img src="../design-refs/lojista-05-carteira.png" alt="Carteira do Parceiro" /><h3>Carteira</h3><p>Consulte saldo disponível, valores a receber e organize suas movimentações.</p></article>
+      <article class="screen-card"><img src="../design-refs/lojista-10-extrato.png" alt="Extrato financeiro" /><h3>Extrato</h3><p>Acompanhe as entradas e saídas da loja com clareza.</p></article>
+    </div>
+  </section>
+
+  <section class="page" id="admin-operacao">
+    <div class="section-title"><span class="section-number">7</span><div><div class="eyebrow">Painel Admin</div><h2>Visibilidade para conduzir a operação.</h2></div></div>
+    <p class="lede">O Painel Admin centraliza as rotinas da plataforma. A barra lateral organiza todas as áreas para que cada atividade seja encontrada rapidamente.</p>
+    <div class="admin-shell">
+      <div class="admin-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span style="margin-left:6pt">Painel Admin Keepit</span></div>
+      <div class="admin-body">
+        <aside class="sidebar"><div class="admin-logo">KEEPIT<i>HUB</i></div><div class="nav-item active">Aprovações</div><div class="nav-item">Hubs</div><div class="nav-item">Reembolsos</div><div class="nav-item">Saques</div><div class="nav-item">Pedidos</div><div class="nav-item">Clientes</div><div class="nav-item">Lojistas</div><div class="nav-item">Financeiro</div><div class="nav-item">Qualidade Lojista</div></aside>
+        <main class="dashboard"><small>OPERAÇÃO</small><h3>Visão da operação</h3><div class="metric-grid"><div class="metric"><small>Pedidos</small><strong>128</strong></div><div class="metric"><small>Em atendimento</small><strong>16</strong></div></div><div class="queue"><b>Itens que pedem atenção</b><div class="queue-row"><span>Cadastros de parceiros</span><span>8 na fila</span></div><div class="queue-row"><span>Reembolsos</span><span>3 pendentes</span></div><div class="queue-row"><span>Saques</span><span>5 pendentes</span></div></div></main>
+      </div>
+    </div>
+    <div class="guide-bar"><b>Rotina recomendada:</b> comece pelas filas de Aprovações, Reembolsos e Saques; depois acompanhe Pedidos, Hubs e indicadores financeiros.</div>
+    <div class="footer-note">A navegação é persistente: você pode mudar de área sem perder a visão geral da operação.</div>
+  </section>
+
+  <section class="page">
+    <div class="section-title"><span class="section-number">8</span><div><div class="eyebrow">Painel Admin</div><h2>Organize pessoas, hubs e pedidos.</h2></div></div>
+    <div class="operation-grid">
+      <article class="operation"><b>Aprovações</b><p>Analise os dados do parceiro e conclua a decisão de aprovação ou rejeição.</p></article>
+      <article class="operation"><b>Hubs</b><p>Cadastre, edite e acompanhe os pontos de retirada da plataforma.</p></article>
+      <article class="operation"><b>Pedidos</b><p>Consulte o histórico, filtre por status e acompanhe detalhes da operação.</p></article>
+    </div>
+    <div class="list-2">
+      <article class="card"><h3>Como analisar um parceiro</h3><ol class="steps"><li>Abra <b>Aprovações</b> e selecione um cadastro na fila.</li><li>Confira os dados do estabelecimento, contato, horários e informações de recebimento.</li><li>Conclua a análise com a ação correspondente.</li></ol></article>
+      <article class="card"><h3>Como acompanhar um pedido</h3><ol class="steps"><li>Abra <b>Pedidos</b> e use o filtro de status quando necessário.</li><li>Selecione um pedido para ver seus dados e andamento.</li><li>Use as ações disponíveis para conduzir a operação.</li></ol></article>
+    </div>
+    <div class="admin-shell" style="margin-top:14pt"><div class="admin-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span style="margin-left:6pt">Pedidos · Filtro por status</span></div><div class="dashboard" style="min-height:58mm"><small>PEDIDOS</small><h3 style="font-size:15pt">Acompanhe a jornada completa</h3><div class="queue-row"><span>#2024 · Cliente · Parceiro</span><span>Em preparo</span></div><div class="queue-row"><span>#2023 · Cliente · Parceiro</span><span>Concluído</span></div><div class="queue-row"><span>#2022 · Cliente · Parceiro</span><span>Retirada no hub</span></div></div></div>
+    <div class="footer-note">Clientes e Lojistas complementam a rotina de acompanhamento, reunindo informações úteis de cada público.</div>
+  </section>
+
+  <section class="page">
+    <div class="section-title"><span class="section-number">9</span><div><div class="eyebrow">Painel Admin</div><h2>Acompanhe as rotinas financeiras.</h2></div></div>
+    <p class="lede">As áreas financeiras transformam a movimentação da plataforma em filas claras de acompanhamento e indicadores para a tomada de decisão.</p>
+    <div class="operation-grid">
+      <article class="operation"><b>Reembolsos</b><p>Visualize solicitações pendentes e processe cada caso a partir dos detalhes do pedido.</p></article>
+      <article class="operation"><b>Saques</b><p>Acompanhe as solicitações dos parceiros e organize o processamento de cada pagamento.</p></article>
+      <article class="operation"><b>Financeiro</b><p>Consulte GMV, receita Keepit, pedidos e ranking de lojas no período escolhido.</p></article>
+    </div>
+    <div class="side-by-side" style="margin-top:19pt">
+      <div>
+        <h3>Roteiro diário</h3>
+        <ol class="steps"><li>Abra as filas de <b>Reembolsos</b> e <b>Saques</b> para identificar ações pendentes.</li><li>Entre no detalhe para conferir os dados da solicitação.</li><li>Finalize o processamento e mantenha a fila atualizada.</li><li>Use o <b>Financeiro</b> para acompanhar os indicadores do período.</li></ol>
+      </div>
+      <div class="card" style="background:#f6faf6"><div class="eyebrow">Indicadores</div><h3 style="font-size:20pt">Decisões com contexto.</h3><p>O painel mostra GMV, receita, pedidos, taxa de sucesso e ranking de lojas em um mesmo ambiente.</p><div style="display:flex;gap:8pt;margin-top:18pt"><div class="metric" style="flex:1;background:#fff;border-color:#dce6dd"><small>GMV</small><strong style="color:#2a7840">R$</strong></div><div class="metric" style="flex:1;background:#fff;border-color:#dce6dd"><small>Receita</small><strong style="color:#2a7840">%</strong></div></div></div>
+    </div>
+    <div class="footer-note">Qualidade Lojista ajuda a acompanhar a operação sob a perspectiva de cada parceiro.</div>
+  </section>
+
+  <section class="page closing">
+    <div><div class="eyebrow" style="color:#c6f4d0">Para usar todos os dias</div><h2>Uma experiência clara em cada ponta da jornada.</h2><p>Use este guia como referência rápida sempre que precisar comprar, preparar uma retirada ou conduzir a operação da Keepit.</p></div>
+    <div class="checklist"><div class="check">Cliente: escolha o hub, compre e acompanhe a retirada.</div><div class="check">Parceiro: mantenha catálogo, pedidos e financeiro organizados.</div><div class="check">Admin: acompanhe filas, pedidos e indicadores da plataforma.</div><div class="check">Em qualquer perfil: siga as informações apresentadas em cada etapa.</div></div>
+    <div style="border-top:1px solid rgba(255,255,255,.25);padding-top:9pt;color:#d8f0dc;font-size:9pt"><b>keepit</b> · Guia de Uso</div>
+  </section>
+</body>
+</html>
