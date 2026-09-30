@@ -30,12 +30,14 @@ export function createStoreMock(db: MockDb): StorePort {
   }
 
   return {
-    listByHub(_hubId: string, options?: AsyncCallOptions): Promise<Estabelecimento[]> {
-      // Ver nota em store.port.ts: schema não tem FK direta estabelecimento -> hub
-      // no MVP; mock retorna todas as lojas públicas (single-hub scenario),
-      // inclusive pausadas/fechadas. Filtros de superfície pertencem ao app.
+    listByHub(hubId: string, options?: AsyncCallOptions): Promise<Estabelecimento[]> {
       return simulateAsync(
-        () => db.estabelecimentos.filter((e) => resolveLojaDisponibilidade(e).visivelAoCliente),
+        () =>
+          db.estabelecimentos.filter(
+            (estabelecimento) =>
+              db.estabelecimentoHubIds[estabelecimento.id]?.includes(hubId) === true &&
+              resolveLojaDisponibilidade(estabelecimento).visivelAoCliente,
+          ),
         [],
         options,
       );

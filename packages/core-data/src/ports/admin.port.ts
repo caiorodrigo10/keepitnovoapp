@@ -200,6 +200,12 @@ export interface UpdateHubInput {
   horarios?: HubHorario[];
 }
 
+export interface VinculoHubsInput {
+  estabelecimentoId: string;
+  hubIds: string[];
+  operacaoId: string;
+}
+
 /**
  * `Estabelecimento` + colunas restritas ao papel Admin — Story 3.7 (AC2, AC3).
  *
@@ -240,6 +246,8 @@ export interface EstabelecimentoAdmin extends Omit<Estabelecimento, 'lat' | 'lng
   criado_em: string;
   aprovado_em: string | null;
   aprovado_por: string | null;
+  /** Hubs atualmente vinculados; preenchido no detalhe administrativo. */
+  hub_ids: string[];
   /**
    * URL assinada de curta expiração do bucket privado `fachadas`
    * (`docs/architecture/05-security.md §6.7`) — só populada por
@@ -262,6 +270,10 @@ export interface AdminPort {
    */
   pendingStoreDetail(id: string, options?: AsyncCallOptions): Promise<EstabelecimentoAdmin | null>;
   approve(estabelecimentoId: string, options?: AsyncCallOptions): Promise<Estabelecimento>;
+  /** Aprova e grava ao menos um hub ativo na mesma transação. */
+  aprovarComHubs(input: VinculoHubsInput, options?: AsyncCallOptions): Promise<void>;
+  /** Substitui os hubs usados por novas compras; lista vazia deixa a loja indisponível. */
+  definirHubs(input: VinculoHubsInput, options?: AsyncCallOptions): Promise<void>;
   reject(estabelecimentoId: string, motivo: string, options?: AsyncCallOptions): Promise<Estabelecimento>;
   hubsCrud: {
     /**

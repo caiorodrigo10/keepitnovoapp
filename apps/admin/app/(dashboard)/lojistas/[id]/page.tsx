@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-import type { Estabelecimento } from '@keepit/core-data';
+import type { EstabelecimentoAdmin, Hub } from '@keepit/core-data';
 
 import { Badge } from '../../../../src/components/Badge';
 import type { BadgeVariant } from '../../../../src/components/Badge';
@@ -28,10 +28,9 @@ const STATUS_LABEL: Record<string, string> = {
 
 /**
  * Detalhe do lojista + suspender — Épico 0, Story 0.13 (Task 7, AC1-3),
- * religado para `client.store.getById`/`client.admin.suspendLojista` (Story
- * 1.10, Task 4/6). Exige motivo obrigatório (espelha `motivo_suspensao`).
- * Reativação fora de escopo (Task 7). Link para a Vista de qualidade do
- * lojista.
+ * usa o detalhe administrativo para carregar também os vínculos com hubs e
+ * mantém as ações de suspensão/reativação. A troca de hubs afeta somente
+ * novas compras; pedidos existentes preservam o `hub_id` do snapshot.
  */
 export default function DetalheLojistaPage() {
   const params = useParams<{ id: string }>();
@@ -39,7 +38,9 @@ export default function DetalheLojistaPage() {
   const searchParams = useSearchParams();
   const forceActionError = searchParams.get('erro') === '1';
 
-  const [lojista, setLojista] = useState<Estabelecimento | null>(null);
+  const [lojista, setLojista] = useState<EstabelecimentoAdmin | null>(null);
+  const [hubs, setHubs] = useState<Hub[]>([]);
+  const [hubIds, setHubIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<Error | null>(null);
 
@@ -48,17 +49,22 @@ export default function DetalheLojistaPage() {
   const [motivoTocado, setMotivoTocado] = useState(false);
   const [actionPending, setActionPending] = useState(false);
   const [actionError, setActionError] = useState<Error | null>(null);
+  const [hubsPending, setHubsPending] = useState(false);
+  const [hubsSaved, setHubsSaved] = useState(false);
+  const [hubsOperacaoId, setHubsOperacaoId] = useState(() => crypto.randomUUID());
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setLoadError(null);
 
-    getAdminDataClient()
-      .store.getById(params.id)
-      .then((resultado) => {
+    const client = getAdminDataClient();
+    Promise.all([client.admin.pendingStoreDetail(params.id), client.admin.hubsCrud.list()])
+      .then(([resultado, hubsResultado]) => {
         if (!cancelled) {
           setLojista(resultado);
+          setHubs(hubsResultado);
+          setHubIds(resultado?.hub_ids ?? []);
           setLoading(false);
         }
       })
@@ -86,7 +92,9 @@ export default function DetalheLojistaPage() {
       .admin.suspendLojista(params.id, motivo.trim(), { forceError: forceActionError })
       .then((atualizado) => {
         setActionPending(false);
-        setLojista(atualizado);
+        setLojista((anterior) =>
+          anterior ? { ...anterior, status: atualizado.status, motivo_suspensao: atualizado.motivo_suspensao } : anterior,
+        );
         setShowForm(false);
         router.push('/lojistas');
       })
@@ -105,10 +113,33 @@ export default function DetalheLojistaPage() {
       .admin.reactivateLojista(params.id, { forceError: forceActionError })
       .then((atualizado) => {
         setActionPending(false);
-        setLojista(atualizado);
+        setLojista((anterior) =>
+          anterior ? { ...anterior, status: atualizado.status, motivo_suspensao: atualizado.motivo_suspensao } : anterior,
+        );
       })
       .catch((error: unknown) => {
         setActionPending(false);
+        setActionError(error instanceof Error ? error : new Error(String(error)));
+      });
+  }
+
+  function handleSalvarHubs() {
+    setHubsPending(true);
+    setHubsSaved(false);
+    setActionError(null);
+    getAdminDataClient()
+      .admin.definirHubs(
+        { estabelecimentoId: params.id, hubIds, operacaoId: hubsOperacaoId },
+        { forceError: forceActionError },
+      )
+      .then(() => {
+        setHubsPending(false);
+        setHubsSaved(true);
+        setHubsOperacaoId(crypto.randomUUID());
+        setLojista((anterior) => (anterior ? { ...anterior, hub_ids: [...hubIds] } : anterior));
+      })
+      .catch((error: unknown) => {
+        setHubsPending(false);
         setActionError(error instanceof Error ? error : new Error(String(error)));
       });
   }
@@ -153,6 +184,49 @@ export default function DetalheLojistaPage() {
             {lojista.motivo_suspensao}
           </p>
         )}
+      </Card>
+
+      <Card className="flex flex-col gap-3">
+        <div>
+          <h2 className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Hubs para novas compras</h2>
+          <p className="mt-1 text-sm text-text-secondary">
+            Alterações valem para compras futuras. Pedidos existentes mantêm o hub registrado no pedido.
+          </p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {hubs.map((hub) => {
+            const selecionado = hubIds.includes(hub.id);
+            return (
+              <label key={hub.id} className="flex items-start gap-2 rounded-md border border-border-default p-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={selecionado}
+                  disabled={!hub.ativo && !selecionado}
+                  onChange={() => {
+                    setHubsSaved(false);
+                    setHubsOperacaoId(crypto.randomUUID());
+                    setHubIds((atuais) =>
+                      atuais.includes(hub.id) ? atuais.filter((id) => id !== hub.id) : [...atuais, hub.id],
+                    );
+                  }}
+                />
+                <span>
+                  <span className="block font-semibold text-text-primary">{hub.nome}</span>
+                  <span className="text-text-tertiary">{hub.ativo ? hub.endereco : 'Hub inativo — remova o vínculo'}</span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+        {hubIds.length === 0 && (
+          <p className="text-sm text-accent-warning">Sem hubs: esta loja ficará indisponível para novas compras.</p>
+        )}
+        {hubsSaved && <p className="text-sm text-accent-success">Hubs atualizados.</p>}
+        <div>
+          <Button onClick={handleSalvarHubs} disabled={hubsPending}>
+            {hubsPending ? 'Salvando…' : 'Salvar hubs'}
+          </Button>
+        </div>
       </Card>
 
       <div>

@@ -1021,6 +1021,10 @@ export type Database = {
         Returns: string
       }
       aprovar_lojista: { Args: { p_estab_id: string }; Returns: string }
+      aprovar_lojista_com_hubs: {
+        Args: { p_estabelecimento_id: string; p_hub_ids: string[]; p_operacao_id: string }
+        Returns: undefined
+      }
       avancar_estado_pedido: {
         Args: { p_novo_status: string; p_pedido_id: string }
         Returns: string
@@ -1082,6 +1086,10 @@ export type Database = {
           resultado: string
           tentativas_restantes: number
         }[]
+      }
+      definir_hubs_lojista: {
+        Args: { p_estabelecimento_id: string; p_hub_ids: string[]; p_operacao_id: string }
+        Returns: undefined
       }
       // Bloco 12 — `p_lat`/`p_lng`/`p_raio_atendimento_km`/`p_ticket_minimo_reais`/
       // `p_foto_fachada_url`/`p_descricao` ampliados para `| null`. A migration

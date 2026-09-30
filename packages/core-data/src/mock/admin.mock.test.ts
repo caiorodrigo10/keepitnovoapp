@@ -60,9 +60,47 @@ describe('admin.mock (contract)', () => {
     expect(detalhe?.aprovado_em).not.toBeNull();
   });
 
-  it('approve transitions status to "ativo"', async () => {
-    const estabelecimento = await port.approve('estab-em-analise', { delayMs: 1 });
-    expect(estabelecimento.status).toBe('ativo');
+  it('aprovarComHubs exige hub ativo e grava aprovação e vínculos juntos', async () => {
+    await port.aprovarComHubs(
+      { estabelecimentoId: 'estab-em-analise', hubIds: ['hub-centro'], operacaoId: 'op-aprovar' },
+      { delayMs: 1 },
+    );
+
+    expect(db.estabelecimentos.find((item) => item.id === 'estab-em-analise')?.status).toBe('ativo');
+    expect(db.estabelecimentoHubIds['estab-em-analise']).toEqual(['hub-centro']);
+  });
+
+  it('aprovarComHubs falha sem hub ou com hub inativo sem deixar mutação parcial', async () => {
+    await expect(
+      port.aprovarComHubs(
+        { estabelecimentoId: 'estab-em-analise', hubIds: [], operacaoId: 'op-vazia' },
+        { delayMs: 1 },
+      ),
+    ).rejects.toThrow('HUB_OBRIGATORIO');
+
+    await port.hubsCrud.update('hub-jardins', { ativo: false }, { delayMs: 1 });
+    await expect(
+      port.aprovarComHubs(
+        { estabelecimentoId: 'estab-em-analise', hubIds: ['hub-jardins'], operacaoId: 'op-inativo' },
+        { delayMs: 1 },
+      ),
+    ).rejects.toThrow('HUB_INVALIDO');
+
+    expect(db.estabelecimentos.find((item) => item.id === 'estab-em-analise')?.status).toBe('em_analise');
+    expect(db.estabelecimentoHubIds['estab-em-analise']).toEqual([]);
+  });
+
+  it('definirHubs remove todos os vínculos sem alterar o hub de pedidos antigos', async () => {
+    const pedido = db.pedidos.find((item) => item.estabelecimento_id === 'estab-farmacia-vida')!;
+    const hubOriginal = pedido.hub_id;
+
+    await port.definirHubs(
+      { estabelecimentoId: 'estab-farmacia-vida', hubIds: [], operacaoId: 'op-remover' },
+      { delayMs: 1 },
+    );
+
+    expect(db.estabelecimentoHubIds['estab-farmacia-vida']).toEqual([]);
+    expect(pedido.hub_id).toBe(hubOriginal);
   });
 
   it('reject transitions status to "rejeitado" and records motivo_rejeicao', async () => {

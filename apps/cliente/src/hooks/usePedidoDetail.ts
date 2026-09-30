@@ -1,6 +1,7 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
-import type { Pedido } from '@keepit/core-data';
+import { getDataClient, type Pedido } from '@keepit/core-data';
+import { useAsyncResource } from '@keepit/core-data/hooks';
 
 import { isPedidoEmAndamento } from '../lib/pedidoStatus';
 import { usePedidosMine } from './usePedidosMine';
@@ -13,11 +14,9 @@ export interface PedidoDetailState {
 }
 
 /**
- * [IDS] CREATE — `OrderPort` (Story 0.2) não tem `getById(pedidoId)` (só
- * `listMine`), então toda tela de detalhe desta story (PIN, Recibo,
- * Cheguei ao hub, Cancelar, Lojista não veio) precisa buscar na lista e
- * filtrar localmente. Centraliza esse filtro aqui em vez de repeti-lo em 5
- * telas.
+ * Detalhes com `pedidoId` usam `OrderPort.getById`, sob a RLS do participante.
+ * A lista compartilhada continua ativa para polling e assume a renderização
+ * quando recebe uma versão mais recente do mesmo pedido.
  *
  * Sem `pedidoId` (rotas com param opcional — Task 2/3/4/6/7): cai para o
  * pedido "em andamento" mais recente do cliente (maior `numero` entre os
@@ -29,16 +28,32 @@ export function usePedidoDetail(
   pedidoId?: string,
 ): PedidoDetailState {
   const { data: pedidos, loading, error, refresh } = usePedidosMine(clienteId);
+  const [refreshToken, setRefreshToken] = useState(0);
+  const detalhe = useAsyncResource(
+    () => (clienteId && pedidoId ? getDataClient().order.getById(pedidoId) : Promise.resolve(null)),
+    null,
+    [clienteId, pedidoId, refreshToken],
+  );
 
   const pedido = useMemo(() => {
-    if (pedidoId) {
-      return pedidos.find((p) => p.id === pedidoId) ?? null;
-    }
     const emAndamento = pedidos
       .filter((p) => isPedidoEmAndamento(p.status))
       .sort((a, b) => b.numero - a.numero);
     return emAndamento[0] ?? null;
-  }, [pedidos, pedidoId]);
+  }, [pedidos]);
+
+  if (pedidoId) {
+    const pedidoAtualizado = pedidos.find((item) => item.id === pedidoId) ?? detalhe.data;
+    return {
+      data: pedidoAtualizado,
+      loading: detalhe.loading && !pedidoAtualizado,
+      error: detalhe.error ?? error,
+      refresh: () => {
+        setRefreshToken((token) => token + 1);
+        refresh();
+      },
+    };
+  }
 
   return { data: pedido, loading, error, refresh };
 }

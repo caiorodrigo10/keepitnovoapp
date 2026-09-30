@@ -41,6 +41,8 @@ export interface MockDb {
   clientes: Cliente[];
   hubs: Hub[];
   estabelecimentos: Estabelecimento[];
+  /** Relação loja↔hub usada pela descoberta e pela gestão administrativa no mock. */
+  estabelecimentoHubIds: Record<string, string[]>;
   produtos: Produto[];
   pedidos: Pedido[];
   saques: Saque[];
@@ -170,6 +172,12 @@ export function createMockDb(): MockDb {
     clientes: structuredClone(clientesFixture),
     hubs: structuredClone(hubsFixture),
     estabelecimentos: structuredClone(estabelecimentosFixture),
+    estabelecimentoHubIds: Object.fromEntries(
+      estabelecimentosFixture.map((estabelecimento) => [
+        estabelecimento.id,
+        estabelecimento.status === 'ativo' && estabelecimento.excluido_em === null ? ['hub-centro'] : [],
+      ]),
+    ),
     produtos: structuredClone(produtosFixture),
     pedidos: structuredClone(pedidosFixture),
     // Modo Demo (`docs/architecture/09-modo-demo-mock.md` §3.3) — antes

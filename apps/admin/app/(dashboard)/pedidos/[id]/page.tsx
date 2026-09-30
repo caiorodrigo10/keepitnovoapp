@@ -3,7 +3,7 @@
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Fragment, useEffect, useState } from 'react';
 
-import type { Cliente, Estabelecimento, Hub, Pedido, PedidoStatus } from '@keepit/core-data';
+import type { Estabelecimento, Hub, Pedido, PedidoStatus } from '@keepit/core-data';
 
 import { Badge } from '../../../../src/components/Badge';
 import { Button } from '../../../../src/components/Button';
@@ -48,7 +48,6 @@ export default function DetalhePedidoPage() {
   const forceActionError = searchParams.get('erro') === '1';
 
   const [pedido, setPedido] = useState<Pedido | null>(null);
-  const [cliente, setCliente] = useState<Cliente | null>(null);
   const [loja, setLoja] = useState<Estabelecimento | null>(null);
   const [hub, setHub] = useState<Hub | null>(null);
   const [loading, setLoading] = useState(true);
@@ -66,19 +65,20 @@ export default function DetalhePedidoPage() {
     setLoadError(null);
 
     const client = getAdminDataClient();
-    Promise.all([
-      client.order.getById(params.id),
-      client.admin.listClientes(),
-      client.admin.listAllEstabelecimentos(),
-    ])
-      .then(async ([pedidoResult, clientes, lojas]) => {
+    client.order
+      .getById(params.id)
+      .then(async (pedidoResult) => {
         if (cancelled) return;
         setPedido(pedidoResult);
-        setCliente(clientes.find((c) => c.id === pedidoResult?.cliente_id) ?? null);
-        setLoja(lojas.find((l) => l.id === pedidoResult?.estabelecimento_id) ?? null);
         if (pedidoResult) {
-          const hubResult = await client.hub.getById(pedidoResult.hub_id);
-          if (!cancelled) setHub(hubResult);
+          const [lojaResult, hubResult] = await Promise.all([
+            client.store.getById(pedidoResult.estabelecimento_id),
+            client.hub.getById(pedidoResult.hub_id),
+          ]);
+          if (!cancelled) {
+            setLoja(lojaResult);
+            setHub(hubResult);
+          }
         }
         setLoading(false);
       })
@@ -142,7 +142,7 @@ export default function DetalhePedidoPage() {
             {PEDIDO_STATUS_LABEL[pedido.status]}
           </Badge>
           <span className="text-xs uppercase tracking-section text-text-tertiary">
-            {cliente?.nome ?? pedido.cliente_id} · {loja?.nome_fantasia ?? pedido.estabelecimento_id} ·{' '}
+            {pedido.cliente_nome ?? 'Nome do cliente indisponível'} · {loja?.nome_fantasia ?? pedido.estabelecimento_id} ·{' '}
             {hub?.nome ?? pedido.hub_id}
           </span>
         </div>
@@ -164,6 +164,20 @@ export default function DetalhePedidoPage() {
           <span>Total pago</span>
           <span>{formatReais(pedido.total_pago_reais)}</span>
         </div>
+      </Card>
+
+      <Card className="flex flex-col gap-3">
+        <h2 className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Pagamento</h2>
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          <dt className="text-text-tertiary">Forma</dt>
+          <dd className="text-text-primary">{pedido.forma_pagamento.toUpperCase()}</dd>
+          <dt className="text-text-tertiary">Subtotal</dt>
+          <dd className="text-text-primary">{formatReais(pedido.subtotal_produtos_reais)}</dd>
+          <dt className="text-text-tertiary">Deslocamento</dt>
+          <dd className="text-text-primary">{formatReais(pedido.taxa_deslocamento_reais)}</dd>
+          <dt className="text-text-tertiary">Serviço</dt>
+          <dd className="text-text-primary">{formatReais(pedido.taxa_servico_comprador_reais)}</dd>
+        </dl>
       </Card>
 
       <Card className="flex flex-col gap-3">

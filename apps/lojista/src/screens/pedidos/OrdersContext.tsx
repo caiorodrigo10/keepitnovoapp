@@ -182,12 +182,11 @@ export function OrdersProvider({ children }: PropsWithChildren) {
        * "PIN incorreto" e "bloqueado" na mesma mensagem genérica em
        * `DigitarPin.tsx`). Agora distingue por `instanceof`
        * `PinIncorretoError`/`PinBloqueadoError` (mesmas classes lançadas
-       * por `order.mock.ts`/`order.supabase.ts` — paridade). Não chama mais
-       * `order.getById` no catch (ainda `NotImplementedError` no adapter
-       * Supabase, fora do escopo desta Story) — o `pedido` retornado no
-       * erro é o último estado local conhecido; a UI só precisa dele para o
-       * resumo do card, não para `tentativas_pin`/`pin_bloqueado_ate` (que
-       * vêm do próprio erro). Qualquer outro erro (estrutural —
+       * por `order.mock.ts`/`order.supabase.ts` — paridade). Após uma recusa
+       * de PIN, relê `order.getById` sob a projeção autorizada
+       * do lojista. Isso mantém o detalhe preso ao pedido histórico (inclusive
+       * seu `hub_id`) mesmo se os vínculos atuais da loja mudarem. Qualquer
+       * outro erro (estrutural —
        * `AUTENTICACAO_NECESSARIA`/`PEDIDO_NAO_ENCONTRADO`/`ACESSO_NEGADO`/
        * `ESTADO_INVALIDO`) continua propagando, não é engolido.
        */
@@ -198,8 +197,9 @@ export function OrdersProvider({ children }: PropsWithChildren) {
           upsert(pedido);
           return { pedido, correto: true };
         } catch (err) {
-          const pedidoAtual = pedidos.find((p) => p.id === pedidoId);
+          const pedidoAtual = (await getDataClient().order.getById(pedidoId)) ?? pedidos.find((p) => p.id === pedidoId);
           if (!pedidoAtual) throw new Error(`[lojista] Pedido não encontrado: ${pedidoId}`);
+          upsert(pedidoAtual);
 
           if (err instanceof PinBloqueadoError) {
             return { pedido: pedidoAtual, correto: false, motivo: 'bloqueado', bloqueadoAte: err.bloqueadoAte };

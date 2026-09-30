@@ -171,6 +171,7 @@ function mapRowToEstabelecimentoAdmin(
     criado_em: row.criado_em,
     aprovado_em: row.aprovado_em,
     aprovado_por: row.aprovado_por,
+    hub_ids: [],
   };
 }
 
@@ -639,6 +640,17 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
         (horariosData ?? []) as unknown as EstabelecimentoHorarioRow[],
       );
 
+      const { data: vinculosData, error: vinculosError } = await supabase
+        .from('estabelecimentos_hubs')
+        .select('hub_id')
+        .eq('estabelecimento_id', id);
+      if (vinculosError) {
+        throw vinculosError;
+      }
+      estabelecimentoAdmin.hub_ids = ((vinculosData ?? []) as unknown as Array<{ hub_id: string }>).map(
+        (vinculo) => vinculo.hub_id,
+      );
+
       let fotoFachadaUrlAssinada: string | null = null;
       if (row.foto_fachada_url) {
         try {
@@ -688,6 +700,24 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
       }
 
       return fetchEstabelecimentoAposMutacao(supabase, data);
+    },
+
+    async aprovarComHubs(input, _options?: AsyncCallOptions): Promise<void> {
+      const { error } = await resolveClient().rpc('aprovar_lojista_com_hubs', {
+        p_estabelecimento_id: input.estabelecimentoId,
+        p_hub_ids: input.hubIds,
+        p_operacao_id: input.operacaoId,
+      });
+      if (error) throw error;
+    },
+
+    async definirHubs(input, _options?: AsyncCallOptions): Promise<void> {
+      const { error } = await resolveClient().rpc('definir_hubs_lojista', {
+        p_estabelecimento_id: input.estabelecimentoId,
+        p_hub_ids: input.hubIds,
+        p_operacao_id: input.operacaoId,
+      });
+      if (error) throw error;
     },
 
     /**

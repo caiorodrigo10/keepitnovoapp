@@ -3,7 +3,7 @@
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-import type { EstabelecimentoAdmin } from '@keepit/core-data';
+import type { EstabelecimentoAdmin, Hub } from '@keepit/core-data';
 
 import { Badge } from '../../../../src/components/Badge';
 import { Button } from '../../../../src/components/Button';
@@ -32,11 +32,9 @@ const CHAVE_PIX_TIPO_LABEL: Record<string, string> = {
  * (tipo de domínio da Descoberta do Cliente) nunca deveria vazar. Ver JSDoc
  * de `EstabelecimentoAdmin` em `packages/core-data/src/ports/admin.port.ts`.
  *
- * Fora de escopo desta Story (3.8/3.9): wiring real de aprovar/rejeitar —
- * `admin.approve`/`admin.reject` seguem o comportamento já existente desde o
- * Épico 0 (mock muda `status`; adapter Supabase é stub `NotImplementedError`
- * até a 3.8/3.9). `?erro=1` na URL força falha simulada da action
- * (loading/erro exercitáveis sem backend real).
+ * A aprovação usa `admin.aprovarComHubs`: o servidor valida os hubs ativos e
+ * grava vínculos + mudança de status na mesma transação. `?erro=1` continua
+ * disponível no mock para exercitar o estado de falha da ação.
  */
 export default function AprovarRejeitarPage() {
   const params = useParams<{ id: string }>();
@@ -45,6 +43,9 @@ export default function AprovarRejeitarPage() {
   const forceActionError = searchParams.get('erro') === '1';
 
   const [estabelecimento, setEstabelecimento] = useState<EstabelecimentoAdmin | null>(null);
+  const [hubs, setHubs] = useState<Hub[]>([]);
+  const [hubIds, setHubIds] = useState<string[]>([]);
+  const [operacaoId, setOperacaoId] = useState(() => crypto.randomUUID());
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<Error | null>(null);
 
@@ -59,11 +60,13 @@ export default function AprovarRejeitarPage() {
     setLoading(true);
     setLoadError(null);
 
-    getAdminDataClient()
-      .admin.pendingStoreDetail(params.id)
-      .then((resultado) => {
+    const client = getAdminDataClient();
+    Promise.all([client.admin.pendingStoreDetail(params.id), client.admin.hubsCrud.list()])
+      .then(([resultado, hubsResultado]) => {
         if (!cancelled) {
           setEstabelecimento(resultado);
+          setHubs(hubsResultado);
+          setHubIds(resultado?.hub_ids ?? []);
           setLoading(false);
         }
       })
@@ -80,11 +83,18 @@ export default function AprovarRejeitarPage() {
   }, [params.id]);
 
   function handleAprovar() {
+    if (hubIds.length === 0) {
+      setActionError(new Error('Selecione ao menos um hub ativo para aprovar a loja.'));
+      return;
+    }
     setActionPending(true);
     setActionError(null);
 
     getAdminDataClient()
-      .admin.approve(params.id, { forceError: forceActionError })
+      .admin.aprovarComHubs(
+        { estabelecimentoId: params.id, hubIds, operacaoId },
+        { forceError: forceActionError },
+      )
       .then(() => {
         router.push('/aprovacoes');
       })
@@ -170,6 +180,34 @@ export default function AprovarRejeitarPage() {
       </Card>
 
       <Card className="flex flex-col gap-3">
+        <div>
+          <h2 className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Hubs atendidos</h2>
+          <p className="mt-1 text-sm text-text-secondary">Selecione ao menos um hub ativo para concluir a aprovação.</p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {hubs.filter((hub) => hub.ativo).map((hub) => (
+            <label key={hub.id} className="flex items-start gap-2 rounded-md border border-border-default p-3 text-sm">
+              <input
+                type="checkbox"
+                checked={hubIds.includes(hub.id)}
+                onChange={() => {
+                  setOperacaoId(crypto.randomUUID());
+                  setHubIds((atuais) =>
+                    atuais.includes(hub.id) ? atuais.filter((id) => id !== hub.id) : [...atuais, hub.id],
+                  );
+                }}
+              />
+              <span>
+                <span className="block font-semibold text-text-primary">{hub.nome}</span>
+                <span className="text-text-tertiary">{hub.endereco}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        {hubIds.length === 0 && <p className="text-xs text-accent-warning">Um hub ativo é obrigatório.</p>}
+      </Card>
+
+      <Card className="flex flex-col gap-3">
         <h2 className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Dados básicos (Passo 2)</h2>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
           <dt className="text-text-tertiary">Endereço</dt>
@@ -223,7 +261,7 @@ export default function AprovarRejeitarPage() {
 
       {!showRejeitarForm && (
         <div className="flex gap-3">
-          <Button onClick={handleAprovar} disabled={actionPending}>
+          <Button onClick={handleAprovar} disabled={actionPending || hubIds.length === 0}>
             {actionPending ? 'Aprovando…' : 'Aprovar'}
           </Button>
           <Button variant="danger" onClick={() => setShowRejeitarForm(true)} disabled={actionPending}>

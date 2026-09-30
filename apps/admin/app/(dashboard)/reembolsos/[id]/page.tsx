@@ -143,6 +143,10 @@ export default function ExecutarReembolsoPage() {
         <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
           <dt className="text-text-tertiary">Número</dt>
           <dd className="text-text-primary">#{pedido?.numero ?? '—'}</dd>
+          <dt className="text-text-tertiary">Cliente</dt>
+          <dd className="text-text-primary">{pedido?.cliente_nome ?? 'Nome indisponível'}</dd>
+          <dt className="text-text-tertiary">Status do pedido</dt>
+          <dd className="text-text-primary">{pedido?.status ?? '—'}</dd>
           <dt className="text-text-tertiary">Forma de pagamento</dt>
           <dd className="text-text-primary">{reembolso.forma_pagamento.toUpperCase()}</dd>
           <dt className="text-text-tertiary">Valor a estornar</dt>
@@ -150,6 +154,16 @@ export default function ExecutarReembolsoPage() {
           <dt className="text-text-tertiary">Valor ao lojista</dt>
           <dd className="text-text-primary">{formatReais(reembolso.valor_ao_lojista_reais)}</dd>
         </dl>
+        {pedido && (
+          <ul className="border-t border-border-default pt-3 text-sm text-text-secondary">
+            {pedido.itens.map((item) => (
+              <li key={item.id} className="flex justify-between gap-3">
+                <span>{item.quantidade}× {item.nome_snapshot}</span>
+                <span>{formatReais(item.subtotal_reais)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </Card>
 
       {actionError && (

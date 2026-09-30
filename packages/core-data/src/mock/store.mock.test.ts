@@ -19,6 +19,21 @@ describe('store.mock (contract)', () => {
     expect(lojas.every((loja) => loja.status === 'ativo')).toBe(true);
   });
 
+  it('listByHub mostra somente lojas vinculadas ao hub escolhido', async () => {
+    db.estabelecimentoHubIds = {
+      'estab-farmacia-vida': ['hub-centro'],
+      'estab-conveniencia-24h': ['hub-jardins'],
+    };
+
+    const centro = await port.listByHub('hub-centro', { delayMs: 1 });
+    const jardins = await port.listByHub('hub-jardins', { delayMs: 1 });
+
+    expect(centro.map((loja) => loja.id)).toContain('estab-farmacia-vida');
+    expect(centro.map((loja) => loja.id)).not.toContain('estab-conveniencia-24h');
+    expect(jardins.map((loja) => loja.id)).toContain('estab-conveniencia-24h');
+    expect(jardins.map((loja) => loja.id)).not.toContain('estab-farmacia-vida');
+  });
+
   it('listByHub devolve lojas públicas abertas, fechadas e pausadas, sem administrativas ou excluídas', async () => {
     const now = new Date(2026, 8, 5, 12, 0);
     const horarioAberto = [
@@ -55,6 +70,13 @@ describe('store.mock (contract)', () => {
       loja('suspended', { status: 'suspenso' }),
       loja('deleted', { excluido_em: '2026-09-05T09:00:00.000Z' }),
     ];
+    db.estabelecimentoHubIds = {
+      open: ['hub-centro'],
+      closed: ['hub-centro'],
+      paused: ['hub-centro'],
+      suspended: ['hub-centro'],
+      deleted: ['hub-centro'],
+    };
 
     const lojas = await port.listByHub('hub-centro', { delayMs: 0 });
     const ids = lojas.map(({ id }) => id);

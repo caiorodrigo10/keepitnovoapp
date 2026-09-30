@@ -40,12 +40,14 @@ function makeQueryBuilder(result: QueryResult) {
 function fakeClient(options: {
   hubs?: QueryResult[];
   hubsHorarios?: QueryResult[];
+  rpc?: (fn: string, args: unknown) => Promise<{ data: unknown; error: unknown }>;
   upload?: (path: string, blob: unknown, opts: unknown) => Promise<{ data: unknown; error: unknown }>;
   getPublicUrl?: (path: string) => { data: { publicUrl: string } };
 }): {
   client: SupabaseClient<Database>;
   from: (table: string) => unknown;
   upload: (path: string, blob: unknown, opts: unknown) => Promise<{ data: unknown; error: unknown }>;
+  rpc: (fn: string, args: unknown) => Promise<{ data: unknown; error: unknown }>;
 } {
   const queues: Record<string, QueryResult[]> = {
     hubs: [...(options.hubs ?? [])],
@@ -59,7 +61,8 @@ function fakeClient(options: {
   const getPublicUrl =
     options.getPublicUrl ?? vi.fn((path: string) => ({ data: { publicUrl: `https://public.example/hubs/${path}` } }));
   const storage = { from: vi.fn(() => ({ upload, getPublicUrl })) };
-  return { client: { from, storage } as unknown as SupabaseClient<Database>, from, upload };
+  const rpc = vi.fn(options.rpc ?? (async () => ({ data: null, error: null })));
+  return { client: { from, storage, rpc } as unknown as SupabaseClient<Database>, from, upload, rpc };
 }
 
 const HUB_ROW = {
@@ -74,6 +77,53 @@ const HUB_ROW = {
 };
 
 const HORARIO_ROW = { hub_id: 'hub-1', dia_semana: 1, aberto: true, hora_abre: '08:00', hora_fecha: '20:00' };
+
+describe('admin.supabase.ts — vínculo transacional de hubs', () => {
+  it('aprovarComHubs envia todos os ids e a chave de operação para a RPC atômica', async () => {
+    const { client, rpc } = fakeClient({});
+
+    await createAdminSupabase(client).aprovarComHubs({
+      estabelecimentoId: 'estab-1',
+      hubIds: ['hub-1', 'hub-2'],
+      operacaoId: 'op-aprovar-1',
+    });
+
+    expect(rpc).toHaveBeenCalledWith('aprovar_lojista_com_hubs', {
+      p_estabelecimento_id: 'estab-1',
+      p_hub_ids: ['hub-1', 'hub-2'],
+      p_operacao_id: 'op-aprovar-1',
+    });
+  });
+
+  it('definirHubs permite a lista vazia e deixa a decisão no servidor', async () => {
+    const { client, rpc } = fakeClient({});
+
+    await createAdminSupabase(client).definirHubs({
+      estabelecimentoId: 'estab-1',
+      hubIds: [],
+      operacaoId: 'op-definir-1',
+    });
+
+    expect(rpc).toHaveBeenCalledWith('definir_hubs_lojista', {
+      p_estabelecimento_id: 'estab-1',
+      p_hub_ids: [],
+      p_operacao_id: 'op-definir-1',
+    });
+  });
+
+  it('propaga falha da RPC sem sucesso fictício', async () => {
+    const error = new Error('HUB_INVALIDO');
+    const { client } = fakeClient({ rpc: async () => ({ data: null, error }) });
+
+    await expect(
+      createAdminSupabase(client).aprovarComHubs({
+        estabelecimentoId: 'estab-1',
+        hubIds: ['hub-inativo'],
+        operacaoId: 'op-falha',
+      }),
+    ).rejects.toBe(error);
+  });
+});
 
 describe('admin.supabase.ts — hubsCrud.list (Story 4.1, AC1)', () => {
   it('mapeia todas as linhas retornadas (RLS admin devolve ativos e inativos) incluindo horarios', async () => {

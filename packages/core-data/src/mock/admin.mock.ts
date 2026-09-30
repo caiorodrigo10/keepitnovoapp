@@ -56,6 +56,35 @@ const TERMINAL_PEDIDO_STATUSES: ReadonlySet<PedidoStatus> = new Set([
 ]);
 
 export function createAdminMock(db: MockDb): AdminPort {
+  const operacoesHubs = new Map<string, { tipo: 'aprovar' | 'definir'; estabelecimentoId: string; hubIds: string[] }>();
+
+  function normalizarHubs(hubIds: string[]): string[] {
+    return [...new Set(hubIds)].sort();
+  }
+
+  function validarHubsAtivos(hubIds: string[]): void {
+    if (hubIds.some((id) => !db.hubs.some((hub) => hub.id === id && hub.ativo))) {
+      throw new Error('HUB_INVALIDO');
+    }
+  }
+
+  function operacaoJaExecutada(
+    operacaoId: string,
+    tipo: 'aprovar' | 'definir',
+    estabelecimentoId: string,
+    hubIds: string[],
+  ): boolean {
+    const anterior = operacoesHubs.get(operacaoId);
+    if (!anterior) return false;
+    if (
+      anterior.tipo !== tipo ||
+      anterior.estabelecimentoId !== estabelecimentoId ||
+      anterior.hubIds.join(',') !== hubIds.join(',')
+    ) {
+      throw new Error('OPERACAO_CONFLITANTE');
+    }
+    return true;
+  }
   function findEstabelecimentoOrThrow(id: string): Estabelecimento {
     const estabelecimento = db.estabelecimentos.find((e) => e.id === id);
     if (!estabelecimento) {
@@ -110,7 +139,7 @@ export function createAdminMock(db: MockDb): AdminPort {
         `[mock] Dados administrativos ausentes para estabelecimento ${estabelecimento.id} — adicionar em estabelecimentos-admin.ts`,
       );
     }
-    return { ...estabelecimento, ...extra };
+    return { ...estabelecimento, ...extra, hub_ids: [...(db.estabelecimentoHubIds[estabelecimento.id] ?? [])] };
   }
 
   return {
@@ -161,12 +190,52 @@ export function createAdminMock(db: MockDb): AdminPort {
     approve(estabelecimentoId: string, options?: AsyncCallOptions): Promise<Estabelecimento> {
       return simulateAsync(
         () => {
-          const estabelecimento = findEstabelecimentoOrThrow(estabelecimentoId);
-          estabelecimento.status = 'ativo';
-          estabelecimento.motivo_rejeicao = null;
-          return estabelecimento;
+          findEstabelecimentoOrThrow(estabelecimentoId);
+          throw new Error('HUB_OBRIGATORIO');
         },
         {} as Estabelecimento,
+        options,
+      );
+    },
+
+    aprovarComHubs(input, options?: AsyncCallOptions): Promise<void> {
+      return simulateAsync(
+        () => {
+          const hubIds = normalizarHubs(input.hubIds);
+          if (hubIds.length === 0) throw new Error('HUB_OBRIGATORIO');
+          validarHubsAtivos(hubIds);
+          const estabelecimento = findEstabelecimentoOrThrow(input.estabelecimentoId);
+          if (operacaoJaExecutada(input.operacaoId, 'aprovar', input.estabelecimentoId, hubIds)) return;
+          if (estabelecimento.status !== 'em_analise') throw new Error('ESTADO_INVALIDO');
+          estabelecimento.status = 'ativo';
+          estabelecimento.motivo_rejeicao = null;
+          db.estabelecimentoHubIds[input.estabelecimentoId] = hubIds;
+          operacoesHubs.set(input.operacaoId, {
+            tipo: 'aprovar',
+            estabelecimentoId: input.estabelecimentoId,
+            hubIds: [...hubIds],
+          });
+        },
+        undefined,
+        options,
+      );
+    },
+
+    definirHubs(input, options?: AsyncCallOptions): Promise<void> {
+      return simulateAsync(
+        () => {
+          const hubIds = normalizarHubs(input.hubIds);
+          validarHubsAtivos(hubIds);
+          findEstabelecimentoOrThrow(input.estabelecimentoId);
+          if (operacaoJaExecutada(input.operacaoId, 'definir', input.estabelecimentoId, hubIds)) return;
+          db.estabelecimentoHubIds[input.estabelecimentoId] = hubIds;
+          operacoesHubs.set(input.operacaoId, {
+            tipo: 'definir',
+            estabelecimentoId: input.estabelecimentoId,
+            hubIds: [...hubIds],
+          });
+        },
+        undefined,
         options,
       );
     },
