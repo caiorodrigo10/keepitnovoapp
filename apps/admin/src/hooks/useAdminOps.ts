@@ -125,6 +125,10 @@ const EMPTY_FINANCIAL_DASHBOARD: FinancialDashboardResult = {
   pedidosCancelados: 0,
   pedidosNoShow: 0,
   taxaSucessoPercent: 0,
+  reconciliacoes: [],
+  antecipacoes: [],
+  eventosComErro: [],
+  ocorrenciasPagamento: [],
 };
 
 export function useFinancialDashboard(

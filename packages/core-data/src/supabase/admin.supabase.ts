@@ -10,6 +10,10 @@ import type {
   EstabelecimentoFalhaTipo,
   FinancialDashboardResult,
   FinancialRankingEntry,
+  PaymentReconciliationAdmin,
+  PaymentEventAdmin,
+  PaymentOccurrenceAdmin,
+  ReceivableAnticipationAdmin,
   HubFotoExt,
   HubFotoUploadInput,
   LancamentoConfirmResultado,
@@ -64,6 +68,17 @@ const HUB_FOTO_CONTENT_TYPE_BY_EXT: Record<HubFotoExt, string> = {
  * `EstabelecimentoCadastroPort.uploadFachada`).
  */
 const FOTO_FACHADA_SIGNED_URL_EXPIRES_IN_SECONDS = 300;
+
+type OperationalQueryResult = { data: unknown; error: unknown };
+interface OperationalQuery extends PromiseLike<OperationalQueryResult> {
+  select(columns: string): OperationalQuery;
+  eq(column: string, value: unknown): OperationalQuery;
+  in(column: string, values: unknown[]): OperationalQuery;
+  order(column: string, options?: { ascending?: boolean }): OperationalQuery;
+}
+interface OperationalReadClient {
+  from(table: string): OperationalQuery;
+}
 
 const ESTABELECIMENTOS_ADMIN_COLUMNS =
   'id, nome_fantasia, cnpj, categoria, descricao, foto_fachada_url, endereco, lat, lng, ' +
@@ -1368,6 +1383,96 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
       const taxaSucessoPercent =
         denominadorSucesso === 0 ? 0 : Math.round((pedidosEntregues / denominadorSucesso) * 1000) / 10;
 
+      // As tabelas são forward-schema desta entrega e ainda não existem no
+      // snapshot gerado de Database. O cast fica restrito a estas leituras;
+      // linhas continuam mapeadas campo a campo para os tipos de domínio.
+      const operational = supabase as unknown as OperationalReadClient;
+      const tentativasResult = await operational.from('tentativas_pagamento')
+        .select('id, pedido_id, forma, estado, asaas_payment_id, criado_em')
+        .eq('estado', 'reconciliacao')
+        .order('criado_em', { ascending: false });
+      if (tentativasResult.error) throw tentativasResult.error;
+      const tentativasRows = (tentativasResult.data ?? []) as Array<{
+        id: string; pedido_id: string; forma: string; estado: 'reconciliacao';
+        asaas_payment_id: string | null; criado_em: string;
+      }>;
+
+      const eventosResult = await operational.from('eventos_pagamento')
+        .select('evento_externo_id, tipo, cobranca_id, tentativa_id, pedido_id, resultado, erro_codigo, recebido_em')
+        .order('recebido_em', { ascending: false });
+      if (eventosResult.error) throw eventosResult.error;
+      const eventosRows = ((eventosResult.data ?? []) as Array<{
+        evento_externo_id: string; tipo: string; cobranca_id: string | null;
+        tentativa_id: string | null; pedido_id: string | null; resultado: string;
+        erro_codigo: string | null; recebido_em: string;
+      }>).sort((a, b) => b.recebido_em.localeCompare(a.recebido_em));
+      const ultimoEventoPorTentativa = new Map<string, { resultado: string; erro_codigo: string | null }>();
+      for (const event of eventosRows) {
+        if (event.tentativa_id && !ultimoEventoPorTentativa.has(event.tentativa_id)) {
+          ultimoEventoPorTentativa.set(event.tentativa_id, event);
+        }
+      }
+      const eventosComErro: PaymentEventAdmin[] = eventosRows
+        .filter((event) => event.erro_codigo !== null)
+        .map((event) => ({
+          eventoExternoId: event.evento_externo_id,
+          tipo: event.tipo,
+          cobrancaId: event.cobranca_id,
+          tentativaId: event.tentativa_id,
+          pedidoId: event.pedido_id,
+          resultado: event.resultado,
+          erro: event.erro_codigo!,
+          recebidoEm: event.recebido_em,
+        }));
+      const reconciliacoes: PaymentReconciliationAdmin[] = tentativasRows.map((row) => ({
+        tentativaId: row.id,
+        pedidoId: row.pedido_id,
+        forma: row.forma,
+        estado: row.estado,
+        asaasPaymentId: row.asaas_payment_id,
+        criadoEm: row.criado_em,
+        ultimoResultado: ultimoEventoPorTentativa.get(row.id)?.resultado ?? null,
+        ultimoErro: ultimoEventoPorTentativa.get(row.id)?.erro_codigo ?? null,
+      }));
+
+      const antecipacoesResult = await operational.from('antecipacoes_recebiveis')
+        .select('id, antecipacao_externa_id, pedido_id, cobranca_id, estado, valor_centavos, tarifa_centavos, liquido_centavos, data_credito, atualizado_em')
+        .order('atualizado_em', { ascending: false });
+      if (antecipacoesResult.error) throw antecipacoesResult.error;
+      const antecipacoes: ReceivableAnticipationAdmin[] = ((antecipacoesResult.data ?? []) as Array<{
+        id: string; antecipacao_externa_id: string; pedido_id: string; cobranca_id: string; estado: string;
+        valor_centavos: number; tarifa_centavos: number; liquido_centavos: number;
+        data_credito: string | null; atualizado_em: string;
+      }>).map((row) => ({
+        id: row.id,
+        antecipacaoExternaId: row.antecipacao_externa_id,
+        pedidoId: row.pedido_id,
+        cobrancaId: row.cobranca_id,
+        estado: row.estado,
+        valorCentavos: row.valor_centavos,
+        tarifaCentavos: row.tarifa_centavos,
+        liquidoCentavos: row.liquido_centavos,
+        dataCredito: row.data_credito,
+        atualizadoEm: row.atualizado_em,
+      }));
+
+      const ocorrenciasResult = await operational.from('ocorrencias_pagamento')
+        .select('id, pedido_id, tipo, estado, referencia_externa, detalhe, criado_em')
+        .order('criado_em', { ascending: false });
+      if (ocorrenciasResult.error) throw ocorrenciasResult.error;
+      const ocorrenciasPagamento: PaymentOccurrenceAdmin[] = ((ocorrenciasResult.data ?? []) as Array<{
+        id: string; pedido_id: string; tipo: PaymentOccurrenceAdmin['tipo']; estado: string;
+        referencia_externa: string | null; detalhe: string; criado_em: string;
+      }>).map((row) => ({
+        id: row.id,
+        pedidoId: row.pedido_id,
+        tipo: row.tipo,
+        estado: row.estado,
+        referenciaExterna: row.referencia_externa,
+        detalhe: row.detalhe,
+        criadoEm: row.criado_em,
+      }));
+
       return {
         periodoDias,
         gmvReais,
@@ -1378,7 +1483,25 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
         pedidosCancelados,
         pedidosNoShow,
         taxaSucessoPercent,
+        reconciliacoes,
+        antecipacoes,
+        eventosComErro,
+        ocorrenciasPagamento,
       };
+    },
+
+    async reconcilePayment(tentativaId: string, _options?: AsyncCallOptions) {
+      const supabase = resolveClient();
+      const { data, error } = await supabase.functions.invoke('reconcile-payment', {
+        body: { tentativaId },
+      });
+      if (error) throw error;
+      const body = data as { ok?: unknown; resultado?: unknown; pedido_id?: unknown } | null;
+      if (!body || body.ok !== true || typeof body.resultado !== 'string'
+        || (body.pedido_id !== null && typeof body.pedido_id !== 'string')) {
+        throw new Error('[core-data] reconcile-payment — resposta inválida.');
+      }
+      return { resultado: body.resultado, pedidoId: body.pedido_id };
     },
 
     /**

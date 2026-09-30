@@ -422,3 +422,7 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 # Autenticação getUser no handler precede qualquer client privilegiado.
 [functions.create-card-payment]
 verify_jwt = false
+
+# Valida o JWT e a presença em admin_users antes de construir o client service_role.
+[functions.reconcile-payment]
+verify_jwt = false

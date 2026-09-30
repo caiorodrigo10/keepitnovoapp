@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { Button } from '../../../src/components/Button';
 import { Card } from '../../../src/components/Card';
 import { useFinancialDashboard } from '../../../src/hooks/useAdminOps';
+import { getAdminDataClient } from '../../../src/lib/adminClient';
 import { formatReais } from '../../../src/lib/adminLabels';
 
 const PERIODO_OPTIONS = [7, 30, 90] as const;
@@ -29,10 +30,25 @@ export default function FinanceiroPage() {
   const forceError = searchParams.get('erro') === '1';
 
   const [periodoDias, setPeriodoDias] = useState<(typeof PERIODO_OPTIONS)[number]>(30);
+  const [reconciliando, setReconciliando] = useState<string | null>(null);
+  const [erroReconciliacao, setErroReconciliacao] = useState<string | null>(null);
   const { data: dashboard, loading, error, refresh } = useFinancialDashboard(periodoDias, {
     forceEmpty,
     forceError,
   });
+
+  async function reconciliar(tentativaId: string) {
+    setReconciliando(tentativaId);
+    setErroReconciliacao(null);
+    try {
+      await getAdminDataClient().admin.reconcilePayment(tentativaId);
+      refresh();
+    } catch (cause) {
+      setErroReconciliacao(cause instanceof Error ? cause.message : 'Não foi possível reconciliar a tentativa.');
+    } finally {
+      setReconciliando(null);
+    }
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -117,6 +133,106 @@ export default function FinanceiroPage() {
                     <span className="text-text-secondary">
                       {formatReais(entrada.gmvReais)} · {entrada.pedidosEntregues} pedido(s)
                     </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <div className="grid grid-cols-2 gap-4">
+            <Card className="flex flex-col gap-3">
+              <h2 className="text-xs font-semibold uppercase tracking-section text-text-tertiary">
+                Eventos com divergência
+              </h2>
+              {dashboard.eventosComErro.length === 0 ? (
+                <p className="text-sm text-text-secondary">Nenhuma divergência de vínculo ou conteúdo.</p>
+              ) : (
+                <ul className="flex flex-col gap-2 text-sm">
+                  {dashboard.eventosComErro.map((item) => (
+                    <li key={item.eventoExternoId}>
+                      <p className="font-medium text-text-primary">{item.tipo} · {item.erro}</p>
+                      <p className="text-text-secondary">{item.cobrancaId ?? 'cobrança sem ID'} · {item.resultado}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+
+            <Card className="flex flex-col gap-3">
+              <h2 className="text-xs font-semibold uppercase tracking-section text-text-tertiary">
+                Ocorrências de pagamento
+              </h2>
+              {dashboard.ocorrenciasPagamento.length === 0 ? (
+                <p className="text-sm text-text-secondary">Nenhum chargeback, estorno ou pagamento tardio pendente.</p>
+              ) : (
+                <ul className="flex flex-col gap-2 text-sm">
+                  {dashboard.ocorrenciasPagamento.map((item) => (
+                    <li key={item.id}>
+                      <p className="font-medium text-text-primary">{item.tipo} · {item.estado}</p>
+                      <p className="text-text-secondary">Pedido {item.pedidoId} · {item.detalhe}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          </div>
+
+          <Card className="flex flex-col gap-3">
+            <div>
+              <h2 className="text-xs font-semibold uppercase tracking-section text-text-tertiary">
+                Reconciliações de pagamento
+              </h2>
+              <p className="mt-1 text-sm text-text-secondary">
+                Tentativas incertas permanecem bloqueadas até uma consulta explícita ao gateway.
+              </p>
+            </div>
+            {erroReconciliacao && <p className="text-sm text-accent-warning">{erroReconciliacao}</p>}
+            {dashboard.reconciliacoes.length === 0 ? (
+              <p className="text-sm text-text-secondary">Nenhuma tentativa aguardando reconciliação.</p>
+            ) : (
+              <ul className="flex flex-col gap-3">
+                {dashboard.reconciliacoes.map((item) => (
+                  <li key={item.tentativaId} className="flex items-center justify-between gap-4 text-sm">
+                    <div>
+                      <p className="font-medium text-text-primary">Pedido {item.pedidoId}</p>
+                      <p className="text-text-secondary">
+                        {item.forma} · {item.asaasPaymentId ?? 'sem ID externo'} · {item.ultimoResultado ?? 'sem evento'}
+                        {item.ultimoErro ? ` (${item.ultimoErro})` : ''}
+                      </p>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      disabled={reconciliando === item.tentativaId}
+                      onClick={() => void reconciliar(item.tentativaId)}
+                    >
+                      {reconciliando === item.tentativaId ? 'Consultando…' : 'Reconciliar'}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card className="flex flex-col gap-3">
+            <div>
+              <h2 className="text-xs font-semibold uppercase tracking-section text-text-tertiary">
+                Antecipações de recebíveis
+              </h2>
+              <p className="mt-1 text-sm text-text-secondary">
+                Visibilidade operacional; antecipação pendente não representa caixa disponível.
+              </p>
+            </div>
+            {dashboard.antecipacoes.length === 0 ? (
+              <p className="text-sm text-text-secondary">Nenhuma antecipação registrada.</p>
+            ) : (
+              <ul className="flex flex-col gap-3 text-sm">
+                {dashboard.antecipacoes.map((item) => (
+                  <li key={item.id} className="grid grid-cols-5 gap-3">
+                    <span className="text-text-primary">{item.estado}</span>
+                    <span className="text-text-secondary">Bruto {formatReais(item.valorCentavos / 100)}</span>
+                    <span className="text-text-secondary">Tarifa {formatReais(item.tarifaCentavos / 100)}</span>
+                    <span className="text-text-secondary">Líquido {formatReais(item.liquidoCentavos / 100)}</span>
+                    <span className="text-text-secondary">{item.dataCredito ?? 'crédito não confirmado'}</span>
                   </li>
                 ))}
               </ul>

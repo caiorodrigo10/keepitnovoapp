@@ -1,353 +1,143 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { handleAsaasWebhook } from './handler';
-import type { PagamentosRepo, ResultadoChargeback, ResultadoConfirmacao, WebhookAsaasDeps } from './handler';
+import type { WebhookAsaasDeps } from './handler';
 
-const TOKEN = 'segredo-webhook-asaas-32-chars-min';
+const TOKEN = 'segredo-webhook-asaas';
 
-/** `PagamentosRepo` fake cujos métodos lançam se chamados — mesmo padrão
- * `fetchThatFailsIfCalled`/`asaasClientThatFailsIfCalled` das Stories 7.1/7.2,
- * agora cobrindo os 2 métodos (7.5 + 7.11). */
-function repoThatFailsIfCalled(): PagamentosRepo {
-  return {
-    confirmarPagamento: vi.fn(() => {
-      throw new Error('[test] confirmarPagamento não deveria ter sido chamado nesta Story.');
-    }),
-    registrarChargeback: vi.fn(() => {
-      throw new Error('[test] registrarChargeback não deveria ter sido chamado nesta Story.');
-    }),
-  };
-}
-
-function repoResolvendo(resultado: ResultadoConfirmacao, pedidoId: string | null = 'pedido-1') {
-  const confirmarPagamento = vi.fn(async () => ({ resultado, pedidoId }));
-  const repo: PagamentosRepo = { confirmarPagamento, registrarChargeback: repoThatFailsIfCalled().registrarChargeback };
-  return { repo, confirmarPagamento };
-}
-
-/** Story 7.11 — repositório fake para o fluxo de chargeback, com
- * `confirmarPagamento` no modo `repoThatFailsIfCalled` (não deve ser chamado
- * no caminho de chargeback). */
-function repoChargebackResolvendo(resultado: ResultadoChargeback, pedidoId: string | null = 'pedido-1') {
-  const registrarChargeback = vi.fn(async () => ({ resultado, pedidoId }));
-  const repo: PagamentosRepo = {
-    confirmarPagamento: repoThatFailsIfCalled().confirmarPagamento,
-    registrarChargeback,
-  };
-  return { repo, registrarChargeback };
-}
-
-function deps(overrides: Partial<WebhookAsaasDeps> = {}): WebhookAsaasDeps {
-  return {
+function dependencies() {
+  const processPaymentEvent = vi.fn(async () => ({ resultado: 'confirmado', pedidoId: 'pedido-1' }));
+  const processAnticipationEvent = vi.fn(async () => ({ resultado: 'antecipacao_atualizada', pedidoId: 'pedido-1' }));
+  const value = {
     webhookToken: TOKEN,
-    pedidos: repoThatFailsIfCalled(),
-    ...overrides,
-  };
+    pagamentos: { processPaymentEvent, processAnticipationEvent },
+  } as unknown as WebhookAsaasDeps;
+  return { value, processPaymentEvent, processAnticipationEvent };
 }
 
-const PAYLOAD_BASE = {
-  id: 'evt_05b708f961d739ea7eba7e4db318f621',
+const paymentPayload = (event: string, overrides: Record<string, unknown> = {}) => ({
+  id: 'evt-payment-1',
+  event,
   payment: {
-    id: 'pay_080225913252',
-    value: 129.9,
-    status: 'RECEIVED',
-    billingType: 'PIX',
-    externalReference: 'PED-uuid',
-    paymentDate: '2026-08-27',
+    id: 'pay-1',
+    externalReference: 'tentativa-1',
+    value: 107.9,
+    billingType: 'CREDIT_CARD',
+    ...overrides,
   },
-};
-
-describe('handleAsaasWebhook (Story 7.5, AC1–AC5, AC7)', () => {
-  it('token válido + PAYMENT_RECEIVED → 200 confirmado (caminho feliz)', async () => {
-    const { repo, confirmarPagamento } = repoResolvendo('confirmado', 'pedido-1');
-
-    const result = await handleAsaasWebhook(
-      { headerToken: TOKEN, body: { ...PAYLOAD_BASE, event: 'PAYMENT_RECEIVED' } },
-      deps({ pedidos: repo }),
-    );
-
-    expect(result).toEqual({
-      status: 200,
-      body: { ok: true, resultado: 'confirmado', pedido_id: 'pedido-1' },
-    });
-    expect(confirmarPagamento).toHaveBeenCalledWith({
-      asaasPaymentId: 'pay_080225913252',
-      externalReference: 'PED-uuid',
-    });
-  });
-
-  it('token válido + PAYMENT_CONFIRMED → 200 confirmado (mesmo caminho feliz)', async () => {
-    const { repo, confirmarPagamento } = repoResolvendo('confirmado', 'pedido-2');
-
-    const result = await handleAsaasWebhook(
-      { headerToken: TOKEN, body: { ...PAYLOAD_BASE, event: 'PAYMENT_CONFIRMED' } },
-      deps({ pedidos: repo }),
-    );
-
-    expect(result).toEqual({
-      status: 200,
-      body: { ok: true, resultado: 'confirmado', pedido_id: 'pedido-2' },
-    });
-    expect(confirmarPagamento).toHaveBeenCalledTimes(1);
-  });
-
-  it('token ausente → 401, repo nunca chamado', async () => {
-    const result = await handleAsaasWebhook(
-      { headerToken: undefined, body: { ...PAYLOAD_BASE, event: 'PAYMENT_RECEIVED' } },
-      deps(),
-    );
-
-    expect(result).toEqual({
-      status: 401,
-      body: { ok: false, error: { code: 'TOKEN_INVALIDO', message: expect.any(String) } },
-    });
-  });
-
-  it('token inválido/não-batendo → 401, repo nunca chamado', async () => {
-    const result = await handleAsaasWebhook(
-      { headerToken: 'token-errado', body: { ...PAYLOAD_BASE, event: 'PAYMENT_RECEIVED' } },
-      deps(),
-    );
-
-    expect(result.status).toBe(401);
-    expect(result.body).toEqual({ ok: false, error: { code: 'TOKEN_INVALIDO', message: expect.any(String) } });
-  });
-
-  it('ASAAS_WEBHOOK_TOKEN vazio no ambiente → 401 fail-closed, mesmo com header também vazio', async () => {
-    const result = await handleAsaasWebhook(
-      { headerToken: '', body: { ...PAYLOAD_BASE, event: 'PAYMENT_RECEIVED' } },
-      deps({ webhookToken: '' }),
-    );
-
-    expect(result.status).toBe(401);
-    expect(result.body).toEqual({ ok: false, error: { code: 'TOKEN_INVALIDO', message: expect.any(String) } });
-  });
-
-  it('reentrância/idempotência: 2ª chamada com o mesmo payload retorna ja_processado, ambas 200', async () => {
-    const confirmarPagamento = vi
-      .fn()
-      .mockResolvedValueOnce({ resultado: 'confirmado' as ResultadoConfirmacao, pedidoId: 'pedido-3' })
-      .mockResolvedValueOnce({ resultado: 'ja_processado' as ResultadoConfirmacao, pedidoId: 'pedido-3' });
-    const repo: PagamentosRepo = { confirmarPagamento, registrarChargeback: repoThatFailsIfCalled().registrarChargeback };
-
-    const primeira = await handleAsaasWebhook(
-      { headerToken: TOKEN, body: { ...PAYLOAD_BASE, event: 'PAYMENT_RECEIVED' } },
-      deps({ pedidos: repo }),
-    );
-    const segunda = await handleAsaasWebhook(
-      { headerToken: TOKEN, body: { ...PAYLOAD_BASE, event: 'PAYMENT_RECEIVED' } },
-      deps({ pedidos: repo }),
-    );
-
-    expect(primeira).toEqual({ status: 200, body: { ok: true, resultado: 'confirmado', pedido_id: 'pedido-3' } });
-    expect(segunda).toEqual({ status: 200, body: { ok: true, resultado: 'ja_processado', pedido_id: 'pedido-3' } });
-    expect(confirmarPagamento).toHaveBeenCalledTimes(2);
-  });
-
-  it('pedido não encontrado → 200 pedido_nao_encontrado', async () => {
-    const { repo } = repoResolvendo('pedido_nao_encontrado', null);
-
-    const result = await handleAsaasWebhook(
-      { headerToken: TOKEN, body: { ...PAYLOAD_BASE, event: 'PAYMENT_RECEIVED' } },
-      deps({ pedidos: repo }),
-    );
-
-    expect(result).toEqual({
-      status: 200,
-      body: { ok: true, resultado: 'pedido_nao_encontrado', pedido_id: null },
-    });
-  });
-
-  it('payload sem payment.id nem externalReference → 200 payload_invalido, repo nunca chamado', async () => {
-    const result = await handleAsaasWebhook(
-      {
-        headerToken: TOKEN,
-        body: { id: 'evt_x', event: 'PAYMENT_RECEIVED', payment: { value: 10 } },
-      },
-      deps(),
-    );
-
-    expect(result).toEqual({ status: 200, body: { ok: true, resultado: 'payload_invalido' } });
-  });
-
-  it('evento não tratado (ex. PAYMENT_OVERDUE) → 200 evento_ignorado, repo nunca chamado', async () => {
-    const result = await handleAsaasWebhook(
-      { headerToken: TOKEN, body: { ...PAYLOAD_BASE, event: 'PAYMENT_OVERDUE' } },
-      deps(),
-    );
-
-    expect(result).toEqual({ status: 200, body: { ok: true, resultado: 'evento_ignorado' } });
-  });
-
-  it('falha da RPC/repositório (lança) → 502', async () => {
-    const confirmarPagamento = vi.fn(async () => {
-      throw new Error('[asaas-payment-webhook] RPC confirmar_pagamento_pedido falhou: connection refused');
-    });
-    const repo: PagamentosRepo = { confirmarPagamento, registrarChargeback: repoThatFailsIfCalled().registrarChargeback };
-
-    const result = await handleAsaasWebhook(
-      { headerToken: TOKEN, body: { ...PAYLOAD_BASE, event: 'PAYMENT_RECEIVED' } },
-      deps({ pedidos: repo }),
-    );
-
-    expect(result.status).toBe(502);
-    expect(result.body).toEqual({
-      ok: false,
-      error: { code: 'CONFIRMACAO_FALHOU', message: expect.stringContaining('connection refused') },
-    });
-  });
-
-  it('body malformado (não-objeto) → 200 payload_invalido, repo nunca chamado', async () => {
-    const result = await handleAsaasWebhook({ headerToken: TOKEN, body: null }, deps());
-
-    expect(result).toEqual({ status: 200, body: { ok: true, resultado: 'payload_invalido' } });
-  });
 });
 
-const PAYLOAD_CHARGEBACK_BASE = {
-  id: 'evt_chargeback_05b708f961d739ea7eba7e4db318f621',
-  payment: {
-    id: 'pay_080225913252',
-    value: 129.9,
-    status: 'CHARGEBACK_REQUESTED',
-    billingType: 'PIX',
-    externalReference: 'PED-uuid',
-  },
-};
-
-describe('handleAsaasWebhook — chargeback (Story 7.11, AC1–AC4)', () => {
-  it('token válido + PAYMENT_CHARGEBACK_REQUESTED → 200 confirmado (caminho feliz)', async () => {
-    const { repo, registrarChargeback } = repoChargebackResolvendo('confirmado', 'pedido-cb-1');
-
+describe('handleAsaasWebhook', () => {
+  it('rejeita token inválido antes de qualquer acesso ao repositório', async () => {
+    const deps = dependencies();
     const result = await handleAsaasWebhook(
-      { headerToken: TOKEN, body: { ...PAYLOAD_CHARGEBACK_BASE, event: 'PAYMENT_CHARGEBACK_REQUESTED' } },
-      deps({ pedidos: repo }),
+      { headerToken: 'incorreto', body: paymentPayload('PAYMENT_RECEIVED') }, deps.value,
     );
-
-    expect(result).toEqual({
-      status: 200,
-      body: { ok: true, resultado: 'confirmado', pedido_id: 'pedido-cb-1' },
-    });
-    expect(registrarChargeback).toHaveBeenCalledWith({
-      asaasPaymentId: 'pay_080225913252',
-      externalReference: 'PED-uuid',
-    });
-  });
-
-  it('reentrância/idempotência: 2ª entrega do mesmo chargeback retorna ja_processado, ambas 200, sem 2º débito', async () => {
-    const registrarChargeback = vi
-      .fn()
-      .mockResolvedValueOnce({ resultado: 'confirmado' as ResultadoChargeback, pedidoId: 'pedido-cb-2' })
-      .mockResolvedValueOnce({ resultado: 'ja_processado' as ResultadoChargeback, pedidoId: 'pedido-cb-2' });
-    const repo: PagamentosRepo = {
-      confirmarPagamento: repoThatFailsIfCalled().confirmarPagamento,
-      registrarChargeback,
-    };
-
-    const primeira = await handleAsaasWebhook(
-      { headerToken: TOKEN, body: { ...PAYLOAD_CHARGEBACK_BASE, event: 'PAYMENT_CHARGEBACK_REQUESTED' } },
-      deps({ pedidos: repo }),
-    );
-    const segunda = await handleAsaasWebhook(
-      { headerToken: TOKEN, body: { ...PAYLOAD_CHARGEBACK_BASE, event: 'PAYMENT_CHARGEBACK_REQUESTED' } },
-      deps({ pedidos: repo }),
-    );
-
-    expect(primeira).toEqual({ status: 200, body: { ok: true, resultado: 'confirmado', pedido_id: 'pedido-cb-2' } });
-    expect(segunda).toEqual({ status: 200, body: { ok: true, resultado: 'ja_processado', pedido_id: 'pedido-cb-2' } });
-    expect(registrarChargeback).toHaveBeenCalledTimes(2);
-  });
-
-  it('token ausente no caminho do chargeback → 401, registrarChargeback nunca chamado', async () => {
-    const result = await handleAsaasWebhook(
-      { headerToken: undefined, body: { ...PAYLOAD_CHARGEBACK_BASE, event: 'PAYMENT_CHARGEBACK_REQUESTED' } },
-      deps(),
-    );
-
-    expect(result).toEqual({
-      status: 401,
-      body: { ok: false, error: { code: 'TOKEN_INVALIDO', message: expect.any(String) } },
-    });
-  });
-
-  it('token inválido no caminho do chargeback → 401, registrarChargeback nunca chamado', async () => {
-    const result = await handleAsaasWebhook(
-      { headerToken: 'token-errado', body: { ...PAYLOAD_CHARGEBACK_BASE, event: 'PAYMENT_CHARGEBACK_REQUESTED' } },
-      deps(),
-    );
-
     expect(result.status).toBe(401);
-    expect(result.body).toEqual({ ok: false, error: { code: 'TOKEN_INVALIDO', message: expect.any(String) } });
+    expect(deps.processPaymentEvent).not.toHaveBeenCalled();
+    expect(deps.processAnticipationEvent).not.toHaveBeenCalled();
   });
 
-  it('chargeback de pedido não encontrado → 200 pedido_nao_encontrado', async () => {
-    const { repo } = repoChargebackResolvendo('pedido_nao_encontrado', null);
+  it.each(['PAYMENT_CONFIRMED', 'PAYMENT_RECEIVED', 'PAYMENT_AWAITING_RISK_ANALYSIS'])(
+    'encaminha %s com id do evento e conteúdo financeiro normalizado', async (event) => {
+      const deps = dependencies();
+      const result = await handleAsaasWebhook(
+        { headerToken: TOKEN, body: paymentPayload(event) }, deps.value,
+      );
+      expect(result.status).toBe(200);
+      expect(deps.processPaymentEvent).toHaveBeenCalledWith({
+        eventId: 'evt-payment-1', event, paymentId: 'pay-1', reference: 'tentativa-1',
+        valueCents: 10_790, method: 'cartao',
+      });
+    },
+  );
 
-    const result = await handleAsaasWebhook(
-      { headerToken: TOKEN, body: { ...PAYLOAD_CHARGEBACK_BASE, event: 'PAYMENT_CHARGEBACK_REQUESTED' } },
-      deps({ pedidos: repo }),
+  it.each(['PAYMENT_CHARGEBACK_REQUESTED', 'PAYMENT_REFUNDED', 'PAYMENT_PARTIALLY_REFUNDED'])(
+    'encaminha %s ao mesmo processador auditável sem caminho de débito paralelo', async (event) => {
+      const deps = dependencies();
+      await handleAsaasWebhook({ headerToken: TOKEN, body: paymentPayload(event) }, deps.value);
+      expect(deps.processPaymentEvent).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('persiste evento PAYMENT desconhecido para diagnóstico', async () => {
+    const deps = dependencies();
+    await handleAsaasWebhook(
+      { headerToken: TOKEN, body: paymentPayload('PAYMENT_FUTURE_EVENT') }, deps.value,
     );
+    expect(deps.processPaymentEvent).toHaveBeenCalledWith(expect.objectContaining({
+      eventId: 'evt-payment-1', event: 'PAYMENT_FUTURE_EVENT',
+    }));
+  });
 
-    expect(result).toEqual({
-      status: 200,
-      body: { ok: true, resultado: 'pedido_nao_encontrado', pedido_id: null },
+  it('persiste evento de família desconhecida para diagnóstico', async () => {
+    const deps = dependencies();
+    await handleAsaasWebhook(
+      { headerToken: TOKEN, body: { id: 'evt-futuro', event: 'FUTURE_FINANCIAL_EVENT' } }, deps.value,
+    );
+    expect(deps.processPaymentEvent).toHaveBeenCalledWith({
+      eventId: 'evt-futuro', event: 'FUTURE_FINANCIAL_EVENT', paymentId: null,
+      reference: null, valueCents: null, method: null,
     });
   });
 
-  it('chargeback sem payment.id nem externalReference → 200 payload_invalido, registrarChargeback nunca chamado', async () => {
+  it('rejeita evento de pagamento sem identificador durável antes do banco', async () => {
+    const deps = dependencies();
     const result = await handleAsaasWebhook(
-      {
-        headerToken: TOKEN,
-        body: { id: 'evt_cb_x', event: 'PAYMENT_CHARGEBACK_REQUESTED', payment: { value: 10 } },
-      },
-      deps(),
+      { headerToken: TOKEN, body: { event: 'PAYMENT_RECEIVED', payment: { id: 'pay-1' } } }, deps.value,
     );
-
     expect(result).toEqual({ status: 200, body: { ok: true, resultado: 'payload_invalido' } });
+    expect(deps.processPaymentEvent).not.toHaveBeenCalled();
   });
 
-  it('falha da RPC registrar_chargeback_pedido (lança) → 502', async () => {
-    const registrarChargeback = vi.fn(async () => {
-      throw new Error('[asaas-payment-webhook] RPC registrar_chargeback_pedido falhou: connection refused');
-    });
-    const repo: PagamentosRepo = {
-      confirmarPagamento: repoThatFailsIfCalled().confirmarPagamento,
-      registrarChargeback,
-    };
-
+  it('retorna falha recuperável e não vaza a mensagem interna do banco', async () => {
+    const deps = dependencies();
+    deps.processPaymentEvent.mockRejectedValueOnce(new Error('postgres password=segredo-super-secreto'));
     const result = await handleAsaasWebhook(
-      { headerToken: TOKEN, body: { ...PAYLOAD_CHARGEBACK_BASE, event: 'PAYMENT_CHARGEBACK_REQUESTED' } },
-      deps({ pedidos: repo }),
+      { headerToken: TOKEN, body: paymentPayload('PAYMENT_RECEIVED') }, deps.value,
     );
-
-    expect(result.status).toBe(502);
-    expect(result.body).toEqual({
-      ok: false,
-      error: { code: 'CHARGEBACK_FALHOU', message: expect.stringContaining('connection refused') },
-    });
-  });
-
-  it('PAYMENT_REFUNDED (fora de escopo) → 200 evento_ignorado, nenhum método do repo chamado', async () => {
-    const result = await handleAsaasWebhook(
-      { headerToken: TOKEN, body: { ...PAYLOAD_CHARGEBACK_BASE, event: 'PAYMENT_REFUNDED' } },
-      deps(),
-    );
-
-    expect(result).toEqual({ status: 200, body: { ok: true, resultado: 'evento_ignorado' } });
-  });
-
-  it('evento de pagamento (PAYMENT_RECEIVED) continua inalterado quando repositório de chargeback também está presente', async () => {
-    const { repo, confirmarPagamento } = repoResolvendo('confirmado', 'pedido-pagto-1');
-
-    const result = await handleAsaasWebhook(
-      { headerToken: TOKEN, body: { ...PAYLOAD_BASE, event: 'PAYMENT_RECEIVED' } },
-      deps({ pedidos: repo }),
-    );
-
     expect(result).toEqual({
-      status: 200,
-      body: { ok: true, resultado: 'confirmado', pedido_id: 'pedido-pagto-1' },
+      status: 502,
+      body: { ok: false, error: { code: 'PROCESSAMENTO_FALHOU', message: 'Evento não persistido. Tente novamente.' } },
     });
-    expect(confirmarPagamento).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(result)).not.toContain('segredo-super-secreto');
+  });
+
+  it.each([
+    ['RECEIVABLE_ANTICIPATION_PENDING', 'PENDING'],
+    ['RECEIVABLE_ANTICIPATION_CREDITED', 'CREDITED'],
+    ['RECEIVABLE_ANTICIPATION_DENIED', 'DENIED'],
+  ])('normaliza %s e valores da antecipação em centavos', async (event, status) => {
+    const deps = dependencies();
+    const result = await handleAsaasWebhook({
+      headerToken: TOKEN,
+      body: {
+        id: `evt-${status}`, event,
+        anticipation: {
+          id: 'ant-1', payment: 'pay-1', status, totalValue: 310, fee: 5.64,
+          netValue: 302.37, anticipationDate: '2026-10-02',
+          denialObservation: status === 'DENIED' ? 'limite indisponível' : null,
+        },
+      },
+    }, deps.value);
+    expect(result.status).toBe(200);
+    expect(deps.processAnticipationEvent).toHaveBeenCalledWith({
+      eventId: `evt-${status}`, event, anticipationId: 'ant-1', paymentId: 'pay-1', status,
+      grossValueCents: 31_000, feeCents: 564, netValueCents: 30_237,
+      creditDate: '2026-10-02', denialReason: status === 'DENIED' ? 'limite indisponível' : null,
+    });
+  });
+
+  it('não trata antecipação como confirmação do pedido', async () => {
+    const deps = dependencies();
+    await handleAsaasWebhook({
+      headerToken: TOKEN,
+      body: {
+        id: 'evt-ant', event: 'RECEIVABLE_ANTICIPATION_CREDITED',
+        anticipation: { id: 'ant-1', payment: 'pay-1', status: 'CREDITED', totalValue: 10, fee: 1, netValue: 9 },
+      },
+    }, deps.value);
+    expect(deps.processPaymentEvent).not.toHaveBeenCalled();
+    expect(deps.processAnticipationEvent).toHaveBeenCalledOnce();
   });
 });

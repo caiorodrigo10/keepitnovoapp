@@ -1,125 +1,117 @@
-/**
- * Handler puro da Edge Function `asaas-payment-webhook` — Story 7.5 (AC1–AC5),
- * ESTENDIDO pela Story 7.11 (AC1–AC4) para o evento `PAYMENT_CHARGEBACK_REQUESTED`.
- *
- * NUNCA importa `Deno` (só `index.ts`, o entrypoint `Deno.serve`, faz essa
- * ponte). `deps` injeta o token esperado (`ASAAS_WEBHOOK_TOKEN`, já resolvido
- * pelo `index.ts`) e um repositório mínimo (`PagamentosRepo`, interface
- * própria deste módulo — não o tipo `SupabaseClient`), mantendo este arquivo
- * 100% testável sob Vitest sem nenhum setup de Supabase real (mesmo padrão de
- * `PedidosRepo`/`asaasClient` injetados das Stories 7.1/7.2).
- *
- * Diferente da 7.2, este webhook é um RECEPTOR: o Asaas chama a Keepit (não o
- * inverso), autenticado por um segredo compartilhado (`asaas-access-token`),
- * nunca por sessão de usuário.
- *
- * Fluxo (ordem importa — auth SEMPRE primeiro, AUTHZ-001, agora cobrindo
- * também o caminho de chargeback):
- *   1. `!deps.webhookToken || input.headerToken !== deps.webhookToken` → 401,
- *      NENHUM método do repositório (nem `confirmarPagamento` nem
- *      `registrarChargeback`) é chamado. Fail-closed: um `ASAAS_WEBHOOK_TOKEN`
- *      vazio nunca "casa" com um header também vazio.
- *   2. Parse defensivo de `body` (tipo `unknown`, type guards — nunca `as`
- *      cego): precisa de `event: string` e `payment: { id?; externalReference? }`.
- *      Forma inválida → 200 `resultado:'payload_invalido'`, repo não chamado.
- *   3. Evento em `PAYMENT_RECEIVED`/`PAYMENT_CONFIRMED` → fluxo já existente
- *      da 7.5, inalterado (chama `deps.pedidos.confirmarPagamento`).
- *   4. Evento `PAYMENT_CHARGEBACK_REQUESTED` (Story 7.11) → mesmo parse de
- *      `asaasPaymentId`/`externalReference`; sem nenhum dos dois → 200
- *      `resultado:'payload_invalido'`, repo não chamado; senão chama
- *      `deps.pedidos.registrarChargeback(...)` — lança (falha real de
- *      infraestrutura/DB) → 502; mapeia `resultado` → 200 sempre.
- *      `PAYMENT_REFUNDED` fica FORA de escopo desta Story (ver Story 7.11,
- *      "Reconciliação com o épico" — pertence a um futuro fluxo de
- *      estorno/reembolso, sem Story dona hoje).
- *   5. Qualquer outro evento (nem pagamento nem chargeback) → 200
- *      `resultado:'evento_ignorado'`, repo não chamado (comportamento já
- *      existente da 7.5, preservado).
- *   6. Mapeia `resultado` da RPC (`confirmado`/`ja_processado`/
- *      `pedido_nao_encontrado`) → sempre 200 (idempotência/IDEMP-001,
- *      "at least once" do Asaas nunca deve gerar retry infinito — AC5/7.5,
- *      AC3/7.11).
- */
+export interface PaymentEventInput {
+  eventId: string;
+  event: string;
+  paymentId: string | null;
+  reference: string | null;
+  valueCents: number | null;
+  method: 'pix' | 'cartao' | null;
+}
 
-export type ResultadoConfirmacao = 'confirmado' | 'ja_processado' | 'pedido_nao_encontrado';
-export type ResultadoChargeback = 'confirmado' | 'ja_processado' | 'pedido_nao_encontrado';
+export interface AnticipationEventInput {
+  eventId: string;
+  event: string;
+  anticipationId: string;
+  paymentId: string;
+  status: string;
+  grossValueCents: number;
+  feeCents: number;
+  netValueCents: number;
+  creditDate: string | null;
+  denialReason: string | null;
+}
 
 export interface PagamentosRepo {
-  confirmarPagamento(input: {
-    asaasPaymentId: string;
-    externalReference: string | null;
-  }): Promise<{ resultado: ResultadoConfirmacao; pedidoId: string | null }>;
-
-  /** NOVO — Story 7.11. RPC `registrar_chargeback_pedido` via `index.ts`. */
-  registrarChargeback(input: {
-    asaasPaymentId: string;
-    externalReference: string | null;
-  }): Promise<{ resultado: ResultadoChargeback; pedidoId: string | null }>;
+  processPaymentEvent(input: PaymentEventInput): Promise<{ resultado: string; pedidoId: string | null }>;
+  processAnticipationEvent(input: AnticipationEventInput): Promise<{ resultado: string; pedidoId: string | null }>;
 }
 
 export interface WebhookAsaasDeps {
-  /** ASAAS_WEBHOOK_TOKEN resolvido pelo index.ts — nunca lido aqui via Deno.env. */
   webhookToken: string;
-  pedidos: PagamentosRepo;
+  pagamentos: PagamentosRepo;
 }
 
 export interface WebhookAsaasInput {
-  /** Valor do header `asaas-access-token`, lido pelo index.ts. */
   headerToken: string | null | undefined;
-  /** Body JSON bruto do request — validado dentro do handler. */
   body: unknown;
 }
 
 export type WebhookAsaasResult =
   | { status: 200; body: { ok: true; resultado: string; pedido_id?: string | null } }
   | { status: 401; body: { ok: false; error: { code: 'TOKEN_INVALIDO'; message: string } } }
-  | { status: 502; body: { ok: false; error: { code: string; message: string } } };
+  | { status: 502; body: { ok: false; error: { code: 'PROCESSAMENTO_FALHOU'; message: string } } };
 
-const EVENTOS_PAGAMENTO = ['PAYMENT_RECEIVED', 'PAYMENT_CONFIRMED'] as const;
-/** Story 7.11 — só `PAYMENT_CHARGEBACK_REQUESTED`. `PAYMENT_REFUNDED` fica
- * fora de escopo (ver cabeçalho deste arquivo). */
-const EVENTOS_CHARGEBACK = ['PAYMENT_CHARGEBACK_REQUESTED'] as const;
+function record(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
 
-interface AsaasWebhookPayload {
-  event: string;
-  payment: {
-    id?: string;
-    externalReference?: string | null;
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
+function optionalString(value: unknown): string | null {
+  return value === null || value === undefined ? null : nonEmptyString(value);
+}
+
+function cents(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
+  const normalized = Math.round(value * 100);
+  return Number.isSafeInteger(normalized) ? normalized : null;
+}
+
+function paymentMethod(value: unknown): PaymentEventInput['method'] {
+  if (value === 'PIX') return 'pix';
+  if (value === 'CREDIT_CARD') return 'cartao';
+  return null;
+}
+
+function parsePaymentEvent(body: Record<string, unknown>, eventId: string, event: string): PaymentEventInput | null {
+  const payment = record(body.payment);
+  if (!payment) return null;
+  return {
+    eventId,
+    event,
+    paymentId: optionalString(payment.id),
+    reference: optionalString(payment.externalReference),
+    valueCents: cents(payment.value),
+    method: paymentMethod(payment.billingType),
   };
 }
 
-/** Type guard defensivo — `body` é `unknown`, nunca `as` cego. */
-function isAsaasWebhookPayload(body: unknown): body is AsaasWebhookPayload {
-  if (typeof body !== 'object' || body === null) {
-    return false;
+function parseAnticipationEvent(
+  body: Record<string, unknown>, eventId: string, event: string,
+): AnticipationEventInput | null {
+  const anticipation = record(body.anticipation);
+  if (!anticipation) return null;
+  const anticipationId = nonEmptyString(anticipation.id);
+  const paymentId = nonEmptyString(anticipation.payment);
+  const status = nonEmptyString(anticipation.status);
+  const grossValueCents = cents(anticipation.totalValue);
+  const feeCents = cents(anticipation.fee);
+  const netValueCents = cents(anticipation.netValue);
+  if (!anticipationId || !paymentId || !status || grossValueCents === null || feeCents === null || netValueCents === null) {
+    return null;
   }
-  const candidate = body as Record<string, unknown>;
-  if (typeof candidate.event !== 'string') {
-    return false;
-  }
-  if (typeof candidate.payment !== 'object' || candidate.payment === null) {
-    return false;
-  }
-  const payment = candidate.payment as Record<string, unknown>;
-  if (payment.id !== undefined && typeof payment.id !== 'string') {
-    return false;
-  }
-  if (
-    payment.externalReference !== undefined &&
-    payment.externalReference !== null &&
-    typeof payment.externalReference !== 'string'
-  ) {
-    return false;
-  }
-  return true;
+  return {
+    eventId,
+    event,
+    anticipationId,
+    paymentId,
+    status,
+    grossValueCents,
+    feeCents,
+    netValueCents,
+    creditDate: optionalString(anticipation.anticipationDate),
+    denialReason: optionalString(anticipation.denialObservation),
+  };
 }
 
 export async function handleAsaasWebhook(
   input: WebhookAsaasInput,
   deps: WebhookAsaasDeps,
 ): Promise<WebhookAsaasResult> {
-  // 1) Auth ANTES de qualquer acesso ao repositório (AUTHZ-001). Fail-closed:
-  //    token de ambiente vazio nunca "casa" com header ausente/vazio.
+  // O segredo externo é validado antes de parse, log ou acesso ao banco.
   if (!deps.webhookToken || input.headerToken !== deps.webhookToken) {
     return {
       status: 401,
@@ -127,76 +119,44 @@ export async function handleAsaasWebhook(
     };
   }
 
-  // 2) Parse defensivo do payload.
-  if (!isAsaasWebhookPayload(input.body)) {
+  const body = record(input.body);
+  const eventId = nonEmptyString(body?.id);
+  const event = nonEmptyString(body?.event);
+  if (!body || !eventId || !event) {
     return { status: 200, body: { ok: true, resultado: 'payload_invalido' } };
   }
 
-  const asaasPaymentId = input.body.payment.id ?? null;
-  const externalReference = input.body.payment.externalReference ?? null;
-  const event = input.body.event;
-
-  // 3) Evento de pagamento (PAYMENT_RECEIVED/PAYMENT_CONFIRMED) — fluxo já
-  //    existente da 7.5, inalterado.
-  if (EVENTOS_PAGAMENTO.includes(event as (typeof EVENTOS_PAGAMENTO)[number])) {
-    if (!asaasPaymentId && !externalReference) {
-      return { status: 200, body: { ok: true, resultado: 'payload_invalido' } };
+  try {
+    if (event.startsWith('RECEIVABLE_ANTICIPATION_')) {
+      const parsed = parseAnticipationEvent(body, eventId, event);
+      if (!parsed) return { status: 200, body: { ok: true, resultado: 'payload_invalido' } };
+      const result = await deps.pagamentos.processAnticipationEvent(parsed);
+      return { status: 200, body: { ok: true, resultado: result.resultado, pedido_id: result.pedidoId } };
     }
 
-    // Chama o repositório (RPC confirmar_pagamento_pedido via index.ts).
-    // Erro lançado = falha real de infraestrutura → 502 (o Asaas deve re-tentar).
-    let resultado: { resultado: ResultadoConfirmacao; pedidoId: string | null };
-    try {
-      resultado = await deps.pedidos.confirmarPagamento({
-        asaasPaymentId: asaasPaymentId ?? '',
-        externalReference,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Falha desconhecida ao confirmar pagamento.';
-      return { status: 502, body: { ok: false, error: { code: 'CONFIRMACAO_FALHOU', message } } };
+    if (event.startsWith('PAYMENT_')) {
+      const parsed = parsePaymentEvent(body, eventId, event);
+      if (!parsed) return { status: 200, body: { ok: true, resultado: 'payload_invalido' } };
+      const result = await deps.pagamentos.processPaymentEvent(parsed);
+      return { status: 200, body: { ok: true, resultado: result.resultado, pedido_id: result.pedidoId } };
     }
 
-    // 'pedido_nao_encontrado' é logado (não é erro do chamador — Asaas não
-    // deve re-tentar por isso), mas ainda responde 2xx (AC5).
-    if (resultado.resultado === 'pedido_nao_encontrado') {
-      console.warn(
-        `[asaas-payment-webhook] pedido_nao_encontrado — asaasPaymentId=${asaasPaymentId ?? '(nenhum)'} externalReference=${externalReference ?? '(nenhum)'}`,
-      );
-    }
-
-    return { status: 200, body: { ok: true, resultado: resultado.resultado, pedido_id: resultado.pedidoId } };
+    // Uma família nova também ganha recibo durável. Campos de cobrança ficam
+    // nulos e o processador a classifica para diagnóstico sem efeito financeiro.
+    const result = await deps.pagamentos.processPaymentEvent({
+      eventId,
+      event,
+      paymentId: null,
+      reference: null,
+      valueCents: null,
+      method: null,
+    });
+    return { status: 200, body: { ok: true, resultado: result.resultado, pedido_id: result.pedidoId } };
+  } catch {
+    // Não expõe mensagem do banco, payload ou segredo. 502 pede reentrega ao gateway.
+    return {
+      status: 502,
+      body: { ok: false, error: { code: 'PROCESSAMENTO_FALHOU', message: 'Evento não persistido. Tente novamente.' } },
+    };
   }
-
-  // 4) Evento de chargeback (PAYMENT_CHARGEBACK_REQUESTED) — Story 7.11.
-  //    PAYMENT_REFUNDED fica FORA de escopo (ver cabeçalho deste arquivo).
-  if (EVENTOS_CHARGEBACK.includes(event as (typeof EVENTOS_CHARGEBACK)[number])) {
-    if (!asaasPaymentId && !externalReference) {
-      return { status: 200, body: { ok: true, resultado: 'payload_invalido' } };
-    }
-
-    // Chama o repositório (RPC registrar_chargeback_pedido via index.ts).
-    // Erro lançado = falha real de infraestrutura → 502 (o Asaas deve re-tentar).
-    let resultado: { resultado: ResultadoChargeback; pedidoId: string | null };
-    try {
-      resultado = await deps.pedidos.registrarChargeback({
-        asaasPaymentId: asaasPaymentId ?? '',
-        externalReference,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Falha desconhecida ao registrar chargeback.';
-      return { status: 502, body: { ok: false, error: { code: 'CHARGEBACK_FALHOU', message } } };
-    }
-
-    if (resultado.resultado === 'pedido_nao_encontrado') {
-      console.warn(
-        `[asaas-payment-webhook] chargeback pedido_nao_encontrado — asaasPaymentId=${asaasPaymentId ?? '(nenhum)'} externalReference=${externalReference ?? '(nenhum)'}`,
-      );
-    }
-
-    return { status: 200, body: { ok: true, resultado: resultado.resultado, pedido_id: resultado.pedidoId } };
-  }
-
-  // 5) Qualquer outro evento (nem pagamento nem chargeback) — 2xx sempre,
-  //    sem chamar nenhum método do repo (comportamento já existente da 7.5).
-  return { status: 200, body: { ok: true, resultado: 'evento_ignorado' } };
 }

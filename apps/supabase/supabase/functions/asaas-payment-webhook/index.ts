@@ -1,66 +1,53 @@
-/**
- * Entrypoint `Deno.serve` da Edge Function `asaas-payment-webhook` — Story 7.5
- * (AC1, AC3), ESTENDIDO pela Story 7.11 (AC1, AC2) para o evento
- * `PAYMENT_CHARGEBACK_REQUESTED`.
- *
- * Fino de propósito: lê o header `asaas-access-token` e o body JSON da
- * requisição, lê `ASAAS_WEBHOOK_TOKEN`/`SUPABASE_URL`/
- * `SUPABASE_SERVICE_ROLE_KEY` de `Deno.env`, monta um client Supabase real
- * com a `service_role` key, implementa o repositório injetado chamando as RPCs
- * `confirmar_pagamento_pedido` (7.5) e `registrar_chargeback_pedido` (7.11)
- * via `supabase.rpc(...)`, chama o handler puro (`handleAsaasWebhook`,
- * testado via Vitest em `handler.test.ts`) e traduz o resultado em uma
- * resposta HTTP. Este arquivo usa `Deno.serve`/`Deno.env` e por isso NÃO é
- * exercitado por Vitest (ver `_shared/deno-globals.d.ts` para a declaração
- * ambiente mínima que permite `tsc --noEmit` typechecar este arquivo sob
- * Node).
- *
- * Diferente da 7.2, não há `config.ts` dedicado nesta Story — não há lógica
- * condicional de derivação (só leituras diretas de env), então essas
- * leituras ficam direto aqui.
- *
- * `apps/supabase/supabase/config.toml` tem `[functions.asaas-payment-webhook]`
- * com `verify_jwt = false` — o Asaas não envia nenhum JWT do Supabase, só
- * este header próprio, validado dentro do handler (AC2).
- */
-
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '@keepit/shared-types';
 
-import { handleAsaasWebhook } from './handler';
-import type { PagamentosRepo, ResultadoChargeback, ResultadoConfirmacao } from './handler';
+import { handleAsaasWebhook } from './handler.ts';
+import type { PagamentosRepo } from './handler.ts';
+
+type EventRpcRow = { resultado?: string; pedido_id?: string | null };
+type EventRpcClient = {
+  rpc(name: string, args: Record<string, unknown>): Promise<{
+    data: EventRpcRow[] | EventRpcRow | null;
+    error: { message: string } | null;
+  }>;
+};
+
+function firstRow(data: EventRpcRow[] | EventRpcRow | null): EventRpcRow {
+  return Array.isArray(data) ? data[0] ?? {} : data ?? {};
+}
 
 function createPagamentosRepo(supabase: ReturnType<typeof createClient<Database>>): PagamentosRepo {
+  const rpc = supabase as unknown as EventRpcClient;
   return {
-    async confirmarPagamento({ asaasPaymentId, externalReference }) {
-      const { data, error } = await supabase.rpc('confirmar_pagamento_pedido', {
-        p_asaas_payment_id: asaasPaymentId,
-        p_external_reference: externalReference,
+    async processPaymentEvent(input) {
+      const { data, error } = await rpc.rpc('processar_evento_pagamento', {
+        p_evento_id: input.eventId,
+        p_evento: input.event,
+        p_cobranca_id: input.paymentId,
+        p_referencia: input.reference,
+        p_valor_centavos: input.valueCents,
+        p_metodo: input.method,
       });
-      if (error) {
-        throw new Error(`[asaas-payment-webhook] RPC confirmar_pagamento_pedido falhou: ${error.message}`);
-      }
-      const row = data?.[0];
-      return {
-        resultado: (row?.resultado ?? 'pedido_nao_encontrado') as ResultadoConfirmacao,
-        pedidoId: row?.pedido_id ?? null,
-      };
+      if (error) throw new Error('PROCESSAMENTO_EVENTO_FALHOU');
+      const row = firstRow(data);
+      return { resultado: row.resultado ?? 'erro_persistencia', pedidoId: row.pedido_id ?? null };
     },
-
-    // NOVO — Story 7.11.
-    async registrarChargeback({ asaasPaymentId, externalReference }) {
-      const { data, error } = await supabase.rpc('registrar_chargeback_pedido', {
-        p_asaas_payment_id: asaasPaymentId,
-        p_external_reference: externalReference,
+    async processAnticipationEvent(input) {
+      const { data, error } = await rpc.rpc('processar_evento_antecipacao', {
+        p_evento_id: input.eventId,
+        p_evento: input.event,
+        p_antecipacao_id: input.anticipationId,
+        p_cobranca_id: input.paymentId,
+        p_estado: input.status,
+        p_valor_centavos: input.grossValueCents,
+        p_tarifa_centavos: input.feeCents,
+        p_liquido_centavos: input.netValueCents,
+        p_data_credito: input.creditDate,
+        p_motivo_negacao: input.denialReason,
       });
-      if (error) {
-        throw new Error(`[asaas-payment-webhook] RPC registrar_chargeback_pedido falhou: ${error.message}`);
-      }
-      const row = data?.[0];
-      return {
-        resultado: (row?.resultado ?? 'pedido_nao_encontrado') as ResultadoChargeback,
-        pedidoId: row?.pedido_id ?? null,
-      };
+      if (error) throw new Error('PROCESSAMENTO_ANTECIPACAO_FALHOU');
+      const row = firstRow(data);
+      return { resultado: row.resultado ?? 'erro_persistencia', pedidoId: row.pedido_id ?? null };
     },
   };
 }
@@ -72,23 +59,19 @@ function jsonResponse(status: number, body: unknown): Response {
 Deno.serve(async (req: Request): Promise<Response> => {
   const headerToken = req.headers.get('asaas-access-token');
   let body: unknown = null;
-  try {
-    body = await req.json();
-  } catch {
-    /* handler trata payload inválido (body permanece null → payload_invalido) */
-  }
+  try { body = await req.json(); } catch { /* payload inválido é tratado pelo handler */ }
 
-  const webhookToken = Deno.env.get('ASAAS_WEBHOOK_TOKEN') ?? '';
-  const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
-  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-  const supabase = createClient<Database>(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-
+  const supabase = createClient<Database>(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    { auth: { autoRefreshToken: false, persistSession: false } },
+  );
   const result = await handleAsaasWebhook(
     { headerToken, body },
-    { webhookToken, pedidos: createPagamentosRepo(supabase) },
+    {
+      webhookToken: Deno.env.get('ASAAS_WEBHOOK_TOKEN') ?? '',
+      pagamentos: createPagamentosRepo(supabase),
+    },
   );
-
   return jsonResponse(result.status, result.body);
 });

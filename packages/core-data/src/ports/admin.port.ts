@@ -86,6 +86,51 @@ export interface FinancialRankingEntry {
   pedidosEntregues: number;
 }
 
+export interface PaymentReconciliationAdmin {
+  tentativaId: string;
+  pedidoId: string;
+  forma: string;
+  estado: 'reconciliacao';
+  asaasPaymentId: string | null;
+  criadoEm: string;
+  ultimoResultado: string | null;
+  ultimoErro: string | null;
+}
+
+export interface ReceivableAnticipationAdmin {
+  id: string;
+  antecipacaoExternaId: string;
+  pedidoId: string;
+  cobrancaId: string;
+  estado: string;
+  valorCentavos: number;
+  tarifaCentavos: number;
+  liquidoCentavos: number;
+  dataCredito: string | null;
+  atualizadoEm: string;
+}
+
+export interface PaymentEventAdmin {
+  eventoExternoId: string;
+  tipo: string;
+  cobrancaId: string | null;
+  tentativaId: string | null;
+  pedidoId: string | null;
+  resultado: string;
+  erro: string;
+  recebidoEm: string;
+}
+
+export interface PaymentOccurrenceAdmin {
+  id: string;
+  pedidoId: string;
+  tipo: 'chargeback' | 'estorno' | 'pagamento_tardio';
+  estado: string;
+  referenciaExterna: string | null;
+  detalhe: string;
+  criadoEm: string;
+}
+
 export interface FinancialDashboardResult {
   periodoDias: number;
   gmvReais: number;
@@ -111,6 +156,10 @@ export interface FinancialDashboardResult {
    * período) — nunca `NaN`/`Infinity` vazando para a UI.
    */
   taxaSucessoPercent: number;
+  reconciliacoes: PaymentReconciliationAdmin[];
+  antecipacoes: ReceivableAnticipationAdmin[];
+  eventosComErro: PaymentEventAdmin[];
+  ocorrenciasPagamento: PaymentOccurrenceAdmin[];
 }
 
 /** Extensões aceitas pelo bucket PÚBLICO `hubs` (`allowed_mime_types`, migration `20260812164200`). */
@@ -335,6 +384,7 @@ export interface AdminPort {
    * nunca hardcoded.
    */
   financialDashboard(periodoDias: number, options?: AsyncCallOptions): Promise<FinancialDashboardResult>;
+  reconcilePayment(tentativaId: string, options?: AsyncCallOptions): Promise<{ resultado: string; pedidoId: string | null }>;
   /** Listagem administrativa de pedidos (todos os estabelecimentos), com filtro opcional de status. */
   listAllOrders(filtros?: { status?: PedidoStatus }, options?: AsyncCallOptions): Promise<Pedido[]>;
   /** Força `status -> cancelado_admin` e popula `reembolsos` (`motivo: 'cancelamento_admin'`, 100% cliente). */

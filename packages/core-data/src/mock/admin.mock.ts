@@ -533,6 +533,10 @@ export function createAdminMock(db: MockDb): AdminPort {
             pedidosCancelados: pedidosCanceladosNoPeriodo,
             pedidosNoShow: pedidosNoShowNoPeriodo,
             taxaSucessoPercent,
+            reconciliacoes: [],
+            antecipacoes: [],
+            eventosComErro: [],
+            ocorrenciasPagamento: [],
           };
         },
         {
@@ -545,7 +549,19 @@ export function createAdminMock(db: MockDb): AdminPort {
           pedidosCancelados: 0,
           pedidosNoShow: 0,
           taxaSucessoPercent: 0,
+          reconciliacoes: [],
+          antecipacoes: [],
+          eventosComErro: [],
+          ocorrenciasPagamento: [],
         },
+        options,
+      );
+    },
+
+    reconcilePayment(_tentativaId: string, options?: AsyncCallOptions): Promise<{ resultado: string; pedidoId: string | null }> {
+      return simulateAsync(
+        () => ({ resultado: 'pendente', pedidoId: null }),
+        { resultado: 'pendente', pedidoId: null },
         options,
       );
     },

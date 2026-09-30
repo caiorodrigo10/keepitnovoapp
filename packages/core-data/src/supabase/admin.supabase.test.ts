@@ -419,6 +419,7 @@ function makeChainableBuilder(result: QueryResult) {
 function fakeTableClient(options: {
   tables?: TableQueue;
   rpc?: (fn: string, args: unknown) => Promise<RpcResult>;
+  invoke?: (fn: string, args: unknown) => Promise<QueryResult>;
 }): { client: SupabaseClient<Database>; from: (table: string) => unknown; rpc: (fn: string, args: unknown) => Promise<RpcResult> } {
   const queues: TableQueue = { ...(options.tables ?? {}) };
   const from = vi.fn((table: string) => {
@@ -426,7 +427,8 @@ function fakeTableClient(options: {
     return makeChainableBuilder(result);
   });
   const rpc = vi.fn(options.rpc ?? (async () => ({ data: null, error: null })));
-  return { client: { from, rpc } as unknown as SupabaseClient<Database>, from, rpc };
+  const invoke = vi.fn(options.invoke ?? (async () => ({ data: null, error: null })));
+  return { client: { from, rpc, functions: { invoke } } as unknown as SupabaseClient<Database>, from, rpc };
 }
 
 describe('admin.supabase.ts — refundQueue (Story 8.1, 8.2)', () => {
@@ -944,6 +946,72 @@ describe('admin.supabase.ts — financialDashboard (Story 8.7)', () => {
     expect(dashboard.ranking).toEqual([]);
     expect(dashboard.taxaSucessoPercent).toBe(0);
     expect(Number.isFinite(dashboard.taxaSucessoPercent)).toBe(true);
+  });
+
+  it('expõe tentativas em reconciliação e antecipações com custos para o Admin', async () => {
+    const { client } = fakeTableClient({
+      tables: {
+        pedidos: [{ data: [], error: null }, { data: [], error: null }],
+        tentativas_pagamento: [{ data: [{
+          id: 'tentativa-1', pedido_id: 'pedido-1', forma: 'cartao', estado: 'reconciliacao',
+          asaas_payment_id: null, criado_em: '2026-09-30T10:00:00.000Z',
+        }], error: null }],
+        eventos_pagamento: [{ data: [{
+          evento_externo_id: 'evt-1', tipo: 'PAYMENT_RECEIVED', cobranca_id: 'pay-1', pedido_id: 'pedido-1',
+          tentativa_id: 'tentativa-1', resultado: 'vinculo_nao_encontrado',
+          erro_codigo: 'COBRANCA_DESCONHECIDA', recebido_em: '2026-09-30T10:05:00.000Z',
+        }, {
+          evento_externo_id: 'evt-sem-vinculo', tipo: 'PAYMENT_FUTURE_EVENT', cobranca_id: 'pay-desconhecido',
+          pedido_id: null, tentativa_id: null, resultado: 'vinculo_nao_encontrado',
+          erro_codigo: 'COBRANCA_DESCONHECIDA', recebido_em: '2026-09-30T10:06:00.000Z',
+        }], error: null }],
+        ocorrencias_pagamento: [{ data: [{
+          id: 'oc-1', pedido_id: 'pedido-2', tipo: 'chargeback', estado: 'pendente',
+          referencia_externa: 'pay-2', detalhe: 'Responsabilidade aguarda decisão administrativa.',
+          criado_em: '2026-09-30T10:07:00.000Z',
+        }], error: null }],
+        antecipacoes_recebiveis: [{ data: [{
+          id: 'ant-local-1', antecipacao_externa_id: 'ant-asaas-1', pedido_id: 'pedido-2',
+          cobranca_id: 'pay-2', estado: 'PENDING', valor_centavos: 10_000,
+          tarifa_centavos: 250, liquido_centavos: 9_750, data_credito: null,
+          atualizado_em: '2026-09-30T11:00:00.000Z',
+        }], error: null }],
+      },
+    });
+
+    const dashboard = await createAdminSupabase(client).financialDashboard(30);
+
+    expect((dashboard as unknown as { reconciliacoes: unknown }).reconciliacoes).toEqual([{
+      tentativaId: 'tentativa-1', pedidoId: 'pedido-1', forma: 'cartao', estado: 'reconciliacao',
+      asaasPaymentId: null, criadoEm: '2026-09-30T10:00:00.000Z',
+      ultimoResultado: 'vinculo_nao_encontrado', ultimoErro: 'COBRANCA_DESCONHECIDA',
+    }]);
+    expect((dashboard as unknown as { antecipacoes: unknown }).antecipacoes).toEqual([{
+      id: 'ant-local-1', antecipacaoExternaId: 'ant-asaas-1', pedidoId: 'pedido-2', cobrancaId: 'pay-2',
+      estado: 'PENDING', valorCentavos: 10_000, tarifaCentavos: 250, liquidoCentavos: 9_750,
+      dataCredito: null, atualizadoEm: '2026-09-30T11:00:00.000Z',
+    }]);
+    expect((dashboard as unknown as { eventosComErro: unknown }).eventosComErro).toEqual([
+      expect.objectContaining({ eventoExternoId: 'evt-sem-vinculo', erro: 'COBRANCA_DESCONHECIDA' }),
+      expect.objectContaining({ eventoExternoId: 'evt-1', tentativaId: 'tentativa-1' }),
+    ]);
+    expect((dashboard as unknown as { ocorrenciasPagamento: unknown }).ocorrenciasPagamento).toEqual([
+      expect.objectContaining({ id: 'oc-1', tipo: 'chargeback', estado: 'pendente' }),
+    ]);
+  });
+
+  it('reconcilia manualmente uma tentativa pela Edge Function sem criar cobrança', async () => {
+    const invoke = vi.fn(async () => ({
+      data: { ok: true, resultado: 'recebido', pedido_id: 'pedido-1' }, error: null,
+    }));
+    const { client } = fakeTableClient({ invoke });
+
+    const result = await (createAdminSupabase(client) as unknown as {
+      reconcilePayment(id: string): Promise<unknown>;
+    }).reconcilePayment('tentativa-1');
+
+    expect(invoke).toHaveBeenCalledWith('reconcile-payment', { body: { tentativaId: 'tentativa-1' } });
+    expect(result).toEqual({ resultado: 'recebido', pedidoId: 'pedido-1' });
   });
 });
 
