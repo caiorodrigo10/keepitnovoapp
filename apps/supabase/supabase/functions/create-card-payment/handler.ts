@@ -77,7 +77,7 @@ function validCardBody(body: Record<string, unknown>): boolean {
 export function trustedPayerIp(req: Request): string | null {
   const ip = req.headers.get('cf-connecting-ip') ?? '';
   if (/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) return ip.split('.').every((part) => Number(part) <= 255) ? ip : null;
-  if (/^[\da-f:]+$/i.test(ip) && ip.includes(':')) {
+  if (ip.includes(':')) {
     try { new URL(`http://[${ip}]/`); return ip; } catch { return null; }
   }
   return null;

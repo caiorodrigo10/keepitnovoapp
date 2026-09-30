@@ -94,6 +94,7 @@ describe('fronteira HTTP cartão', () => {
   it.each([
     ['IPv4', '203.0.113.10'],
     ['IPv6', '2001:db8:85a3::8a2e:370:7334'],
+    ['IPv6 com IPv4 embutido', '::ffff:192.0.2.1'],
   ])('aceita %s fornecido pelo gateway em cf-connecting-ip', (_kind, ip) => {
     const req = (headers: Record<string, string>) => new Request('https://api.invalid', { headers });
     expect(trustedPayerIp(req({ 'cf-connecting-ip': ip }))).toBe(ip);
