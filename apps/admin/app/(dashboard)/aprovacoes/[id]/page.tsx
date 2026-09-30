@@ -9,6 +9,7 @@ import { Badge } from '../../../../src/components/Badge';
 import { Button } from '../../../../src/components/Button';
 import { Card } from '../../../../src/components/Card';
 import { getAdminDataClient } from '../../../../src/lib/adminClient';
+import { canSubmitHubApproval, isHubSelectionDisabled } from '../../../../src/lib/hubSelection';
 
 const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
@@ -82,9 +83,11 @@ export default function AprovarRejeitarPage() {
     };
   }, [params.id]);
 
+  const hubApprovalValid = canSubmitHubApproval(hubs, hubIds);
+
   function handleAprovar() {
-    if (hubIds.length === 0) {
-      setActionError(new Error('Selecione ao menos um hub ativo para aprovar a loja.'));
+    if (!hubApprovalValid) {
+      setActionError(new Error('Selecione ao menos um hub ativo e remova vínculos inativos antes de aprovar.'));
       return;
     }
     setActionPending(true);
@@ -185,26 +188,32 @@ export default function AprovarRejeitarPage() {
           <p className="mt-1 text-sm text-text-secondary">Selecione ao menos um hub ativo para concluir a aprovação.</p>
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
-          {hubs.filter((hub) => hub.ativo).map((hub) => (
-            <label key={hub.id} className="flex items-start gap-2 rounded-md border border-border-default p-3 text-sm">
-              <input
-                type="checkbox"
-                checked={hubIds.includes(hub.id)}
-                onChange={() => {
-                  setOperacaoId(crypto.randomUUID());
-                  setHubIds((atuais) =>
-                    atuais.includes(hub.id) ? atuais.filter((id) => id !== hub.id) : [...atuais, hub.id],
-                  );
-                }}
-              />
-              <span>
-                <span className="block font-semibold text-text-primary">{hub.nome}</span>
-                <span className="text-text-tertiary">{hub.endereco}</span>
-              </span>
-            </label>
-          ))}
+          {hubs.map((hub) => {
+            const selecionado = hubIds.includes(hub.id);
+            return (
+              <label key={hub.id} className="flex items-start gap-2 rounded-md border border-border-default p-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={selecionado}
+                  disabled={isHubSelectionDisabled({ pending: actionPending, hubAtivo: hub.ativo, selecionado })}
+                  onChange={() => {
+                    setOperacaoId(crypto.randomUUID());
+                    setHubIds((atuais) =>
+                      atuais.includes(hub.id) ? atuais.filter((id) => id !== hub.id) : [...atuais, hub.id],
+                    );
+                  }}
+                />
+                <span>
+                  <span className="block font-semibold text-text-primary">{hub.nome}</span>
+                  <span className="text-text-tertiary">{hub.ativo ? hub.endereco : 'Hub inativo — remova o vínculo'}</span>
+                </span>
+              </label>
+            );
+          })}
         </div>
-        {hubIds.length === 0 && <p className="text-xs text-accent-warning">Um hub ativo é obrigatório.</p>}
+        {!hubApprovalValid && (
+          <p className="text-xs text-accent-warning">Mantenha ao menos um hub ativo e remova qualquer vínculo inativo.</p>
+        )}
       </Card>
 
       <Card className="flex flex-col gap-3">
@@ -261,7 +270,7 @@ export default function AprovarRejeitarPage() {
 
       {!showRejeitarForm && (
         <div className="flex gap-3">
-          <Button onClick={handleAprovar} disabled={actionPending || hubIds.length === 0}>
+          <Button onClick={handleAprovar} disabled={actionPending || !hubApprovalValid}>
             {actionPending ? 'Aprovando…' : 'Aprovar'}
           </Button>
           <Button variant="danger" onClick={() => setShowRejeitarForm(true)} disabled={actionPending}>

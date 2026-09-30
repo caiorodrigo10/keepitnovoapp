@@ -33,11 +33,13 @@ export function createStoreMock(db: MockDb): StorePort {
     listByHub(hubId: string, options?: AsyncCallOptions): Promise<Estabelecimento[]> {
       return simulateAsync(
         () =>
-          db.estabelecimentos.filter(
-            (estabelecimento) =>
-              db.estabelecimentoHubIds[estabelecimento.id]?.includes(hubId) === true &&
-              resolveLojaDisponibilidade(estabelecimento).visivelAoCliente,
-          ),
+          db.hubs.some((hub) => hub.id === hubId && hub.ativo)
+            ? db.estabelecimentos.filter(
+                (estabelecimento) =>
+                  db.estabelecimentoHubIds[estabelecimento.id]?.includes(hubId) === true &&
+                  resolveLojaDisponibilidade(estabelecimento).visivelAoCliente,
+              )
+            : [],
         [],
         options,
       );

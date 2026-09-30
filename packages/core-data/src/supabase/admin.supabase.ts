@@ -4,6 +4,7 @@ import { createClient } from '@keepit/supabase-client';
 
 import type {
   AdminPort,
+  AdminPaymentInspection,
   CreateHubInput,
   EstabelecimentoAdmin,
   EstabelecimentoFalha,
@@ -1534,6 +1535,14 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
         eventosComErro,
         ocorrenciasPagamento,
       };
+    },
+
+    async inspectPayment(pedidoId: string, _options?: AsyncCallOptions): Promise<AdminPaymentInspection | null> {
+      const { data, error } = await resolveClient().rpc('inspecionar_pagamento_admin', {
+        p_pedido_id: pedidoId,
+      });
+      if (error) throw error;
+      return data as unknown as AdminPaymentInspection | null;
     },
 
     async reconcilePayment(tentativaId: string, _options?: AsyncCallOptions) {

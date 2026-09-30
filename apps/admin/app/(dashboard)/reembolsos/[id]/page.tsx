@@ -3,13 +3,14 @@
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-import type { Pedido, ReembolsoPendente } from '@keepit/core-data';
+import type { AdminPaymentInspection, Pedido, ReembolsoPendente } from '@keepit/core-data';
 
 import { Badge } from '../../../../src/components/Badge';
 import { Button } from '../../../../src/components/Button';
 import { Card } from '../../../../src/components/Card';
 import { getAdminDataClient } from '../../../../src/lib/adminClient';
 import { formatReais, REEMBOLSO_MOTIVO_LABEL } from '../../../../src/lib/adminLabels';
+import { presentPaymentInspection } from '../../../../src/lib/paymentInspection';
 
 /**
  * Executar reembolso — Épico 0, Story 0.13 (Task 3, AC1-3), religado para
@@ -29,6 +30,7 @@ export default function ExecutarReembolsoPage() {
 
   const [reembolso, setReembolso] = useState<ReembolsoPendente | null>(null);
   const [pedido, setPedido] = useState<Pedido | null>(null);
+  const [payment, setPayment] = useState<AdminPaymentInspection | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<Error | null>(null);
 
@@ -50,8 +52,14 @@ export default function ExecutarReembolsoPage() {
         const encontrado = reembolsos.find((r) => r.id === params.id) ?? null;
         setReembolso(encontrado);
         if (encontrado) {
-          const p = await client.order.getById(encontrado.pedido_id);
-          if (!cancelled) setPedido(p);
+          const [p, paymentResult] = await Promise.all([
+            client.order.getById(encontrado.pedido_id),
+            client.admin.inspectPayment(encontrado.pedido_id),
+          ]);
+          if (!cancelled) {
+            setPedido(p);
+            setPayment(paymentResult);
+          }
         }
         setLoading(false);
       })
@@ -126,6 +134,8 @@ export default function ExecutarReembolsoPage() {
     );
   }
 
+  const paymentPresentation = payment ? presentPaymentInspection(payment) : null;
+
   return (
     <div className="flex flex-col gap-6">
       <div>
@@ -148,7 +158,13 @@ export default function ExecutarReembolsoPage() {
           <dt className="text-text-tertiary">Status do pedido</dt>
           <dd className="text-text-primary">{pedido?.status ?? '—'}</dd>
           <dt className="text-text-tertiary">Forma de pagamento</dt>
-          <dd className="text-text-primary">{reembolso.forma_pagamento.toUpperCase()}</dd>
+          <dd className="text-text-primary">{payment?.forma.toUpperCase() ?? reembolso.forma_pagamento.toUpperCase()}</dd>
+          <dt className="text-text-tertiary">Estado da tentativa</dt>
+          <dd className="text-text-primary">{paymentPresentation?.estadoLabel ?? 'Sem tentativa registrada'}</dd>
+          <dt className="text-text-tertiary">{paymentPresentation?.valorLabel ?? 'Valor previsto'}</dt>
+          <dd className="text-text-primary">
+            {formatReais(paymentPresentation?.valorReais ?? pedido?.total_pago_reais ?? reembolso.valor_a_estornar_reais)}
+          </dd>
           <dt className="text-text-tertiary">Valor a estornar</dt>
           <dd className="text-text-primary">{formatReais(reembolso.valor_a_estornar_reais)}</dd>
           <dt className="text-text-tertiary">Valor ao lojista</dt>

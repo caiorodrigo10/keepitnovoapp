@@ -1,3 +1,5 @@
+import type { PaymentAttempt } from '@keepit/shared-types';
+
 import type { AsyncCallOptions } from '../types';
 import type { Cliente } from './auth.port';
 import type { Estabelecimento } from './store.port';
@@ -129,6 +131,20 @@ export interface PaymentOccurrenceAdmin {
   referenciaExterna: string | null;
   detalhe: string;
   criadoEm: string;
+}
+
+/** Projeção financeira mínima e autorizada para inspeção administrativa de um pedido. */
+export interface AdminPaymentInspection {
+  tentativaId: string;
+  pedidoId: string;
+  forma: FormaPagamento;
+  estado: PaymentAttempt['estado'];
+  asaasPaymentId: string | null;
+  criadoEm: string;
+  pagoEm: string | null;
+  valorPrevistoReais: number;
+  /** Só existe quando a confirmação do pagamento também está persistida no pedido. */
+  valorRecebidoReais: number | null;
 }
 
 export interface FinancialDashboardResult {
@@ -396,6 +412,8 @@ export interface AdminPort {
    * nunca hardcoded.
    */
   financialDashboard(periodoDias: number, options?: AsyncCallOptions): Promise<FinancialDashboardResult>;
+  /** Lê a tentativa mais recente por RPC admin; nunca expõe a tabela financeira ao cliente. */
+  inspectPayment(pedidoId: string, options?: AsyncCallOptions): Promise<AdminPaymentInspection | null>;
   reconcilePayment(tentativaId: string, options?: AsyncCallOptions): Promise<{ resultado: string; pedidoId: string | null }>;
   /** Listagem administrativa de pedidos (todos os estabelecimentos), com filtro opcional de status. */
   listAllOrders(filtros?: { status?: PedidoStatus }, options?: AsyncCallOptions): Promise<Pedido[]>;

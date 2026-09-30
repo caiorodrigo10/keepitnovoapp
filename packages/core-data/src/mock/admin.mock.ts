@@ -203,9 +203,9 @@ export function createAdminMock(db: MockDb): AdminPort {
         () => {
           const hubIds = normalizarHubs(input.hubIds);
           if (hubIds.length === 0) throw new Error('HUB_OBRIGATORIO');
-          validarHubsAtivos(hubIds);
           const estabelecimento = findEstabelecimentoOrThrow(input.estabelecimentoId);
           if (operacaoJaExecutada(input.operacaoId, 'aprovar', input.estabelecimentoId, hubIds)) return;
+          validarHubsAtivos(hubIds);
           if (estabelecimento.status !== 'em_analise') throw new Error('ESTADO_INVALIDO');
           estabelecimento.status = 'ativo';
           estabelecimento.motivo_rejeicao = null;
@@ -225,9 +225,9 @@ export function createAdminMock(db: MockDb): AdminPort {
       return simulateAsync(
         () => {
           const hubIds = normalizarHubs(input.hubIds);
-          validarHubsAtivos(hubIds);
           findEstabelecimentoOrThrow(input.estabelecimentoId);
           if (operacaoJaExecutada(input.operacaoId, 'definir', input.estabelecimentoId, hubIds)) return;
+          validarHubsAtivos(hubIds);
           db.estabelecimentoHubIds[input.estabelecimentoId] = hubIds;
           operacoesHubs.set(input.operacaoId, {
             tipo: 'definir',
@@ -623,6 +623,34 @@ export function createAdminMock(db: MockDb): AdminPort {
           eventosComErro: [],
           ocorrenciasPagamento: [],
         },
+        options,
+      );
+    },
+
+    inspectPayment(pedidoId: string, options?: AsyncCallOptions) {
+      return simulateAsync(
+        () => {
+          const pedido = db.pedidos.find((item) => item.id === pedidoId);
+          if (!pedido) return null;
+          const estadosPosPagamento: ReadonlySet<PedidoStatus> = new Set([
+            'aguardando_aceite', 'aceito', 'em_preparo', 'saindo_hub', 'no_hub', 'entregue',
+            'nao_retirado', 'nao_entregue_lojista', 'estornado_chargeback',
+          ]);
+          const recebido = estadosPosPagamento.has(pedido.status)
+            || db.reembolsos.some((reembolso) => reembolso.pedido_id === pedido.id);
+          return {
+            tentativaId: `tentativa-mock-${pedido.id}`,
+            pedidoId: pedido.id,
+            forma: pedido.forma_pagamento,
+            estado: recebido ? 'recebido' as const : 'pendente' as const,
+            asaasPaymentId: null,
+            criadoEm: pedido.criado_em,
+            pagoEm: recebido ? (pedido.aceito_em ?? pedido.criado_em) : null,
+            valorPrevistoReais: pedido.total_pago_reais,
+            valorRecebidoReais: recebido ? pedido.total_pago_reais : null,
+          };
+        },
+        null,
         options,
       );
     },

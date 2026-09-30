@@ -11,6 +11,7 @@ import type { BadgeVariant } from '../../../../src/components/Badge';
 import { Button } from '../../../../src/components/Button';
 import { Card } from '../../../../src/components/Card';
 import { getAdminDataClient } from '../../../../src/lib/adminClient';
+import { isHubSelectionDisabled } from '../../../../src/lib/hubSelection';
 
 const STATUS_BADGE_VARIANT: Record<string, BadgeVariant> = {
   em_analise: 'warning',
@@ -201,7 +202,7 @@ export default function DetalheLojistaPage() {
                 <input
                   type="checkbox"
                   checked={selecionado}
-                  disabled={!hub.ativo && !selecionado}
+                  disabled={isHubSelectionDisabled({ pending: hubsPending, hubAtivo: hub.ativo, selecionado })}
                   onChange={() => {
                     setHubsSaved(false);
                     setHubsOperacaoId(crypto.randomUUID());

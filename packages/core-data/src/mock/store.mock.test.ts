@@ -34,6 +34,14 @@ describe('store.mock (contract)', () => {
     expect(jardins.map((loja) => loja.id)).not.toContain('estab-farmacia-vida');
   });
 
+  it('listByHub não descobre lojas por um hub inativo, mesmo quando o vínculo existe', async () => {
+    const hub = db.hubs.find((item) => item.id === 'hub-centro')!;
+    hub.ativo = false;
+    db.estabelecimentoHubIds['estab-farmacia-vida'] = ['hub-centro'];
+
+    await expect(port.listByHub('hub-centro', { delayMs: 1 })).resolves.toEqual([]);
+  });
+
   it('listByHub devolve lojas públicas abertas, fechadas e pausadas, sem administrativas ou excluídas', async () => {
     const now = new Date(2026, 8, 5, 12, 0);
     const horarioAberto = [

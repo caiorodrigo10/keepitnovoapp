@@ -70,6 +70,38 @@ describe('admin.mock (contract)', () => {
     expect(db.estabelecimentoHubIds['estab-em-analise']).toEqual(['hub-centro']);
   });
 
+  it('retry idempotente retorna antes de revalidar um hub que ficou inativo', async () => {
+    const input = { estabelecimentoId: 'estab-em-analise', hubIds: ['hub-centro'], operacaoId: 'op-retry' };
+    await port.aprovarComHubs(input, { delayMs: 1 });
+    db.hubs.find((hub) => hub.id === 'hub-centro')!.ativo = false;
+
+    await expect(port.aprovarComHubs(input, { delayMs: 1 })).resolves.toBeUndefined();
+  });
+
+  it('retry idempotente da edição também retorna antes de revalidar hub inativo', async () => {
+    const input = { estabelecimentoId: 'estab-farmacia-vida', hubIds: ['hub-centro'], operacaoId: 'op-retry-edicao' };
+    await port.definirHubs(input, { delayMs: 1 });
+    db.hubs.find((hub) => hub.id === 'hub-centro')!.ativo = false;
+
+    await expect(port.definirHubs(input, { delayMs: 1 })).resolves.toBeUndefined();
+  });
+
+  it('inspeciona estado real do pagamento sem tratar valor previsto como recebido', async () => {
+    const pendente = { ...db.pedidos[0]!, id: 'pedido-pendente', status: 'aguardando_pagamento' as const };
+    db.pedidos.push(pendente);
+
+    await expect(port.inspectPayment('pedido-pendente', { delayMs: 1 })).resolves.toMatchObject({
+      estado: 'pendente',
+      valorPrevistoReais: pendente.total_pago_reais,
+      valorRecebidoReais: null,
+      pagoEm: null,
+    });
+    await expect(port.inspectPayment('pedido-2048', { delayMs: 1 })).resolves.toMatchObject({
+      estado: 'recebido',
+      valorRecebidoReais: db.pedidos.find((pedido) => pedido.id === 'pedido-2048')!.total_pago_reais,
+    });
+  });
+
   it('aprovarComHubs falha sem hub ou com hub inativo sem deixar mutação parcial', async () => {
     await expect(
       port.aprovarComHubs(

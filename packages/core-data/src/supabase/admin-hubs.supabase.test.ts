@@ -125,6 +125,26 @@ describe('admin.supabase.ts — vínculo transacional de hubs', () => {
   });
 });
 
+describe('admin.supabase.ts — inspeção financeira autorizada', () => {
+  it('lê a projeção financeira via RPC administrativa sem consultar a tabela interna', async () => {
+    const projection = {
+      tentativaId: 'tentativa-1', pedidoId: 'pedido-1', forma: 'pix', estado: 'pendente',
+      asaasPaymentId: 'pay-1', criadoEm: '2026-09-30T10:00:00Z', pagoEm: null,
+      valorPrevistoReais: 42.5, valorRecebidoReais: null,
+    };
+    const { client, rpc, from } = fakeClient({ rpc: async () => ({ data: projection, error: null }) });
+
+    await expect(createAdminSupabase(client).inspectPayment('pedido-1')).resolves.toEqual(projection);
+    expect(rpc).toHaveBeenCalledWith('inspecionar_pagamento_admin', { p_pedido_id: 'pedido-1' });
+    expect(from).not.toHaveBeenCalledWith('tentativas_pagamento');
+  });
+
+  it('devolve null quando o pedido ainda não possui tentativa', async () => {
+    const { client } = fakeClient({ rpc: async () => ({ data: null, error: null }) });
+    await expect(createAdminSupabase(client).inspectPayment('pedido-sem-tentativa')).resolves.toBeNull();
+  });
+});
+
 describe('admin.supabase.ts — hubsCrud.list (Story 4.1, AC1)', () => {
   it('mapeia todas as linhas retornadas (RLS admin devolve ativos e inativos) incluindo horarios', async () => {
     const hubInativo = { ...HUB_ROW, id: 'hub-2', nome: 'Hub Jardins', ativo: false };

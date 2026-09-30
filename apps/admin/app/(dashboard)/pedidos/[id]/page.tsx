@@ -3,13 +3,14 @@
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Fragment, useEffect, useState } from 'react';
 
-import type { Estabelecimento, Hub, Pedido, PedidoStatus } from '@keepit/core-data';
+import type { AdminPaymentInspection, Estabelecimento, Hub, Pedido, PedidoStatus } from '@keepit/core-data';
 
 import { Badge } from '../../../../src/components/Badge';
 import { Button } from '../../../../src/components/Button';
 import { Card } from '../../../../src/components/Card';
 import { getAdminDataClient } from '../../../../src/lib/adminClient';
 import { formatDateTime, formatReais, PEDIDO_STATUS_LABEL } from '../../../../src/lib/adminLabels';
+import { presentPaymentInspection } from '../../../../src/lib/paymentInspection';
 
 const TERMINAL_PEDIDO_STATUSES: ReadonlySet<PedidoStatus> = new Set([
   'entregue',
@@ -50,6 +51,7 @@ export default function DetalhePedidoPage() {
   const [pedido, setPedido] = useState<Pedido | null>(null);
   const [loja, setLoja] = useState<Estabelecimento | null>(null);
   const [hub, setHub] = useState<Hub | null>(null);
+  const [payment, setPayment] = useState<AdminPaymentInspection | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<Error | null>(null);
 
@@ -65,11 +67,11 @@ export default function DetalhePedidoPage() {
     setLoadError(null);
 
     const client = getAdminDataClient();
-    client.order
-      .getById(params.id)
-      .then(async (pedidoResult) => {
+    Promise.all([client.order.getById(params.id), client.admin.inspectPayment(params.id)])
+      .then(async ([pedidoResult, paymentResult]) => {
         if (cancelled) return;
         setPedido(pedidoResult);
+        setPayment(paymentResult);
         if (pedidoResult) {
           const [lojaResult, hubResult] = await Promise.all([
             client.store.getById(pedidoResult.estabelecimento_id),
@@ -132,6 +134,7 @@ export default function DetalhePedidoPage() {
   }
 
   const terminal = TERMINAL_PEDIDO_STATUSES.has(pedido.status);
+  const paymentPresentation = payment ? presentPaymentInspection(payment) : null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -161,7 +164,7 @@ export default function DetalhePedidoPage() {
           ))}
         </ul>
         <div className="mt-2 flex justify-between border-t border-border-default pt-2 text-sm font-semibold text-text-primary">
-          <span>Total pago</span>
+          <span>Total previsto</span>
           <span>{formatReais(pedido.total_pago_reais)}</span>
         </div>
       </Card>
@@ -170,7 +173,19 @@ export default function DetalhePedidoPage() {
         <h2 className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Pagamento</h2>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
           <dt className="text-text-tertiary">Forma</dt>
-          <dd className="text-text-primary">{pedido.forma_pagamento.toUpperCase()}</dd>
+          <dd className="text-text-primary">{payment?.forma.toUpperCase() ?? pedido.forma_pagamento.toUpperCase()}</dd>
+          <dt className="text-text-tertiary">Estado da tentativa</dt>
+          <dd className="text-text-primary">{paymentPresentation?.estadoLabel ?? 'Sem tentativa registrada'}</dd>
+          <dt className="text-text-tertiary">{paymentPresentation?.valorLabel ?? 'Valor previsto'}</dt>
+          <dd className="text-text-primary">
+            {formatReais(paymentPresentation?.valorReais ?? pedido.total_pago_reais)}
+          </dd>
+          {payment?.pagoEm && (
+            <>
+              <dt className="text-text-tertiary">Confirmação persistida</dt>
+              <dd className="text-text-primary">{formatDateTime(payment.pagoEm)}</dd>
+            </>
+          )}
           <dt className="text-text-tertiary">Subtotal</dt>
           <dd className="text-text-primary">{formatReais(pedido.subtotal_produtos_reais)}</dd>
           <dt className="text-text-tertiary">Deslocamento</dt>

@@ -15,8 +15,8 @@ export interface PedidoDetailState {
 
 /**
  * Detalhes com `pedidoId` usam `OrderPort.getById`, sob a RLS do participante.
- * A lista compartilhada continua ativa para polling e assume a renderização
- * quando recebe uma versão mais recente do mesmo pedido.
+ * A lista compartilhada continua ativa para polling, mas nunca substitui a
+ * leitura pontual: cada novo snapshot dispara outra leitura do ID solicitado.
  *
  * Sem `pedidoId` (rotas com param opcional — Task 2/3/4/6/7): cai para o
  * pedido "em andamento" mais recente do cliente (maior `numero` entre os
@@ -30,9 +30,12 @@ export function usePedidoDetail(
   const { data: pedidos, loading, error, refresh } = usePedidosMine(clienteId);
   const [refreshToken, setRefreshToken] = useState(0);
   const detalhe = useAsyncResource(
-    () => (clienteId && pedidoId ? getDataClient().order.getById(pedidoId) : Promise.resolve(null)),
-    null,
-    [clienteId, pedidoId, refreshToken],
+    async () => ({
+      pedidoId: pedidoId ?? null,
+      pedido: clienteId && pedidoId ? await getDataClient().order.getById(pedidoId) : null,
+    }),
+    { pedidoId: null as string | null, pedido: null as Pedido | null },
+    [clienteId, pedidoId, refreshToken, pedidos],
   );
 
   const pedido = useMemo(() => {
@@ -43,11 +46,11 @@ export function usePedidoDetail(
   }, [pedidos]);
 
   if (pedidoId) {
-    const pedidoAtualizado = pedidos.find((item) => item.id === pedidoId) ?? detalhe.data;
+    const respostaCorresponde = detalhe.data.pedidoId === pedidoId;
     return {
-      data: pedidoAtualizado,
-      loading: detalhe.loading && !pedidoAtualizado,
-      error: detalhe.error ?? error,
+      data: respostaCorresponde ? detalhe.data.pedido : null,
+      loading: detalhe.error ? false : detalhe.loading || !respostaCorresponde,
+      error: detalhe.error,
       refresh: () => {
         setRefreshToken((token) => token + 1);
         refresh();
