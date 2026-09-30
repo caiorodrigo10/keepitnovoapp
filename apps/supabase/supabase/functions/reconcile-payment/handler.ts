@@ -2,7 +2,10 @@ import type { AsaasPayment, AsaasResult } from '../_shared/asaas.ts';
 import type { PaymentEventInput } from '../asaas-payment-webhook/handler.ts';
 
 export interface ReconcileDeps {
-  attempts: { getById(id: string): Promise<{ id: string; paymentId: string | null } | null> };
+  attempts: {
+    getById(id: string): Promise<{ id: string; paymentId: string | null } | null>;
+    bindPaymentId(attemptId: string, paymentId: string): Promise<{ bound: boolean }>;
+  };
   gateway: {
     getPayment(id: string): Promise<AsaasResult<AsaasPayment>>;
     listPayments(reference: string): Promise<AsaasResult<{ data: AsaasPayment[]; hasMore: boolean }>>;
@@ -35,6 +38,14 @@ export async function handleReconcilePayment(
       return conflict('COBRANCA_NAO_LOCALIZADA', 'Nenhuma cobrança foi localizada no gateway.');
     }
     charge = result.data.data[0] ?? null;
+    if (!charge || typeof charge.id !== 'string' || charge.id.length === 0) return inconclusive();
+    if (charge.externalReference !== attempt.id) {
+      return conflict('VINCULO_DIVERGENTE', 'A cobrança localizada não pertence à tentativa consultada.');
+    }
+    const binding = await deps.attempts.bindPaymentId(attempt.id, charge.id);
+    if (!binding.bound) {
+      return conflict('VINCULO_DIVERGENTE', 'A tentativa já está vinculada a outra cobrança.');
+    }
   }
 
   if (!charge || typeof charge.id !== 'string' || typeof charge.status !== 'string') return inconclusive();
@@ -57,6 +68,7 @@ function paymentEventForStatus(status: string): string {
     RECEIVED: 'PAYMENT_RECEIVED',
     CONFIRMED: 'PAYMENT_CONFIRMED',
     AWAITING_RISK_ANALYSIS: 'PAYMENT_AWAITING_RISK_ANALYSIS',
+    PENDING: 'PAYMENT_UPDATED',
     CREDIT_CARD_CAPTURE_REFUSED: 'PAYMENT_CREDIT_CARD_CAPTURE_REFUSED',
     OVERDUE: 'PAYMENT_OVERDUE',
     REFUNDED: 'PAYMENT_REFUNDED',
@@ -84,7 +96,7 @@ export function createReconcileHttpHandler(deps: {
   return async (request: Request): Promise<Response> => {
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'authorization, content-type',
+      'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info',
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
     };
     const json = (status: number, body: unknown) => new Response(JSON.stringify(body), {

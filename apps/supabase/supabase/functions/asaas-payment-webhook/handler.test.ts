@@ -6,8 +6,12 @@ import type { WebhookAsaasDeps } from './handler';
 const TOKEN = 'segredo-webhook-asaas';
 
 function dependencies() {
-  const processPaymentEvent = vi.fn(async () => ({ resultado: 'confirmado', pedidoId: 'pedido-1' }));
-  const processAnticipationEvent = vi.fn(async () => ({ resultado: 'antecipacao_atualizada', pedidoId: 'pedido-1' }));
+  const processPaymentEvent = vi.fn(async (): Promise<{ resultado: string; pedidoId: string | null }> => (
+    { resultado: 'confirmado', pedidoId: 'pedido-1' }
+  ));
+  const processAnticipationEvent = vi.fn(async (): Promise<{ resultado: string; pedidoId: string | null }> => (
+    { resultado: 'antecipacao_atualizada', pedidoId: 'pedido-1' }
+  ));
   const value = {
     webhookToken: TOKEN,
     pagamentos: { processPaymentEvent, processAnticipationEvent },
@@ -101,6 +105,21 @@ describe('handleAsaasWebhook', () => {
       body: { ok: false, error: { code: 'PROCESSAMENTO_FALHOU', message: 'Evento não persistido. Tente novamente.' } },
     });
     expect(JSON.stringify(result)).not.toContain('segredo-super-secreto');
+  });
+
+  it('pede reentrega quando o recibo aguarda a persistência do ID externo', async () => {
+    const deps = dependencies();
+    deps.processPaymentEvent.mockResolvedValueOnce({ resultado: 'aguardando_vinculo', pedidoId: null });
+    const result = await handleAsaasWebhook(
+      { headerToken: TOKEN, body: paymentPayload('PAYMENT_RECEIVED') }, deps.value,
+    );
+    expect(result).toEqual({
+      status: 502,
+      body: {
+        ok: false,
+        error: { code: 'VINCULO_PENDENTE', message: 'Cobrança ainda não vinculada. Tente novamente.' },
+      },
+    });
   });
 
   it.each([

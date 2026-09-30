@@ -11,6 +11,10 @@ SELECT has_function(
   ARRAY['text','text','text','text','bigint','text'],
   'processador transacional de pagamentos existe'
 );
+SELECT has_function(
+  'public', 'vincular_cobranca_reconciliacao', ARRAY['uuid','text'],
+  'reconciliação possui vínculo explícito e transacional da cobrança'
+);
 
 INSERT INTO auth.users (id,aud,role,email,raw_app_meta_data,raw_user_meta_data) VALUES
   ('66666666-0000-4000-8000-000000000001','authenticated','authenticated','cliente-eventos@example.invalid','{}','{"nome":"Cliente"}'),
@@ -34,12 +38,19 @@ INSERT INTO public.pedidos (
 ) VALUES
   ('66666666-0000-4000-8000-000000000101','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','aguardando_pagamento',100,5,10,2.90,107.90,'cartao',NULL),
   ('66666666-0000-4000-8000-000000000102','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','cancelado',100,5,10,2.90,107.90,'pix',NULL),
-  ('66666666-0000-4000-8000-000000000103','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','entregue',100,5,10,2.90,107.90,'cartao',now());
+  ('66666666-0000-4000-8000-000000000103','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','entregue',100,5,10,2.90,107.90,'cartao',now()),
+  ('66666666-0000-4000-8000-000000000104','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','aguardando_pagamento',100,5,10,2.90,107.90,'pix',NULL),
+  ('66666666-0000-4000-8000-000000000105','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','aguardando_pagamento',100,5,10,2.90,107.90,'cartao',NULL),
+  ('66666666-0000-4000-8000-000000000106','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','aguardando_pagamento',100,5,10,2.90,107.90,'cartao',NULL);
 
-INSERT INTO public.tentativas_pagamento (id,pedido_id,cliente_id,operacao_id,forma,estado,asaas_payment_id) VALUES
-  ('66666666-0000-4000-8000-000000000201','66666666-0000-4000-8000-000000000101','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000301','cartao','pendente','pay-main'),
-  ('66666666-0000-4000-8000-000000000202','66666666-0000-4000-8000-000000000102','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000302','pix','pendente','pay-cancelado'),
-  ('66666666-0000-4000-8000-000000000203','66666666-0000-4000-8000-000000000103','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000303','cartao','recebido','pay-entregue');
+INSERT INTO public.tentativas_pagamento (id,pedido_id,cliente_id,operacao_id,forma,estado,asaas_payment_id,encerrada_em) VALUES
+  ('66666666-0000-4000-8000-000000000201','66666666-0000-4000-8000-000000000101','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000301','cartao','pendente','pay-main',NULL),
+  ('66666666-0000-4000-8000-000000000202','66666666-0000-4000-8000-000000000102','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000302','pix','pendente','pay-cancelado',NULL),
+  ('66666666-0000-4000-8000-000000000203','66666666-0000-4000-8000-000000000103','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000303','cartao','recebido','pay-entregue',NULL),
+  ('66666666-0000-4000-8000-000000000204','66666666-0000-4000-8000-000000000104','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000304','pix','reconciliacao','pay-overdue',NULL),
+  ('66666666-0000-4000-8000-000000000205','66666666-0000-4000-8000-000000000105','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000305','cartao','expirado','pay-old-late',now()),
+  ('66666666-0000-4000-8000-000000000206','66666666-0000-4000-8000-000000000105','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000306','cartao','pendente','pay-new-active',NULL),
+  ('66666666-0000-4000-8000-000000000207','66666666-0000-4000-8000-000000000106','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000307','cartao','reconciliacao',NULL,NULL);
 
 SET LOCAL ROLE service_role;
 SELECT is(
@@ -101,12 +112,45 @@ SELECT is(
 );
 
 SELECT is(
+  (SELECT resultado FROM public.processar_evento_pagamento('evt-overdue','PAYMENT_OVERDUE','pay-overdue','66666666-0000-4000-8000-000000000204',10790,'pix')),
+  'reconciliacao', 'OVERDUE isolado não confirma exclusão e mantém reconciliação'
+);
+SELECT is((SELECT estado FROM public.tentativas_pagamento WHERE id='66666666-0000-4000-8000-000000000204'),'reconciliacao','OVERDUE não libera nova cobrança');
+SELECT is((SELECT encerrada_em IS NULL FROM public.tentativas_pagamento WHERE id='66666666-0000-4000-8000-000000000204'),true,'OVERDUE não encerra tentativa');
+
+SELECT lives_ok(
+  $$SELECT * FROM public.processar_evento_pagamento('evt-old-late','PAYMENT_CONFIRMED','pay-old-late','66666666-0000-4000-8000-000000000205',10790,'cartao')$$,
+  'confirmação tardia não viola unicidade quando uma nova tentativa já está ativa'
+);
+SELECT is((SELECT estado FROM public.tentativas_pagamento WHERE id='66666666-0000-4000-8000-000000000205'),'confirmado','fato tardio fica registrado na tentativa original');
+SELECT is((SELECT encerrada_em IS NOT NULL FROM public.tentativas_pagamento WHERE id='66666666-0000-4000-8000-000000000205'),true,'tentativa antiga permanece encerrada se há outra ativa');
+SELECT is((SELECT estado FROM public.tentativas_pagamento WHERE id='66666666-0000-4000-8000-000000000206'),'reconciliacao','tentativa mais nova fica explícita para reconciliação após confirmação tardia');
+
+SELECT is(
+  (SELECT resultado FROM public.processar_evento_pagamento('evt-before-id','PAYMENT_CONFIRMED','pay-before-id','66666666-0000-4000-8000-000000000207',10790,'cartao')),
+  'aguardando_vinculo', 'evento anterior à persistência do ID fica recuperável'
+);
+SELECT is((SELECT processado_em IS NULL FROM public.eventos_pagamento WHERE evento_externo_id='evt-before-id'),true,'recibo aguardando vínculo não é finalizado');
+SELECT is(
+  public.vincular_cobranca_reconciliacao('66666666-0000-4000-8000-000000000207','pay-before-id'),
+  true, 'reconciliação vincula o ID localizado por referência'
+);
+SELECT is(
+  (SELECT resultado FROM public.processar_evento_pagamento('evt-before-id','PAYMENT_CONFIRMED','pay-before-id','66666666-0000-4000-8000-000000000207',10790,'cartao')),
+  'confirmado', 'replay do mesmo evento processa após o vínculo ser persistido'
+);
+
+SELECT is(
   (SELECT resultado FROM public.processar_evento_antecipacao('evt-ant-pendente','RECEIVABLE_ANTICIPATION_PENDING','ant-1','pay-main','PENDING',10790,300,10490,NULL,NULL)),
   'antecipacao_atualizada', 'antecipação pendente é visível mas não é caixa'
 );
 SELECT public.processar_evento_antecipacao('evt-ant-creditada','RECEIVABLE_ANTICIPATION_CREDITED','ant-1','pay-main','CREDITED',10790,300,10490,'2026-10-02',NULL);
-SELECT public.processar_evento_antecipacao('evt-ant-pendente-tardio','RECEIVABLE_ANTICIPATION_PENDING','ant-1','pay-main','PENDING',10790,300,10490,NULL,NULL);
+SELECT public.processar_evento_antecipacao('evt-ant-pendente-tardio','RECEIVABLE_ANTICIPATION_PENDING','ant-1','pay-main','PENDING',9999,999,9000,NULL,NULL);
 SELECT is((SELECT estado FROM public.antecipacoes_recebiveis WHERE antecipacao_externa_id='ant-1'),'CREDITED','evento pendente fora de ordem não rebaixa crédito');
+SELECT is((SELECT valor_centavos FROM public.antecipacoes_recebiveis WHERE antecipacao_externa_id='ant-1'),10790::bigint,'evento fora de ordem preserva valor creditado');
+SELECT is((SELECT tarifa_centavos FROM public.antecipacoes_recebiveis WHERE antecipacao_externa_id='ant-1'),300::bigint,'evento fora de ordem preserva tarifa creditada');
+SELECT is((SELECT liquido_centavos FROM public.antecipacoes_recebiveis WHERE antecipacao_externa_id='ant-1'),10490::bigint,'evento fora de ordem preserva líquido creditado');
+SELECT is((SELECT data_credito FROM public.antecipacoes_recebiveis WHERE antecipacao_externa_id='ant-1'),'2026-10-02'::date,'evento fora de ordem preserva data efetiva');
 SELECT is((SELECT count(*)::int FROM public.lancamentos_financeiros WHERE asaas_id_externo='ant-1'),0,'antecipação nunca cria crédito de lojista nem receita duplicada');
 SELECT public.processar_evento_antecipacao('evt-ant-negada','RECEIVABLE_ANTICIPATION_DENIED','ant-2','pay-main','DENIED',10790,0,10790,NULL,'limite indisponível');
 SELECT is((SELECT estado FROM public.antecipacoes_recebiveis WHERE antecipacao_externa_id='ant-2'),'DENIED','antecipação negada é registrada');
@@ -121,7 +165,7 @@ SELECT set_config('request.jwt.claim.sub','66666666-0000-4000-8000-000000000001'
 SELECT is((SELECT count(*)::int FROM public.eventos_pagamento),0,'policy filtra todos os recibos para cliente');
 SELECT throws_ok($$SELECT * FROM public.processar_evento_pagamento('x','PAYMENT_RECEIVED','pay-main',NULL,10790,'cartao')$$,'42501',NULL,'cliente não processa webhook');
 SELECT set_config('request.jwt.claim.sub','66666666-0000-4000-8000-000000000003',true);
-SELECT is((SELECT count(*)::int FROM public.tentativas_pagamento WHERE estado IN ('reconciliacao','recebido','confirmado')),3,'Admin lê tentativas para reconciliação');
+SELECT is((SELECT count(*)::int FROM public.tentativas_pagamento WHERE estado IN ('reconciliacao','recebido','confirmado')),7,'Admin lê tentativas para reconciliação');
 SELECT is((SELECT count(*)::int FROM public.antecipacoes_recebiveis),2,'Admin lê custos e estados de antecipação');
 RESET ROLE;
 

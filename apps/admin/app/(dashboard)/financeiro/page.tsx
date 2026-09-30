@@ -8,6 +8,7 @@ import { Card } from '../../../src/components/Card';
 import { useFinancialDashboard } from '../../../src/hooks/useAdminOps';
 import { getAdminDataClient } from '../../../src/lib/adminClient';
 import { formatReais } from '../../../src/lib/adminLabels';
+import { anticipationIdentityLabel } from '../../../src/lib/financialLabels';
 
 const PERIODO_OPTIONS = [7, 30, 90] as const;
 
@@ -227,12 +228,21 @@ export default function FinanceiroPage() {
             ) : (
               <ul className="flex flex-col gap-3 text-sm">
                 {dashboard.antecipacoes.map((item) => (
-                  <li key={item.id} className="grid grid-cols-5 gap-3">
-                    <span className="text-text-primary">{item.estado}</span>
-                    <span className="text-text-secondary">Bruto {formatReais(item.valorCentavos / 100)}</span>
-                    <span className="text-text-secondary">Tarifa {formatReais(item.tarifaCentavos / 100)}</span>
-                    <span className="text-text-secondary">Líquido {formatReais(item.liquidoCentavos / 100)}</span>
-                    <span className="text-text-secondary">{item.dataCredito ?? 'crédito não confirmado'}</span>
+                  <li key={item.id} className="flex flex-col gap-1">
+                    <p className="font-medium text-text-primary">
+                      {anticipationIdentityLabel({
+                        anticipationId: item.antecipacaoExternaId,
+                        paymentId: item.cobrancaId,
+                        orderId: item.pedidoId,
+                      })}
+                    </p>
+                    <div className="grid grid-cols-5 gap-3">
+                      <span className="text-text-primary">{item.estado}</span>
+                      <span className="text-text-secondary">Bruto {formatReais(item.valorCentavos / 100)}</span>
+                      <span className="text-text-secondary">Tarifa {formatReais(item.tarifaCentavos / 100)}</span>
+                      <span className="text-text-secondary">Líquido {formatReais(item.liquidoCentavos / 100)}</span>
+                      <span className="text-text-secondary">{item.dataCredito ?? 'crédito não confirmado'}</span>
+                    </div>
                   </li>
                 ))}
               </ul>

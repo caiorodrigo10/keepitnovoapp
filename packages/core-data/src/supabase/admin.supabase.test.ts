@@ -33,7 +33,7 @@ function fakeClient(options: {
   estabelecimentosHorarios?: QueryResult[];
   createSignedUrl?: (path: string, expiresIn: number) => Promise<{ data: { signedUrl: string } | null; error: unknown }>;
   rpc?: (fn: string, args: unknown) => Promise<RpcResult>;
-}): { client: SupabaseClient<Database>; from: (table: string) => unknown; rpc: (fn: string, args: unknown) => Promise<RpcResult> } {
+}) {
   const queues: Record<string, QueryResult[]> = {
     estabelecimentos: [...(options.estabelecimentos ?? [])],
     estabelecimentos_horarios: [...(options.estabelecimentosHorarios ?? [])],
@@ -410,6 +410,8 @@ function makeChainableBuilder(result: QueryResult) {
   builder.or = vi.fn(() => builder);
   builder.gte = vi.fn(() => builder);
   builder.order = vi.fn(() => builder);
+  builder.not = vi.fn(() => builder);
+  builder.limit = vi.fn(() => builder);
   builder.maybeSingle = vi.fn(async () => result);
   builder.then = (onFulfilled: (value: QueryResult) => unknown, onRejected?: (reason: unknown) => unknown) =>
     Promise.resolve(result).then(onFulfilled, onRejected);
@@ -420,7 +422,7 @@ function fakeTableClient(options: {
   tables?: TableQueue;
   rpc?: (fn: string, args: unknown) => Promise<RpcResult>;
   invoke?: (fn: string, args: unknown) => Promise<QueryResult>;
-}): { client: SupabaseClient<Database>; from: (table: string) => unknown; rpc: (fn: string, args: unknown) => Promise<RpcResult> } {
+}) {
   const queues: TableQueue = { ...(options.tables ?? {}) };
   const from = vi.fn((table: string) => {
     const result = queues[table]?.shift() ?? { data: [], error: null };
@@ -964,6 +966,14 @@ describe('admin.supabase.ts — financialDashboard (Story 8.7)', () => {
           evento_externo_id: 'evt-sem-vinculo', tipo: 'PAYMENT_FUTURE_EVENT', cobranca_id: 'pay-desconhecido',
           pedido_id: null, tentativa_id: null, resultado: 'vinculo_nao_encontrado',
           erro_codigo: 'COBRANCA_DESCONHECIDA', recebido_em: '2026-09-30T10:06:00.000Z',
+        }], error: null }, { data: [{
+          evento_externo_id: 'evt-sem-vinculo', tipo: 'PAYMENT_FUTURE_EVENT', cobranca_id: 'pay-desconhecido',
+          pedido_id: null, tentativa_id: null, resultado: 'vinculo_nao_encontrado',
+          erro_codigo: 'COBRANCA_DESCONHECIDA', recebido_em: '2026-09-30T10:06:00.000Z',
+        }, {
+          evento_externo_id: 'evt-1', tipo: 'PAYMENT_RECEIVED', cobranca_id: 'pay-1', pedido_id: 'pedido-1',
+          tentativa_id: 'tentativa-1', resultado: 'vinculo_nao_encontrado',
+          erro_codigo: 'COBRANCA_DESCONHECIDA', recebido_em: '2026-09-30T10:05:00.000Z',
         }], error: null }],
         ocorrencias_pagamento: [{ data: [{
           id: 'oc-1', pedido_id: 'pedido-2', tipo: 'chargeback', estado: 'pendente',
@@ -998,6 +1008,37 @@ describe('admin.supabase.ts — financialDashboard (Story 8.7)', () => {
     expect((dashboard as unknown as { ocorrenciasPagamento: unknown }).ocorrenciasPagamento).toEqual([
       expect.objectContaining({ id: 'oc-1', tipo: 'chargeback', estado: 'pendente' }),
     ]);
+  });
+
+  it('filtra divergências no servidor antes de limitar e busca eventos apenas das tentativas exibidas', async () => {
+    const { client, from } = fakeTableClient({
+      tables: {
+        pedidos: [{ data: [], error: null }, { data: [], error: null }],
+        tentativas_pagamento: [{ data: [{
+          id: 'tentativa-1', pedido_id: 'pedido-1', forma: 'cartao', estado: 'reconciliacao',
+          asaas_payment_id: null, criado_em: '2026-09-30T10:00:00.000Z',
+        }], error: null }],
+        eventos_pagamento: [{ data: [], error: null }, { data: [], error: null }],
+      },
+    });
+
+    await createAdminSupabase(client).financialDashboard(30);
+
+    const eventCallIndexes = from.mock.calls
+      .map((args, index) => ({ table: args[0], index }))
+      .filter(({ table }) => table === 'eventos_pagamento')
+      .map(({ index }) => index);
+    expect(eventCallIndexes).toHaveLength(2);
+    const latestBuilder = from.mock.results[eventCallIndexes[0]!]?.value as {
+      in: ReturnType<typeof vi.fn>; limit: ReturnType<typeof vi.fn>;
+    };
+    const errorsBuilder = from.mock.results[eventCallIndexes[1]!]?.value as {
+      not: ReturnType<typeof vi.fn>; limit: ReturnType<typeof vi.fn>;
+    };
+    expect(latestBuilder.in).toHaveBeenCalledWith('tentativa_id', ['tentativa-1']);
+    expect(latestBuilder.limit).toHaveBeenCalled();
+    expect(errorsBuilder.not).toHaveBeenCalledWith('erro_codigo', 'is', null);
+    expect(errorsBuilder.limit).toHaveBeenCalled();
   });
 
   it('reconcilia manualmente uma tentativa pela Edge Function sem criar cobrança', async () => {

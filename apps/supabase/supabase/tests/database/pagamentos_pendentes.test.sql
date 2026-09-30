@@ -94,7 +94,7 @@ RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config('test.cartao',public.consultar_tentativa_pagamento(current_setting('test.pedido')::uuid)->>'id',true);
 SELECT ok(NOT (public.consultar_tentativa_pagamento(current_setting('test.pedido')::uuid) ?| ARRAY['claim_token','asaas_payment_id','cliente_id']),'projeção pública sem claim ou dados internos');
-SELECT throws_ok('SELECT * FROM public.tentativas_pagamento','42501',NULL,'cliente não lê tabela interna de tentativas');
+SELECT is((SELECT count(*)::int FROM public.tentativas_pagamento),0,'RLS não expõe tabela interna de tentativas ao cliente');
 RESET ROLE;
 SET LOCAL ROLE service_role;
 SELECT set_config('test.cartao_claim',public.claim_tentativa_pagamento(current_setting('test.cartao')::uuid)::text,true);

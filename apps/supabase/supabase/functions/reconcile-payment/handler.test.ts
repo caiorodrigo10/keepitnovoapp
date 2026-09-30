@@ -14,16 +14,17 @@ const payment = {
 
 function dependencies(overrides: Partial<ReconcileDeps> = {}) {
   const getAttempt = vi.fn(async () => attempt);
+  const bindPaymentId = vi.fn(async () => ({ bound: true as const }));
   const getPayment = vi.fn(async () => ({ ok: true as const, data: payment }));
   const listPayments = vi.fn(async () => ({ ok: true as const, data: { data: [payment], hasMore: false } }));
   const processPaymentEvent = vi.fn(async () => ({ resultado: 'recebido', pedidoId: 'pedido-1' }));
   const value: ReconcileDeps = {
-    attempts: { getById: getAttempt },
+    attempts: { getById: getAttempt, bindPaymentId },
     gateway: { getPayment, listPayments },
     events: { processPaymentEvent },
     ...overrides,
   };
-  return { value, getAttempt, getPayment, listPayments, processPaymentEvent };
+  return { value, getAttempt, bindPaymentId, getPayment, listPayments, processPaymentEvent };
 }
 
 describe('handleReconcilePayment', () => {
@@ -40,10 +41,63 @@ describe('handleReconcilePayment', () => {
   });
 
   it('sem ID externo busca somente pela referência persistida da tentativa', async () => {
-    const deps = dependencies({ attempts: { getById: vi.fn(async () => ({ ...attempt, paymentId: null })) } });
+    const bindPaymentId = vi.fn(async () => ({ bound: true as const }));
+    const deps = dependencies({
+      attempts: { getById: vi.fn(async () => ({ ...attempt, paymentId: null })), bindPaymentId },
+    });
     await handleReconcilePayment({ attemptId: attempt.id }, deps.value);
     expect(deps.listPayments).toHaveBeenCalledWith(attempt.id);
     expect(deps.getPayment).not.toHaveBeenCalled();
+    expect(bindPaymentId).toHaveBeenCalledWith(attempt.id, 'pay-1');
+    expect(deps.processPaymentEvent).toHaveBeenCalledWith(expect.objectContaining({ paymentId: 'pay-1' }));
+  });
+
+  it('mantém conflito explícito se o ID encontrado por referência não puder ser vinculado', async () => {
+    const deps = dependencies({
+      attempts: {
+        getById: vi.fn(async () => ({ ...attempt, paymentId: null })),
+        bindPaymentId: vi.fn(async () => ({ bound: false as const })),
+      },
+    });
+    const result = await handleReconcilePayment({ attemptId: attempt.id }, deps.value);
+    expect(result).toMatchObject({ status: 409, body: { error: { code: 'VINCULO_DIVERGENTE' } } });
+    expect(deps.processPaymentEvent).not.toHaveBeenCalled();
+  });
+
+  it('rejeita resultado cujo externalReference não seja a tentativa consultada', async () => {
+    const bindPaymentId = vi.fn(async () => ({ bound: true as const }));
+    const deps = dependencies({
+      attempts: { getById: vi.fn(async () => ({ ...attempt, paymentId: null })), bindPaymentId },
+      gateway: {
+        getPayment: vi.fn(),
+        listPayments: vi.fn(async () => ({
+          ok: true,
+          data: { data: [{ ...payment, externalReference: 'outra-tentativa' }], hasMore: false },
+        })),
+      },
+    } as Partial<ReconcileDeps>);
+    const result = await handleReconcilePayment({ attemptId: attempt.id }, deps.value);
+    expect(result).toMatchObject({ status: 409, body: { error: { code: 'VINCULO_DIVERGENTE' } } });
+    expect(bindPaymentId).not.toHaveBeenCalled();
+    expect(deps.processPaymentEvent).not.toHaveBeenCalled();
+  });
+
+  it('não tenta vincular cobrança por referência quando o gateway omite o ID', async () => {
+    const bindPaymentId = vi.fn(async () => ({ bound: true as const }));
+    const deps = dependencies({
+      attempts: { getById: vi.fn(async () => ({ ...attempt, paymentId: null })), bindPaymentId },
+      gateway: {
+        getPayment: vi.fn(),
+        listPayments: vi.fn(async () => ({
+          ok: true,
+          data: { data: [{ ...payment, id: undefined }], hasMore: false },
+        })) as unknown as ReconcileDeps['gateway']['listPayments'],
+      },
+    } as Partial<ReconcileDeps>);
+    const result = await handleReconcilePayment({ attemptId: attempt.id }, deps.value);
+    expect(result).toMatchObject({ status: 503, body: { error: { code: 'RECONCILIACAO_INCONCLUSA' } } });
+    expect(bindPaymentId).not.toHaveBeenCalled();
+    expect(deps.processPaymentEvent).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -51,7 +105,10 @@ describe('handleReconcilePayment', () => {
     [[payment, { ...payment, id: 'pay-2' }], 'COBRANCA_AMBIGUA'],
   ])('mantém ausência/ambiguidade explícita para %j', async (payments, code) => {
     const deps = dependencies({
-      attempts: { getById: vi.fn(async () => ({ ...attempt, paymentId: null })) },
+      attempts: {
+        getById: vi.fn(async () => ({ ...attempt, paymentId: null })),
+        bindPaymentId: vi.fn(async () => ({ bound: true })),
+      },
       gateway: {
         getPayment: vi.fn(),
         listPayments: vi.fn(async () => ({ ok: true, data: { data: payments, hasMore: false } })),
@@ -88,6 +145,17 @@ describe('handleReconcilePayment', () => {
     await handleReconcilePayment({ attemptId: attempt.id }, deps.value);
     expect(deps.processPaymentEvent).toHaveBeenCalledWith(expect.objectContaining({ event: 'PAYMENT_AWAITING_RISK_ANALYSIS' }));
   });
+
+  it('mantém cobrança PENDING como tentativa pendente, sem evento desconhecido', async () => {
+    const deps = dependencies({
+      gateway: {
+        getPayment: vi.fn(async () => ({ ok: true, data: { ...payment, status: 'PENDING' } })),
+        listPayments: vi.fn(),
+      },
+    } as Partial<ReconcileDeps>);
+    await handleReconcilePayment({ attemptId: attempt.id }, deps.value);
+    expect(deps.processPaymentEvent).toHaveBeenCalledWith(expect.objectContaining({ event: 'PAYMENT_UPDATED' }));
+  });
 });
 
 describe('createReconcileHttpHandler', () => {
@@ -99,6 +167,8 @@ describe('createReconcileHttpHandler', () => {
 
     expect(response.status).toBe(204);
     expect(response.headers.get('access-control-allow-origin')).toBe('*');
+    expect(response.headers.get('access-control-allow-headers')).toContain('apikey');
+    expect(response.headers.get('access-control-allow-headers')).toContain('x-client-info');
     expect(authenticateAdmin).not.toHaveBeenCalled();
     expect(createDeps).not.toHaveBeenCalled();
   });

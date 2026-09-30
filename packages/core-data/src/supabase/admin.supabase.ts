@@ -74,7 +74,9 @@ interface OperationalQuery extends PromiseLike<OperationalQueryResult> {
   select(columns: string): OperationalQuery;
   eq(column: string, value: unknown): OperationalQuery;
   in(column: string, values: unknown[]): OperationalQuery;
+  not(column: string, operator: string, value: unknown): OperationalQuery;
   order(column: string, options?: { ascending?: boolean }): OperationalQuery;
+  limit(count: number): OperationalQuery;
 }
 interface OperationalReadClient {
   from(table: string): OperationalQuery;
@@ -1397,23 +1399,37 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
         asaas_payment_id: string | null; criado_em: string;
       }>;
 
-      const eventosResult = await operational.from('eventos_pagamento')
-        .select('evento_externo_id, tipo, cobranca_id, tentativa_id, pedido_id, resultado, erro_codigo, recebido_em')
-        .order('recebido_em', { ascending: false });
-      if (eventosResult.error) throw eventosResult.error;
-      const eventosRows = ((eventosResult.data ?? []) as Array<{
+      const eventColumns = 'evento_externo_id, tipo, cobranca_id, tentativa_id, pedido_id, resultado, erro_codigo, recebido_em';
+      let eventosRows: Array<{
         evento_externo_id: string; tipo: string; cobranca_id: string | null;
         tentativa_id: string | null; pedido_id: string | null; resultado: string;
         erro_codigo: string | null; recebido_em: string;
-      }>).sort((a, b) => b.recebido_em.localeCompare(a.recebido_em));
+      }> = [];
+      if (tentativasRows.length > 0) {
+        const eventosResult = await operational.from('eventos_pagamento')
+          .select(eventColumns)
+          .in('tentativa_id', tentativasRows.map((row) => row.id))
+          .order('recebido_em', { ascending: false })
+          .limit(500);
+        if (eventosResult.error) throw eventosResult.error;
+        eventosRows = ((eventosResult.data ?? []) as typeof eventosRows)
+          .sort((a, b) => b.recebido_em.localeCompare(a.recebido_em));
+      }
       const ultimoEventoPorTentativa = new Map<string, { resultado: string; erro_codigo: string | null }>();
       for (const event of eventosRows) {
         if (event.tentativa_id && !ultimoEventoPorTentativa.has(event.tentativa_id)) {
           ultimoEventoPorTentativa.set(event.tentativa_id, event);
         }
       }
-      const eventosComErro: PaymentEventAdmin[] = eventosRows
-        .filter((event) => event.erro_codigo !== null)
+      // O filtro roda antes do limite no PostgREST: eventos bem-sucedidos não
+      // consomem a janela e não escondem divergências recentes do Admin.
+      const divergenciasResult = await operational.from('eventos_pagamento')
+        .select(eventColumns)
+        .not('erro_codigo', 'is', null)
+        .order('recebido_em', { ascending: false })
+        .limit(100);
+      if (divergenciasResult.error) throw divergenciasResult.error;
+      const eventosComErro: PaymentEventAdmin[] = ((divergenciasResult.data ?? []) as typeof eventosRows)
         .map((event) => ({
           eventoExternoId: event.evento_externo_id,
           tipo: event.tipo,

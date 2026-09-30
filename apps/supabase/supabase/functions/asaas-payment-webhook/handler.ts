@@ -38,7 +38,20 @@ export interface WebhookAsaasInput {
 export type WebhookAsaasResult =
   | { status: 200; body: { ok: true; resultado: string; pedido_id?: string | null } }
   | { status: 401; body: { ok: false; error: { code: 'TOKEN_INVALIDO'; message: string } } }
-  | { status: 502; body: { ok: false; error: { code: 'PROCESSAMENTO_FALHOU'; message: string } } };
+  | { status: 502; body: { ok: false; error: { code: 'PROCESSAMENTO_FALHOU' | 'VINCULO_PENDENTE'; message: string } } };
+
+function processedResponse(result: { resultado: string; pedidoId: string | null }): WebhookAsaasResult {
+  if (result.resultado === 'aguardando_vinculo') {
+    return {
+      status: 502,
+      body: {
+        ok: false,
+        error: { code: 'VINCULO_PENDENTE', message: 'Cobrança ainda não vinculada. Tente novamente.' },
+      },
+    };
+  }
+  return { status: 200, body: { ok: true, resultado: result.resultado, pedido_id: result.pedidoId } };
+}
 
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -131,14 +144,14 @@ export async function handleAsaasWebhook(
       const parsed = parseAnticipationEvent(body, eventId, event);
       if (!parsed) return { status: 200, body: { ok: true, resultado: 'payload_invalido' } };
       const result = await deps.pagamentos.processAnticipationEvent(parsed);
-      return { status: 200, body: { ok: true, resultado: result.resultado, pedido_id: result.pedidoId } };
+      return processedResponse(result);
     }
 
     if (event.startsWith('PAYMENT_')) {
       const parsed = parsePaymentEvent(body, eventId, event);
       if (!parsed) return { status: 200, body: { ok: true, resultado: 'payload_invalido' } };
       const result = await deps.pagamentos.processPaymentEvent(parsed);
-      return { status: 200, body: { ok: true, resultado: result.resultado, pedido_id: result.pedidoId } };
+      return processedResponse(result);
     }
 
     // Uma família nova também ganha recibo durável. Campos de cobrança ficam
@@ -151,7 +164,7 @@ export async function handleAsaasWebhook(
       valueCents: null,
       method: null,
     });
-    return { status: 200, body: { ok: true, resultado: result.resultado, pedido_id: result.pedidoId } };
+    return processedResponse(result);
   } catch {
     // Não expõe mensagem do banco, payload ou segredo. 502 pede reentrega ao gateway.
     return {

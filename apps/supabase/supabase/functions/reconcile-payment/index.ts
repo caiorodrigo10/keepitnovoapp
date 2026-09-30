@@ -17,6 +17,12 @@ type EventRpcClient = {
   }>;
 };
 
+type BindingRpcClient = {
+  rpc(name: 'vincular_cobranca_reconciliacao', args: {
+    p_tentativa_id: string; p_cobranca_id: string;
+  }): Promise<{ data: boolean | null; error: { message: string } | null }>;
+};
+
 Deno.serve(createReconcileHttpHandler({
   async authenticateAdmin(token) {
     const verifier = createClient(url, anonKey, { auth: authOptions });
@@ -41,6 +47,7 @@ Deno.serve(createReconcileHttpHandler({
     );
     const asaas = createAsaasClient(resolveAsaasConfig({ get: (key) => Deno.env.get(key) }));
     const rpc = service as unknown as EventRpcClient;
+    const bindingRpc = service as unknown as BindingRpcClient;
     return {
       attempts: {
         async getById(id) {
@@ -48,6 +55,14 @@ Deno.serve(createReconcileHttpHandler({
             .select('id, asaas_payment_id').eq('id', id).maybeSingle();
           if (error) throw error;
           return data ? { id: data.id, paymentId: data.asaas_payment_id } : null;
+        },
+        async bindPaymentId(attemptId, paymentId) {
+          const { data, error } = await bindingRpc.rpc('vincular_cobranca_reconciliacao', {
+            p_tentativa_id: attemptId,
+            p_cobranca_id: paymentId,
+          });
+          if (error) throw new Error('VINCULO_RECONCILIACAO_FALHOU');
+          return { bound: data === true };
         },
       },
       gateway: {
