@@ -409,7 +409,6 @@ function isPedido(value: unknown): value is Pedido {
     typeof value.estabelecimento_id === 'string' &&
     typeof value.hub_id === 'string' &&
     isPedidoStatus(value.status) &&
-    typeof value.pin_texto === 'string' &&
     typeof value.tentativas_pin === 'number' &&
     isNullableString(value.pin_bloqueado_ate) &&
     (value.tempo_estimado_min === null || typeof value.tempo_estimado_min === 'number') &&
@@ -910,7 +909,12 @@ export function applyClienteSnapshot(db: MockDb, snapshot: ClienteMockSnapshotV7
       })),
     ),
   );
-  db.pedidos.push(...structuredClone(snapshot.orders.filter((pedido) => clienteIds.has(pedido.cliente_id))));
+  db.pedidos.push(...structuredClone(snapshot.orders.filter((pedido) => clienteIds.has(pedido.cliente_id)).map(pedido => {
+    const publicPedido = { ...pedido } as Pedido & { pin_texto?: unknown; pin_hash?: unknown };
+    delete publicPedido.pin_texto;
+    delete publicPedido.pin_hash;
+    return publicPedido;
+  })));
   db.sessionClienteId = snapshot.sessionClienteId;
   db.favoriteHubIdsByClienteId = structuredClone(snapshot.favoriteHubIdsByClienteId);
   db.favoriteStoreIdsByClienteId = structuredClone(snapshot.favoriteStoreIdsByClienteId);

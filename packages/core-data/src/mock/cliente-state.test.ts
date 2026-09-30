@@ -423,3 +423,14 @@ describe('cliente-state', () => {
     expect(db.estabelecimentosCadastrados).toEqual(estabelecimentosCadastrados);
   });
 });
+
+it('hidrata snapshot legado sem recolocar segredos no pedido público', () => {
+  const db = createMockDb();
+  const snapshot = createClienteBaseline();
+  const pedido = db.pedidos.find(p => p.cliente_id === 'cliente-ana')!;
+  snapshot.orders = [{ ...pedido, pin_texto: 'legacy-demo', pin_hash: 'legacy-demo-hash' } as typeof pedido];
+  applyClienteSnapshot(db, snapshot);
+  const hydrated = db.pedidos.find(p => p.id === pedido.id);
+  expect(hydrated).not.toHaveProperty('pin_texto');
+  expect(hydrated).not.toHaveProperty('pin_hash');
+});

@@ -20,7 +20,7 @@ type Props = NativeStackScreenProps<PedidosStackParamList, 'SaindoParaHub'>;
  */
 export default function SaindoParaHub({ navigation, route }: Props) {
   const { pedidoId } = route.params;
-  const { getById, hubNome } = useOrdersContext();
+  const { getById, nomeHub } = useOrdersContext();
   const pedido = getById(pedidoId);
 
   if (!pedido) return null;
@@ -30,10 +30,10 @@ export default function SaindoParaHub({ navigation, route }: Props) {
       <View style={styles.content}>
         <ScreenHeader title="Pedido a caminho" onBack={() => navigation.navigate('NovosPedidos')} />
 
-        <PedidoResumoCard pedido={pedido} subtitle={`${pedido.itens.length} itens · ${hubNome}`} />
+        <PedidoResumoCard pedido={pedido} subtitle={`${pedido.itens.length} itens · ${nomeHub(pedido.hub_id)}`} />
 
         <Text style={[styles.mensagem, { color: darkColors.text.secondary }]}>
-          Pedido separado e a caminho do {hubNome}. Confirme abaixo assim que você chegar ao hub para aguardar
+          Pedido separado e a caminho do {nomeHub(pedido.hub_id)}. Confirme abaixo assim que você chegar ao hub para aguardar
           o cliente.
         </Text>
       </View>

@@ -58,7 +58,7 @@ const EPIC = 'Épico 6';
  * deveria divergir do mapeamento canônico já usado pelo Cliente/Lojista).
  */
 export const PEDIDO_COLUMNS =
-  'id, numero, cliente_id, estabelecimento_id, hub_id, status, pin_texto, tentativas_pin, pin_bloqueado_ate, tempo_estimado_min, criado_em, aceito_em, saiu_hub_em, cliente_chegou_em, entregue_em, cancelado_em, subtotal_produtos_reais, taxa_deslocamento_reais, taxa_keepit_reais, taxa_servico_comprador_reais, total_pago_reais, motivo_recusa, motivo_cancelamento, motivo_nao_retirado, forma_pagamento';
+  'id, numero, cliente_id, estabelecimento_id, hub_id, status, cliente_nome:pedido_cliente_nome, tentativas_pin, pin_bloqueado_ate, tempo_estimado_min, criado_em, aceito_em, saiu_hub_em, cliente_chegou_em, entregue_em, cancelado_em, subtotal_produtos_reais, taxa_deslocamento_reais, taxa_keepit_reais, taxa_servico_comprador_reais, total_pago_reais, motivo_recusa, motivo_cancelamento, motivo_nao_retirado, forma_pagamento';
 
 const PEDIDO_ITEM_COLUMNS = 'id, pedido_id, produto_id, nome_snapshot, preco_unitario_reais, quantidade, subtotal_reais';
 
@@ -69,7 +69,7 @@ export type PedidoRow = {
   estabelecimento_id: string;
   hub_id: string;
   status: string;
-  pin_texto: string;
+  cliente_nome?: string;
   tentativas_pin: number;
   pin_bloqueado_ate: string | null;
   tempo_estimado_min: number | null;
@@ -136,7 +136,7 @@ export function mapRowToPedido(row: PedidoRow, itens: PedidoItem[]): Pedido {
     estabelecimento_id: row.estabelecimento_id,
     hub_id: row.hub_id,
     status: row.status as PedidoStatus,
-    pin_texto: row.pin_texto,
+    cliente_nome: row.cliente_nome,
     tentativas_pin: row.tentativas_pin,
     pin_bloqueado_ate: row.pin_bloqueado_ate,
     tempo_estimado_min: row.tempo_estimado_min,
@@ -193,7 +193,7 @@ export async function fetchItensPorPedidoIds(
 
 /**
  * Story 6.6 (AC4) — releitura REAL pós-`criar_pedido` (a RPC devolve só
- * `pedido_id`/`numero`/`pin_texto`, ver AC1) e Story 6.7 (AC1) — leitura de
+ * `pedido_id`/`numero`, ver AC1) e Story 6.7 (AC1) — leitura de
  * um pedido específico para `listMine`. Sob a RLS `ve_pedidos_relacionados`
  * (cliente-dono, lojista-dono ou admin) — `null` honesto se a linha não
  * existir ou a RLS bloquear (nunca simula um pedido).
@@ -239,7 +239,7 @@ export function createOrderSupabase(client?: SupabaseClient<Database>): OrderPor
      *
      * Mapeia os 6 erros NOMEADOS (`RAISE EXCEPTION`) da RPC para classes
      * dedicadas (`order-errors.ts`) — nunca engole o erro, nunca simula
-     * sucesso. Como a RPC devolve só `(pedido_id, numero, pin_texto)`
+     * sucesso. Como a RPC devolve só `(pedido_id, numero)`
      * (AC1), o `Pedido` completo vem de uma RELEITURA real
      * (`fetchPedidoPorId`) — nunca ecoa/inventa os demais campos a partir
      * do input.
@@ -332,8 +332,18 @@ export function createOrderSupabase(client?: SupabaseClient<Database>): OrderPor
       return rows.map((row) => mapRowToPedido(row, itensPorPedido[row.id] ?? []));
     },
 
-    async getById(_pedidoId: string, _options?: AsyncCallOptions): Promise<Pedido | null> {
-      throw new NotImplementedError(PORT, 'getById', EPIC);
+    async getById(pedidoId: string, _options?: AsyncCallOptions): Promise<Pedido | null> {
+      return fetchPedidoPorId(resolveClient(), pedidoId);
+    },
+
+    async obterPinCliente(pedidoId: string): Promise<string> {
+      const { data, error } = await resolveClient().rpc('obter_pin_cliente', { p_pedido_id: pedidoId });
+      if (error) {
+        if (error.message?.includes('ACESSO_NEGADO')) throw new AcessoNegadoError();
+        throw error;
+      }
+      if (typeof data !== 'string' || !/^\d{4}$/.test(data)) throw new Error('PIN_INDISPONIVEL');
+      return data;
     },
 
     /**
@@ -499,7 +509,7 @@ export function createOrderSupabase(client?: SupabaseClient<Database>): OrderPor
      *
      * [IDS] REUSE de `fetchPedidoPorId` (mesma releitura real já usada por
      * `create`/`accept`/`markReadyForHub`/`markArrivedAtHub`/`confirmPin`) —
-     * NÃO chama `port.getById` (que ainda é `NotImplementedError`, Épico 6
+     * Usa a mesma leitura pública de `getById` (Épico 6
      * pendente) nem faz nenhum `UPDATE`. `pedidoId` inexistente/RLS bloqueando
      * é honesto: lança em vez de simular sucesso, mesmo padrão dos demais
      * métodos deste adapter.

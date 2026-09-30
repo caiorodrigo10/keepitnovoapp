@@ -3,7 +3,7 @@ import { Alert } from 'react-native';
 
 import { getDataClient, type Estabelecimento } from '@keepit/core-data';
 
-import { CURRENT_ESTABELECIMENTO_ID } from './currentStore';
+import { useCurrentStore } from '../../context/CurrentStoreContext';
 
 export type DuracaoPausa = '30min' | '1hora' | 'hoje';
 
@@ -39,16 +39,18 @@ const LojaDisponibilidadeContext = createContext<LojaDisponibilidadeContextValue
  * honestidade já aplicada em `handleSalvar` (`HorariosDisponibilidade.tsx`, Story 4.7).
  */
 export function LojaDisponibilidadeProvider({ children }: PropsWithChildren) {
+  const { id: storeId } = useCurrentStore();
   const [estabelecimento, setEstabelecimento] = useState<Estabelecimento | null>(null);
   const [loading, setLoading] = useState(true);
   const [recebendoPedidos, setRecebendoPedidosState] = useState(true);
   const [pausaSelecionada, setPausaSelecionada] = useState<DuracaoPausa | null>(null);
 
   useEffect(() => {
+    if (!storeId) return;
     const client = getDataClient();
     let cancelled = false;
 
-    client.store.getById(CURRENT_ESTABELECIMENTO_ID).then((estab) => {
+    client.store.getById(storeId).then((estab) => {
       if (cancelled || !estab) return;
       setEstabelecimento(estab);
       setRecebendoPedidosState(!estab.pausado_manualmente);
@@ -58,15 +60,16 @@ export function LojaDisponibilidadeProvider({ children }: PropsWithChildren) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [storeId]);
 
   function setRecebendoPedidos(value: boolean) {
+    if (!storeId) return;
     const recebendoAnterior = recebendoPedidos;
     const pausaAnterior = pausaSelecionada;
     setRecebendoPedidosState(value);
     if (value) setPausaSelecionada(null);
     getDataClient()
-      .store.setPausadoManualmente(CURRENT_ESTABELECIMENTO_ID, !value)
+      .store.setPausadoManualmente(storeId, !value)
       .then((estab) => setEstabelecimento(estab))
       .catch(() => {
         setRecebendoPedidosState(recebendoAnterior);
@@ -79,12 +82,13 @@ export function LojaDisponibilidadeProvider({ children }: PropsWithChildren) {
   }
 
   function selecionarPausa(duracao: DuracaoPausa) {
+    if (!storeId) return;
     const recebendoAnterior = recebendoPedidos;
     const pausaAnterior = pausaSelecionada;
     setPausaSelecionada(duracao);
     setRecebendoPedidosState(false);
     getDataClient()
-      .store.setPausadoManualmente(CURRENT_ESTABELECIMENTO_ID, true)
+      .store.setPausadoManualmente(storeId, true)
       .then((estab) => setEstabelecimento(estab))
       .catch(() => {
         setPausaSelecionada(pausaAnterior);

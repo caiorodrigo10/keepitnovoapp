@@ -33,7 +33,7 @@ export async function advanceOrderForQa(client: DataClient, pedido: Pedido): Pro
     return client.order.accept(pedido.id, 15);
   }
   if (action.kind === 'confirm-pin') {
-    return client.order.confirmPin(pedido.id, pedido.pin_texto);
+    return client.order.confirmPin(pedido.id, await client.order.obterPinCliente(pedido.id));
   }
   return client.order.advanceStatus(pedido.id, action.status);
 }

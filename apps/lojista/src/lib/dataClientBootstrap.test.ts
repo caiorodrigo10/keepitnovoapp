@@ -107,6 +107,17 @@ describe('dataClientBootstrap (Lojista)', () => {
     expect(recoverDataClientMock).not.toHaveBeenCalled();
   });
 
+  it('observador de sessão reutiliza o mesmo client persistente dos adapters, inclusive no retry', async () => {
+    process.env.EXPO_PUBLIC_DATA_SOURCE = 'supabase';
+    createClientMock.mockReturnValue('shared-auth-client');
+    const module = await import('./dataClientBootstrap');
+    await module.dataClientReady;
+    expect(module.getLojistaSupabaseClient()).toBe('shared-auth-client');
+    await module.bootstrapDataClient({ recover: true });
+    expect(module.getLojistaSupabaseClient()).toBe('shared-auth-client');
+    expect(createClientMock).toHaveBeenCalledTimes(1);
+  });
+
   it('retry do modo real recupera somente em Supabase', async () => {
     process.env.EXPO_PUBLIC_DATA_SOURCE = 'supabase';
     createClientMock.mockReturnValue('fake-supabase-client');

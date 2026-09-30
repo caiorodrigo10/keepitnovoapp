@@ -19,7 +19,7 @@ type Props = NativeStackScreenProps<PedidosStackParamList, 'ConfirmarRetirada'>;
  */
 export default function ConfirmarRetirada({ navigation, route }: Props) {
   const { pedidoId } = route.params;
-  const { getById, hubNome } = useOrdersContext();
+  const { getById, nomeHub } = useOrdersContext();
   const pedido = getById(pedidoId);
 
   if (!pedido) return null;
@@ -33,10 +33,10 @@ export default function ConfirmarRetirada({ navigation, route }: Props) {
 
         <Text style={[styles.titulo, { color: darkColors.text.primary }]}>Retirada confirmada!</Text>
         <Text style={[styles.subtitulo, { color: darkColors.text.secondary }]}>
-          O pedido foi entregue ao cliente no {hubNome}.
+          O pedido foi entregue ao cliente no {nomeHub(pedido.hub_id)}.
         </Text>
 
-        <PedidoResumoCard pedido={pedido} subtitle={`${pedido.itens.length} itens · ${hubNome}`} />
+        <PedidoResumoCard pedido={pedido} subtitle={`${pedido.itens.length} itens · ${nomeHub(pedido.hub_id)}`} />
       </View>
 
       <View style={styles.footer}>

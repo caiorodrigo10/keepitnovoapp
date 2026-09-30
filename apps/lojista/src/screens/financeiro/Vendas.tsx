@@ -12,7 +12,7 @@ import { ScreenHeader } from '../../components/ScreenHeader';
 import { SimpleBarChart } from '../../components/SimpleBarChart';
 import type { FinanceiroStackParamList } from '../../navigation/types';
 import { formatBRL, formatPercent } from './format';
-import { CURRENT_ESTABELECIMENTO_ID } from '../catalogo/currentStore';
+import { useCurrentStore } from '../../context/CurrentStoreContext';
 import { getVendasDetalhe, PERIODOS, type Periodo, type VendasDetalhe } from './financeiroPresentation';
 
 type Props = NativeStackScreenProps<FinanceiroStackParamList, 'Vendas'>;
@@ -45,21 +45,23 @@ const EMPTY: VendasDetalhe = {
  * Acessível a partir do link "Ver tudo" no bloco "Vendas" do Dashboard.
  */
 export default function Vendas({ navigation }: Props) {
+  const { id: storeId } = useCurrentStore();
   const [periodo, setPeriodo] = useState<Periodo>('30d');
   const [detalhe, setDetalhe] = useState<VendasDetalhe>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
   function load() {
+    if (!storeId) return;
     setLoading(true);
     setError(null);
-    getVendasDetalhe(CURRENT_ESTABELECIMENTO_ID, periodo)
+    getVendasDetalhe(storeId, periodo)
       .then(setDetalhe)
       .catch((err: unknown) => setError(err instanceof Error ? err : new Error(String(err))))
       .finally(() => setLoading(false));
   }
 
-  useEffect(load, [periodo]);
+  useEffect(load, [periodo, storeId]);
 
   const metricas = [
     { label: 'Pedidos', valor: String(detalhe.pedidos) },

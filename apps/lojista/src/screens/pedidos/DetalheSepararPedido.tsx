@@ -26,7 +26,7 @@ type Props = NativeStackScreenProps<PedidosStackParamList, 'DetalheSepararPedido
  */
 export default function DetalheSepararPedido({ navigation, route }: Props) {
   const { pedidoId } = route.params;
-  const { getById, hubNome, nomeCliente, markReadyForHub } = useOrdersContext();
+  const { getById, nomeHub, nomeCliente, markReadyForHub } = useOrdersContext();
   const pedido = getById(pedidoId);
   const [checados, setChecados] = useState<Set<string>>(new Set());
   const [salvando, setSalvando] = useState(false);
@@ -83,7 +83,7 @@ export default function DetalheSepararPedido({ navigation, route }: Props) {
           <View>
             <Text style={[styles.clienteNome, { color: darkColors.text.primary }]}>{nomeCliente_}</Text>
             <Text style={[styles.clienteSubtitulo, { color: darkColors.text.tertiary }]}>
-              {hubNome} · {tempoRelativo(pedido.criado_em)}
+              {nomeHub(pedido.hub_id)} · {tempoRelativo(pedido.criado_em)}
             </Text>
           </View>
         </View>
@@ -137,7 +137,7 @@ export default function DetalheSepararPedido({ navigation, route }: Props) {
         <View style={[styles.notaRetirada, { backgroundColor: darkColors.bg.surface }]}>
           <Ionicons name="location-outline" size={18} color={darkColors.text.secondary} />
           <Text style={[styles.notaTexto, { color: darkColors.text.secondary }]}>
-            Retirada no balcão do <Text style={{ fontFamily: 'HankenGrotesk-Bold' }}>{hubNome}</Text>
+            Retirada no balcão do <Text style={{ fontFamily: 'HankenGrotesk-Bold' }}>{nomeHub(pedido.hub_id)}</Text>
           </Text>
         </View>
       </ScrollView>

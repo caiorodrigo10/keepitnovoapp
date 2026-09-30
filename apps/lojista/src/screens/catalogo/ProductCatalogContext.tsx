@@ -1,37 +1,10 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
 
 import { getDataClient } from '@keepit/core-data';
 
-import { isSupabaseDataSource } from '../../lib/dataSource';
-import { CURRENT_ESTABELECIMENTO_ID } from './currentStore';
+import { useCurrentStore } from '../../context/CurrentStoreContext';
 import { estoqueDisplayFromId } from './estoque';
 import type { ProdutoCatalogo } from './types';
-
-/**
- * Stories 4.3/4.4 — [AUTO-DECISION] resolução do `estabelecimento_id` do
- * lojista logado. `CURRENT_ESTABELECIMENTO_ID` (`currentStore.ts`) é um
- * fixture MOCK fixo — em `DATA_SOURCE=supabase` precisamos do id REAL do
- * PRÓPRIO estabelecimento do lojista autenticado, nunca esse fixture.
- *
- * Nem `getMeuEstabelecimento` (status/motivo_rejeicao) nem `getMeuPerfil`
- * (nome_fantasia/categoria/...) devolvem o `id` — reaproveita o novo método
- * leve `estabelecimentoCadastro.getMeuEstabelecimentoId()` (mesma port já
- * usada por `PerfilPublico.tsx`/`Login.tsx`, Stories 3.10/3.11), seguindo o
- * mesmo padrão screen-level de `isSupabaseDataSource()` já documentado em
- * `../../lib/dataSource.ts`.
- *
- * Escopo desta Story: só o catálogo (`ProductCatalogContext`). A
- * reconciliação mais ampla de `CURRENT_ESTABELECIMENTO_ID` nas demais telas
- * (Pedidos, Financeiro, `LojaDisponibilidadeContext`) permanece o débito já
- * documentado em `navigation/lojistaSession.ts` ("carry-forward para o
- * Épico 6+"), fora do escopo das Stories 4.3/4.4.
- */
-async function resolveEstabelecimentoId(client: ReturnType<typeof getDataClient>): Promise<string | null> {
-  if (!isSupabaseDataSource()) {
-    return CURRENT_ESTABELECIMENTO_ID;
-  }
-  return client.estabelecimentoCadastro.getMeuEstabelecimentoId();
-}
 
 export interface NovoProdutoInput {
   nome: string;
@@ -80,13 +53,11 @@ const ProductCatalogContext = createContext<ProductCatalogContextValue | null>(n
  * documentadas nas Stories 0.9/0.10.
  */
 export function ProductCatalogProvider({ children }: PropsWithChildren) {
+  const { id: estabelecimentoId } = useCurrentStore();
   const [produtos, setProdutos] = useState<ProdutoCatalogo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
-  /** Cache do `estabelecimento_id` resolvido nesta sessão — reaproveitado por `createProduto` sem re-resolver a cada chamada. */
-  const estabelecimentoIdRef = useRef<string | null>(null);
-
   useEffect(() => {
     const client = getDataClient();
     let cancelled = false;
@@ -94,10 +65,10 @@ export function ProductCatalogProvider({ children }: PropsWithChildren) {
     setLoading(true);
     setError(null);
 
-    resolveEstabelecimentoId(client)
+    setProdutos([]);
+    Promise.resolve(estabelecimentoId)
       .then(async (estabelecimentoId) => {
         if (cancelled) return;
-        estabelecimentoIdRef.current = estabelecimentoId;
         if (!estabelecimentoId) {
           // Story 4.3 (AC5) — sem estabelecimento resolvido para o lojista
           // autenticado (ex.: sessão sem cadastro ainda), estado vazio
@@ -123,17 +94,12 @@ export function ProductCatalogProvider({ children }: PropsWithChildren) {
     return () => {
       cancelled = true;
     };
-  }, [reloadToken]);
+  }, [reloadToken, estabelecimentoId]);
 
   async function createProduto(input: NovoProdutoInput): Promise<ProdutoCatalogo> {
+    if (!estabelecimentoId) throw new Error('Loja não identificada.');
     const client = getDataClient();
     const { estoqueDisplay, ...rest } = input;
-    const estabelecimentoId = estabelecimentoIdRef.current ?? (await resolveEstabelecimentoId(client));
-    if (!estabelecimentoId) {
-      throw new Error(
-        '[catalogo] Não foi possível identificar o estabelecimento do lojista autenticado para cadastrar o produto.',
-      );
-    }
     const produto = await client.product.create({ estabelecimento_id: estabelecimentoId, ...rest });
     const produtoComEstoque: ProdutoCatalogo = { ...produto, estoqueDisplay };
     setProdutos((previous) => [...previous, produtoComEstoque]);
@@ -141,6 +107,7 @@ export function ProductCatalogProvider({ children }: PropsWithChildren) {
   }
 
   async function updateProduto(id: string, input: EditarProdutoInput): Promise<void> {
+    if (!estabelecimentoId) throw new Error('Loja não identificada.');
     const client = getDataClient();
     const { estoqueDisplay, ...rest } = input;
     const atualizado = await client.product.update(id, rest);
@@ -154,6 +121,7 @@ export function ProductCatalogProvider({ children }: PropsWithChildren) {
   }
 
   async function toggleAtivo(id: string, nextAtivo: boolean): Promise<void> {
+    if (!estabelecimentoId) throw new Error('Loja não identificada.');
     const client = getDataClient();
     // Pausar (product.port.pause()) ou reativar (update com ativo: true) —
     // ambos persistem no mock db real (Story 1.10, Task 5).
@@ -164,6 +132,7 @@ export function ProductCatalogProvider({ children }: PropsWithChildren) {
   }
 
   async function deleteProduto(id: string): Promise<void> {
+    if (!estabelecimentoId) throw new Error('Loja não identificada.');
     const client = getDataClient();
     await client.product.delete(id);
     setProdutos((previous) => previous.filter((produto) => produto.id !== id));
@@ -182,7 +151,7 @@ export function ProductCatalogProvider({ children }: PropsWithChildren) {
       deleteProduto,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [produtos, loading, error],
+    [produtos, loading, error, estabelecimentoId],
   );
 
   return <ProductCatalogContext.Provider value={value}>{children}</ProductCatalogContext.Provider>;

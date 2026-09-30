@@ -1,23 +1,23 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
 
 import { getDataClient, PinBloqueadoError, PinIncorretoError, type Pedido } from '@keepit/core-data';
 
-import { CURRENT_ESTABELECIMENTO_ID, CURRENT_HUB_ID } from '../catalogo/currentStore';
+import { useCurrentStore } from '../../context/CurrentStoreContext';
 
 /**
  * Fallback do "tempo médio de preparo" (Task 3) — tenta
- * `store.port.getById(CURRENT_ESTABELECIMENTO_ID).tempo_medio_entrega_min`
+ * `store.port.getById(storeId).tempo_medio_entrega_min`
  * (campo real do schema, `estabelecimentos`); se a chamada falhar por
  * qualquer razão, cai para este valor — não há um valor de negócio mais
  * específico para "tempo médio de preparo" em `@keepit/config` hoje.
  */
 const FALLBACK_TEMPO_PREPARO_MIN = 10;
 
-/** Nome de exibição padrão enquanto `AuthPort.getById` ainda não resolveu o cliente. */
+/** Nome padrão enquanto a projeção autorizada do pedido não inclui o cliente. */
 const NOME_CLIENTE_FALLBACK = 'Cliente';
 
 /** Nome do hub padrão enquanto `HubPort.getById` ainda não resolveu (Story 1.10, Task 1). */
-const HUB_NOME_FALLBACK = 'Hub Centro';
+const HUB_NOME_FALLBACK = 'Hub';
 
 /** Status finais — pedido sai de "Ativos" e passa para "Concluídos" (Task 8). */
 const STATUS_CONCLUIDOS = new Set([
@@ -56,7 +56,7 @@ interface OrdersContextValue {
   /** Prefill de "Aceitar pedido" (Task 3) — `estabelecimentos.tempo_medio_entrega_min` real, com fallback documentado. */
   tempoMedioPrepMin: number;
   /** Nome do hub (Story 1.10, Task 1) — promovido de `CURRENT_HUB.nome` (`lojistaOrders.mock.ts`, Story 0.10). */
-  hubNome: string;
+  nomeHub: (hubId: string) => string;
   /** Nome de exibição do cliente (Story 1.10, Task 3) — promovido de `nomeClienteDisplay`/`CLIENTE_NOME_POR_ID`. */
   nomeCliente: (clienteId: string) => string;
   acceptOrder: (pedidoId: string, tempoEstimadoMin: number) => Promise<Pedido>;
@@ -76,22 +76,22 @@ const OrdersContext = createContext<OrdersContextValue | null>(null);
  * mock->real única a partir de agora.
  */
 export function OrdersProvider({ children }: PropsWithChildren) {
+  const { id: storeId } = useCurrentStore();
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
   const [tempoMedioPrepMin, setTempoMedioPrepMin] = useState<number>(FALLBACK_TEMPO_PREPARO_MIN);
-  const [hubNome, setHubNome] = useState<string>(HUB_NOME_FALLBACK);
-  const [clienteNomes, setClienteNomes] = useState<Record<string, string>>({});
-  const clienteNomesResolvidos = useRef<Set<string>>(new Set());
+  const [hubNomes, setHubNomes] = useState<Record<string, string>>({});
 
   useEffect(() => {
+    if (!storeId) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
 
     getDataClient()
-      .order.listByEstabelecimento(CURRENT_ESTABELECIMENTO_ID)
+      .order.listByEstabelecimento(storeId)
       .then((lista) => {
         if (!cancelled) setPedidos(lista);
       })
@@ -105,12 +105,13 @@ export function OrdersProvider({ children }: PropsWithChildren) {
     return () => {
       cancelled = true;
     };
-  }, [reloadToken]);
+  }, [reloadToken, storeId]);
 
   useEffect(() => {
+    if (!storeId) return;
     let cancelled = false;
     getDataClient()
-      .store.getById(CURRENT_ESTABELECIMENTO_ID)
+      .store.getById(storeId)
       .then((estabelecimento) => {
         if (!cancelled && estabelecimento) {
           setTempoMedioPrepMin(estabelecimento.tempo_medio_entrega_min);
@@ -120,50 +121,17 @@ export function OrdersProvider({ children }: PropsWithChildren) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [storeId]);
 
   useEffect(() => {
     let cancelled = false;
-    getDataClient()
-      .hub.getById(CURRENT_HUB_ID)
-      .then((hub) => {
-        if (!cancelled && hub) setHubNome(hub.nome);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    const pendentes = [...new Set(pedidos.map((p) => p.cliente_id))].filter(
-      (clienteId) => !clienteNomesResolvidos.current.has(clienteId),
-    );
-    if (pendentes.length === 0) return;
-
-    let cancelled = false;
-    Promise.all(
-      pendentes.map((clienteId) =>
-        getDataClient()
-          .auth.getById(clienteId)
-          .then((cliente) => [clienteId, cliente?.nome ?? null] as const)
-          .catch(() => [clienteId, null] as const),
-      ),
-    ).then((resultados) => {
-      if (cancelled) return;
-      setClienteNomes((previous) => {
-        const next = { ...previous };
-        for (const [clienteId, nome] of resultados) {
-          clienteNomesResolvidos.current.add(clienteId);
-          if (nome) next[clienteId] = nome;
-        }
-        return next;
-      });
-    });
-
-    return () => {
-      cancelled = true;
-    };
+    const ids = [...new Set(pedidos.map(p => p.hub_id))];
+    void Promise.all(ids.map(async id => {
+      const hub = await getDataClient().hub.getById(id);
+      return [id, hub?.nome ?? HUB_NOME_FALLBACK] as const;
+    })).then(entries => { if (!cancelled) setHubNomes(Object.fromEntries(entries)); })
+      .catch(() => { if (!cancelled) setHubNomes({}); });
+    return () => { cancelled = true; };
   }, [pedidos]);
 
   function upsert(pedido: Pedido) {
@@ -182,24 +150,28 @@ export function OrdersProvider({ children }: PropsWithChildren) {
       reload: () => setReloadToken((token) => token + 1),
       getById: (id) => pedidos.find((p) => p.id === id),
       tempoMedioPrepMin,
-      hubNome,
-      nomeCliente: (clienteId: string) => clienteNomes[clienteId] ?? NOME_CLIENTE_FALLBACK,
+      nomeHub: (hubId) => hubNomes[hubId] ?? HUB_NOME_FALLBACK,
+      nomeCliente: (clienteId: string) => pedidos.find(p => p.cliente_id === clienteId)?.cliente_nome ?? NOME_CLIENTE_FALLBACK,
       async acceptOrder(pedidoId, tempoEstimadoMin) {
+        if (!storeId) throw new Error('Loja não identificada.');
         const pedido = await getDataClient().order.accept(pedidoId, tempoEstimadoMin);
         upsert(pedido);
         return pedido;
       },
       async refuseOrder(pedidoId, motivo) {
+        if (!storeId) throw new Error('Loja não identificada.');
         const pedido = await getDataClient().order.refuse(pedidoId, motivo);
         upsert(pedido);
         return pedido;
       },
       async markReadyForHub(pedidoId) {
+        if (!storeId) throw new Error('Loja não identificada.');
         const pedido = await getDataClient().order.markReadyForHub(pedidoId);
         upsert(pedido);
         return pedido;
       },
       async markArrivedAtHub(pedidoId) {
+        if (!storeId) throw new Error('Loja não identificada.');
         const pedido = await getDataClient().order.markArrivedAtHub(pedidoId);
         upsert(pedido);
         return pedido;
@@ -220,6 +192,7 @@ export function OrdersProvider({ children }: PropsWithChildren) {
        * `ESTADO_INVALIDO`) continua propagando, não é engolido.
        */
       async confirmPin(pedidoId, pin) {
+        if (!storeId) throw new Error('Loja não identificada.');
         try {
           const pedido = await getDataClient().order.confirmPin(pedidoId, pin);
           upsert(pedido);
@@ -243,13 +216,14 @@ export function OrdersProvider({ children }: PropsWithChildren) {
         }
       },
       async markCustomerNoShow(pedidoId, motivo) {
+        if (!storeId) throw new Error('Loja não identificada.');
         const pedido = await getDataClient().order.markCustomerNoShow(pedidoId, motivo);
         upsert(pedido);
         return pedido;
       },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pedidos, loading, error, tempoMedioPrepMin, hubNome, clienteNomes]);
+  }, [pedidos, loading, error, tempoMedioPrepMin, hubNomes, storeId]);
 
   return <OrdersContext.Provider value={value}>{children}</OrdersContext.Provider>;
 }

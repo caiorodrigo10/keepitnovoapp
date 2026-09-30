@@ -53,7 +53,6 @@ describe('supabase adapters (esqueleto — Story 1.9)', () => {
   // implementações reais, cobertas em `order.supabase.test.ts`.
   it('order.supabase.ts — demais métodos rejeitam com NotImplementedError', async () => {
     const port = createOrderSupabase();
-    await expectNotImplemented(port.getById.bind(port), 1);
     await expectNotImplemented(port.cancel.bind(port), 2);
     await expectNotImplemented(port.markCustomerNoShow.bind(port), 2);
     await expectNotImplemented(port.advanceStatus.bind(port), 2);
@@ -81,8 +80,8 @@ describe('supabase adapters (esqueleto — Story 1.9)', () => {
     await expect(createStoreSupabase().getCatalog(undefined as never)).rejects.toThrow(
       '[core-data/supabase] store.getCatalog — implementar no Épico 5',
     );
-    await expect(createOrderSupabase().getById(undefined as never)).rejects.toThrow(
-      '[core-data/supabase] order.getById — implementar no Épico 6',
+    await expect(createOrderSupabase().cancel(undefined as never, undefined as never)).rejects.toThrow(
+      '[core-data/supabase] order.cancel — implementar no Épico 6',
     );
   });
 });

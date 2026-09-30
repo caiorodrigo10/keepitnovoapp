@@ -9,7 +9,6 @@ import { darkColors, radii, spacing, typography } from '@keepit/ui-tokens';
 import { PedidoResumoCard } from '../../components/PedidoResumoCard';
 import { PrimaryButton } from '../../components/PrimaryButton';
 import { ScreenHeader } from '../../components/ScreenHeader';
-import { isSupabaseDataSource } from '../../lib/dataSource';
 import type { PedidosStackParamList } from '../../navigation/types';
 import { useOrdersContext } from './OrdersContext';
 
@@ -41,7 +40,7 @@ const TECLADO: Array<string | null> = ['1', '2', '3', '4', '5', '6', '7', '8', '
  */
 export default function DigitarPin({ navigation, route }: Props) {
   const { pedidoId } = route.params;
-  const { getById, hubNome, confirmPin } = useOrdersContext();
+  const { getById, nomeHub, confirmPin } = useOrdersContext();
   const pedido = getById(pedidoId);
   const [digitos, setDigitos] = useState('');
   const [erroTexto, setErroTexto] = useState<string | null>(null);
@@ -95,15 +94,10 @@ export default function DigitarPin({ navigation, route }: Props) {
       <View style={styles.content}>
         <ScreenHeader title="Confirmar retirada" onBack={() => navigation.goBack()} />
 
-        <PedidoResumoCard pedido={pedido} subtitle={`${pedido.itens.length} itens · ${hubNome}`} />
+        <PedidoResumoCard pedido={pedido} subtitle={`${pedido.itens.length} itens · ${nomeHub(pedido.hub_id)}`} />
 
         <Text style={[styles.instrucao, { color: darkColors.text.tertiary }]}>Peça o código de 4 dígitos ao cliente</Text>
 
-        {!isSupabaseDataSource() && (
-          <Text style={[styles.dicaDemo, { color: darkColors.text.tertiary }]}>
-            Demo — PIN esperado: {pedido.pin_texto}
-          </Text>
-        )}
 
         <View style={styles.digitosRow}>
           {Array.from({ length: PIN_LENGTH }).map((_, index) => {

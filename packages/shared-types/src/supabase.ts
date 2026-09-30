@@ -608,8 +608,6 @@ export type Database = {
           numero: number
           pago_em: string | null
           pin_bloqueado_ate: string | null
-          pin_hash: string
-          pin_texto: string
           pix_copia_e_cola: string | null
           qr_code_pix: string | null
           saiu_hub_em: string | null
@@ -642,8 +640,6 @@ export type Database = {
           numero?: number
           pago_em?: string | null
           pin_bloqueado_ate?: string | null
-          pin_hash: string
-          pin_texto: string
           pix_copia_e_cola?: string | null
           qr_code_pix?: string | null
           saiu_hub_em?: string | null
@@ -676,8 +672,6 @@ export type Database = {
           numero?: number
           pago_em?: string | null
           pin_bloqueado_ate?: string | null
-          pin_hash?: string
-          pin_texto?: string
           pix_copia_e_cola?: string | null
           qr_code_pix?: string | null
           saiu_hub_em?: string | null
@@ -837,6 +831,14 @@ export type Database = {
       }
     }
     Functions: {
+      obter_pin_cliente: {
+        Args: { p_pedido_id: string }
+        Returns: string
+      }
+      pedido_cliente_nome: {
+        Args: { pedido: Database["public"]["Tables"]["pedidos"]["Row"] }
+        Returns: string
+      }
       aceitar_pedido: {
         Args: { p_pedido_id: string; p_tempo_estimado_min: number }
         Returns: string
@@ -953,7 +955,6 @@ export type Database = {
         Returns: {
           numero: number
           pedido_id: string
-          pin_texto: string
         }[]
       }
       desbloquear_cliente: {

@@ -11,7 +11,7 @@ import { PeriodTabs } from '../../components/PeriodTabs';
 import { PrimaryButton } from '../../components/PrimaryButton';
 import { SimpleBarChart } from '../../components/SimpleBarChart';
 import type { FinanceiroStackParamList } from '../../navigation/types';
-import { CURRENT_ESTABELECIMENTO_ID } from '../catalogo/currentStore';
+import { useCurrentStore } from '../../context/CurrentStoreContext';
 import { useFinanceiro } from './FinanceiroContext';
 import { formatBRL, formatPercent } from './format';
 import { getVendasResumo, PERIODOS, type Periodo, type VendasResumo } from './financeiroPresentation';
@@ -33,6 +33,7 @@ const EMPTY_VENDAS: VendasResumo = { totalReais: 0, variacaoPercent: 0, variacao
  * "NÃO fazer" da story pede fidelidade ao AC, não a cada pixel do frame).
  */
 export default function Dashboard({ navigation }: Props) {
+  const { id: storeId } = useCurrentStore();
   const { carteira, carteiraLoading, carteiraError, reload, carteiraLiberacaoDias } = useFinanceiro();
   const [periodo, setPeriodo] = useState<Periodo>('7d');
   const [vendas, setVendas] = useState<VendasResumo>(EMPTY_VENDAS);
@@ -40,9 +41,10 @@ export default function Dashboard({ navigation }: Props) {
   const [nomeLoja, setNomeLoja] = useState('Minha loja');
 
   useEffect(() => {
+    if (!storeId) return;
     let cancelled = false;
     setVendasLoading(true);
-    getVendasResumo(CURRENT_ESTABELECIMENTO_ID, periodo)
+    getVendasResumo(storeId, periodo)
       .then((resultado) => {
         if (!cancelled) setVendas(resultado);
       })
@@ -52,12 +54,13 @@ export default function Dashboard({ navigation }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [periodo]);
+  }, [periodo, storeId]);
 
   useEffect(() => {
+    if (!storeId) return;
     let cancelled = false;
     getDataClient()
-      .store.getById(CURRENT_ESTABELECIMENTO_ID)
+      .store.getById(storeId)
       .then((estabelecimento) => {
         if (!cancelled && estabelecimento) setNomeLoja(estabelecimento.nome_fantasia);
       })
@@ -65,7 +68,7 @@ export default function Dashboard({ navigation }: Props) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [storeId]);
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: darkColors.bg.primary }]}>

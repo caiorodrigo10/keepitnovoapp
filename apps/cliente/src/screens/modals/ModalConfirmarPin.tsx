@@ -76,6 +76,20 @@ export default function ModalConfirmarPin({ route, navigation }: Props) {
   const [cancelandoAtraso, setCancelandoAtraso] = useState(false);
   const [erroAtraso, setErroAtraso] = useState<string | null>(null);
 
+  const [pinState, setPinState] = useState<{ key: string; pin: string | null; error: boolean } | null>(null);
+  const pinKey = `${cliente?.id ?? ''}:${pedido?.id ?? ''}:${pedido?.status ?? ''}`;
+  const pin = pinState?.key === pinKey ? pinState.pin : null;
+  useEffect(() => {
+    let cancelled = false;
+    setPinState(null);
+    if (!cliente || !pedido || pedido.cliente_id !== cliente.id || pedido.status === 'aguardando_pagamento') return;
+    void getDataClient().order.obterPinCliente(pedido.id).then(
+      value => { if (!cancelled) setPinState({ key: pinKey, pin: value, error: false }); },
+      () => { if (!cancelled) setPinState({ key: pinKey, pin: null, error: true }); },
+    );
+    return () => { cancelled = true; };
+  }, [cliente?.id, pedido?.id, pedido?.status, pinKey]);
+
   const status = pedido?.status;
 
   // Story 6.16 (AC5) + Story 6.21 (efeito colateral do cancelamento por
@@ -132,8 +146,17 @@ export default function ModalConfirmarPin({ route, navigation }: Props) {
 
           <View style={styles.pinCard}>
             <Text style={styles.pinCardLabel}>SEU CÓDIGO DE RETIRADA</Text>
+            {!pin && (
+              <Text style={styles.pinCardCopy}>
+                {pinState?.key === pinKey && pinState.error
+                  ? 'Código indisponível. Reabra o pedido para tentar novamente.'
+                  : pedido.status === 'aguardando_pagamento'
+                    ? 'O código será liberado após o pagamento.'
+                    : 'Carregando código…'}
+              </Text>
+            )}
             <View style={styles.pinDigits}>
-              {pedido.pin_texto.split('').map((digito, index) => (
+              {(pin ?? '').split('').map((digito, index) => (
                 <View key={`${digito}-${index}`} style={styles.pinDigitBox}>
                   <Text style={styles.pinDigit}>{digito}</Text>
                 </View>

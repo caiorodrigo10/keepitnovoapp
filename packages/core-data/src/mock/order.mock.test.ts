@@ -76,7 +76,9 @@ describe('order.mock (contract)', () => {
     // a transição para `aguardando_aceite` passa a ser feita por
     // `confirmarPagamento`, chamada automaticamente pela UI (ver testes abaixo).
     expect(pedido.status).toBe('aguardando_pagamento');
-    expect(pedido.pin_texto).toMatch(/^\d{4}$/);
+    expect(pedido).not.toHaveProperty('pin_texto');
+    db.sessionClienteId = pedido.cliente_id;
+    await expect(port.obterPinCliente(pedido.id)).rejects.toThrow('ACESSO_NEGADO');
     expect(pedido.itens).toHaveLength(1);
     expect(pedido.itens[0]).toMatchObject({
       nome_snapshot: 'Dipirona Monoidratada 500mg',
@@ -377,7 +379,8 @@ describe('order.mock (contract)', () => {
     const pedido = db.pedidos.find((candidate) => candidate.id === 'lj-pedido-2045')!;
     db.clienteOrderAutomation[pedido.id] = { enteredStatusAt: '2026-09-05T10:00:00.000Z' };
 
-    const delivered = await settleMock(port.confirmPin(pedido.id, pedido.pin_texto, { delayMs: 0 }));
+    db.sessionClienteId = pedido.cliente_id;
+    const delivered = await settleMock(port.confirmPin(pedido.id, await port.obterPinCliente(pedido.id), { delayMs: 0 }));
 
     expect(delivered.status).toBe('entregue');
     expect(db.clienteOrderAutomation[pedido.id]).toBeUndefined();
@@ -421,7 +424,8 @@ describe('order.mock (contract)', () => {
     db.onClienteMutation = persistence;
     port.subscribeChanges!(event);
 
-    const correctAttempt = port.confirmPin(created.id, created.pin_texto, { delayMs: 0 });
+    db.sessionClienteId = created.cliente_id;
+    const correctAttempt = port.confirmPin(created.id, await port.obterPinCliente(created.id), { delayMs: 0 });
     const correctRejection = expect(correctAttempt).rejects.toBeInstanceOf(OrderTransitionError);
     await vi.runAllTimersAsync();
     await correctRejection;
@@ -476,7 +480,9 @@ describe('order.mock (contract)', () => {
   });
 
   it('confirmPin with the correct PIN transitions status to "entregue" and zeroes tentativas_pin/pin_bloqueado_ate', async () => {
-    const pedido = await port.confirmPin('lj-pedido-2045', '4567', { delayMs: 1 });
+    db.sessionClienteId = db.pedidos.find(p => p.id === 'lj-pedido-2045')!.cliente_id;
+    const pin = await port.obterPinCliente('lj-pedido-2045');
+    const pedido = await port.confirmPin('lj-pedido-2045', pin, { delayMs: 1 });
     expect(pedido.status).toBe('entregue');
     expect(pedido.entregue_em).not.toBeNull();
     expect(pedido.tentativas_pin).toBe(0);

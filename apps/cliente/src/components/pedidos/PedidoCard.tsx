@@ -50,7 +50,7 @@ export function PedidoCard({ pedido, estabelecimentoNome, hubNome, onPress }: Pe
         {mostrarPin ? (
           <View style={styles.pinChip}>
             <Text style={styles.pinChipLabel}>Código</Text>
-            <Text style={styles.pinChipValue}>{pedido.pin_texto}</Text>
+            <Text style={styles.pinChipValue}>Ver código</Text>
           </View>
         ) : (
           <Text style={styles.tempoEstimado}>

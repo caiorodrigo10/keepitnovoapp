@@ -40,7 +40,7 @@ export interface PedidoItem {
 /**
  * Domínio: tabela `pedidos` (tabela central do sistema).
  *
- * IMPORTANTE: expõe apenas `pin_texto` (exibição ao cliente). `pin_hash` NUNCA
+ * IMPORTANTE: nenhum segredo de retirada é exposto. `pin_hash` NUNCA
  * é exposto pela port — é um detalhe de persistência da implementação real.
  * [Source: docs/architecture/03-data-models.md#5.1]
  */
@@ -51,7 +51,8 @@ export interface Pedido {
   estabelecimento_id: string;
   hub_id: string;
   status: PedidoStatus;
-  pin_texto: string;
+  /** Nome limitado à projeção autorizada deste pedido. */
+  cliente_nome?: string;
   tentativas_pin: number;
   pin_bloqueado_ate: string | null;
   tempo_estimado_min: number | null;
@@ -188,6 +189,8 @@ export class PinBloqueadoError extends Error {
 }
 
 export interface OrderPort {
+  /** Leitura privada: somente o cliente dono de um pedido pago. */
+  obterPinCliente(pedidoId: string): Promise<string>;
   subscribeChanges?(listener: (event: OrderChangeEvent) => void): () => void;
   create(input: CreatePedidoInput, options?: AsyncCallOptions): Promise<Pedido>;
   listMine(clienteId: string, options?: AsyncCallOptions): Promise<Pedido[]>;

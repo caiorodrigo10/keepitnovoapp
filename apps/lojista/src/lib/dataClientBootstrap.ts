@@ -8,6 +8,20 @@ import {
   type DataClient,
 } from '@keepit/core-data';
 
+let sharedSupabaseClient: ReturnType<typeof createClient> | undefined;
+
+/** Auth e adapters precisam da mesma instância e do mesmo storage no nativo. */
+export function getLojistaSupabaseClient(): ReturnType<typeof createClient> {
+  if (resolveDataMode(process.env.EXPO_PUBLIC_DATA_SOURCE) !== 'supabase') {
+    throw new Error('SUPABASE_NAO_CONFIGURADO');
+  }
+  return sharedSupabaseClient ??= createClient({
+    storage: AsyncStorage,
+    persistSession: true,
+    autoRefreshToken: true,
+  });
+}
+
 const DATA_CLIENT_BOOTSTRAP_TIMEOUT_MS = 5_000;
 
 export interface BootstrapDataClientOptions {
@@ -52,11 +66,7 @@ export async function bootstrapDataClient(
     return settleWithin(initialize({ source: 'mock' }), timeoutMs);
   }
 
-  const supabaseClient = createClient({
-    storage: AsyncStorage,
-    persistSession: true,
-    autoRefreshToken: true,
-  });
+  const supabaseClient = getLojistaSupabaseClient();
   return settleWithin(initialize({ source: 'supabase', supabaseClient }), timeoutMs);
 }
 

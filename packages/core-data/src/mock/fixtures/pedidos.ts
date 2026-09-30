@@ -14,23 +14,6 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
-/**
- * Story 10.4 (AC4/AC6) — substitui o antigo default
- * `String(1000 + Math.floor(Math.random() * 9000))` de `montarPedido` por um
- * hash determinístico do `pedidoId`. Mesmo pedido → mesmo PIN em toda
- * execução/boot do app (necessário para a dica gated por
- * `!isSupabaseDataSource()` em `DigitarPin.tsx` mostrar um valor estável).
- * Pedidos que já definem `pin_texto` explicitamente via `...input`
- * continuam sobrescrevendo este default (inalterados por esta mudança).
- */
-function pinDeterministico(pedidoId: string): string {
-  let hash = 0;
-  for (let indice = 0; indice < pedidoId.length; indice += 1) {
-    hash = (hash * 31 + pedidoId.charCodeAt(indice)) % 9000;
-  }
-  return String(1000 + hash);
-}
-
 const TAXA_KEEPIT_PERCENT = 12;
 
 function novoItem(pedidoId: string, index: number, nome: string, precoUnit: number, quantidade: number): PedidoItem {
@@ -54,7 +37,6 @@ function montarPedido(input: PedidoFixtureInput): Pedido {
   const taxaKeepit = round2((subtotal * TAXA_KEEPIT_PERCENT) / 100);
 
   return {
-    pin_texto: pinDeterministico(input.id),
     tentativas_pin: 0,
     pin_bloqueado_ate: null,
     tempo_estimado_min: null,
@@ -96,7 +78,6 @@ export const pedidosFixture: Pedido[] = [
     estabelecimento_id: 'estab-farmacia-vida',
     hub_id: 'hub-centro',
     status: 'entregue',
-    pin_texto: '4821',
     tentativas_pin: 1,
     pin_bloqueado_ate: null,
     tempo_estimado_min: 20,
@@ -138,7 +119,6 @@ export const pedidosFixture: Pedido[] = [
     estabelecimento_id: 'estab-farmacia-vida',
     hub_id: 'hub-centro',
     status: 'aguardando_aceite',
-    pin_texto: '7734',
     tentativas_pin: 0,
     pin_bloqueado_ate: null,
     tempo_estimado_min: null,
@@ -243,7 +223,6 @@ export const pedidosFixture: Pedido[] = [
     saiu_hub_em: minutosAtras(20),
     lojista_chegou_em: minutosAtras(5),
     tempo_estimado_min: 15,
-    pin_texto: '4567',
     itens: [novoItem('lj-pedido-2045', 1, 'Termômetro digital', 45, 1)],
   }),
   montarPedido({
@@ -382,7 +361,6 @@ export const pedidosFixture: Pedido[] = [
     estabelecimento_id: 'estab-farmacia-vida',
     hub_id: 'hub-centro',
     status: 'entregue',
-    pin_texto: '1123',
     tentativas_pin: 1,
     pin_bloqueado_ate: null,
     tempo_estimado_min: 20,
@@ -421,7 +399,6 @@ export const pedidosFixture: Pedido[] = [
     estabelecimento_id: 'estab-bem-vestir',
     hub_id: 'hub-jardins',
     status: 'entregue',
-    pin_texto: '2244',
     tentativas_pin: 0,
     pin_bloqueado_ate: null,
     tempo_estimado_min: 30,
@@ -460,7 +437,6 @@ export const pedidosFixture: Pedido[] = [
     estabelecimento_id: 'estab-conveniencia-24h',
     hub_id: 'hub-centro',
     status: 'aguardando_aceite',
-    pin_texto: '3355',
     tentativas_pin: 0,
     pin_bloqueado_ate: null,
     tempo_estimado_min: null,
@@ -499,7 +475,6 @@ export const pedidosFixture: Pedido[] = [
     estabelecimento_id: 'estab-mercadinho-noturno',
     hub_id: 'hub-vila-nova',
     status: 'cancelado_admin',
-    pin_texto: '4466',
     tentativas_pin: 0,
     pin_bloqueado_ate: null,
     tempo_estimado_min: null,
@@ -538,7 +513,6 @@ export const pedidosFixture: Pedido[] = [
     estabelecimento_id: 'estab-farmacia-vida',
     hub_id: 'hub-centro',
     status: 'aceito',
-    pin_texto: '5577',
     tentativas_pin: 0,
     pin_bloqueado_ate: null,
     tempo_estimado_min: 25,
@@ -626,7 +600,6 @@ export const pedidosFixture: Pedido[] = [
     lojista_chegou_em: minutosAtras(6),
     tempo_estimado_min: 12,
     taxa_deslocamento_reais: 3.0,
-    pin_texto: '9182',
     itens: [
       novoItem('pedido-3012', 1, 'Queijo Minas 500g', 24.9, 1),
       novoItem('pedido-3012', 2, 'Iogurte Natural', 6.9, 2),

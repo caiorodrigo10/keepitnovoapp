@@ -21,7 +21,7 @@ type Props = NativeStackScreenProps<PedidosStackParamList, 'ChegueiAoHub'>;
  */
 export default function ChegueiAoHub({ navigation, route }: Props) {
   const { pedidoId } = route.params;
-  const { getById, hubNome, markArrivedAtHub } = useOrdersContext();
+  const { getById, nomeHub, markArrivedAtHub } = useOrdersContext();
   const pedido = getById(pedidoId);
   const [confirmando, setConfirmando] = useState(false);
 
@@ -42,10 +42,10 @@ export default function ChegueiAoHub({ navigation, route }: Props) {
       <View style={styles.content}>
         <ScreenHeader title="Cheguei ao hub" onBack={() => navigation.goBack()} />
 
-        <PedidoResumoCard pedido={pedido} subtitle={`${pedido.itens.length} itens · ${hubNome}`} />
+        <PedidoResumoCard pedido={pedido} subtitle={`${pedido.itens.length} itens · ${nomeHub(pedido.hub_id)}`} />
 
         <Text style={[styles.mensagem, { color: darkColors.text.secondary }]}>
-          Confirme que você chegou ao {hubNome} para aguardar o cliente e liberar a tela de retirada.
+          Confirme que você chegou ao {nomeHub(pedido.hub_id)} para aguardar o cliente e liberar a tela de retirada.
         </Text>
       </View>
 

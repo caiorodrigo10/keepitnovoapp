@@ -10,7 +10,7 @@ import {
 } from './qaOrderActions';
 
 function pedido(status: Pedido['status']): Pedido {
-  return { id: 'pedido-qa', status, pin_texto: '7734' } as Pedido;
+  return { id: 'pedido-qa', status } as Pedido;
 }
 
 describe('getNextQaOrderAction', () => {
@@ -56,7 +56,7 @@ describe('advanceOrderForQa', () => {
 
   it('confirma a entrega usando o PIN real do pedido', async () => {
     const confirmPin = vi.fn().mockResolvedValue(pedido('entregue'));
-    const client = { order: { confirmPin } } as unknown as DataClient;
+    const client = { order: { confirmPin, obterPinCliente: vi.fn().mockResolvedValue("7734") } } as unknown as DataClient;
 
     await advanceOrderForQa(client, pedido('no_hub'));
 

@@ -17,7 +17,7 @@ import {
   type HorarioEdicaoDia,
 } from '../../lib/horariosEdicao';
 import type { CatalogoStackParamList } from '../../navigation/types';
-import { CURRENT_ESTABELECIMENTO_ID } from './currentStore';
+import { useCurrentStore } from '../../context/CurrentStoreContext';
 import { useLojaDisponibilidade, type DuracaoPausa } from './LojaDisponibilidadeContext';
 
 type Props = NativeStackScreenProps<CatalogoStackParamList, 'HorariosDisponibilidade'>;
@@ -52,6 +52,7 @@ const DURACOES: Array<{ key: DuracaoPausa; label: string }> = [
  * funcionalidade, já que os 7 dias continuam sempre visíveis).
  */
 export default function HorariosDisponibilidade({ navigation }: Props) {
+  const { id: storeId } = useCurrentStore();
   const { estabelecimento, loading, recebendoPedidos, setRecebendoPedidos, pausaSelecionada, selecionarPausa } =
     useLojaDisponibilidade();
 
@@ -63,6 +64,7 @@ export default function HorariosDisponibilidade({ navigation }: Props) {
   // subsequentes de `estabelecimento` (ex.: toggle "Loja aberta", Story 4.8)
   // não devem sobrescrever uma edição de horário em andamento.
   useEffect(() => {
+    if (!storeId) return;
     if (estabelecimento && dias.length === 0) {
       setDias(horariosParaEdicao(estabelecimento.horarios));
     }
@@ -74,6 +76,7 @@ export default function HorariosDisponibilidade({ navigation }: Props) {
   }
 
   async function handleSalvar() {
+    if (!storeId) return;
     const mensagemValidacao = validarHorariosEdicao(dias);
     if (mensagemValidacao) {
       setErro(mensagemValidacao);
@@ -84,7 +87,7 @@ export default function HorariosDisponibilidade({ navigation }: Props) {
     setSalvando(true);
     try {
       const horariosPersistidos = await getDataClient().store.updateHorarios(
-        CURRENT_ESTABELECIMENTO_ID,
+        storeId,
         edicaoParaHorarios(dias),
       );
       setDias(horariosParaEdicao(horariosPersistidos));

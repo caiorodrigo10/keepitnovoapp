@@ -10,7 +10,7 @@ import { PrimaryButton } from '../../components/PrimaryButton';
 import { ScreenHeader } from '../../components/ScreenHeader';
 import type { FinanceiroStackParamList } from '../../navigation/types';
 import { formatBRL, formatBRLSigned } from './format';
-import { CURRENT_ESTABELECIMENTO_ID } from '../catalogo/currentStore';
+import { useCurrentStore } from '../../context/CurrentStoreContext';
 import { getExtrato, MESES_DISPONIVEIS, type ExtratoMes, type MovimentacaoExtrato } from './financeiroPresentation';
 
 type Props = NativeStackScreenProps<FinanceiroStackParamList, 'ExtratoFinanceiro'>;
@@ -62,6 +62,7 @@ function MovimentacaoRow({ movimentacao }: { movimentacao: MovimentacaoExtrato }
  * `analytics.port` cobre apenas o mês corrente (ver `financeiroPresentation.ts`).
  */
 export default function ExtratoFinanceiro({ navigation }: Props) {
+  const { id: storeId } = useCurrentStore();
   const [mes, setMes] = useState(MESES_DISPONIVEIS[0]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [extrato, setExtrato] = useState<ExtratoMes>(EMPTY);
@@ -69,15 +70,16 @@ export default function ExtratoFinanceiro({ navigation }: Props) {
   const [error, setError] = useState<Error | null>(null);
 
   function load() {
+    if (!storeId) return;
     setLoading(true);
     setError(null);
-    getExtrato(CURRENT_ESTABELECIMENTO_ID, mes)
+    getExtrato(storeId, mes)
       .then(setExtrato)
       .catch((err: unknown) => setError(err instanceof Error ? err : new Error(String(err))))
       .finally(() => setLoading(false));
   }
 
-  useEffect(load, [mes]);
+  useEffect(load, [mes, storeId]);
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: darkColors.bg.primary }]}>

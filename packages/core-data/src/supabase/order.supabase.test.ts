@@ -163,7 +163,7 @@ describe('order.supabase.ts — create (Story 6.6, AC1, AC3, AC4)', () => {
 
     expect(pedido.id).toBe('pedido-1');
     expect(pedido.numero).toBe(2048);
-    expect(pedido.pin_texto).toBe('7734');
+    expect(pedido).not.toHaveProperty('pin_texto');
     expect(pedido.status).toBe('aguardando_aceite');
     expect(pedido.itens).toHaveLength(1);
     expect(pedido.itens[0]).toMatchObject({ nome_snapshot: 'Dipirona Monoidratada 500mg', quantidade: 2 });
@@ -255,7 +255,7 @@ describe('order.supabase.ts — listMine (Story 6.7, AC4, AC5)', () => {
 
     expect(builders.pedidos.order).toHaveBeenCalledWith('criado_em', { ascending: false });
     expect(pedidos).toHaveLength(1);
-    expect(pedidos[0].pin_texto).toBe('7734');
+    expect(pedidos[0]).not.toHaveProperty('pin_texto');
     expect(pedidos[0]).not.toHaveProperty('pin_hash');
     expect(pedidos[0].itens).toHaveLength(1);
   });
@@ -781,5 +781,31 @@ describe('order.supabase.ts — cancelPedidoAtraso (Story 6.21, AC2, AC3)', () =
     const { client } = fakeClient({ rpc: { data: null, error: { message: 'erro de rede', code: '500' } } });
     const port = createOrderSupabase(client);
     await expect(port.cancelPedidoAtraso('pedido-1')).rejects.toMatchObject({ message: 'erro de rede' });
+  });
+});
+
+describe('projeção pública e PIN privado', () => {
+  it('getById lê pedido e itens sem selecionar ou retornar segredos', async () => {
+    const { client, builders } = fakeClient({ pedidos: { data: PEDIDO_ROW, error: null }, pedidosItens: { data: [PEDIDO_ITEM_ROW], error: null } });
+    const pedido = await createOrderSupabase(client).getById('pedido-1');
+    expect(pedido?.id).toBe('pedido-1');
+    expect(pedido?.itens).toHaveLength(1);
+    expect(pedido).not.toHaveProperty('pin_texto');
+    expect(pedido).not.toHaveProperty('pin_hash');
+    expect(String((builders.pedidos.select as ReturnType<typeof vi.fn>).mock.calls[0])).not.toMatch(/pin_texto|pin_hash|\*/);
+  });
+  it('getById devolve null quando a RLS não expõe o pedido', async () => {
+    const { client } = fakeClient({});
+    await expect(createOrderSupabase(client).getById('outro')).resolves.toBeNull();
+  });
+  it('obtém PIN apenas pela RPC autorizada', async () => {
+    const { client, rpc, builders } = fakeClient({ rpc: { data: '0000', error: null } });
+    await expect(createOrderSupabase(client).obterPinCliente('pedido-1')).resolves.toBe('0000');
+    expect(rpc).toHaveBeenCalledWith('obter_pin_cliente', { p_pedido_id: 'pedido-1' });
+    expect(builders.pedidos.select).not.toHaveBeenCalled();
+  });
+  it('propaga recusa de autorização sem fallback', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'ACESSO_NEGADO' } } });
+    await expect(createOrderSupabase(client).obterPinCliente('outro')).rejects.toBeInstanceOf(AcessoNegadoError);
   });
 });

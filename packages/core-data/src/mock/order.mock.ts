@@ -1,3 +1,4 @@
+import { mockPedidoPin } from './pedido-pin';
 import { businessConfig } from '@keepit/config';
 
 import type {
@@ -11,7 +12,7 @@ import type {
 } from '../ports/order.port';
 import { OrderTransitionError, PinBloqueadoError, PinIncorretoError } from '../ports/order.port';
 import type { AsyncCallOptions } from '../types';
-import { generateMockId, generatePin, simulateAsync } from './async-helpers';
+import { generateMockId, simulateAsync } from './async-helpers';
 import type { MockDb } from './db';
 import { registrarFalha } from './falha-helpers';
 import { reconcileAutomaticOrder, type OrderAutoTransition } from './order-auto-progress';
@@ -132,6 +133,13 @@ export function createOrderMock(db: MockDb): OrderPort {
   }
 
   return {
+    async obterPinCliente(pedidoId: string): Promise<string> {
+      const pedido = findOrThrow(pedidoId);
+      if (db.sessionClienteId !== pedido.cliente_id || pedido.status === 'aguardando_pagamento') {
+        throw new Error('ACESSO_NEGADO');
+      }
+      return mockPedidoPin(pedidoId);
+    },
     subscribeChanges(listener): () => void {
       db.clienteOrderChangeListeners.add(listener);
       return () => {
@@ -210,7 +218,6 @@ export function createOrderMock(db: MockDb): OrderPort {
             estabelecimento_id: input.estabelecimento_id,
             hub_id: input.hub_id,
             status: 'aguardando_pagamento',
-            pin_texto: generatePin(),
             tentativas_pin: 0,
             pin_bloqueado_ate: null,
             tempo_estimado_min: null,
@@ -323,7 +330,7 @@ export function createOrderMock(db: MockDb): OrderPort {
             throw new PinBloqueadoError(pedido.pin_bloqueado_ate);
           }
 
-          if (pin !== pedido.pin_texto) {
+          if (pin !== mockPedidoPin(pedido.id)) {
             pedido.tentativas_pin += 1;
             if (pedido.tentativas_pin >= businessConfig.pinTentativasMax) {
               const bloqueadoAte = new Date(Date.now() + businessConfig.pinBloqueioMin * 60 * 1000).toISOString();

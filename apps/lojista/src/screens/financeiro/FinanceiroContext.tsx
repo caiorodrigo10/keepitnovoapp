@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type PropsWith
 import { businessConfig } from '@keepit/config';
 import { getDataClient, type CarteiraLojista, type Saque } from '@keepit/core-data';
 
-import { CURRENT_ESTABELECIMENTO_ID } from '../catalogo/currentStore';
+import { useCurrentStore } from '../../context/CurrentStoreContext';
 
 export interface ChavePix {
   tipo: 'PIX';
@@ -18,7 +18,7 @@ const SAQUE_MINIMO_REAIS = businessConfig.saqueMinimoReais;
 const CARTEIRA_LIBERACAO_DIAS = businessConfig.carteiraLiberacaoDias;
 
 const EMPTY_CARTEIRA: CarteiraLojista = {
-  estabelecimento_id: CURRENT_ESTABELECIMENTO_ID,
+  estabelecimento_id: '',
   saldo_disponivel_reais: 0,
   saldo_bloqueado_reais: 0,
   total_sacado_reais: 0,
@@ -65,6 +65,7 @@ const FinanceiroContext = createContext<FinanceiroContextValue | null>(null);
  * compartilhado.
  */
 export function FinanceiroProvider({ children }: PropsWithChildren) {
+  const { id: storeId } = useCurrentStore();
   const [carteira, setCarteira] = useState<CarteiraLojista>(EMPTY_CARTEIRA);
   const [carteiraLoading, setCarteiraLoading] = useState(true);
   const [carteiraError, setCarteiraError] = useState<Error | null>(null);
@@ -77,13 +78,14 @@ export function FinanceiroProvider({ children }: PropsWithChildren) {
   const [lastSaque, setLastSaque] = useState<Saque | null>(null);
 
   useEffect(() => {
+    if (!storeId) return;
     let cancelled = false;
     const client = getDataClient();
 
     setCarteiraLoading(true);
     setCarteiraError(null);
     client.wallet
-      .getBalance(CURRENT_ESTABELECIMENTO_ID)
+      .getBalance(storeId)
       .then((resultado) => {
         if (!cancelled) setCarteira(resultado);
       })
@@ -96,7 +98,7 @@ export function FinanceiroProvider({ children }: PropsWithChildren) {
 
     setSaquesLoading(true);
     client.wallet
-      .statement(CURRENT_ESTABELECIMENTO_ID)
+      .statement(storeId)
       .then((lista) => {
         if (!cancelled) setSaques(lista);
       })
@@ -108,20 +110,21 @@ export function FinanceiroProvider({ children }: PropsWithChildren) {
     return () => {
       cancelled = true;
     };
-  }, [reloadToken]);
+  }, [reloadToken, storeId]);
 
   async function requestWithdrawal(valorReais: number): Promise<Saque> {
+    if (!storeId) throw new Error('Loja não identificada.');
     const client = getDataClient();
     // Validação de UI (AC3): mensagem clara ANTES de chamar o mock (que também
     // valida — ver `wallet.mock.ts#requestWithdrawal` — mas com erro genérico).
     if (valorReais < SAQUE_MINIMO_REAIS) {
       throw new Error(`Valor mínimo de saque: R$ ${SAQUE_MINIMO_REAIS.toFixed(2).replace('.', ',')}`);
     }
-    const saque = await client.wallet.requestWithdrawal(CURRENT_ESTABELECIMENTO_ID, valorReais);
+    const saque = await client.wallet.requestWithdrawal(storeId, valorReais);
     setSaques((previous) => [saque, ...previous]);
     setLastSaque(saque);
     // Recarrega o saldo (saque solicitado impacta `saldo_disponivel_reais`).
-    const carteiraAtualizada = await client.wallet.getBalance(CURRENT_ESTABELECIMENTO_ID);
+    const carteiraAtualizada = await client.wallet.getBalance(storeId);
     setCarteira(carteiraAtualizada);
     return saque;
   }

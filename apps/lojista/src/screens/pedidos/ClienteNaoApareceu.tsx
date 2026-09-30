@@ -26,7 +26,7 @@ type Props = NativeStackScreenProps<PedidosStackParamList, 'ClienteNaoApareceu'>
  */
 export default function ClienteNaoApareceu({ navigation, route }: Props) {
   const { pedidoId } = route.params;
-  const { getById, hubNome, markCustomerNoShow } = useOrdersContext();
+  const { getById, nomeHub, markCustomerNoShow } = useOrdersContext();
   const pedido = getById(pedidoId);
   const [motivo, setMotivo] = useState('');
   const [salvando, setSalvando] = useState(false);
@@ -50,7 +50,7 @@ export default function ClienteNaoApareceu({ navigation, route }: Props) {
       <View style={styles.content}>
         <ScreenHeader title="Cliente não apareceu" onBack={() => navigation.goBack()} />
 
-        <PedidoResumoCard pedido={pedido} subtitle={`${pedido.itens.length} itens · ${hubNome}`} />
+        <PedidoResumoCard pedido={pedido} subtitle={`${pedido.itens.length} itens · ${nomeHub(pedido.hub_id)}`} />
 
         <Text style={[styles.alerta, { color: darkColors.accent.warning }]}>
           Confirme apenas se o cliente não retirou o pedido dentro da janela de tolerância do hub.
