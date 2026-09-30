@@ -76,19 +76,19 @@ describe('fronteira HTTP cartão', () => {
   const request = (extra = {}, token = 'Bearer user') => new Request('https://api.invalid/card', { method: 'POST', headers: { authorization: token }, body: JSON.stringify({ pedido_id: id, operacao_id: id, cartao: sandboxCard, titular: sandboxHolder, ...extra }) });
   it('verifica sessão antes de client privilegiado, sem confiar no usuário do body', async () => {
     const events: string[] = []; const t = setup();
-    const handler = createCardHttpHandler({ allowedOrigins: [], authenticate: async () => { events.push('auth'); return 'owner'; }, trustedIp: () => '203.0.113.10', createDeps: () => { events.push('admin'); return t.deps; } });
-    expect((await handler(request())).status).toBe(200); expect(events).toEqual(['auth', 'admin']);
+    const handler = createCardHttpHandler({ allowedOrigins: [], authenticate: async () => { events.push('auth'); return 'owner'; }, authorizeOrder: async () => { events.push('authorize'); return true; }, trustedIp: () => '203.0.113.10', createDeps: () => { events.push('admin'); return t.deps; } });
+    expect((await handler(request())).status).toBe(200); expect(events).toEqual(['auth', 'authorize', 'admin']);
   });
   it('rejeita token inválido antes da factory', async () => {
-    const createDeps = vi.fn(); const handler = createCardHttpHandler({ allowedOrigins: [], authenticate: async () => null, trustedIp: () => '203.0.113.10', createDeps });
+    const createDeps = vi.fn(); const handler = createCardHttpHandler({ allowedOrigins: [], authenticate: async () => null, authorizeOrder: async () => true, trustedIp: () => '203.0.113.10', createDeps });
     expect((await handler(request())).status).toBe(401); expect(createDeps).not.toHaveBeenCalled();
   });
   it.each([{ installmentCount: 2 }, { installmentValue: 10 }, { totalValue: 1 }, { remoteIp: '1.1.1.1' }, { usuario_id: 'intruso' }, { cartao: { ...sandboxCard, installmentCount: 2 } }])('rejeita campos extras %j antes do gateway', async (extra) => {
-    const createDeps = vi.fn(); const handler = createCardHttpHandler({ allowedOrigins: [], authenticate: async () => 'owner', trustedIp: () => '203.0.113.10', createDeps });
+    const createDeps = vi.fn(); const handler = createCardHttpHandler({ allowedOrigins: [], authenticate: async () => 'owner', authorizeOrder: async () => true, trustedIp: () => '203.0.113.10', createDeps });
     expect((await handler(request(extra))).status).toBe(400); expect(createDeps).not.toHaveBeenCalled();
   });
   it('sem IP confiável falha fechado sem cobrar', async () => {
-    const createDeps = vi.fn(); const handler = createCardHttpHandler({ allowedOrigins: [], authenticate: async () => 'owner', trustedIp: () => null, createDeps });
+    const createDeps = vi.fn(); const handler = createCardHttpHandler({ allowedOrigins: [], authenticate: async () => 'owner', authorizeOrder: async () => true, trustedIp: () => null, createDeps });
     expect((await handler(request())).status).toBe(503); expect(createDeps).not.toHaveBeenCalled();
   });
   it('só aceita IP injetado por proxy autenticado; headers comuns não bastam', () => {

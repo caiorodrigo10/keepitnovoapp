@@ -87,12 +87,16 @@ export function trustedPayerIp(req: Request, secret?: string): string | null {
 }
 export function createCardHttpHandler(deps: {
   allowedOrigins: string[]; authenticate(token: string): Promise<string | null>;
+  authorizeOrder(token: string, pedidoId: string, usuarioId: string): Promise<boolean>;
   trustedIp(req: Request): string | null; createDeps(token: string): CardDeps;
 }) {
   return createPaymentHttpHandler({
     idField: 'pedido_id', allowedOrigins: deps.allowedOrigins, authenticate: deps.authenticate,
     validateBody: validCardBody,
     async execute(pedidoId, operacaoId, usuarioId, token, body, req) {
+      if (!await deps.authorizeOrder(token, pedidoId, usuarioId)) {
+        return { status: 403, body: { error: { code: 'ACESSO_NEGADO', message: 'Pedido indisponível para pagamento.' } } };
+      }
       const remoteIp = deps.trustedIp(req);
       if (!remoteIp) return { status: 503, body: { error: { code: 'IP_PAGADOR_INDISPONIVEL', message: 'Pagamento com cartão temporariamente indisponível.' } } };
       const result = await handleCreateCardPayment({ pedido_id: pedidoId, operacao_id: operacaoId, usuario_id: usuarioId,

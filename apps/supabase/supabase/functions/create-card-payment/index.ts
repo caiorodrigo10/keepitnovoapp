@@ -17,6 +17,17 @@ Deno.serve(createCardHttpHandler({
     const { data, error } = await verifier.auth.getUser(token);
     return error ? null : data.user?.id ?? null;
   },
+  async authorizeOrder(token, pedidoId, usuarioId) {
+    const userClient = createClient<Database>(url, anonKey, { auth: authOptions, global: { headers: { Authorization: `Bearer ${token}` } } });
+    // RLS sob a sessão, antes de construir qualquer client service_role.
+    // O filtro de dono também exclui lojistas/admins que podem ler o pedido por outra policy.
+    const { data, error } = await userClient.from('pedidos').select('id')
+      .eq('id', pedidoId).eq('cliente_id', usuarioId)
+      .eq('status', 'aguardando_pagamento').eq('forma_pagamento', 'cartao')
+      .is('pago_em', null).not('cotacao_id', 'is', null).maybeSingle();
+    if (error) throw error;
+    return data?.id === pedidoId;
+  },
   trustedIp: (req) => trustedPayerIp(req, Deno.env.get('PAYMENT_PROXY_SECRET')),
   createDeps(token) {
     const userClient = createClient<Database>(url, anonKey, { auth: authOptions, global: { headers: { Authorization: `Bearer ${token}` } } });
