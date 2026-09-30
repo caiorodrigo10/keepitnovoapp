@@ -20,24 +20,14 @@ export function CurrentStoreProvider({ children }: PropsWithChildren) {
       } else {
         const supabase = getLojistaSupabaseClient();
         let eventSeen = false;
-        let currentUser: string | null | undefined;
-        const change = (id: string | null, force = false) => {
-          if (!alive || (!force && currentUser === id)) return;
-          currentUser = id;
-          // Não inicia chamadas Auth dentro do callback do SDK (lock de sessão).
-          observer.change(id);
-        };
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
           eventSeen = true;
-          const id = session?.user.id ?? null;
-          // Limpa o estado imediatamente; a resolução roda fora do lock do SDK.
-          if (currentUser !== id) setState({ id: null, loading: id !== null, error: null });
-          queueMicrotask(() => change(id, _event === 'SIGNED_IN'));
+          if (alive) void observer.change(session?.user.id ?? null);
         });
         void supabase.auth.getUser().then(({ data, error }) => {
           if (!alive || eventSeen) return;
           if (error) setState({ id: null, loading: false, error });
-          else change(data.user?.id ?? null);
+          else void observer.change(data.user?.id ?? null);
         }).catch(() => {
           if (alive && !eventSeen) setState({ id: null, loading: false, error: new Error('Não foi possível recuperar a sessão.') });
         });

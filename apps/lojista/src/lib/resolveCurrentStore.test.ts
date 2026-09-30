@@ -28,6 +28,7 @@ describe('identidade da loja', () => {
    const states: Array<{id:string|null;loading:boolean}> = [];
    const observer=observeCurrentStore(resolve,s => states.push(s));
    observer.change('a');
+   await Promise.resolve();
    observer.change(null);
    expect(states.at(-1)).toMatchObject({id:null,loading:false});
    release('loja-a'); await Promise.resolve();
@@ -36,5 +37,56 @@ describe('identidade da loja', () => {
    await vi.waitFor(() => expect(states.at(-1)).toMatchObject({id:'loja-b',loading:false}));
    observer.dispose(); observer.change('a');
    expect(states.at(-1)?.id).toBe('loja-b');
+ });
+});
+
+describe('eventos SIGNED_IN repetidos', () => {
+ it('preserva a identidade publicada durante e após revalidar o mesmo uid e loja', async () => {
+   let finishRefresh!: (id: string) => void;
+   const resolve = vi.fn()
+     .mockResolvedValueOnce('loja-a')
+     .mockImplementationOnce(() => new Promise<string>(resolve => { finishRefresh = resolve; }));
+   const published = vi.fn();
+   const observer = observeCurrentStore(resolve, published);
+   await observer.change('user-a');
+   await vi.waitFor(() => expect(published).toHaveBeenLastCalledWith({ id: 'loja-a', loading: false, error: null }));
+   published.mockClear();
+
+   // SIGNED_IN também ocorre quando o SDK recupera foco sem mudar o usuário.
+   const refresh = observer.change('user-a');
+   expect(published).not.toHaveBeenCalled();
+   await vi.waitFor(() => expect(finishRefresh).toBeTypeOf('function'));
+   finishRefresh('loja-a');
+   await refresh;
+   expect(published).not.toHaveBeenCalled();
+ });
+
+ it('troca somente quando a revalidação confirma outra loja do mesmo uid', async () => {
+   let finishRefresh!: (id: string) => void;
+   const resolve = vi.fn().mockResolvedValueOnce('loja-a')
+     .mockImplementationOnce(() => new Promise<string>(resolve => { finishRefresh = resolve; }));
+   const published = vi.fn();
+   const observer = observeCurrentStore(resolve, published);
+   await observer.change('user-a');
+   await vi.waitFor(() => expect(published).toHaveBeenLastCalledWith({ id: 'loja-a', loading: false, error: null }));
+   published.mockClear();
+   const refresh = observer.change('user-a');
+   expect(published).not.toHaveBeenCalled();
+   await vi.waitFor(() => expect(finishRefresh).toBeTypeOf('function'));
+   finishRefresh('loja-b');
+   await refresh;
+   expect(published).toHaveBeenCalledTimes(1);
+   expect(published).toHaveBeenLastCalledWith({ id: 'loja-b', loading: false, error: null });
+ });
+
+ it('não apaga a loja validada quando a revalidação da mesma sessão falha', async () => {
+   const resolve = vi.fn().mockResolvedValueOnce('loja-a').mockRejectedValueOnce(new Error('offline'));
+   const published = vi.fn();
+   const observer = observeCurrentStore(resolve, published);
+   await observer.change('user-a');
+   await vi.waitFor(() => expect(published).toHaveBeenLastCalledWith({ id: 'loja-a', loading: false, error: null }));
+   published.mockClear();
+   await observer.change('user-a');
+   expect(published).not.toHaveBeenCalled();
  });
 });

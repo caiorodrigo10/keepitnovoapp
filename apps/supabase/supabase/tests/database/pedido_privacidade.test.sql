@@ -1,12 +1,12 @@
 -- Integração pgTAP: atores fictícios, JWT real e funções/RLS do banco.
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(39);
+SELECT plan(42);
 INSERT INTO auth.users (id, aud, role, email, raw_app_meta_data, raw_user_meta_data)
 SELECT ('22222222-0000-4000-8000-00000000000' || n)::uuid,
  'authenticated','authenticated','task2-' || n || '@example.invalid','{}',
- CASE WHEN n > 2 THEN '{"role":"lojista"}'::jsonb ELSE '{"nome":"Cliente teste"}'::jsonb END
-FROM generate_series(1,5) n;
+ CASE WHEN n IN (3,4,5) THEN '{"role":"lojista"}'::jsonb ELSE '{"nome":"Cliente teste"}'::jsonb END
+FROM generate_series(1,6) n;
 INSERT INTO public.admin_users (id,nome) VALUES ('22222222-0000-4000-8000-000000000005','Admin teste');
 INSERT INTO public.hubs (id,nome,endereco,lat,lng) VALUES ('22222222-0000-4000-8000-000000000010','Hub teste','Endereço teste',0,0);
 INSERT INTO public.estabelecimentos (id,dono_user_id,nome_fantasia,cnpj,responsavel_nome,telefone,categoria,endereco,tempo_medio_entrega_min,chave_pix,chave_pix_tipo,status)
@@ -14,6 +14,10 @@ SELECT ('22222222-0000-4000-8000-00000000002' || n)::uuid,
  ('22222222-0000-4000-8000-00000000000' || (n+2))::uuid,
  'Loja teste', '0000000000000' || n,'Responsável','00000000000','farmacia','Endereço',10,'teste@example.invalid','email','ativo'
 FROM generate_series(1,2) n;
+-- Usuário 6 tem perfil cliente e estabelecimento real: papel dual autoritativo.
+INSERT INTO public.estabelecimentos (id,dono_user_id,nome_fantasia,cnpj,responsavel_nome,telefone,categoria,endereco,tempo_medio_entrega_min,chave_pix,chave_pix_tipo,status)
+VALUES ('22222222-0000-4000-8000-000000000023','22222222-0000-4000-8000-000000000006',
+ 'Loja dual','00000000000003','Responsável','00000000000','farmacia','Endereço',10,'dual@example.invalid','email','ativo');
 INSERT INTO public.estabelecimentos_hubs (estabelecimento_id,hub_id)
 VALUES ('22222222-0000-4000-8000-000000000021','22222222-0000-4000-8000-000000000010');
 SET LOCAL ROLE authenticated;
@@ -79,5 +83,14 @@ SELECT throws_ok('SELECT public.obter_pin_cliente(''22222222-0000-4000-8000-0000
 RESET ROLE;
 SELECT ok(NOT has_table_privilege('authenticated','private.pedido_segredos','SELECT'),'authenticated sem grant SELECT privado');
 SELECT ok(NOT has_function_privilege('anon','public.obter_pin_cliente(uuid)','EXECUTE'),'anon sem grant EXECUTE');
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub','22222222-0000-4000-8000-000000000006',true);
+SELECT ok(EXISTS(SELECT FROM public.clientes WHERE id=auth.uid()) AND EXISTS(SELECT FROM public.estabelecimentos WHERE dono_user_id=auth.uid()),'identidade dual possui cliente e estabelecimento autoritativos');
+CREATE TEMP TABLE teste_pedido_dual AS SELECT * FROM public.criar_pedido(
+ '22222222-0000-4000-8000-000000000021','22222222-0000-4000-8000-000000000010',
+ '[{"nome_snapshot":"Item dual","preco_unitario":10,"quantidade":1}]',10,0,1,0,10,false);
+SELECT ok(EXISTS(SELECT FROM public.pedidos WHERE id=(SELECT pedido_id FROM teste_pedido_dual) AND cliente_id=auth.uid() AND pago_em IS NOT NULL),'identidade dual é dona de pedido pago');
+SELECT throws_ok('SELECT public.obter_pin_cliente((SELECT pedido_id FROM teste_pedido_dual))','P0001','ACESSO_NEGADO','cliente também lojista não lê PIN nem do próprio pedido pago');
+RESET ROLE;
 SELECT * FROM finish();
 ROLLBACK;
