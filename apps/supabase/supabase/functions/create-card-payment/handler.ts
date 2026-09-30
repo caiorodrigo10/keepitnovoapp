@@ -73,12 +73,9 @@ function validCardBody(body: Record<string, unknown>): boolean {
     && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(h.email) && /^(\d{11}|\d{14})$/.test(h.cpfCnpj) && /^\d{8}$/.test(h.postalCode) && /^\d{10,13}$/.test(h.phone);
 }
 
-/** O proxy remove headers do cliente e injeta estes dois valores server-side via TLS.
- * Nunca configurar este segredo no app. Sem proxy autenticado, cartão falha fechado.
- */
-export function trustedPayerIp(req: Request, secret?: string): string | null {
-  if (!secret || req.headers.get('x-payment-proxy-token') !== secret) return null;
-  const ip = req.headers.get('x-payment-client-ip') ?? '';
+/** O Supabase Edge Gateway fornece o IP do cliente neste header confiável. */
+export function trustedPayerIp(req: Request): string | null {
+  const ip = req.headers.get('cf-connecting-ip') ?? '';
   if (/^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) return ip.split('.').every((part) => Number(part) <= 255) ? ip : null;
   if (/^[\da-f:]+$/i.test(ip) && ip.includes(':')) {
     try { new URL(`http://[${ip}]/`); return ip; } catch { return null; }

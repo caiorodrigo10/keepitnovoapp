@@ -28,7 +28,7 @@ Deno.serve(createCardHttpHandler({
     if (error) throw error;
     return data?.id === pedidoId;
   },
-  trustedIp: (req) => trustedPayerIp(req, Deno.env.get('PAYMENT_PROXY_SECRET')),
+  trustedIp: trustedPayerIp,
   createDeps(token) {
     const userClient = createClient<Database>(url, anonKey, { auth: authOptions, global: { headers: { Authorization: `Bearer ${token}` } } });
     const admin = createClient<Database>(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', { auth: authOptions });

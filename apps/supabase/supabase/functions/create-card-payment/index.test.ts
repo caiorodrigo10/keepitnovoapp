@@ -28,7 +28,7 @@ describe('autorização do pedido antes do client privilegiado no entrypoint', (
     queries = [];
     const env: Record<string, string> = {
       SUPABASE_URL: 'https://supabase.invalid', SUPABASE_ANON_KEY: 'anon-test',
-      SUPABASE_SERVICE_ROLE_KEY: 'service-role-test', PAYMENT_PROXY_SECRET: 'proxy-test',
+      SUPABASE_SERVICE_ROLE_KEY: 'service-role-test',
       ASAAS_API_KEY: 'asaas-test', ASAAS_BASE_URL: 'https://sandbox.invalid',
     };
     vi.stubGlobal('Deno', { env: { get: (key: string) => env[key] }, serve: (fn: typeof handler) => { handler = fn; } });
@@ -64,7 +64,7 @@ describe('autorização do pedido antes do client privilegiado no entrypoint', (
   });
   afterEach(() => { vi.unstubAllGlobals(); });
   const request = () => new Request('https://api.invalid/card', {
-    method: 'POST', headers: { authorization: 'Bearer user-test', 'x-payment-proxy-token': 'proxy-test', 'x-payment-client-ip': '203.0.113.10' },
+    method: 'POST', headers: { authorization: 'Bearer user-test', 'cf-connecting-ip': '203.0.113.10' },
     body: JSON.stringify({ pedido_id: pedidoId, operacao_id: pedidoId, cartao: sandboxCard, titular: sandboxHolder }),
   });
   const adminCreated = () => vi.mocked(createClient).mock.calls.some((call) => call[1] === 'service-role-test');

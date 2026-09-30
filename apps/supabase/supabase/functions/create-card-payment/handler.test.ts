@@ -91,11 +91,21 @@ describe('fronteira HTTP cartão', () => {
     const createDeps = vi.fn(); const handler = createCardHttpHandler({ allowedOrigins: [], authenticate: async () => 'owner', authorizeOrder: async () => true, trustedIp: () => null, createDeps });
     expect((await handler(request())).status).toBe(503); expect(createDeps).not.toHaveBeenCalled();
   });
-  it('só aceita IP injetado por proxy autenticado; headers comuns não bastam', () => {
+  it.each([
+    ['IPv4', '203.0.113.10'],
+    ['IPv6', '2001:db8:85a3::8a2e:370:7334'],
+  ])('aceita %s fornecido pelo gateway em cf-connecting-ip', (_kind, ip) => {
     const req = (headers: Record<string, string>) => new Request('https://api.invalid', { headers });
-    expect(trustedPayerIp(req({ 'x-forwarded-for': '203.0.113.10' }), 'server-secret')).toBeNull();
-    expect(trustedPayerIp(req({ 'x-payment-proxy-token': 'wrong', 'x-payment-client-ip': '203.0.113.10' }), 'server-secret')).toBeNull();
-    expect(trustedPayerIp(req({ 'x-payment-proxy-token': 'server-secret', 'x-payment-client-ip': '203.0.113.10' }), 'server-secret')).toBe('203.0.113.10');
-    expect(trustedPayerIp(req({ 'x-payment-proxy-token': 'server-secret', 'x-payment-client-ip': 'spoof, 203.0.113.10' }), 'server-secret')).toBeNull();
+    expect(trustedPayerIp(req({ 'cf-connecting-ip': ip }))).toBe(ip);
+  });
+  it.each([
+    [{}, 'header ausente'],
+    [{ 'cf-connecting-ip': 'spoof, 203.0.113.10' }, 'lista de IPs'],
+    [{ 'cf-connecting-ip': '999.0.0.1' }, 'IPv4 inválido'],
+    [{ 'cf-connecting-ip': '2001:db8:::1' }, 'IPv6 inválido'],
+    [{ 'x-forwarded-for': '203.0.113.10' }, 'somente x-forwarded-for'],
+    [{ 'x-payment-client-ip': '203.0.113.10' }, 'somente x-payment-client-ip'],
+  ])('falha fechado quando recebe %s', (headers, _label) => {
+    expect(trustedPayerIp(new Request('https://api.invalid', { headers }))).toBeNull();
   });
 });
