@@ -1,3 +1,9 @@
+import type { SettingsPort } from './ports/settings.port';
+import type { CheckoutPort } from './ports/checkout.port';
+import { createSettingsSupabase } from './supabase/settings.supabase';
+import { createCheckoutSupabase } from './supabase/checkout.supabase';
+import { createSettingsMock } from './mock/settings.mock';
+import { createCheckoutMock } from './mock/checkout.mock';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@keepit/shared-types';
 
@@ -80,6 +86,8 @@ export interface CreateDataClientOptions {
  * SÓ a port, nunca a implementação mock/Supabase diretamente.
  */
 export interface DataClient {
+  settings: SettingsPort;
+  checkout: CheckoutPort;
   accountDeletion: AccountDeletionPort;
   auth: AuthPort;
   hub: HubPort;
@@ -176,6 +184,8 @@ export function createDataClient(options: CreateDataClientOptions = {}): DataCli
     const client = options.supabaseClient;
     const favorites = createFavoritesSupabase(client);
     return {
+      settings: createSettingsSupabase(client),
+      checkout: createCheckoutSupabase(client),
       accountDeletion: createAccountDeletionSupabase(client),
       auth: options.passwordRecoveryState
         ? createAuthSupabase(client, options.passwordRecoveryState)
@@ -197,7 +207,10 @@ export function createDataClient(options: CreateDataClientOptions = {}): DataCli
   const db = createMockDb();
   const favorites = createFavoritesMock(db);
 
+  const settings = createSettingsMock();
   const client: DataClient = {
+    settings,
+    checkout: createCheckoutMock(db, settings),
     accountDeletion: createAccountDeletionMock(db),
     auth: createAuthMock(db),
     hub: createHubMock(db),
@@ -298,3 +311,6 @@ export type { ClienteMockStorage } from './mock/cliente-state';
 export * from './supabase/auth-errors';
 /** Story 3.5 (AC3, AC4) — 4 erros nomeados da RPC, consumidos por `CadastroPasso3.tsx`. */
 export * from './supabase/estabelecimento-cadastro-errors';
+
+export * from './ports/settings.port';
+export * from './ports/checkout.port';

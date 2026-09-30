@@ -3,16 +3,17 @@ import { Alert, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { businessConfig, CUSTOMER_LABELS } from '@keepit/config';
+import { CUSTOMER_LABELS } from '@keepit/config';
 import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 
 import { CartItemRow, SummaryLinkRow } from '../../components/checkout';
 import { AppHeader, Button, Checkbox, Screen } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
+import { useCotacao } from '../../hooks/useCotacao';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useHubDetail } from '../../hooks/useHubDetail';
 import { useStoreDetail } from '../../hooks/useStoreDetail';
-import { computeCheckoutTotals } from '../../lib/checkoutTotals';
+import { checkoutTotalsFromQuote } from '../../lib/checkoutTotals';
 import {
   calcularTicketMinimo,
   canCheckoutStore,
@@ -26,25 +27,6 @@ import type { HomeStackParamList, RootStackParamList } from '../../navigation/ty
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Checkout'>;
 
-/**
- * Checkout (Story 6.2, AC1-AC7). Tela combinada "Carrinho · checkout" do
- * protótipo (`cliente-04-carrinho.png`): itens (somente leitura), ponto de
- * retirada, forma de pagamento, resumo "COMPRA" (Subtotal / Taxa de
- * deslocamento / Taxa de serviço / Total) e botão "Pagar R$ {total}".
- *
- * **Correção de débito herdado (Story 0.6):** a implementação anterior
- * calculava `subtotal * businessConfig.taxaKeepitPercent / 100` e mostrava
- * isso ao cliente rotulado "Taxa de serviço" — ERRADO (Rodada 8,
- * `docs/PERGUNTAS_REGRAS_NEGOCIO.md` linha 561): a taxa Keepit é cobrada do
- * LOJISTA (deduzida internamente do repasse, Épico 7), NUNCA exibida ao
- * cliente. Esta tela não lê `taxaKeepitPercent` em nenhum lugar.
- *
- * "Taxa de serviço" agora é `businessConfig.taxaServicoCompradorReais`
- * (constante fixa, R$ 2,90) — segue provisória do ponto de vista de regra
- * de negócio (Rodada 8, linhas 562-563), mas o selo visual "provisório" foi
- * removido a pedido do Caio para o demo do Bloco 13: o valor cobrado NÃO
- * mudou, só o rótulo visual saiu da tela.
- */
 export default function Checkout({ navigation }: Props) {
   const cart = useCart();
   const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -73,25 +55,19 @@ export default function Checkout({ navigation }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cliente?.cpf]);
 
-  // AC2: `taxa_deslocamento_reais` real via `StorePort.getById`/`useStoreDetail`
-  // (já reais desde a Story 4.5/5.4/5.5) — sem novo adapter.
-  const taxaDeslocamentoReais = loja?.taxa_deslocamento_reais ?? 0;
-  // AC4: nova taxa fixa (não percentual) ao comprador, sempre lida de
-  // `businessConfig` — nunca hard-coded na tela.
-  // AC5: Total = Subtotal + Taxa de deslocamento + Taxa de serviço — a taxa
-  // Keepit (lojista) nunca entra nesta soma (ver `lib/checkoutTotals.ts`).
-  const { taxaServicoReais, totalReais } = computeCheckoutTotals(
-    cart.subtotalReais,
-    taxaDeslocamentoReais,
-    businessConfig.taxaServicoCompradorReais,
-  );
+  const quote = useCotacao(cart.estabelecimentoId && cart.hubId && cart.items.length ? {
+    estabelecimentoId: cart.estabelecimentoId, hubId: cart.hubId,
+    itens: cart.items.map((item) => ({ produtoId: item.produtoId, quantidade: item.quantidade })),
+  } : null, cliente?.id);
+  const totals = quote.data ? checkoutTotalsFromQuote(quote.data) : null;
 
   // Story 6.4 (AC1-AC4): COALESCE `estabelecimento.ticket_minimo_reais ??
   // businessConfig.ticketMinimoReais`. "Abaixo do mínimo" é estritamente
   // `<` — subtotal igual ao mínimo é um pedido válido.
   const ticketMinimo = calcularTicketMinimo(loja);
-  const abaixoDoTicketMinimo = cart.subtotalReais < ticketMinimo;
-  const faltaParaMinimo = faltaParaTicketMinimo(cart.subtotalReais, ticketMinimo);
+  const subtotalParaMinimo = totals?.subtotalReais ?? cart.subtotalReais;
+  const abaixoDoTicketMinimo = subtotalParaMinimo < ticketMinimo;
+  const faltaParaMinimo = faltaParaTicketMinimo(subtotalParaMinimo, ticketMinimo);
   const lojaDisponivelParaCompra = canCheckoutStore(loja);
   const lojaIndisponivelMensagem = getCheckoutStoreBlockMessage(loja);
 
@@ -102,6 +78,7 @@ export default function Checkout({ navigation }: Props) {
     payment?.type === 'pix' ? 'PIX' : cartaoSelecionado ? `Cartão •••• ${cartaoSelecionado.ultimo4}` : 'Escolher';
 
   const handlePagar = () => {
+    if (!quote.data) return;
     if (!canCheckoutStore(loja)) {
       Alert.alert(
         'Loja indisponível',
@@ -173,27 +150,30 @@ export default function Checkout({ navigation }: Props) {
         onPress={handleOpenPayment}
       />
 
-      <View style={styles.totais}>
+      {totals && <View style={styles.totais}>
         <View style={styles.totaisRow}>
           <Text style={styles.totaisLabel}>Subtotal</Text>
-          <Text style={styles.totaisValue}>{formatReais(cart.subtotalReais)}</Text>
+          <Text style={styles.totaisValue}>{formatReais(totals.subtotalReais)}</Text>
         </View>
         <View style={styles.totaisRow}>
           <Text style={styles.totaisLabel}>{CUSTOMER_LABELS.freight}</Text>
-          <Text style={styles.totaisValue}>{formatReais(taxaDeslocamentoReais)}</Text>
+          <Text style={styles.totaisValue}>{formatReais(totals.taxaDeslocamentoReais)}</Text>
         </View>
-        {taxaServicoReais > 0 && (
+        {totals.taxaServicoReais > 0 && (
           <View style={styles.totaisRow}>
             <Text style={styles.totaisLabel}>Taxa de serviço</Text>
-            <Text style={styles.totaisValue}>{formatReais(taxaServicoReais)}</Text>
+            <Text style={styles.totaisValue}>{formatReais(totals.taxaServicoReais)}</Text>
           </View>
         )}
         <View style={styles.divider} />
         <View style={styles.totaisRow}>
           <Text style={styles.totalLabel}>Total</Text>
-          <Text style={styles.totalValue}>{formatReais(totalReais)}</Text>
+          <Text style={styles.totalValue}>{formatReais(totals.totalReais)}</Text>
         </View>
-      </View>
+      </View>}
+
+      {quote.loading && <Text>Calculando total…</Text>}
+      {quote.error && <View><Text accessibilityRole="alert">{quote.error}</Text><Button title="Tentar cotação novamente" onPress={quote.refresh} /></View>}
 
       <View style={styles.nfRow}>
         <Checkbox
@@ -218,9 +198,9 @@ export default function Checkout({ navigation }: Props) {
       )}
 
       <Button
-        title={`Pagar ${formatReais(totalReais)}`}
+        title={totals ? `Pagar ${formatReais(totals.totalReais)}` : 'Aguardando total'}
         onPress={handlePagar}
-        disabled={cart.items.length === 0 || !cart.hubId || abaixoDoTicketMinimo || !lojaDisponivelParaCompra}
+        disabled={!quote.data || quote.loading || cart.items.length === 0 || !cart.hubId || abaixoDoTicketMinimo || !lojaDisponivelParaCompra}
       />
     </Screen>
   );

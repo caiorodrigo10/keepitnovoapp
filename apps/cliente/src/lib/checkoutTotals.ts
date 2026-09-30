@@ -1,13 +1,5 @@
-/**
- * Cálculo do resumo financeiro do Checkout (Story 6.2, AC5) — extraído de
- * `Checkout.tsx` como função pura para ser testável sem harness de teste de
- * componente React (gap de infra já documentado, ver `cartRules.ts`).
- *
- * Total = Subtotal + Taxa de deslocamento + Taxa de serviço. A taxa Keepit
- * (`businessConfig.taxaKeepitPercent`, cobrada do LOJISTA) NUNCA entra
- * aqui — este módulo não a importa nem a recebe como parâmetro, por
- * construção.
- */
+import type { Cotacao } from '@keepit/core-data';
+/** Valores para apresentação; a cotação em centavos é a única fonte de totais. */
 export interface CheckoutTotals {
   subtotalReais: number;
   taxaDeslocamentoReais: number;
@@ -15,15 +7,8 @@ export interface CheckoutTotals {
   totalReais: number;
 }
 
-export function computeCheckoutTotals(
-  subtotalReais: number,
-  taxaDeslocamentoReais: number,
-  taxaServicoReais: number,
-): CheckoutTotals {
-  return {
-    subtotalReais,
-    taxaDeslocamentoReais,
-    taxaServicoReais,
-    totalReais: subtotalReais + taxaDeslocamentoReais + taxaServicoReais,
-  };
+/** Somente apresentação: o servidor já calculou cada valor em centavos. */
+export function checkoutTotalsFromQuote(cotacao: Cotacao): CheckoutTotals {
+  return { subtotalReais: cotacao.subtotalCentavos / 100, taxaDeslocamentoReais: cotacao.freteCentavos / 100,
+    taxaServicoReais: cotacao.taxas.servicoCentavos / 100, totalReais: cotacao.totalCentavos / 100 };
 }

@@ -831,6 +831,16 @@ export type Database = {
       }
     }
     Functions: {
+      obter_taxas: { Args: Record<PropertyKey, never>; Returns: Json }
+      alterar_taxas: {
+        Args: { p_comissao_bps: number; p_servico_centavos: number; p_versao_esperada: string; p_motivo: string; p_operacao_id: string }
+        Returns: Json
+      }
+      listar_historico_taxas: { Args: Record<PropertyKey, never>; Returns: Json }
+      cotar_pedido: {
+        Args: { p_estabelecimento_id: string; p_hub_id: string; p_itens: Json }
+        Returns: Json
+      }
       obter_pin_cliente: {
         Args: { p_pedido_id: string }
         Returns: string

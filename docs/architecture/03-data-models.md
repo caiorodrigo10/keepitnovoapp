@@ -1137,3 +1137,11 @@ Até essa decisão, a FK para `auth.users` usa `ON DELETE RESTRICT`, evitando
 apagar silenciosamente a trilha do ciclo. A recuperação chama uma função SQL
 restrita à service role que cancela atomicamente apenas antes de `delete_at`,
 usando o relógio do banco.
+
+## Integração do piloto — taxas e cotação (2026-09-30)
+
+A spec `docs/superpowers/specs/2026-09-30-integracao-piloto-design.md` tem precedência sobre as regras financeiras legadas deste documento. A migration `20260930171011_taxas_versionadas_e_cotacao.sql` cria `configuracoes_taxas` (singleton com versão UUID, comissão em pontos-base e serviço em centavos), `historico_taxas` (ator, motivo, operação, antes/depois) e `private.cotacoes` (usuário, loja, hub, snapshot de itens, preços, taxas e totais).
+
+`obter_taxas`, `alterar_taxas` e `listar_historico_taxas` expõem os contratos de settings. A alteração verifica versão esperada sob lock, exige Admin provisionado e deduplica por operação; reutilizar uma operação com outro conteúdo falha. A cotação lê catálogo, disponibilidade, vínculo loja/hub, horários em America/Sao_Paulo, mínimo e frete. Dinheiro é inteiro seguro em centavos; comissão arredonda uma vez sobre subtotal. Cliente paga subtotal + frete + serviço; lojista recebe subtotal − comissão + frete. Alterações posteriores não reescrevem snapshots.
+
+A tela real passou a consumir a cotação. `checkout.criar` permanece explicitamente indisponível até o plano 02; não confirma pagamento nem pedido fictício. A criação legada no banco é preservada temporariamente para a migração coordenada da Task 4 do plano 02. A demo explícita mantém seu fluxo legado. Constantes financeiras de configuração servem somente ao seed e à demo.

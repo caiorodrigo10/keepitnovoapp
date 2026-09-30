@@ -1,3 +1,6 @@
+/** Seed inicial e referência exclusiva da demo. Produção lê settings/checkout. */
+export const initialTaxas = { comissaoBps: 1000, servicoCentavos: 290 } as const;
+
 /**
  * @keepit/config — placeholders financeiros/operacionais do MVP Keepit.
  *
@@ -17,23 +20,10 @@
  * outro.
  */
 export const businessConfig = {
-  /**
-   * Taxa Keepit sobre subtotal_produtos_reais do pedido, cobrada do LOJISTA
-   * (nunca exibida ao cliente — deduzida internamente do repasse, Épico 7).
-   * Fechada em 10% pela Rodada 8 (`docs/PERGUNTAS_REGRAS_NEGOCIO.md`, linha
-   * 561), corrigindo o placeholder de 12% (Rodada 6). Story 6.2 (Onda 5) é
-   * quem aplica essa troca junto com os testes de `@keepit/config`.
-   */
-  taxaKeepitPercent: 10,
-  /**
-   * Taxa fixa (NÃO percentual) cobrada do CLIENTE por pedido, exibida no
-   * checkout como "Taxa de serviço". [!] PROVISÓRIA — recomendação do dev
-   * (Story 6.2, Rodada 8, `docs/PERGUNTAS_REGRAS_NEGOCIO.md` linhas 562-563),
-   * PENDENTE de ratificação do stakeholder. Nunca remover o indicador visual
-   * de "provisório" no checkout enquanto essa pendência não for fechada por
-   * uma Story futura.
-   */
-  taxaServicoCompradorReais: 2.9,
+  /** Compatibilidade exclusiva da demo. Produção usa Taxas.comissaoBps. */
+  taxaKeepitPercent: initialTaxas.comissaoBps / 100,
+  /** Compatibilidade exclusiva da demo. Produção usa a taxa retornada na cotação. */
+  taxaServicoCompradorReais: initialTaxas.servicoCentavos / 100,
   /** Valor mínimo de saque do lojista (saques.valor_reais >= 200). Fonte: linha 318. */
   saqueMinimoReais: 200,
   /** Taxa fixa debitada do lojista em caso de chargeback. Fonte: linha 319. */

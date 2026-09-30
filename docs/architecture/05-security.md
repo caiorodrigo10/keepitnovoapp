@@ -939,3 +939,11 @@ Edge Functions administrativas (aprovar/rejeitar/suspender/estornar) inserem em 
 - Encryption-at-rest total do banco (Supabase já faz por padrão via disk encryption; explicitamente comunicado nas Políticas).
 - Certificate pinning nos apps mobile.
 - Bug bounty / pentest formal.
+
+## Integração do piloto — fronteira de taxas (2026-09-30)
+
+Prevalece a spec `docs/superpowers/specs/2026-09-30-integracao-piloto-design.md` sobre orientações financeiras legadas. As três tabelas novas de taxas/cotação habilitam e forçam RLS, sem grants diretos a PUBLIC, anon ou authenticated. Cotações ficam no schema privado. RPCs SECURITY DEFINER têm search_path vazio, referências qualificadas, autenticação explícita e EXECUTE apenas para authenticated. Só Admin em `admin_users` altera taxas ou consulta auditoria. Não se autoriza por metadata editável. Cotações registram auth.uid(), aceitam somente IDs/quantidades e não recebem totais do app como autoridade.
+
+Versão esperada é comparada sob FOR UPDATE; ator, motivo e valores antes/depois são persistidos atomicamente com a mudança. Retry da mesma operação devolve o mesmo resultado; payload divergente é recusado. Os testes `checkout_taxas.test.sql` cobrem autorização, concorrência de versão, idempotência, integridade do catálogo, limites e imutabilidade do snapshot.
+
+Nenhuma mudança remota foi aplicada. A RPC legada criar_pedido ainda existe por compatibilidade até a Task 4 do plano 02 e deve ser substituída/restringida antes de liberar pagamentos reais. O consumidor real atual usa a nova port checkout, cuja criação falha explicitamente nesta etapa.

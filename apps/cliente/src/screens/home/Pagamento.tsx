@@ -3,16 +3,18 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { businessConfig } from '@keepit/config';
 import { getDataClient } from '@keepit/core-data';
 import { lightColors, spacing, typography } from '@keepit/ui-tokens';
 
 import { SelectableRow } from '../../components/checkout';
 import { AppHeader, Button, Screen } from '../../components/ui';
 import { useCart } from '../../context/CartContext';
+import { useCotacao } from '../../hooks/useCotacao';
+import { createOrderFromQuote } from '../../lib/createOrderFromQuote';
+import { formatReais } from '../../lib/format';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { useStoreDetail } from '../../hooks/useStoreDetail';
-import { computeCheckoutTotals } from '../../lib/checkoutTotals';
+import { checkoutTotalsFromQuote } from '../../lib/checkoutTotals';
 import {
   canCheckoutStore,
   getCheckoutStoreBlockMessage,
@@ -25,49 +27,6 @@ import type { HomeStackParamList, RootStackParamList } from '../../navigation/ty
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Pagamento'>;
 
-function roundReais(value: number): number {
-  return Math.round(value * 100) / 100;
-}
-
-/**
- * Pagamento (Task 5, AC1/AC3/AC4). Fiel a `cliente-13-pagamento.png`
- * ("FORMAS SALVAS": PIX + cartão salvo). O card de "adicionar cartão"
- * (formulário) do protótipo virou a rota separada `AdicionarCartao`
- * (Task 6, alinhado ao inventário de telas da Story 0.3/AC1 desta story).
- *
- * Botão final "Pagar" (AC3): nenhuma cobrança real — chama
- * `order.port.create` para registrar o pedido com os dados já coletados
- * (carrinho, hub, forma de pagamento), sem tokenização/gateway/QR PIX
- * real.
- *
- * **Story 6.6 (Bloco 06).** Em `DATA_SOURCE=supabase`, "Pagar" chama a RPC
- * real `criar_pedido` (pagamento SIMULADO em dev — sem cobrança/QR PIX,
- * fronteira do Épico 7) via `OrderPort.create` (implementação real do
- * adapter Supabase).
- *
- * **Story 6.7.1 (AC1, AC3, AC7) — [AUTO-DECISION] visual unificado nos dois
- * `DATA_SOURCE`.** Depois de `order.create`, "Pagar" NUNCA navega "seco":
- * sempre passa por uma tela de feedback visual de pagamento antes do PIN
- * (`ModalConfirmarPin`, Story 6.7) — `ModalPagamentoPix` (PIX, QR REAL do
- * payload FAKE + copia-e-cola) ou `ModalProcessandoPagamento` (cartão
- * salvo), escolhida por `cart.payment.type`. Nos dois `DATA_SOURCE`
- * (mock e supabase) — não só quando `isSupabaseDataSource()` — porque o
- * `OrderPort.confirmarPagamento` chamado por essas telas é um no-op de
- * releitura no adapter Supabase (nenhuma mutação nova), mantendo a MESMA UX
- * sem inventar backend (ver Dev Notes da Story 6.7.1, "AUTO-DECISION").
- *
- * O antigo desvio para `PedidosTab` (mock) — Story 0.7 — deixa de existir:
- * agora as duas novas telas navegam para `ModalConfirmarPin` ao final
- * (mesmo destino que o supabase já usava desde a Story 6.7).
- *
- * Os totais enviados a `order.create` são EXATAMENTE os que o Checkout já
- * calculou/exibiu (`taxaDeslocamentoReais` via `useStoreDetail`, o MESMO
- * hook/dado que `Checkout.tsx` usa, e a MESMA fórmula `computeCheckoutTotals`,
- * Story 6.2) — nenhum valor novo inventado aqui. `taxa_keepit_reais` é a
- * ÚNICA derivação nova desta tela (nunca exibida ao cliente, Story 6.2
- * AC3), pela mesma fórmula já usada pelo mock (`order.mock.ts`,
- * `businessConfig.taxaKeepitPercent` sobre o subtotal).
- */
 export default function Pagamento({ navigation }: Props) {
   const cart = useCart();
   const { data: cliente } = useCurrentCliente();
@@ -78,12 +37,19 @@ export default function Pagamento({ navigation }: Props) {
   const [cleanupPending, setCleanupPending] = useState(false);
   const paymentSubmissionRef = useRef(createPaymentSubmissionController());
 
+  const quote = useCotacao(cart.estabelecimentoId && cart.hubId && cart.items.length ? {
+    estabelecimentoId: cart.estabelecimentoId, hubId: cart.hubId,
+    itens: cart.items.map((item) => ({ produtoId: item.produtoId, quantidade: item.quantidade })),
+  } : null, cliente?.id);
+  const totals = quote.data ? checkoutTotalsFromQuote(quote.data) : null;
+
   const semCartaoSalvo = cart.cards.length === 0;
   const lojaDisponivelParaCompra = canCheckoutStore(loja);
   const lojaIndisponivelMensagem = getCheckoutStoreBlockMessage(loja);
 
   const handlePagar = async () => {
     const pendingTarget = paymentSubmissionRef.current.getPendingTarget();
+    if (!pendingTarget && !quote.data) return;
     if (!pendingTarget && !canCheckoutStore(loja)) {
       setErro(getCheckoutStoreBlockMessage(loja) ?? 'Esta loja está fechada agora');
       return;
@@ -91,7 +57,7 @@ export default function Pagamento({ navigation }: Props) {
 
     if (
       !pendingTarget &&
-      (!cart.payment || !cliente || !cart.estabelecimentoId || !cart.hubId || cart.items.length === 0)
+      (!quote.data || quote.loading || !cart.payment || !cliente || !cart.estabelecimentoId || !cart.hubId || cart.items.length === 0)
     ) {
       return;
     }
@@ -109,60 +75,25 @@ export default function Pagamento({ navigation }: Props) {
         clearOrder: cart.clearOrder,
         createOrder: async () => {
           const estabelecimentoId = cart.estabelecimentoId;
-          if (!cart.payment || !cliente || !estabelecimentoId || !cart.hubId || cart.items.length === 0) {
+          if (!quote.data || quote.loading || !cart.payment || !cliente || !estabelecimentoId || !cart.hubId || cart.items.length === 0) {
             throw new Error('Dados do carrinho ficaram indisponíveis antes da criação do pedido.');
           }
 
-          const currentStore = await loadCheckoutStoreForSubmission(
-            estabelecimentoId,
-            (id) => client.store.getById(id),
-          );
-
-          const taxaDeslocamentoReais = currentStore.taxa_deslocamento_reais;
-          const { taxaServicoReais, totalReais } = computeCheckoutTotals(
-            cart.subtotalReais,
-            taxaDeslocamentoReais,
-            businessConfig.taxaServicoCompradorReais,
-          );
-          const taxaKeepitReais = roundReais((cart.subtotalReais * businessConfig.taxaKeepitPercent) / 100);
-
-          const pedido = await client.order.create({
-            cliente_id: cliente.id,
-            estabelecimento_id: estabelecimentoId,
-            hub_id: cart.hubId,
-            itens: cart.items.map((item) => ({
-              produto_id: item.produtoId,
-              nome_snapshot: item.nome,
-              preco_unitario_reais: item.precoSnapshotReais,
-              quantidade: item.quantidade,
-            })),
-            forma_pagamento: paymentType,
-            subtotal_produtos_reais: cart.subtotalReais,
-            taxa_deslocamento_reais: taxaDeslocamentoReais,
-            taxa_keepit_reais: taxaKeepitReais,
-            taxa_servico_comprador_reais: taxaServicoReais,
-            total_pago_reais: totalReais,
-            nf_solicitada: cart.nfSolicitada,
+          await loadCheckoutStoreForSubmission(estabelecimentoId, (id) => client.store.getById(id));
+          if (!quote.data) throw new Error('Obtenha uma nova cotação antes de continuar.');
+          return createOrderFromQuote(client, {
+            source: isSupabaseDataSource() ? 'supabase' : 'mock', cotacao: quote.data,
+            clienteId: cliente.id, estabelecimentoId, hubId: cart.hubId,
+            forma: paymentType, nfSolicitada: cart.nfSolicitada, itens: cart.items,
           });
-
-          return pedido;
         },
-        afterCreate: async (pedido) => {
+        afterCreate: async () => {
           if (!cliente) {
             return;
           }
           void invalidatePedidos(cliente.id);
 
-          // Story 7.2 (AC5) — best-effort, só em DATA_SOURCE=supabase: cria a
-          // cobrança PIX real no Asaas para este pedido, em paralelo ao fluxo
-          // simulado abaixo. Uma falha não repete nem invalida o pedido criado.
-          if (isSupabaseDataSource()) {
-            try {
-              await client.payment.criarCobrancaPix(pedido.id);
-            } catch (err) {
-              console.warn('[Pagamento] criarCobrancaPix falhou (best-effort):', err);
-            }
-          }
+
         },
       });
 
@@ -188,7 +119,9 @@ export default function Pagamento({ navigation }: Props) {
         rootNavigation.navigate('ModalProcessandoPagamento', { pedidoId: result.target.pedidoId });
       }
     } catch (error) {
-      setErro(error instanceof Error ? error.message : 'Não foi possível concluir o pagamento. Tente novamente.');
+      setErro(error instanceof Error && error.message.includes('CHECKOUT_INDISPONIVEL')
+        ? 'O pagamento ainda não está disponível. Seu carrinho foi mantido.'
+        : 'Não foi possível concluir o pagamento. Tente novamente.');
     } finally {
       setEnviando(false);
     }
@@ -227,14 +160,17 @@ export default function Pagamento({ navigation }: Props) {
         </Text>
       )}
 
+      {quote.loading && !cleanupPending && <Text>Calculando total…</Text>}
+      {quote.error && !cleanupPending && <View><Text accessibilityRole="alert">{quote.error}</Text><Button title="Tentar cotação novamente" onPress={quote.refresh} /></View>}
+      {totals && <Text>Total: {formatReais(totals.totalReais)} · Taxa de serviço: {formatReais(totals.taxaServicoReais)}</Text>}
       <View style={styles.footer}>
         <Button
-          title={cleanupPending ? 'Continuar' : 'Pagar'}
+          title={cleanupPending ? 'Continuar' : totals ? `Pagar ${formatReais(totals.totalReais)}` : 'Aguardando total'}
           onPress={handlePagar}
           loading={enviando}
           disabled={
             !cleanupPending &&
-            (!cart.payment ||
+            (!quote.data || quote.loading || !cart.payment ||
               cart.items.length === 0 ||
               !lojaDisponivelParaCompra ||
               (semCartaoSalvo && cart.payment?.type === 'cartao'))

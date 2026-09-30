@@ -4,6 +4,7 @@ import { AdminSidebarFooter } from '../../src/components/AdminSidebarFooter';
 import { RequireAdminSession } from '../../src/components/RequireAdminSession';
 
 const SECTIONS = [
+  { href: '/configuracoes/taxas', label: 'Taxas' },
   { href: '/aprovacoes', label: 'Aprovações' },
   { href: '/hubs', label: 'Hubs' },
   { href: '/reembolsos', label: 'Reembolsos' },
