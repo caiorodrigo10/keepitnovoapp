@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as Clipboard from 'expo-clipboard';
 import QRCode from 'react-native-qrcode-svg';
@@ -11,6 +11,9 @@ import { AppHeader, Button, Screen } from '../../components/ui';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { usePagamentoSimulado } from '../../hooks/usePagamentoSimulado';
 import { usePedidoDetail } from '../../hooks/usePedidoDetail';
+import { usePagamentoReal } from '../../hooks/usePagamentoReal';
+import { canSubmitCard, paymentMessage } from '../../lib/paymentStatus';
+import { isMockDataSource, isSupabaseDataSource } from '../../lib/dataSource';
 import { PIX_AUTO_CONFIRM_DELAY_MS, pixCopiaCola } from '../../lib/pagamentoSimulado';
 import type { RootStackParamList } from '../../navigation/types';
 
@@ -19,23 +22,52 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ModalPagamentoPix'>;
 /** Rótulo temporário "Copiado!" — sem lib de toast nova (Scope Excluído da Story). */
 const COPIADO_LABEL_MS = 2000;
 
-/**
- * `ModalPagamentoPix` (Story 6.7.1, AC1, AC2, AC7, AC8) — feedback visual
- * entre "Pagar" (PIX, `Pagamento.tsx`) e a tela do PIN (`ModalConfirmarPin`,
- * Story 6.7): QR REAL (escaneável) gerado a partir do payload PIX 100% FAKE
- * (`pixCopiaCola`, `lib/pagamentoSimulado.ts`) + código copia-e-cola com
- * botão "Copiar" + confirmação automática simulada (~5s) via
- * `usePagamentoSimulado` (motor puro `startPagamentoSimulado`).
- *
- * O payload nunca é enviado a nenhum PSP real — é só uma string plausível
- * para o QR/copia-e-cola parecerem produto pronto no demo (Épico 7/Bloco
- * 08-PIX, deferido, é quem trará o QR/cobrança PIX reais).
- *
- * AC8 — erro/retry: se `confirmarPagamento` falhar, mostra estado de erro
- * com "Tentar novamente" — nunca fica preso num loading infinito nem navega
- * ao PIN sem confirmação real.
- */
-export default function ModalPagamentoPix({ route, navigation }: Props) {
+export default function ModalPagamentoPix(props: Props) {
+  if (isSupabaseDataSource()) return <PagamentoPixReal {...props} />;
+  if (isMockDataSource()) return <PagamentoPixDemo {...props} />;
+  return <Screen><Text>Pagamento indisponível. Verifique a configuração do aplicativo.</Text></Screen>;
+}
+
+function PagamentoPixReal({ route, navigation }: Props) {
+  const { pedidoId } = route.params;
+  const { data: cliente } = useCurrentCliente();
+  const { data: pedido, loading, error } = usePedidoDetail(cliente?.id ?? null, pedidoId);
+  const complete = useCallback(() => navigation.replace('ModalConfirmarPin', { pedidoId }), [navigation, pedidoId]);
+  const payment = usePagamentoReal(pedidoId, cliente?.id ?? null, complete);
+  const pix = payment.attempt?.pix;
+  const [copyMessage, setCopyMessage] = useState<string | null>(null);
+  const expires = pix?.expiraEm ? Date.parse(pix.expiraEm) : NaN;
+  const expired = Number.isFinite(expires) && expires <= Date.now();
+  const payable = payment.attempt?.estado === 'pendente' && !expired;
+  const copy = async () => {
+    if (!pix || !payable) return;
+    try { await Clipboard.setStringAsync(pix.copiaCola); setCopyMessage('Copiado!'); }
+    catch { setCopyMessage('Não foi possível copiar. Tente novamente.'); }
+  };
+  return <Screen>
+    <AppHeader title="Pagamento PIX" back={{ navigation, fallback: () => navigation.navigate('Main', { screen: 'PedidosTab', params: { screen: 'MeusPedidos' } }) }} />
+    {(loading || !payment.loaded) && <AsyncStateBlock kind="loading" />}
+    {(error || payment.error) && <Text accessibilityRole="alert">{payment.error ?? 'Não foi possível carregar o pedido.'}</Text>}
+    {pedido && <>
+      {pix && payable && <>
+        <View style={styles.qrCard}><Image accessibilityLabel="QR Code PIX" source={{ uri: `data:image/png;base64,${pix.imagemBase64}` }} style={{ width: 200, height: 200 }} /></View>
+        <Text style={styles.codigoLabel}>Código copia e cola</Text><Text style={styles.codigo}>{pix.copiaCola}</Text>
+        <Button title="Copiar PIX" onPress={copy} />
+        {copyMessage && <Text>{copyMessage}</Text>}
+      </>}
+      {pix?.expiraEm && <Text>Expira em: {Number.isFinite(expires) ? new Date(expires).toLocaleString('pt-BR') : pix.expiraEm}</Text>}
+      {expired && <Text>O prazo deste QR terminou. Aguarde a confirmação do encerramento para tentar novamente.</Text>}
+      <Text>{paymentMessage(payment.attempt)}</Text>
+      {payment.loaded && !payment.error && pedido.status === 'aguardando_pagamento'
+        && (canSubmitCard(payment.attempt) || (payment.attempt?.estado === 'pendente' && !pix))
+        && <Button title={payment.attempt?.estado === 'pendente' ? 'Carregar QR PIX' : 'Gerar PIX'} onPress={payment.iniciarPix} loading={payment.submitting} />}
+    </>}
+    <Button title="Atualizar pagamento" onPress={payment.refresh} disabled={payment.submitting} />
+    <Text>Você pode sair e retomar este pagamento em Meus pedidos.</Text>
+  </Screen>;
+}
+
+function PagamentoPixDemo({ route, navigation }: Props) {
   const { pedidoId } = route.params;
   const { data: cliente } = useCurrentCliente();
   const { data: pedido, loading, error } = usePedidoDetail(cliente?.id ?? null, pedidoId);
@@ -77,6 +109,7 @@ export default function ModalPagamentoPix({ route, navigation }: Props) {
         }}
       />
 
+      <Text>Demonstração: este código não realiza pagamento.</Text>
       {loading && <AsyncStateBlock kind="loading" />}
       {!loading && (!!error || !pedido) && (
         <AsyncStateBlock kind="error" errorLabel="Não foi possível carregar o pedido." />

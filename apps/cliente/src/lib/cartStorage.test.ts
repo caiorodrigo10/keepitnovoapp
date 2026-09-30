@@ -111,3 +111,10 @@ describe('cartStorage (Story 6.1, AC3)', () => {
     });
   });
 });
+
+it('projeção persistida exclui campos transitórios inesperados de cartão', async () => {
+  const contaminated = { ...SAMPLE_STATE, cartao: { number: '4444444444444444', ccv: '123' }, payment: { type: 'cartao', cardId: 'once', number: '4444444444444444', ccv: '123' } };
+  await saveCartState(contaminated as PersistedCartState);
+  const saved = JSON.parse(vi.mocked(AsyncStorage.setItem).mock.calls.at(-1)![1]);
+  expect(saved).toEqual({ ...SAMPLE_STATE, payment: { type: 'cartao', cardId: 'once' } });
+});

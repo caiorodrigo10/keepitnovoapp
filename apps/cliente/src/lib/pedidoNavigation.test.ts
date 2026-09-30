@@ -27,3 +27,7 @@ describe('getPedidoNavigationTarget', () => {
     });
   });
 });
+
+it.each(['pix','cartao'] as const)('retoma pagamento %s pendente usando somente pedidoId', (forma_pagamento) => {
+  expect(getPedidoNavigationTarget({ ...pedido('aguardando_pagamento'), forma_pagamento })).toEqual({ navigator: 'root', route: forma_pagamento === 'pix' ? 'ModalPagamentoPix' : 'ModalProcessandoPagamento', params: { pedidoId: 'pedido-aguardando_pagamento' } });
+});

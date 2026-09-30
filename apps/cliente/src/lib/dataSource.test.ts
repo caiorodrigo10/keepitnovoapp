@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { isSupabaseDataSource } from './dataSource';
+import { isSupabaseDataSource, isMockDataSource } from './dataSource';
 
 /**
  * Testes de `dataSource.ts` — Story 6.6. Mesmo gate
@@ -17,6 +17,12 @@ describe('isSupabaseDataSource', () => {
     } else {
       process.env.EXPO_PUBLIC_DATA_SOURCE = originalDataSource;
     }
+  });
+
+  it('simulação exige declaração mock explícita', () => {
+    delete process.env.EXPO_PUBLIC_DATA_SOURCE; expect(isMockDataSource()).toBe(false);
+    process.env.EXPO_PUBLIC_DATA_SOURCE = 'supabase'; expect(isMockDataSource()).toBe(false);
+    process.env.EXPO_PUBLIC_DATA_SOURCE = 'mock'; expect(isMockDataSource()).toBe(true);
   });
 
   it('false quando a env var está ausente (default seguro: mock)', () => {

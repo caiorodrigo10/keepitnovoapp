@@ -52,6 +52,7 @@ SELECT is((SELECT count(*)::int FROM public.pedidos WHERE cliente_id='44444444-0
 SET LOCAL ROLE authenticated;
 SELECT set_config('test.tentativa',public.reservar_tentativa_pagamento(current_setting('test.pedido')::uuid,'pix','44444444-0000-4000-8000-000000000070')->>'id',true);
 SELECT is(public.reservar_tentativa_pagamento(current_setting('test.pedido')::uuid,'pix','44444444-0000-4000-8000-000000000070')->>'id',current_setting('test.tentativa'),'reserva idempotente');
+SELECT is(public.consultar_tentativa_pagamento(current_setting('test.pedido')::uuid)->>'operacaoId','44444444-0000-4000-8000-000000000070','retomada conserva operação sem segredo');
 SELECT throws_ok($$SELECT public.reservar_tentativa_pagamento(current_setting('test.pedido')::uuid,'cartao','44444444-0000-4000-8000-000000000071')$$,'P0001','TENTATIVA_EM_ANDAMENTO','troca de método bloqueada antes de encerramento');
 SELECT throws_ok($$SELECT public.criar_pedido('44444444-0000-4000-8000-000000000021','44444444-0000-4000-8000-000000000010','[]',1,1,1,1,1,false)$$,'P0001','CHECKOUT_COTACAO_OBRIGATORIA','RPC legada não confia em valores do app');
 SELECT set_config('request.jwt.claim.sub','44444444-0000-4000-8000-000000000002',true);

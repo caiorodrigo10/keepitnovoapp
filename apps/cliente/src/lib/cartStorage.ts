@@ -48,7 +48,7 @@ export async function loadCartState(): Promise<PersistedCartState | null> {
       return null;
     }
     const parsed = JSON.parse(raw);
-    return isValidPersistedCartState(parsed) ? parsed : null;
+    return isValidPersistedCartState(parsed) ? cartSnapshot(parsed) : null;
   } catch {
     return null;
   }
@@ -62,7 +62,7 @@ export type CartStorageWriteResult = { status: 'saved' } | { status: 'failed' };
 
 export async function saveCartState(state: PersistedCartState): Promise<CartStorageWriteResult> {
   try {
-    await AsyncStorage.setItem(CARRINHO_KEY, JSON.stringify(state));
+    await AsyncStorage.setItem(CARRINHO_KEY, JSON.stringify(cartSnapshot(state)));
     return { status: 'saved' };
   } catch {
     return { status: 'failed' };
@@ -82,4 +82,15 @@ export async function clearCartState(): Promise<ClearCartStateResult> {
   } catch {
     return { status: 'degraded' };
   }
+}
+
+/** Lista positiva: o storage nunca recebe o objeto de formulário nem campos extras. */
+function cartSnapshot(state: PersistedCartState): PersistedCartState {
+  return {
+    estabelecimentoId: state.estabelecimentoId,
+    items: state.items.map(({ produtoId, nome, precoSnapshotReais, quantidade, fotoUrl }) => ({ produtoId, nome, precoSnapshotReais, quantidade, ...(fotoUrl !== undefined ? { fotoUrl } : {}) })),
+    hubId: state.hubId,
+    payment: state.payment?.type === 'pix' ? { type: 'pix' }
+      : state.payment?.type === 'cartao' ? { type: 'cartao', cardId: state.payment.cardId } : null,
+  };
 }

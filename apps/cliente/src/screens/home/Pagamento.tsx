@@ -43,7 +43,8 @@ export default function Pagamento({ navigation }: Props) {
   } : null, cliente?.id);
   const totals = quote.data ? checkoutTotalsFromQuote(quote.data) : null;
 
-  const semCartaoSalvo = cart.cards.length === 0;
+  const real = isSupabaseDataSource();
+  const semCartaoSalvo = !real && cart.cards.length === 0;
   const lojaDisponivelParaCompra = canCheckoutStore(loja);
   const lojaIndisponivelMensagem = getCheckoutStoreBlockMessage(loja);
 
@@ -131,28 +132,31 @@ export default function Pagamento({ navigation }: Props) {
     <Screen>
       <AppHeader title="Pagamento" back={{ navigation, fallback: () => navigation.navigate('Home') }} />
 
-      <Text style={styles.sectionTitle}>FORMAS SALVAS</Text>
+      <Text style={styles.sectionTitle}>{real ? 'FORMA DE PAGAMENTO' : 'FORMAS DE DEMONSTRAÇÃO'}</Text>
 
       <SelectableRow
         selected={cart.payment?.type === 'pix'}
         title="PIX"
-        highlight="Aprovação na hora"
+        highlight="Confirmação após o pagamento"
         onPress={() => cart.setPayment({ type: 'pix' })}
       />
 
-      {cart.cards.map((card) => (
+      {real && <SelectableRow selected={cart.payment?.type === 'cartao'} title="Cartão de crédito à vista"
+        subtitle="Informe os dados na próxima tela. O cartão não será salvo."
+        onPress={() => cart.setPayment({ type: 'cartao', cardId: 'transitorio' })} />}
+      {!real && cart.cards.map((card) => (
         <SelectableRow
           key={card.id}
           selected={cart.payment?.type === 'cartao' && cart.payment.cardId === card.id}
           title={`Cartão •••• ${card.ultimo4}`}
-          subtitle={`Crédito · ${card.bandeira}`}
+          subtitle={`Demonstração · ${card.bandeira}`}
           onPress={() => cart.setPayment({ type: 'cartao', cardId: card.id })}
         />
       ))}
 
-      <Pressable style={styles.addCardLink} onPress={() => navigation.navigate('AdicionarCartao')}>
-        <Text style={styles.addCardLinkLabel}>+ Adicionar novo cartão</Text>
-      </Pressable>
+      {!real && <Pressable style={styles.addCardLink} onPress={() => navigation.navigate('AdicionarCartao')}>
+        <Text style={styles.addCardLinkLabel}>+ Adicionar cartão de demonstração</Text>
+      </Pressable>}
 
       {!!(erro ?? (!storeLoading && !cleanupPending ? lojaIndisponivelMensagem : null)) && (
         <Text accessibilityRole="alert" style={styles.erro}>

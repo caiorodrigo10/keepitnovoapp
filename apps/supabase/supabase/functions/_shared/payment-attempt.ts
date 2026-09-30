@@ -19,7 +19,7 @@ export interface DurablePaymentAttempt {
 }
 export function publicPaymentAttempt(attempt: DurablePaymentAttempt): PaymentAttempt {
   return {
-    id: attempt.id, pedidoId: attempt.pedido_id, estado: attempt.estado,
+    id: attempt.id, pedidoId: attempt.pedido_id, operacaoId: attempt.operacao_id, estado: attempt.estado,
     ...(attempt.qr_code_pix && attempt.pix_copia_e_cola ? { pix: {
       imagemBase64: attempt.qr_code_pix, copiaCola: attempt.pix_copia_e_cola, expiraEm: attempt.expira_em,
     } } : {}),

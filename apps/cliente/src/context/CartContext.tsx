@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
+import { isSupabaseDataSource } from '../lib/dataSource';
+
 import type { Hub } from '@keepit/core-data';
 
 import { loadCartState, saveCartState } from '../lib/cartStorage';
@@ -68,7 +70,7 @@ interface CartContextValue {
   setPayment: (selection: PaymentSelection) => Promise<CartMutationResult>;
   markCpfCollected: () => void;
   addCard: (card: Omit<SavedCard, 'id' | 'padrao'>) => SavedCard;
-  /** Limpa carrinho/hub/pagamento após um pedido mock ser "pago" (Task 5/AC3) — mantém `cpfCollected`/`cards` (perfil do cliente, não do pedido). */
+  /** Limpa carrinho/hub/pagamento após preservar o pedido no servidor (Task 5/AC3) — mantém `cpfCollected`/`cards` (perfil do cliente, não do pedido). */
   clearOrder: () => Promise<CartMutationResult>;
   /** Restaura todo o estado efêmero do carrinho para o baseline do cenário demo. */
   resetDemoCart: () => Promise<CartMutationResult>;
@@ -208,6 +210,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const setNfSolicitada = useCallback((value: boolean) => setNfSolicitadaState(value), []);
 
   const addCard = useCallback((card: Omit<SavedCard, 'id' | 'padrao'>) => {
+    if (isSupabaseDataSource()) throw new Error('CARTAO_DEMO_INDISPONIVEL');
     const novo: SavedCard = { ...card, id: `card-mock-${cardIdCounter.current++}`, padrao: false };
     setCards((prev) => [...prev, novo]);
     return novo;

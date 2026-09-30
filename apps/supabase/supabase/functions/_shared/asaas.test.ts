@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { createAsaasClient } from './asaas';
+import { sandboxCard, sandboxHolder } from './__fixtures__/card.fixtures';
+const cardCharge = { customer: 'cus_sandbox', billingType: 'CREDIT_CARD' as const, value: 129.9, dueDate: '2026-09-30', externalReference: 'attempt', creditCard: sandboxCard, creditCardHolderInfo: sandboxHolder, remoteIp: '203.0.113.10' };
 import {
   asaasErrorBodyFixture,
   customerFixture,
@@ -103,23 +105,24 @@ describe('createAsaasClient', () => {
       }
     });
 
-    it('billingType CREDIT_CARD é reservado: devolve NOT_IMPLEMENTED_PILOT sem chamar o fetch injetado', async () => {
-      const fetchImpl = fetchThatFailsIfCalled();
-      const client = createAsaasClient({ baseUrl: BASE_URL, apiKey: API_KEY, fetchImpl });
-
-      const result = await client.criarCobranca({
-        customer: 'cus_000005401844',
-        billingType: 'CREDIT_CARD',
-        value: 129.9,
-        dueDate: '2026-08-28',
-      });
-
-      expect(result).toEqual({
-        ok: false,
-        error: expect.objectContaining({ code: 'NOT_IMPLEMENTED_PILOT' }),
-      });
-      expect(fetchImpl).not.toHaveBeenCalled();
+    it('envia crédito à vista sem parcelamento e descarta dados sensíveis da resposta', async () => {
+      const fetchImpl = mockFetch(200, { id: 'pay_card', status: 'CONFIRMED', value: 129.9, billingType: 'CREDIT_CARD', creditCard: sandboxCard, creditCardToken: 'secret-token' });
+      const result = await createAsaasClient({ baseUrl: BASE_URL, apiKey: API_KEY, fetchImpl }).criarCobranca(cardCharge);
+      expect(result).toEqual({ ok: true, data: { id: 'pay_card', status: 'CONFIRMED', value: 129.9, billingType: 'CREDIT_CARD' } });
+      const payload = JSON.parse(fetchImpl.mock.calls[0][1]!.body as string);
+      expect(payload).toEqual(cardCharge);
+      for (const key of ['installmentCount', 'installmentValue', 'totalValue']) expect(payload).not.toHaveProperty(key);
     });
+    it.each(['http', 'timeout'] as const)('redige exceção e resposta %s que ecoam PAN/CVV', async (mode) => {
+      const leak = JSON.stringify({ ...sandboxCard, apiKey: API_KEY });
+      const fetchImpl = mode === 'timeout' ? mockFetchRejecting(new Error(leak)) : mockFetch(400, { errors: [{ code: leak, description: leak }], body: leak });
+      const result = await createAsaasClient({ baseUrl: BASE_URL, apiKey: API_KEY, fetchImpl }).criarCobranca(cardCharge);
+      expect(result).toMatchObject({ ok: false, error: { status: mode === 'timeout' ? 0 : 400 } });
+      expect(JSON.stringify(result)).not.toContain(sandboxCard.number);
+      expect(JSON.stringify(result)).not.toContain(API_KEY);
+      if (!result.ok) expect(result.error).not.toHaveProperty('details');
+    });
+
   });
 
   describe('obterQrCodePix — GET /payments/{id}/pixQrCode', () => {

@@ -7,11 +7,15 @@ function parseAttempt(data: unknown): PaymentAttempt {
   const value = data as PaymentAttempt | null;
   if (!value || typeof value.id !== 'string' || typeof value.pedidoId !== 'string'
     || !['criando','pendente','confirmado','recebido','recusado','expirado','reconciliacao'].includes(value.estado)) throw new Error('RESPOSTA_INVALIDA');
-  return value;
+  return { id: value.id, pedidoId: value.pedidoId, estado: value.estado,
+    ...(typeof value.operacaoId === 'string' ? { operacaoId: value.operacaoId } : {}),
+    ...(value.pix && typeof value.pix.imagemBase64 === 'string' && typeof value.pix.copiaCola === 'string'
+      ? { pix: { imagemBase64: value.pix.imagemBase64, copiaCola: value.pix.copiaCola, expiraEm: value.pix.expiraEm } } : {}),
+  };
 }
 export function createPaymentSupabase(client?: SupabaseClient<Database>): PaymentPort {
   const resolve = () => (client ??= createClient());
-  async function invoke(name: string, body: Record<string, string>) {
+  async function invoke(name: string, body: Record<string, unknown>) {
     const { data, error } = await resolve().functions.invoke(name, { body });
     if (error) {
       // O SDK guarda o payload não-2xx na Response; preserva orientação de conciliação.
@@ -27,7 +31,17 @@ export function createPaymentSupabase(client?: SupabaseClient<Database>): Paymen
       return parseAttempt((await invoke('close-payment-attempt', { tentativa_id: input.tentativaId, operacao_id: input.operacaoId })).tentativa);
     },
     async iniciarPix(input) { return parseAttempt((await invoke('create-pix-payment', { pedido_id: input.pedidoId, operacao_id: input.operacaoId })).tentativa); },
-    async pagarCartao() { throw new Error('PAGAMENTO_CARTAO_INDISPONIVEL: integração de cartão ainda não habilitada.'); },
+    async pagarCartao(input) {
+      try {
+        const { holderName, number, expiryMonth, expiryYear, ccv } = input.cartao;
+        const { name, email, cpfCnpj, postalCode, addressNumber, phone } = input.titular;
+        return parseAttempt((await invoke('create-card-payment', {
+          pedido_id: input.pedidoId, operacao_id: input.operacaoId,
+          cartao: { holderName, number, expiryMonth, expiryYear, ccv },
+          titular: { name, email, cpfCnpj, postalCode, addressNumber, phone },
+        })).tentativa);
+      } catch { throw new Error('Não foi possível processar o cartão. Consulte o estado do pedido antes de tentar novamente.'); }
+    },
     async consultar(pedidoId) {
       const { data, error } = await resolve().rpc('consultar_tentativa_pagamento', { p_pedido_id: pedidoId });
       if (error) throw error;

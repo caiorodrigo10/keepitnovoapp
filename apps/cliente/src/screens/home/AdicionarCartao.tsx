@@ -1,5 +1,8 @@
-import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { AppState, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { getDataClient, type CardInput, type HolderInput } from '@keepit/core-data';
+import { isSupabaseDataSource } from '../../lib/dataSource';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
@@ -47,20 +50,22 @@ export default function AdicionarCartao({ navigation }: Props) {
   const podeAdicionar = digitsNumero.length >= 4 && nome.trim().length > 0 && validade.length === 5 && cvv.length >= 3;
 
   const handleAdicionar = () => {
+    if (isSupabaseDataSource()) return;
     cart.addCard({ ultimo4, bandeira: 'Visa', nomeNoCartao: nome.trim() });
     navigation.goBack();
   };
 
   return (
     <FormScreen
-      footer={<Button title="Adicionar cartão" onPress={handleAdicionar} disabled={!podeAdicionar} />}
+      footer={<Button title="Cartão de demonstração" onPress={handleAdicionar} disabled={!podeAdicionar} />}
     >
-      <AppHeader title="Adicionar cartão" back={{ navigation, fallback: () => navigation.navigate('Home') }} />
+      <AppHeader title="Cartão de demonstração" back={{ navigation, fallback: () => navigation.navigate('Home') }} />
 
+      <Text>Cartão de demonstração. Não pode ser reutilizado para cobranças reais.</Text>
       <View style={styles.cardPreview}>
         <View style={styles.cardChip} />
         <Text style={styles.cardPreviewTag}>CRÉDITO</Text>
-        <Text style={styles.cardPreviewNumero}>{numero || '•••• •••• •••• ' + ultimo4}</Text>
+        <Text style={styles.cardPreviewNumero}>{'•••• •••• •••• ' + ultimo4}</Text>
         <View style={styles.cardPreviewFooter}>
           <Text style={styles.cardPreviewLabel}>{nome.trim() || 'SEU NOME'}</Text>
           <Text style={styles.cardPreviewLabel}>{validade || 'MM/AA'}</Text>
@@ -145,3 +150,51 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
+
+
+const EMPTY_CARD = { number: '', holderName: '', expiry: '', ccv: '', name: '', email: '', cpfCnpj: '', postalCode: '', addressNumber: '', phone: '' };
+
+/** Formulário de uso único: somente memória local desta montagem, sem CartContext. */
+export function CardPaymentForm({ onSubmit, disabled }: {
+  onSubmit(cartao: CardInput, titular: HolderInput): Promise<void>; disabled: boolean;
+}) {
+  const [fields, setFields] = useState({ ...EMPTY_CARD });
+  const clear = useCallback(() => setFields({ ...EMPTY_CARD }), []);
+  useFocusEffect(useCallback(() => () => clear(), [clear]));
+  useEffect(() => {
+    const unsubscribe = getDataClient().auth.onAuthStateChange((cliente) => { if (!cliente) clear(); });
+    const subscription = AppState.addEventListener('change', (state) => { if (state !== 'active') clear(); });
+    return () => { unsubscribe(); subscription.remove(); };
+  }, [clear]);
+  const update = (key: keyof typeof EMPTY_CARD, value: string) => setFields((previous) => ({ ...previous, [key]: value }));
+  const [month, year] = fields.expiry.split('/');
+  const valid = /^\d{13,19}$/.test(fields.number) && fields.holderName.trim().length > 1
+    && /^(0[1-9]|1[0-2])$/.test(month ?? '') && /^\d{2}$/.test(year ?? '')
+    && new Date(Number(`20${year}`), Number(month), 1).getTime() > Date.now()
+    && /^\d{3,4}$/.test(fields.ccv) && fields.name.trim().length > 1
+    && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email)
+    && /^(\d{11}|\d{14})$/.test(fields.cpfCnpj) && /^\d{8}$/.test(fields.postalCode)
+    && fields.addressNumber.trim().length > 0 && /^\d{10,13}$/.test(fields.phone);
+  const submit = () => {
+    if (!valid || disabled) return;
+    const cartao = { holderName: fields.holderName.trim(), number: fields.number, expiryMonth: month!, expiryYear: `20${year}`, ccv: fields.ccv };
+    const titular = { name: fields.name.trim(), email: fields.email.trim(), cpfCnpj: fields.cpfCnpj, postalCode: fields.postalCode, addressNumber: fields.addressNumber.trim(), phone: fields.phone };
+    clear();
+    // O hook devolve somente erro sanitizado. Nenhum dado do formulário vai a navegação/storage.
+    void onSubmit(cartao, titular);
+  };
+  return <View>
+    <Text>Crédito à vista. Os dados deste cartão não serão salvos.</Text>
+    <TextField label="Número do cartão" value={fields.number} onChangeText={(v) => update('number', v.replace(/\D/g, '').slice(0, 19))} keyboardType="number-pad" secureTextEntry editable={!disabled} />
+    <TextField label="Nome no cartão" value={fields.holderName} onChangeText={(v) => update('holderName', v)} editable={!disabled} />
+    <TextField label="Validade (MM/AA)" value={fields.expiry} onChangeText={(v) => update('expiry', maskValidade(v))} keyboardType="number-pad" editable={!disabled} />
+    <TextField label="CVV" value={fields.ccv} onChangeText={(v) => update('ccv', v.replace(/\D/g, '').slice(0, 4))} keyboardType="number-pad" secureTextEntry editable={!disabled} />
+    <TextField label="Nome completo do titular" value={fields.name} onChangeText={(v) => update('name', v)} editable={!disabled} />
+    <TextField label="E-mail do titular" value={fields.email} onChangeText={(v) => update('email', v)} keyboardType="email-address" autoCapitalize="none" editable={!disabled} />
+    <TextField label="CPF/CNPJ do titular" value={fields.cpfCnpj} onChangeText={(v) => update('cpfCnpj', v.replace(/\D/g, '').slice(0, 14))} keyboardType="number-pad" editable={!disabled} />
+    <TextField label="CEP de cobrança" value={fields.postalCode} onChangeText={(v) => update('postalCode', v.replace(/\D/g, '').slice(0, 8))} keyboardType="number-pad" editable={!disabled} />
+    <TextField label="Número do endereço" value={fields.addressNumber} onChangeText={(v) => update('addressNumber', v)} editable={!disabled} />
+    <TextField label="Telefone do titular" value={fields.phone} onChangeText={(v) => update('phone', v.replace(/\D/g, '').slice(0, 13))} keyboardType="phone-pad" editable={!disabled} />
+    <Button title="Pagar à vista" disabled={!valid || disabled} onPress={submit} />
+  </View>;
+}

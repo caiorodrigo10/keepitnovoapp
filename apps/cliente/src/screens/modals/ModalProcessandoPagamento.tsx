@@ -5,27 +5,48 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { AsyncStateBlock } from '../../components/discovery';
-import { AppHeader, Button, Screen } from '../../components/ui';
+import { AppHeader, Button, FormScreen, Screen } from '../../components/ui';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { usePagamentoSimulado } from '../../hooks/usePagamentoSimulado';
 import { usePedidoDetail } from '../../hooks/usePedidoDetail';
+import { usePagamentoReal } from '../../hooks/usePagamentoReal';
+import { canSubmitCard, paymentMessage } from '../../lib/paymentStatus';
+import { isMockDataSource, isSupabaseDataSource } from '../../lib/dataSource';
+import { formatReais } from '../../lib/format';
+import { CardPaymentForm } from '../home/AdicionarCartao';
 import { CARTAO_AUTO_CONFIRM_DELAY_MS } from '../../lib/pagamentoSimulado';
 import type { RootStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ModalProcessandoPagamento'>;
 
-/**
- * `ModalProcessandoPagamento` (Story 6.7.1, AC3, AC7, AC8) — feedback visual
- * entre "Pagar" (cartão salvo, `Pagamento.tsx`) e a tela do PIN
- * (`ModalConfirmarPin`, Story 6.7): "Processando pagamento…" → "Pagamento
- * aprovado" (~2s simulado), via `usePagamentoSimulado` (mesmo motor puro
- * `startPagamentoSimulado` de `ModalPagamentoPix.tsx`, sem QR/copia-e-cola).
- *
- * AC8 — erro/retry: se `confirmarPagamento` falhar, mostra estado de erro
- * com "Tentar novamente" — nunca fica preso num loading infinito nem navega
- * ao PIN sem confirmação real.
- */
-export default function ModalProcessandoPagamento({ route, navigation }: Props) {
+export default function ModalProcessandoPagamento(props: Props) {
+  if (isSupabaseDataSource()) return <PagamentoCartaoReal {...props} />;
+  if (isMockDataSource()) return <PagamentoCartaoDemo {...props} />;
+  return <Screen><Text>Pagamento indisponível. Verifique a configuração do aplicativo.</Text></Screen>;
+}
+
+function PagamentoCartaoReal({ route, navigation }: Props) {
+  const { pedidoId } = route.params;
+  const { data: cliente } = useCurrentCliente();
+  const { data: pedido, loading, error } = usePedidoDetail(cliente?.id ?? null, pedidoId);
+  const complete = useCallback(() => navigation.replace('ModalConfirmarPin', { pedidoId }), [navigation, pedidoId]);
+  const payment = usePagamentoReal(pedidoId, cliente?.id ?? null, complete);
+  return <FormScreen>
+    <AppHeader title="Cartão de crédito à vista" back={{ navigation, fallback: () => navigation.navigate('Main', { screen: 'PedidosTab', params: { screen: 'MeusPedidos' } }) }} />
+    {(loading || !payment.loaded) && <ActivityIndicator />}
+    {(error || payment.error) && <Text accessibilityRole="alert">{payment.error ?? 'Não foi possível carregar o pedido.'}</Text>}
+    {pedido && <>
+      <Text>Total: {formatReais(pedido.total_pago_reais)}</Text>
+      <Text>{paymentMessage(payment.attempt)}</Text>
+      {payment.loaded && !payment.error && pedido.status === 'aguardando_pagamento' && canSubmitCard(payment.attempt)
+        && <CardPaymentForm onSubmit={payment.pagarCartao} disabled={payment.submitting} />}
+    </>}
+    <Button title="Atualizar pagamento" onPress={payment.refresh} disabled={payment.submitting} />
+    <Text>Você pode sair e retomar este pagamento em Meus pedidos.</Text>
+  </FormScreen>;
+}
+
+function PagamentoCartaoDemo({ route, navigation }: Props) {
   const { pedidoId } = route.params;
   const { data: cliente } = useCurrentCliente();
   const { data: pedido, loading, error } = usePedidoDetail(cliente?.id ?? null, pedidoId);
@@ -47,6 +68,7 @@ export default function ModalProcessandoPagamento({ route, navigation }: Props) 
         }}
       />
 
+      <Text>Demonstração: nenhum cartão será cobrado.</Text>
       {loading && <AsyncStateBlock kind="loading" />}
       {!loading && (!!error || !pedido) && (
         <AsyncStateBlock kind="error" errorLabel="Não foi possível carregar o pedido." />

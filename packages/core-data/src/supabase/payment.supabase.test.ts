@@ -81,3 +81,23 @@ it('falha de encerramento não é convertida em tentativa encerrada', async () =
   const { client } = fakeClient({ data: { error: { code: 'PAGAMENTO_RECONCILIACAO', message: 'Aguarde a conciliação.' } }, error: null });
   await expect(createPaymentSupabase(client).encerrarTentativa({ tentativaId: 'tentativa', operacaoId: 'encerrar-op' })).rejects.toThrow('conciliação');
 });
+
+it('cartão envia apenas credenciais transitórias e IDs, devolvendo projeção segura', async () => {
+  const tentativa = { id: 'attempt', pedidoId: 'order', estado: 'pendente', creditCard: { number: 'must-not-escape' }, claim_token: 'private' };
+  const { client, invoke } = fakeClient({ data: { tentativa }, error: null });
+  const cartao = { holderName: 'Teste', number: '4444444444444444', expiryMonth: '12', expiryYear: '2028', ccv: '123' };
+  const titular = { name: 'Teste', email: 'test@example.invalid', cpfCnpj: '24971563792', postalCode: '89223005', addressNumber: '277', phone: '4738010919' };
+  const result = await createPaymentSupabase(client).pagarCartao({ pedidoId: 'order', operacaoId: 'operation', cartao, titular });
+  expect(result).toEqual({ id: 'attempt', pedidoId: 'order', estado: 'pendente' });
+  expect(invoke).toHaveBeenCalledWith('create-card-payment', { body: { pedido_id: 'order', operacao_id: 'operation', cartao, titular } });
+});
+it('cartão nunca repassa mensagens de exceção do transporte contendo PAN/CVV', async () => {
+  const leak = '4444444444444444 ccv=123';
+  const { client } = fakeClient({ data: null, error: { message: leak } });
+  await expect(createPaymentSupabase(client).pagarCartao({ pedidoId: 'order', operacaoId: 'operation', cartao: {} as never, titular: {} as never })).rejects.toThrow('Não foi possível processar o cartão');
+});
+
+it('consulta conserva identidade de operação necessária à retomada', async () => {
+  const rpc = vi.fn().mockResolvedValue({ data: { id: 'attempt', pedidoId: 'order', operacaoId: 'operation-second', estado: 'pendente' }, error: null });
+  expect(await createPaymentSupabase({ rpc } as unknown as SupabaseClient<Database>).consultar('order')).toEqual({ id: 'attempt', pedidoId: 'order', operacaoId: 'operation-second', estado: 'pendente' });
+});

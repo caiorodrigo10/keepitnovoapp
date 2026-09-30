@@ -16,3 +16,5 @@
 export function isSupabaseDataSource(): boolean {
   return process.env.EXPO_PUBLIC_DATA_SOURCE?.trim() === 'supabase';
 }
+
+export function isMockDataSource(): boolean { return process.env.EXPO_PUBLIC_DATA_SOURCE?.trim() === 'mock'; }

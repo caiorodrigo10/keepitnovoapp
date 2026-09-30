@@ -69,7 +69,7 @@ export interface AsaasCustomer {
   deleted?: boolean;
 }
 
-/** `docs/gateway/asaas-api-reference.md` item 2 — `POST /v3/payments`, `billingType: "PIX"` (único caminho ativo no piloto). */
+/** `docs/gateway/asaas-api-reference.md` item 2 — `POST /v3/payments`, `billingType: "PIX"`. */
 export interface AsaasCreatePixPaymentInput {
   customer: string;
   billingType: 'PIX';
@@ -79,19 +79,16 @@ export interface AsaasCreatePixPaymentInput {
   externalReference?: string;
 }
 
-/**
- * Reservado — cartão de crédito é DEFERIDO no piloto (conta única, sem
- * tokenização). `criarCobranca` aceita este shape só para não travar o tipo
- * union, mas NUNCA faz chamada HTTP para `billingType: 'CREDIT_CARD'` —
- * devolve `NOT_IMPLEMENTED_PILOT` (mesmo tratamento de `criarSubconta`/
- * `tokenizarCartao`). Retomar quando a Story de cartão for reaberta.
- */
+/** Crédito à vista: campos sensíveis existem apenas durante a chamada HTTPS. */
+export interface AsaasCardInput {
+  holderName: string; number: string; expiryMonth: string; expiryYear: string; ccv: string;
+}
+export interface AsaasHolderInput {
+  name: string; email: string; cpfCnpj: string; postalCode: string; addressNumber: string; phone: string;
+}
 export interface AsaasCreateCreditCardPaymentInput {
-  customer: string;
-  billingType: 'CREDIT_CARD';
-  value: number;
-  dueDate: string;
-  [key: string]: unknown;
+  customer: string; billingType: 'CREDIT_CARD'; value: number; dueDate: string;
+  externalReference: string; creditCard: AsaasCardInput; creditCardHolderInfo: AsaasHolderInput; remoteIp: string;
 }
 
 export type AsaasCreatePaymentInput = AsaasCreatePixPaymentInput | AsaasCreateCreditCardPaymentInput;
@@ -166,7 +163,7 @@ export interface AsaasCreateSubaccountInput {
   [key: string]: unknown;
 }
 
-/** Reservado — cartão/tokenização DEFERIDOS no piloto. `tokenizarCartao` nunca faz chamada HTTP. */
+/** Reservado — tokenização DEFERIDA no piloto. `tokenizarCartao` nunca faz chamada HTTP. */
 export interface AsaasTokenizeCardInput {
   customer: string;
   creditCard: {
@@ -204,7 +201,7 @@ export interface AsaasClient {
   excluirCobranca(paymentId: string): Promise<AsaasResult<{ id: string; deleted: boolean }>>;
   /** `POST /v3/customers` — chamada HTTP real (AC1). */
   criarCliente(input: AsaasCreateCustomerInput): Promise<AsaasResult<AsaasCustomer>>;
-  /** `POST /v3/payments` — só `billingType: 'PIX'` faz chamada HTTP real; `'CREDIT_CARD'` é stub reservado (AC1). */
+  /** `POST /v3/payments` — PIX ou crédito à vista, sem tokenização. */
   criarCobranca(input: AsaasCreatePaymentInput): Promise<AsaasResult<AsaasPayment>>;
   /** `GET /v3/payments/{id}/pixQrCode` — chamada HTTP real (AC1). */
   obterQrCodePix(paymentId: string): Promise<AsaasResult<AsaasPixQrCode>>;
@@ -241,8 +238,23 @@ export function createAsaasClient(config: AsaasClientConfig): AsaasClient {
     },
 
     async criarCobranca(input) {
-      if (input.billingType !== 'PIX') {
-        return notImplementedPilot('criarCobranca — billingType CREDIT_CARD é reservado (cartão deferido no piloto).');
+      if (input.billingType === 'CREDIT_CARD') {
+        // Lista positiva impede envio acidental de parcelamento e de campos extras.
+        const { customer, billingType, value, dueDate, externalReference, remoteIp } = input;
+        const { holderName, number, expiryMonth, expiryYear, ccv } = input.creditCard;
+        const { name, email, cpfCnpj, postalCode, addressNumber, phone } = input.creditCardHolderInfo;
+        const result = await request<AsaasPayment>(fetchImpl, baseUrl, apiKey, '/payments', {
+          method: 'POST', body: JSON.stringify({ customer, billingType, value, dueDate, externalReference,
+            creditCard: { holderName, number, expiryMonth, expiryYear, ccv },
+            creditCardHolderInfo: { name, email, cpfCnpj, postalCode, addressNumber, phone }, remoteIp }),
+        }, true);
+        if (!result.ok) return result;
+        const data = result.data;
+        if (!data || typeof data.id !== 'string' || typeof data.status !== 'string'
+          || typeof data.value !== 'number' || data.billingType !== 'CREDIT_CARD') {
+          return { ok: false, error: { status: 0, code: 'RESPOSTA_INVALIDA', message: 'Resposta inconclusiva do gateway.' } };
+        }
+        return { ok: true, data: { id: data.id, status: data.status, value: data.value, billingType: data.billingType } };
       }
       return request<AsaasPayment>(fetchImpl, baseUrl, apiKey, '/payments', {
         method: 'POST',
@@ -275,7 +287,7 @@ export function createAsaasClient(config: AsaasClientConfig): AsaasClient {
     },
 
     async tokenizarCartao(_input) {
-      return notImplementedPilot('tokenizarCartao — reservado (cartão/tokenização deferidos no piloto).');
+      return notImplementedPilot('tokenizarCartao — reservado (tokenização deferida no piloto).');
     },
   };
 }
@@ -303,6 +315,7 @@ async function request<T>(
   apiKey: string,
   path: string,
   init: { method: string; body?: string },
+  sensitive = false,
 ): Promise<AsaasResult<T>> {
   let response: Response;
   try {
@@ -315,13 +328,13 @@ async function request<T>(
         'Content-Type': 'application/json',
       },
     });
-  } catch (err) {
+  } catch {
     return {
       ok: false,
       error: {
         status: 0,
         message: `Erro de rede ao chamar o Asaas (${init.method} ${path}).`,
-        details: err instanceof Error ? err.message : String(err),
+        // Exceções de transporte podem conter o request inteiro: nunca propagá-las.
       },
     };
   }
@@ -333,9 +346,9 @@ async function request<T>(
       ok: false,
       error: {
         status: response.status,
-        code: firstError?.code,
-        message: firstError?.description ?? `Asaas respondeu ${response.status} para ${init.method} ${path}.`,
-        details,
+        code: sensitive ? 'CARD_GATEWAY_ERROR' : firstError?.code,
+        message: sensitive ? 'Não foi possível processar o cartão.' : firstError?.description ?? `Asaas respondeu ${response.status} para ${init.method} ${path}.`,
+        ...(sensitive ? {} : { details }),
       },
     };
   }

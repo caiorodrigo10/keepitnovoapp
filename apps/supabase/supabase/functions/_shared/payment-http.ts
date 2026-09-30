@@ -3,7 +3,8 @@ export function createPaymentHttpHandler(deps: {
   idField: 'pedido_id' | 'tentativa_id';
   allowedOrigins: string[];
   authenticate(token: string): Promise<string | null>;
-  execute(id: string, operacaoId: string, usuarioId: string, token: string): Promise<{ status: number; body: unknown }>;
+  validateBody?(body: Record<string, unknown>): boolean;
+  execute(id: string, operacaoId: string, usuarioId: string, token: string, body: Record<string, unknown>, req: Request): Promise<{ status: number; body: unknown }>;
 }) {
   return async (req: Request): Promise<Response> => {
     const origin = req.headers.get('origin');
@@ -25,7 +26,8 @@ export function createPaymentHttpHandler(deps: {
       const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       const id = b?.[deps.idField];
       if (!b || typeof id !== 'string' || !uuid.test(id) || typeof b.operacao_id !== 'string' || !uuid.test(b.operacao_id)) return json(400, { error: { code: 'ENTRADA_INVALIDA' } });
-      const result = await deps.execute(id, b.operacao_id, usuario, token);
+      if (deps.validateBody && !deps.validateBody(b)) return json(400, { error: { code: 'ENTRADA_INVALIDA' } });
+      const result = await deps.execute(id, b.operacao_id, usuario, token, b, req);
       return json(result.status, result.body);
     } catch { return json(503, { error: { code: 'PAGAMENTO_INDISPONIVEL', message: 'Não foi possível consultar o pagamento. Preserve esta operação para tentar novamente.' } }); }
   };
