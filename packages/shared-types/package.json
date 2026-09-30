@@ -12,5 +12,9 @@
   },
   "devDependencies": {
     "typescript": "5.9.3"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./payment": "./src/payment.ts"
   }
 }

@@ -21,9 +21,9 @@ describe('checkout Supabase', () => {
   it.each([null, { ...cotacao, totalCentavos: 107.9 }, { ...cotacao, totalCentavos: 1 }])('rejeita resposta financeira malformada', async (data) => {
     await expect(setup(data).checkout.cotar(input)).rejects.toThrow('RESPOSTA_INVALIDA');
   });
-  it('criação indisponível não chama caminho legado nem retorna sucesso', async () => {
-    const { checkout, rpc } = setup();
-    await expect(checkout.criar({ cotacaoId: 'cotacao', forma: 'pix', nfSolicitada: false, operacaoId: 'op' })).rejects.toThrow('CHECKOUT_INDISPONIVEL');
-    expect(rpc).not.toHaveBeenCalled();
+  it('cria somente a partir da cotação e conserva identidade da operação', async () => {
+    const { checkout, rpc } = setup({ pedidoId: 'pedido' });
+    expect(await checkout.criar({ cotacaoId: 'cotacao', forma: 'pix', nfSolicitada: false, operacaoId: 'op' })).toEqual({ pedidoId: 'pedido' });
+    expect(rpc).toHaveBeenCalledWith('criar_pedido_cotado', { p_cotacao_id: 'cotacao', p_forma: 'pix', p_nf_solicitada: false, p_operacao_id: 'op' });
   });
 });

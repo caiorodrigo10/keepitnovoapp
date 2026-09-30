@@ -8,13 +8,7 @@ import {
   AcessoNegadoError,
   AtrasoNaoConfirmadoError,
   AutenticacaoNecessariaError,
-  ClienteBloqueadoError,
-  ClienteNaoEncontradoError,
   EstadoInvalidoError,
-  HubIndisponivelError,
-  HubNaoAtendidoError,
-  ItensInvalidosError,
-  LojaIndisponivelError,
   MotivoObrigatorioError,
   PedidoNaoEncontradoError,
   TempoEstimadoInvalidoError,
@@ -106,120 +100,11 @@ const PEDIDO_ITEM_ROW = {
   subtotal_reais: 29.8,
 };
 
-const INPUT: CreatePedidoInput = {
-  cliente_id: 'cliente-1',
-  estabelecimento_id: 'estab-1',
-  hub_id: 'hub-1',
-  itens: [
-    { produto_id: 'produto-dipirona', nome_snapshot: 'Dipirona Monoidratada 500mg', preco_unitario_reais: 14.9, quantidade: 2 },
-  ],
-  forma_pagamento: 'pix',
-  subtotal_produtos_reais: 29.8,
-  taxa_deslocamento_reais: 5,
-  taxa_keepit_reais: 2.98,
-  taxa_servico_comprador_reais: 2.9,
-  total_pago_reais: 37.7,
-  nf_solicitada: false,
-};
-
-describe('order.supabase.ts — create (Story 6.6, AC1, AC3, AC4)', () => {
-  it('chama a RPC criar_pedido com o p_itens mapeado (nome_snapshot/preco_unitario/quantidade) e os 5 totais, sem cliente_id/forma_pagamento', async () => {
-    const { client, rpc } = fakeClient({
-      rpc: { data: [{ pedido_id: 'pedido-1', numero: 2048, pin_texto: '7734' }], error: null },
-      pedidos: { data: PEDIDO_ROW, error: null },
-      pedidosItens: { data: [PEDIDO_ITEM_ROW], error: null },
-    });
-
-    const port = createOrderSupabase(client);
-    await port.create(INPUT);
-
-    expect(rpc).toHaveBeenCalledWith('criar_pedido', {
-      p_estabelecimento_id: 'estab-1',
-      p_hub_id: 'hub-1',
-      p_itens: [{ produto_id: 'produto-dipirona', nome_snapshot: 'Dipirona Monoidratada 500mg', preco_unitario: 14.9, quantidade: 2 }],
-      p_subtotal_produtos_reais: 29.8,
-      p_taxa_deslocamento_reais: 5,
-      p_taxa_keepit_reais: 2.98,
-      p_taxa_servico_comprador_reais: 2.9,
-      p_total_pago_reais: 37.7,
-      p_nf_solicitada: false,
-    });
-
-    const rpcCallArgs = rpc.mock.calls[0][1] as Record<string, unknown>;
-    expect(rpcCallArgs).not.toHaveProperty('cliente_id');
-    expect(rpcCallArgs).not.toHaveProperty('forma_pagamento');
-    expect(rpcCallArgs).not.toHaveProperty('p_cliente_id');
-  });
-
-  it('monta o Pedido de retorno a partir da releitura real (pedido_id da RPC) — nunca ecoa/inventa campos do input', async () => {
-    const { client } = fakeClient({
-      rpc: { data: [{ pedido_id: 'pedido-1', numero: 2048, pin_texto: '7734' }], error: null },
-      pedidos: { data: PEDIDO_ROW, error: null },
-      pedidosItens: { data: [PEDIDO_ITEM_ROW], error: null },
-    });
-
-    const port = createOrderSupabase(client);
-    const pedido = await port.create(INPUT);
-
-    expect(pedido.id).toBe('pedido-1');
-    expect(pedido.numero).toBe(2048);
-    expect(pedido).not.toHaveProperty('pin_texto');
-    expect(pedido.status).toBe('aguardando_aceite');
-    expect(pedido.itens).toHaveLength(1);
-    expect(pedido.itens[0]).toMatchObject({ nome_snapshot: 'Dipirona Monoidratada 500mg', quantidade: 2 });
-    // `pin_hash` nunca é exposto — não existe no tipo `Pedido`.
-    expect(pedido).not.toHaveProperty('pin_hash');
-    // Story 6.16 (AC1, AC3): `taxa_servico_comprador_reais` volta na releitura
-    // real (gap corrigido — antes desta story, a coluna nunca era lida).
-    expect(pedido.taxa_servico_comprador_reais).toBe(2.9);
-  });
-
-  it('mapeia AUTENTICACAO_NECESSARIA para AutenticacaoNecessariaError', async () => {
-    const { client } = fakeClient({ rpc: { data: null, error: { message: 'AUTENTICACAO_NECESSARIA', code: 'P0001' } } });
-    const port = createOrderSupabase(client);
-    await expect(port.create(INPUT)).rejects.toBeInstanceOf(AutenticacaoNecessariaError);
-  });
-
-  it('mapeia CLIENTE_NAO_ENCONTRADO para ClienteNaoEncontradoError', async () => {
-    const { client } = fakeClient({ rpc: { data: null, error: { message: 'CLIENTE_NAO_ENCONTRADO', code: 'P0001' } } });
-    const port = createOrderSupabase(client);
-    await expect(port.create(INPUT)).rejects.toBeInstanceOf(ClienteNaoEncontradoError);
-  });
-
-  it('mapeia CLIENTE_BLOQUEADO para ClienteBloqueadoError (Story 8.5 AC4 — bloqueio administrativo)', async () => {
-    const { client } = fakeClient({ rpc: { data: null, error: { message: 'CLIENTE_BLOQUEADO', code: 'P0001' } } });
-    const port = createOrderSupabase(client);
-    await expect(port.create(INPUT)).rejects.toBeInstanceOf(ClienteBloqueadoError);
-  });
-
-  it('mapeia ITENS_INVALIDOS para ItensInvalidosError', async () => {
-    const { client } = fakeClient({ rpc: { data: null, error: { message: 'ITENS_INVALIDOS', code: 'P0001' } } });
-    const port = createOrderSupabase(client);
-    await expect(port.create(INPUT)).rejects.toBeInstanceOf(ItensInvalidosError);
-  });
-
-  it('mapeia LOJA_INDISPONIVEL para LojaIndisponivelError', async () => {
-    const { client } = fakeClient({ rpc: { data: null, error: { message: 'LOJA_INDISPONIVEL', code: 'P0001' } } });
-    const port = createOrderSupabase(client);
-    await expect(port.create(INPUT)).rejects.toBeInstanceOf(LojaIndisponivelError);
-  });
-
-  it('mapeia HUB_NAO_ATENDIDO para HubNaoAtendidoError', async () => {
-    const { client } = fakeClient({ rpc: { data: null, error: { message: 'HUB_NAO_ATENDIDO', code: 'P0001' } } });
-    const port = createOrderSupabase(client);
-    await expect(port.create(INPUT)).rejects.toBeInstanceOf(HubNaoAtendidoError);
-  });
-
-  it('mapeia HUB_INDISPONIVEL para HubIndisponivelError', async () => {
-    const { client } = fakeClient({ rpc: { data: null, error: { message: 'HUB_INDISPONIVEL', code: 'P0001' } } });
-    const port = createOrderSupabase(client);
-    await expect(port.create(INPUT)).rejects.toBeInstanceOf(HubIndisponivelError);
-  });
-
-  it('propaga qualquer outro erro sem mascarar e sem sucesso simulado', async () => {
-    const { client } = fakeClient({ rpc: { data: null, error: { message: 'erro de rede', code: '500' } } });
-    const port = createOrderSupabase(client);
-    await expect(port.create(INPUT)).rejects.toMatchObject({ message: 'erro de rede' });
+describe('criação legada real desativada', () => {
+  it('não envia valores do app para qualquer RPC', async () => {
+    const { client, rpc } = fakeClient({});
+    await expect(createOrderSupabase(client).create({} as CreatePedidoInput)).rejects.toThrow('CHECKOUT_COTACAO_OBRIGATORIA');
+    expect(rpc).not.toHaveBeenCalled();
   });
 });
 

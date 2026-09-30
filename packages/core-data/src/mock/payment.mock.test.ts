@@ -54,3 +54,14 @@ describe('payment.mock (contract) — Story 7.2', () => {
     );
   });
 });
+
+it('tentativa demo não libera aceite nem PIN antes da confirmação explícita mock', async () => {
+  const db = createMockDb(); const pedido = db.pedidos[0];
+  pedido.status = 'aguardando_pagamento'; pedido.forma_pagamento = 'pix'; db.sessionClienteId = pedido.cliente_id;
+  const payment = createPaymentMock(db);
+  const tentativa = await payment.iniciarPix({ pedidoId: pedido.id, operacaoId: 'op-demo' });
+  expect(tentativa.estado).toBe('pendente');
+  expect(pedido.status).toBe('aguardando_pagamento');
+  expect(await payment.consultar(pedido.id)).toEqual(tentativa);
+  await expect(payment.iniciarPix({ pedidoId: pedido.id, operacaoId: 'outra-op' })).rejects.toThrow('TENTATIVA_EM_ANDAMENTO');
+});

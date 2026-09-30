@@ -147,38 +147,7 @@ export function createOrderMock(db: MockDb): OrderPort {
       };
     },
 
-    /**
-     * Story 6.6 (AC1, AC4, AC6) — [IDS] ADAPT. `CreatePedidoInput` agora
-     * carrega o snapshot dos itens (`nome_snapshot`/`preco_unitario_reais`)
-     * e os 5 totais de cabeçalho já calculados por quem chama (mesma
-     * fórmula do Checkout, Story 6.2). Este mock deixou de RE-DERIVAR esses
-     * valores a partir de `db.produtos`/`db.estabelecimentos` — passou a
-     * CONGELAR/PERSISTIR exatamente o que recebe, mesmo comportamento da
-     * RPC real `criar_pedido` (`20260813004934_rpc_criar_pedido.sql`, "os
-     * totais de cabeçalho são recebidos como parâmetros e persistidos como
-     * snapshot — a RPC não os recalcula"). Isso é a paridade mock↔real
-     * exigida pela AC7: os dois adapters têm o MESMO contrato (pass-through
-     * do snapshot), não duas implementações divergentes da mesma fórmula.
-     *
-     * **AC6 (Story 6.6) — decisão registrada:** o status inicial passou de
-     * `'aguardando_pagamento'` para `'aguardando_aceite'`, alinhando ao
-     * comportamento do piloto real (RPC sempre cria em `aguardando_aceite`
-     * — pagamento simulado em dev, sem estado intermediário). Corrige o gap
-     * pré-existente descrito no Data Mode da Story 6.6: antes daquela
-     * mudança, um pedido mock recém-criado não aparecia como "Novo" na tela
-     * `NovosPedidos` do Lojista (`isNovo` só é `true` para
-     * `aguardando_aceite`). Ver Change Log da Story 6.6 para o racional
-     * completo.
-     *
-     * **AC5/AC6 (Story 6.7.1) — REVERTIDO:** o status inicial volta a ser
-     * `'aguardando_pagamento'`. A Story 6.7.1 introduz o método
-     * `confirmarPagamento` (chamado automaticamente pelas novas telas de
-     * PIX/processando, ~5s/~2s de simulação de UX) que agora faz a
-     * transição `aguardando_pagamento` → `aguardando_aceite` — o pedido
-     * volta a aparecer como "Novo" na tela `NovosPedidos` do Lojista
-     * poucos segundos depois, mesma janela de latência que já existia
-     * (`DEFAULT_MOCK_DELAY_MS`), sem regressão perceptível.
-     */
+    /** Criação legada exclusiva de fixtures demo. Checkout mock deriva o snapshot do catálogo. */
     create(input: CreatePedidoInput, options?: AsyncCallOptions): Promise<Pedido> {
       return simulateAsync(
         () => db.runClienteMutation(async (persist) => {

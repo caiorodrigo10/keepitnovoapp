@@ -41,6 +41,80 @@ export type Database = {
   }
   public: {
     Tables: {
+      "tentativas_pagamento": {
+          Row: {
+              "asaas_payment_id": string | null;
+              "claim_expira_em": string | null;
+              "claim_token": string | null;
+              "cliente_id": string;
+              "criado_em": string;
+              "encerrada_em": string | null;
+              "estado": string;
+              "expira_em": string | null;
+              "forma": string;
+              "id": string;
+              "operacao_id": string;
+              "pedido_id": string;
+              "pix_copia_e_cola": string | null;
+              "qr_code_pix": string | null;
+          };
+          Insert: {
+              "asaas_payment_id"?: string | null;
+              "claim_expira_em"?: string | null;
+              "claim_token"?: string | null;
+              "cliente_id": string;
+              "criado_em"?: string;
+              "encerrada_em"?: string | null;
+              "estado"?: string;
+              "expira_em"?: string | null;
+              "forma": string;
+              "id"?: string;
+              "operacao_id": string;
+              "pedido_id": string;
+              "pix_copia_e_cola"?: string | null;
+              "qr_code_pix"?: string | null;
+          };
+          Update: {
+              "asaas_payment_id"?: string | null;
+              "claim_expira_em"?: string | null;
+              "claim_token"?: string | null;
+              "cliente_id"?: string;
+              "criado_em"?: string;
+              "encerrada_em"?: string | null;
+              "estado"?: string;
+              "expira_em"?: string | null;
+              "forma"?: string;
+              "id"?: string;
+              "operacao_id"?: string;
+              "pedido_id"?: string;
+              "pix_copia_e_cola"?: string | null;
+              "qr_code_pix"?: string | null;
+          };
+          Relationships: [
+              {
+                  foreignKeyName: "tentativas_pagamento_cliente_id_fkey";
+                  columns: [
+                      "cliente_id"
+                  ];
+                  isOneToOne: false;
+                  referencedRelation: "clientes";
+                  referencedColumns: [
+                      "id"
+                  ];
+              },
+              {
+                  foreignKeyName: "tentativas_pagamento_pedido_id_fkey";
+                  columns: [
+                      "pedido_id"
+                  ];
+                  isOneToOne: false;
+                  referencedRelation: "pedidos";
+                  referencedColumns: [
+                      "id"
+                  ];
+              }
+          ];
+      };
       account_deletion_requests: {
         Row: {
           cancelled_at: string | null
@@ -589,6 +663,9 @@ export type Database = {
       }
       pedidos: {
         Row: {
+          cotacao_id: string | null
+          operacao_id: string | null
+          forma_criacao: string | null
           aceito_em: string | null
           asaas_payment_id: string | null
           atualizado_em: string
@@ -621,6 +698,9 @@ export type Database = {
           total_pago_reais: number
         }
         Insert: {
+          cotacao_id?: string | null
+          operacao_id?: string | null
+          forma_criacao?: string | null
           aceito_em?: string | null
           asaas_payment_id?: string | null
           atualizado_em?: string
@@ -653,6 +733,9 @@ export type Database = {
           total_pago_reais: number
         }
         Update: {
+          cotacao_id?: string | null
+          operacao_id?: string | null
+          forma_criacao?: string | null
           aceito_em?: string | null
           asaas_payment_id?: string | null
           atualizado_em?: string
@@ -831,6 +914,49 @@ export type Database = {
       }
     }
     Functions: {
+      "criar_pedido_cotado": {
+          Args: {
+              "p_cotacao_id": string;
+              "p_forma": string;
+              "p_nf_solicitada": boolean;
+              "p_operacao_id": string;
+          };
+          Returns: Json;
+      };
+      "reservar_tentativa_pagamento": {
+          Args: {
+              "p_forma": string;
+              "p_operacao_id": string;
+              "p_pedido_id": string;
+          };
+          Returns: Json;
+      };
+      "consultar_tentativa_pagamento": {
+          Args: {
+              "p_pedido_id": string;
+          };
+          Returns: Json;
+      };
+      "claim_tentativa_pagamento": {
+          Args: {
+              "p_tentativa_id": string;
+          };
+          Returns: Json;
+      };
+      "salvar_tentativa_pagamento": {
+          Args: {
+              "p_claim_token": string;
+              "p_patch": Json;
+              "p_tentativa_id": string;
+          };
+          Returns: Json;
+      };
+      "obter_pedido_pagamento": {
+          Args: {
+              "p_pedido_id": string;
+          };
+          Returns: Json;
+      };
       obter_taxas: { Args: Record<PropertyKey, never>; Returns: Json }
       alterar_taxas: {
         Args: { p_comissao_bps: number; p_servico_centavos: number; p_versao_esperada: string; p_motivo: string; p_operacao_id: string }

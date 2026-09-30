@@ -1,4 +1,4 @@
-import type { PaymentPort, PixChargeResult } from '../ports/payment.port';
+import type { PaymentAttempt, PaymentPort, PixChargeResult } from '../ports/payment.port';
 import type { AsyncCallOptions } from '../types';
 import { simulateAsync } from './async-helpers';
 import type { MockDb } from './db';
@@ -32,7 +32,31 @@ function hashPedidoId(pedidoId: string): string {
 export function createPaymentMock(db: MockDb): PaymentPort {
   const cobrancasPorPedido = new Map<string, PixChargeResult>();
 
-  return {
+  const tentativas = new Map<string, { operacaoId: string; tentativa: PaymentAttempt }>();
+  const port: PaymentPort = {
+    async iniciarPix(input) {
+      const pedido = db.pedidos.find((p) => p.id === input.pedidoId);
+      if (!pedido || pedido.cliente_id !== db.sessionClienteId) throw new Error('ACESSO_NEGADO');
+      if (pedido.status !== 'aguardando_pagamento' || pedido.forma_pagamento !== 'pix') throw new Error('PEDIDO_NAO_PAGAVEL');
+      const atual = tentativas.get(pedido.id);
+      if (atual) {
+        if (atual.operacaoId !== input.operacaoId) throw new Error('TENTATIVA_EM_ANDAMENTO');
+        return structuredClone(atual.tentativa);
+      }
+      const tentativa: PaymentAttempt = { id: `tentativa_mock_${input.operacaoId}`, pedidoId: pedido.id, estado: 'criando' };
+      tentativas.set(pedido.id, { operacaoId: input.operacaoId, tentativa });
+      const pix = await port.criarCobrancaPix(pedido.id, { delayMs: 0 });
+      tentativa.estado = 'pendente';
+      tentativa.pix = { imagemBase64: pix.qr_code_pix, copiaCola: pix.pix_copia_e_cola, expiraEm: null };
+      return structuredClone(tentativa);
+    },
+    async pagarCartao() { throw new Error('PAGAMENTO_CARTAO_INDISPONIVEL'); },
+    async consultar(pedidoId) {
+      const pedido = db.pedidos.find((p) => p.id === pedidoId);
+      if (!pedido || pedido.cliente_id !== db.sessionClienteId) throw new Error('ACESSO_NEGADO');
+      const atual = tentativas.get(pedidoId);
+      return atual ? structuredClone(atual.tentativa) : null;
+    },
     criarCobrancaPix(pedidoId: string, options?: AsyncCallOptions): Promise<PixChargeResult> {
       return simulateAsync(
         () => {
@@ -68,4 +92,5 @@ export function createPaymentMock(db: MockDb): PaymentPort {
       );
     },
   };
+  return port;
 }

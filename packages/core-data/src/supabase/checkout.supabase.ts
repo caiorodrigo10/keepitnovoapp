@@ -14,6 +14,14 @@ export function createCheckoutSupabase(client?: SupabaseClient<Database>): Check
       if (error) throw error;
       return parseCotacao(data);
     },
-    async criar() { throw new Error('CHECKOUT_INDISPONIVEL: criação e pagamento aguardam a integração de pagamentos.'); },
+    async criar(input) {
+      const { data, error } = await getClient().rpc('criar_pedido_cotado', {
+        p_cotacao_id: input.cotacaoId, p_forma: input.forma,
+        p_nf_solicitada: input.nfSolicitada, p_operacao_id: input.operacaoId,
+      });
+      if (error) throw error;
+      if (!data || typeof data !== 'object' || !('pedidoId' in data) || typeof data.pedidoId !== 'string') throw new Error('RESPOSTA_INVALIDA');
+      return { pedidoId: data.pedidoId };
+    },
   };
 }

@@ -2,3 +2,5 @@
 // Reexporta os tipos gerados a partir do schema Supabase (ver ./supabase.ts).
 
 export * from './supabase';
+
+export type { PaymentAttempt } from './payment';

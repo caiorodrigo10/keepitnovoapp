@@ -1,4 +1,5 @@
-import type { CheckoutPort, Cotacao } from '../ports/checkout.port';
+import { createOrderMock } from './order.mock';
+import type { CheckoutPort, Cotacao, CotacaoInput } from '../ports/checkout.port';
 import type { SettingsPort } from '../ports/settings.port';
 import type { HubHorario } from '../ports/hub.port';
 import { parseCotacao } from '../financial-contract';
@@ -6,8 +7,10 @@ import { generateMockId as mockId } from './async-helpers';
 import type { MockDb } from './db';
 
 export function createCheckoutMock(db: MockDb, settings: SettingsPort): CheckoutPort {
-  const cotacoes = new Map<string, { clienteId: string; cotacao: Cotacao; itens: unknown[] }>();
-  return {
+  const cotacoes = new Map<string, { clienteId: string; cotacao: Cotacao; input: CotacaoInput; itens: Array<{ produtoId: string; nome: string; precoUnitarioCentavos: number; quantidade: number }> }>();
+  const operacoes = new Map<string, { payload: string; resultado: Promise<{ pedidoId: string }> }>();
+  const consumidas = new Set<string>();
+  const checkout: CheckoutPort = {
     async cotar(input) {
       const cliente = db.clientes.find((c) => c.id === db.sessionClienteId);
       if (!cliente || cliente.bloqueado) throw new Error('ACESSO_NEGADO');
@@ -40,9 +43,43 @@ export function createCheckoutMock(db: MockDb, settings: SettingsPort): Checkout
       const total = subtotal + frete + BigInt(taxas.servicoCentavos);
       if (total > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('VALOR_INVALIDO');
       const cotacao = parseCotacao({ id: mockId('cotacao'), taxas, subtotalCentavos: Number(subtotal), freteCentavos: Number(frete), comissaoCentavos: Number(comissao), totalCentavos: Number(total), liquidoLojistaCentavos: Number(subtotal - comissao + frete) });
-      cotacoes.set(cotacao.id, { clienteId: cliente.id, cotacao, itens });
+      cotacoes.set(cotacao.id, { clienteId: cliente.id, cotacao, input, itens });
       return { ...cotacao, taxas: { ...taxas } };
     },
-    async criar() { throw new Error('CHECKOUT_INDISPONIVEL: criação aguarda a integração de pagamentos.'); },
+    async criar(input) {
+      const key = `${db.sessionClienteId}:${input.operacaoId}`;
+      const payload = JSON.stringify(input);
+      const existente = operacoes.get(key);
+      if (existente) {
+        if (existente.payload !== payload) throw new Error('OPERACAO_CONFLITANTE');
+        return existente.resultado;
+      }
+      const saved = cotacoes.get(input.cotacaoId);
+      if (!saved || saved.clienteId !== db.sessionClienteId) throw new Error('ACESSO_NEGADO');
+      if (consumidas.has(input.cotacaoId)) throw new Error('COTACAO_UTILIZADA');
+      const resultado = (async () => {
+        let atual: Cotacao;
+        try { atual = await checkout.cotar(saved.input); } catch { throw new Error('COTACAO_DESATUALIZADA'); }
+        const novos = cotacoes.get(atual.id)!; cotacoes.delete(atual.id);
+        if (JSON.stringify(saved.itens) !== JSON.stringify(novos.itens) || JSON.stringify(saved.cotacao.taxas) !== JSON.stringify(atual.taxas)
+          || saved.cotacao.totalCentavos !== atual.totalCentavos) throw new Error('COTACAO_DESATUALIZADA');
+        if (consumidas.has(input.cotacaoId)) throw new Error('COTACAO_UTILIZADA');
+        consumidas.add(input.cotacaoId);
+        const q = saved.cotacao;
+        try {
+          const pedido = await createOrderMock(db).create({
+            cliente_id: saved.clienteId, estabelecimento_id: saved.input.estabelecimentoId, hub_id: saved.input.hubId,
+            itens: saved.itens.map((i) => ({ produto_id: i.produtoId, nome_snapshot: i.nome, preco_unitario_reais: i.precoUnitarioCentavos / 100, quantidade: i.quantidade })),
+            forma_pagamento: input.forma, nf_solicitada: input.nfSolicitada,
+            subtotal_produtos_reais: q.subtotalCentavos / 100, taxa_deslocamento_reais: q.freteCentavos / 100,
+            taxa_keepit_reais: q.comissaoCentavos / 100, taxa_servico_comprador_reais: q.taxas.servicoCentavos / 100, total_pago_reais: q.totalCentavos / 100,
+          }, { delayMs: 0 });
+          return { pedidoId: pedido.id };
+        } catch (error) { consumidas.delete(input.cotacaoId); throw error; }
+      })();
+      operacoes.set(key, { payload, resultado });
+      try { return await resultado; } catch (error) { operacoes.delete(key); throw error; }
+    },
   };
+  return checkout;
 }

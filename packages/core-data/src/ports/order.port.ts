@@ -86,15 +86,7 @@ export interface Pedido {
   itens: PedidoItem[];
 }
 
-/**
- * Story 6.6 (AC1, AC4) — estendido com `nome_snapshot`/`preco_unitario_reais`
- * (antes só `{produto_id, quantidade}`). A RPC real `criar_pedido`
- * (`20260813004934_rpc_criar_pedido.sql`) espera cada item de `p_itens` já
- * com o snapshot do nome/preço — ela CONGELA o que recebe, não relê
- * `produtos` para montar o snapshot. `preco_unitario_reais` é o preço
- * CONGELADO no carrinho (`CartItem.precoSnapshotReais`, Story 6.1), não o
- * preço atual do catálogo.
- */
+/** Snapshot legado usado exclusivamente por fixtures no adapter mock. */
 export interface CreatePedidoItemInput {
   produto_id: string;
   nome_snapshot: string;
@@ -102,17 +94,7 @@ export interface CreatePedidoItemInput {
   quantidade: number;
 }
 
-/**
- * Story 6.6 (AC1, AC4) — estendido com os 5 totais de cabeçalho +
- * `nf_solicitada`. A RPC real `criar_pedido` os recebe como PARÂMETROS e os
- * PERSISTE como snapshot (não os recalcula a partir de `produtos` — ver
- * `docs/stories/6.6.story.md`, AC1, "LIMITAÇÃO DE PILOTO"). Quem chama
- * `OrderPort.create` (`Pagamento.tsx`) é responsável por calcular esses
- * valores com a MESMA fórmula usada no Checkout (`computeCheckoutTotals`,
- * Story 6.2) + `taxa_keepit_reais` (nunca exibida ao cliente — Story 6.2
- * AC3), garantindo paridade com o que o Checkout já mostrou antes de
- * "Pagar" (nenhum valor novo inventado nesta camada).
- */
+/** Criação demo. O adapter real rejeita esta entrada; use CheckoutPort.criar. */
 export interface CreatePedidoInput {
   cliente_id: string;
   estabelecimento_id: string;
@@ -204,22 +186,7 @@ export interface OrderPort {
    * [Source: docs/PERGUNTAS_REGRAS_NEGOCIO.md — Rodada 6, "PIN — tentativas do lojista"]
    */
   confirmPin(pedidoId: string, pin: string, options?: AsyncCallOptions): Promise<Pedido>;
-  /**
-   * Story 6.7.1 (AC1, AC2, AC3, AC4, AC8) — confirma o pagamento simulado
-   * (PIX/cartão) chamado automaticamente pelas telas `ModalPagamentoPix`/
-   * `ModalProcessandoPagamento` após um atraso simulado de UX (~5s PIX/~2s
-   * cartão — NUNCA regra de negócio, ver `apps/cliente/src/lib/pagamentoSimulado.ts`).
-   * - **Mock**: transiciona `aguardando_pagamento` → `aguardando_aceite`
-   *   (mesmo padrão `assertStatus`/`OrderTransitionError` de
-   *   `accept`/`markReadyForHub`/`markArrivedAtHub`).
-   * - **Supabase**: no-op de releitura — o pedido já chega em
-   *   `aguardando_aceite` pela RPC `criar_pedido` (Story 6.6); nenhum
-   *   endpoint/RPC novo é criado aqui. Mantém a MESMA UX (telas de
-   *   PIX/processando) nos dois `DATA_SOURCE` sem inventar backend.
-   * Retomada futura (Bloco 08-PIX/Épico 7): quando o webhook real
-   * `PAYMENT_RECEIVED` existir (Story 7.5), ele chama este mesmo método —
-   * nenhum redesenho de UI necessário.
-   */
+  /** Mock confirma a simulação; Supabase apenas relê o estado confirmado pelo servidor. */
   confirmarPagamento(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido>;
   /**
    * Cancelamento pelo Cliente. A % de reembolso (AC9) é derivada do status

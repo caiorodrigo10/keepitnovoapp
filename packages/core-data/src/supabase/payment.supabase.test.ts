@@ -31,7 +31,7 @@ describe('payment.supabase (contract) — Story 7.2', () => {
     const resultado = await port.criarCobrancaPix('pedido-1');
 
     expect(resultado).toEqual(SUCESSO);
-    expect(invoke).toHaveBeenCalledWith('create-pix-payment', { body: { pedido_id: 'pedido-1' } });
+    expect(invoke).toHaveBeenCalledWith('create-pix-payment', { body: { pedido_id: 'pedido-1', operacao_id: 'pedido-1' } });
   });
 
   it('erro do SDK (`error` truthy — rede/HTTP não-2xx): lança Error com mensagem legível', async () => {
@@ -57,4 +57,16 @@ describe('payment.supabase (contract) — Story 7.2', () => {
 
     await expect(port.criarCobrancaPix('pedido-1')).rejects.toThrow(/resposta vazia/);
   });
+});
+
+it('iniciarPix conserva operação e recebe estado pendente sem confirmar pedido', async () => {
+  const tentativa = { id: 'tentativa', pedidoId: 'pedido-1', estado: 'pendente' };
+  const { client, invoke } = fakeClient({ data: { ...SUCESSO, tentativa }, error: null });
+  expect(await createPaymentSupabase(client).iniciarPix({ pedidoId: 'pedido-1', operacaoId: 'op-estavel' })).toEqual(tentativa);
+  expect(invoke).toHaveBeenCalledWith('create-pix-payment', { body: { pedido_id: 'pedido-1', operacao_id: 'op-estavel' } });
+});
+it('consultar lê projeção autorizada e não inicia cobrança', async () => {
+  const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
+  expect(await createPaymentSupabase({ rpc } as unknown as SupabaseClient<Database>).consultar('pedido')).toBeNull();
+  expect(rpc).toHaveBeenCalledWith('consultar_tentativa_pagamento', { p_pedido_id: 'pedido' });
 });

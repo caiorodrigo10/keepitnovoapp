@@ -20,11 +20,23 @@ VALUES ('22222222-0000-4000-8000-000000000023','22222222-0000-4000-8000-00000000
  'Loja dual','00000000000003','Responsável','00000000000','farmacia','Endereço',10,'dual@example.invalid','email','ativo');
 INSERT INTO public.estabelecimentos_hubs (estabelecimento_id,hub_id)
 VALUES ('22222222-0000-4000-8000-000000000021','22222222-0000-4000-8000-000000000010');
+-- Fixtures usam a mesma criação cotada. Confirmação abaixo é exclusivamente sintética neste teste.
+INSERT INTO public.hubs_horarios(hub_id,dia_semana,aberto,hora_abre,hora_fecha)
+SELECT '22222222-0000-4000-8000-000000000010',n,true,'00:00','24:00' FROM generate_series(0,6)n;
+INSERT INTO public.estabelecimentos_horarios(estabelecimento_id,dia_semana,aberto,hora_abre,hora_fecha)
+SELECT '22222222-0000-4000-8000-000000000021',n,true,'00:00','24:00' FROM generate_series(0,6)n;
+INSERT INTO public.produtos(id,estabelecimento_id,nome,preco_reais,categoria_produto)
+VALUES('22222222-0000-4000-8000-000000000031','22222222-0000-4000-8000-000000000021','Item teste',100,'cuidados');
+CREATE FUNCTION pg_temp.criar_cotado() RETURNS uuid LANGUAGE sql AS $$
+ SELECT (public.criar_pedido_cotado((public.cotar_pedido('22222222-0000-4000-8000-000000000021','22222222-0000-4000-8000-000000000010',
+ '[{"produtoId":"22222222-0000-4000-8000-000000000031","quantidade":1}]')->>'id')::uuid,'pix',false,gen_random_uuid())->>'pedidoId')::uuid
+$$;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','22222222-0000-4000-8000-000000000001',true);
-CREATE TEMP TABLE teste_pedido AS SELECT * FROM public.criar_pedido(
- '22222222-0000-4000-8000-000000000021','22222222-0000-4000-8000-000000000010',
- '[{"nome_snapshot":"Item teste","preco_unitario":10,"quantidade":1}]',10,0,1,0,10,false);
+CREATE TEMP TABLE teste_pedido AS SELECT pg_temp.criar_cotado() AS pedido_id;
+RESET ROLE;
+UPDATE public.pedidos SET pago_em=now(),status='aguardando_aceite' WHERE id=(SELECT pedido_id FROM teste_pedido);
+SET LOCAL ROLE authenticated;
 SELECT ok(NOT EXISTS(SELECT FROM (SELECT * FROM public.pedidos) p WHERE to_jsonb(p) ?| ARRAY['pin_texto','pin_hash']), 'cliente A SELECT * sem segredos');
 SELECT ok(NOT EXISTS(SELECT FROM teste_pedido p WHERE to_jsonb(p) ?| ARRAY['pin_texto','pin_hash']), 'criação retorna somente dados públicos');
 SELECT ok(NOT EXISTS(SELECT FROM information_schema.columns WHERE table_schema='public' AND column_name IN ('pin_texto','pin_hash')), 'nenhuma coluna pública secreta');
@@ -86,9 +98,10 @@ SELECT ok(NOT has_function_privilege('anon','public.obter_pin_cliente(uuid)','EX
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','22222222-0000-4000-8000-000000000006',true);
 SELECT ok(EXISTS(SELECT FROM public.clientes WHERE id=auth.uid()) AND EXISTS(SELECT FROM public.estabelecimentos WHERE dono_user_id=auth.uid()),'identidade dual possui cliente e estabelecimento autoritativos');
-CREATE TEMP TABLE teste_pedido_dual AS SELECT * FROM public.criar_pedido(
- '22222222-0000-4000-8000-000000000021','22222222-0000-4000-8000-000000000010',
- '[{"nome_snapshot":"Item dual","preco_unitario":10,"quantidade":1}]',10,0,1,0,10,false);
+CREATE TEMP TABLE teste_pedido_dual AS SELECT pg_temp.criar_cotado() AS pedido_id;
+RESET ROLE;
+UPDATE public.pedidos SET pago_em=now(),status='aguardando_aceite' WHERE id=(SELECT pedido_id FROM teste_pedido_dual);
+SET LOCAL ROLE authenticated;
 SELECT ok(EXISTS(SELECT FROM public.pedidos WHERE id=(SELECT pedido_id FROM teste_pedido_dual) AND cliente_id=auth.uid() AND pago_em IS NOT NULL),'identidade dual é dona de pedido pago');
 SELECT throws_ok('SELECT public.obter_pin_cliente((SELECT pedido_id FROM teste_pedido_dual))','P0001','ACESSO_NEGADO','cliente também lojista não lê PIN nem do próprio pedido pago');
 RESET ROLE;

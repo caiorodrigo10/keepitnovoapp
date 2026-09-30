@@ -1,14 +1,8 @@
+import type { PaymentAttempt } from '@keepit/shared-types';
+export type { PaymentAttempt } from '@keepit/shared-types';
 import type { AsyncCallOptions } from '../types';
 
-/**
- * Story 7.2 (AC3) — [IDS] CREATE. Port dedicada e mínima para a cobrança PIX
- * real via Asaas, deliberadamente separada de `OrderPort` (que continua
- * responsável pelo ciclo de vida do pedido em si — criação, aceite,
- * confirmação de PIN etc.). `criarCobrancaPix` é um efeito colateral
- * pós-criação do pedido (chamado por `Pagamento.tsx` depois de
- * `order.create`), nunca parte da criação do pedido — RPCs Postgres não
- * fazem chamada HTTP (ver Dev Notes da Story 7.2).
- */
+/** Compatibilidade PIX: sempre deriva o valor do pedido cotado no servidor. */
 export interface PixChargeResult {
   pedido_id: string;
   asaas_payment_id: string;
@@ -16,7 +10,18 @@ export interface PixChargeResult {
   pix_copia_e_cola: string;
 }
 
-export interface PaymentPort {
+export interface CardInput {
+  holderName: string; number: string; expiryMonth: string; expiryYear: string; ccv: string;
+}
+export interface HolderInput {
+  name: string; email: string; cpfCnpj: string; postalCode: string; addressNumber: string; phone: string;
+}
+export interface PaymentExtensions {
+  iniciarPix(input: { pedidoId: string; operacaoId: string }): Promise<PaymentAttempt>;
+  pagarCartao(input: { pedidoId: string; operacaoId: string; cartao: CardInput; titular: HolderInput }): Promise<PaymentAttempt>;
+  consultar(pedidoId: string): Promise<PaymentAttempt | null>;
+}
+export interface PaymentPort extends PaymentExtensions {
   /**
    * Cria (ou recupera, se já existir — idempotente por `pedidoId`) a
    * cobrança PIX real no Asaas para o pedido informado. Lança erro

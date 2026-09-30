@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Database, Json } from '@keepit/shared-types';
+import type { Database } from '@keepit/shared-types';
 import { createClient } from '@keepit/supabase-client';
 
 import type {
@@ -17,13 +17,7 @@ import {
   AcessoNegadoError,
   AtrasoNaoConfirmadoError,
   AutenticacaoNecessariaError,
-  ClienteBloqueadoError,
-  ClienteNaoEncontradoError,
   EstadoInvalidoError,
-  HubIndisponivelError,
-  HubNaoAtendidoError,
-  ItensInvalidosError,
-  LojaIndisponivelError,
   MotivoObrigatorioError,
   PedidoNaoEncontradoError,
   TempoEstimadoInvalidoError,
@@ -212,97 +206,17 @@ export async function fetchPedidoPorId(supabase: SupabaseClient<Database>, pedid
   return mapRowToPedido(row, itensPorPedido[pedidoId] ?? []);
 }
 
-/**
- * Esqueleto Supabase de `OrderPort` (Story 1.9). Pedido & PIN — fluxo
- * completo (Cliente + Lojista) — é o Épico 6. `create` (Story 6.6) e
- * `listMine` (Story 6.7) são implementações reais; os demais métodos
- * permanecem `NotImplementedError` até as Stories que os cobrem
- * (aceite/recusa/PIN/cancelamento/lado lojista — Stories 6.8+).
- */
+/** Ciclo de vida do pedido sob RLS; criação financeira pertence a CheckoutPort. */
 export function createOrderSupabase(client?: SupabaseClient<Database>): OrderPort {
   let cachedClient: SupabaseClient<Database> | null = client ?? null;
   const resolveClient = (): SupabaseClient<Database> => cachedClient ?? (cachedClient = createClient());
 
   return {
-    /**
-     * Story 6.6 (AC1, AC3, AC4). Chama a RPC `SECURITY DEFINER`
-     * `criar_pedido` — `cliente_id` NÃO é parâmetro (a RPC usa sempre
-     * `auth.uid()`) e `forma_pagamento` NÃO é parâmetro (a RPC fixa
-     * `'pix'`, cartão é LATER); `input.cliente_id`/`input.forma_pagamento`
-     * existem no contrato da port por paridade com o mock, mas não são
-     * enviados à RPC. Cada item de `p_itens` carrega o snapshot já
-     * congelado por quem chama (`nome_snapshot`/`preco_unitario_reais`,
-     * Story 6.1 `CartItem.precoSnapshotReais`) — a RPC NÃO relê `produtos`.
-     * Os 5 totais de cabeçalho são enviados como PARÂMETROS e persistidos
-     * como snapshot pela RPC (ela não os recalcula — "LIMITAÇÃO DE
-     * PILOTO", AC1).
-     *
-     * Mapeia os 6 erros NOMEADOS (`RAISE EXCEPTION`) da RPC para classes
-     * dedicadas (`order-errors.ts`) — nunca engole o erro, nunca simula
-     * sucesso. Como a RPC devolve só `(pedido_id, numero)`
-     * (AC1), o `Pedido` completo vem de uma RELEITURA real
-     * (`fetchPedidoPorId`) — nunca ecoa/inventa os demais campos a partir
-     * do input.
-     */
-    async create(input: CreatePedidoInput, _options?: AsyncCallOptions): Promise<Pedido> {
-      const supabase = resolveClient();
-
-      const { data, error } = await supabase.rpc('criar_pedido', {
-        p_estabelecimento_id: input.estabelecimento_id,
-        p_hub_id: input.hub_id,
-        p_itens: input.itens.map((item) => ({
-          produto_id: item.produto_id,
-          nome_snapshot: item.nome_snapshot,
-          preco_unitario: item.preco_unitario_reais,
-          quantidade: item.quantidade,
-        })) as unknown as Json,
-        p_subtotal_produtos_reais: input.subtotal_produtos_reais,
-        p_taxa_deslocamento_reais: input.taxa_deslocamento_reais,
-        p_taxa_keepit_reais: input.taxa_keepit_reais,
-        p_taxa_servico_comprador_reais: input.taxa_servico_comprador_reais,
-        p_total_pago_reais: input.total_pago_reais,
-        p_nf_solicitada: input.nf_solicitada,
-      });
-
-      if (error) {
-        const message = error.message ?? '';
-        if (message.includes('AUTENTICACAO_NECESSARIA')) throw new AutenticacaoNecessariaError();
-        if (message.includes('CLIENTE_NAO_ENCONTRADO')) throw new ClienteNaoEncontradoError();
-        // Story 8.5 (AC4) — checado pela RPC ANTES de ITENS_INVALIDOS/LOJA_INDISPONIVEL/etc.
-        // (mesma ordem do RAISE EXCEPTION na migration reaplicada); `.includes()` aqui não
-        // depende da ordem dos `if`s porque os textos são mutuamente exclusivos.
-        if (message.includes('CLIENTE_BLOQUEADO')) throw new ClienteBloqueadoError();
-        if (message.includes('ITENS_INVALIDOS')) throw new ItensInvalidosError();
-        if (message.includes('LOJA_INDISPONIVEL')) throw new LojaIndisponivelError();
-        if (message.includes('HUB_NAO_ATENDIDO')) throw new HubNaoAtendidoError();
-        if (message.includes('HUB_INDISPONIVEL')) throw new HubIndisponivelError();
-        throw error;
-      }
-
-      const row = data?.[0];
-      if (!row) {
-        throw new Error('[core-data/supabase] criar_pedido — RPC retornou vazio sem erro.');
-      }
-
-      const pedido = await fetchPedidoPorId(supabase, row.pedido_id);
-      if (!pedido) {
-        throw new Error(
-          '[core-data/supabase] criar_pedido — pedido criado mas a releitura não encontrou a linha (RLS bloqueando ou id inesperado).',
-        );
-      }
-      return pedido;
+    /** Criação com valores do aplicativo foi substituída por CheckoutPort.criar. */
+    async create(_input: CreatePedidoInput, _options?: AsyncCallOptions): Promise<Pedido> {
+      throw new Error('CHECKOUT_COTACAO_OBRIGATORIA: use checkout.criar com uma cotação do servidor.');
     },
 
-    /**
-     * Story 6.7 (AC1, AC4, AC5). Autorização SEMPRE pela SESSÃO
-     * (`auth.uid()`), NUNCA pelo `clienteId` recebido como parâmetro (AC5 —
-     * "não aceita clienteId de outro usuário como fonte de autorização"),
-     * mesmo padrão já usado por `auth.supabase.ts#updateProfile`/
-     * `estabelecimento-cadastro.supabase.ts#atualizarMeuPerfil`. RLS
-     * `ve_pedidos_relacionados` é a SEGUNDA barreira, não a única. Sem
-     * sessão, resolve `[]` honesto (nunca lança) — mesmo contrato do mock.
-     * Ordenado por `criado_em DESC` (mesmo índice `idx_pedidos_cliente`).
-     */
     async listMine(_clienteId: string, _options?: AsyncCallOptions): Promise<Pedido[]> {
       const supabase = resolveClient();
 
@@ -496,24 +410,7 @@ export function createOrderSupabase(client?: SupabaseClient<Database>): OrderPor
       return pedido;
     },
 
-    /**
-     * Story 6.7.1 (AC1, AC2, AC3, AC4) — no-op de RELEITURA, não uma
-     * mutação. A RPC `criar_pedido` (Story 6.6) já cria o pedido diretamente
-     * em `aguardando_aceite` — não existe, em `DATA_SOURCE=supabase`, um
-     * estado intermediário `aguardando_pagamento` a sair (isso só existe no
-     * mock, Story 6.6 Data Mode). Este método existe para as telas
-     * `ModalPagamentoPix`/`ModalProcessandoPagamento` (`apps/cliente`)
-     * chamarem a MESMA função de porta nos dois `DATA_SOURCE`, mantendo a
-     * MESMA experiência visual sem inventar um endpoint/RPC novo — [AUTO-DECISION]
-     * ver Dev Notes da Story 6.7.1 ("visual unificado").
-     *
-     * [IDS] REUSE de `fetchPedidoPorId` (mesma releitura real já usada por
-     * `create`/`accept`/`markReadyForHub`/`markArrivedAtHub`/`confirmPin`) —
-     * Usa a mesma leitura pública de `getById` (Épico 6
-     * pendente) nem faz nenhum `UPDATE`. `pedidoId` inexistente/RLS bloqueando
-     * é honesto: lança em vez de simular sucesso, mesmo padrão dos demais
-     * métodos deste adapter.
-     */
+    /** Releitura apenas: nenhum temporizador ou chamada do app confirma pagamento real. */
     async confirmarPagamento(pedidoId: string, _options?: AsyncCallOptions): Promise<Pedido> {
       const supabase = resolveClient();
 

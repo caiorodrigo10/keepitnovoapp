@@ -47,7 +47,34 @@ describe('cotação demo', () => {
     loja.horarios.find((h) => h.dia_semana === 3)!.hora_fecha = '12:00';
     await expect(checkout.cotar(input)).rejects.toThrow('HORARIO_INVIAVEL');
   });
-  it('não retorna pedido fictício na nova port', async () => {
-    await expect(setup().checkout.criar({ cotacaoId: 'q', forma: 'pix', nfSolicitada: false, operacaoId: 'op' })).rejects.toThrow('CHECKOUT_INDISPONIVEL');
+  it('cria pedido pendente idempotente da cotação e nega PIN', async () => {
+    vi.useRealTimers();
+    const { checkout, input, db } = setup();
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-30T15:00:00Z'));
+    const cotacao = await checkout.cotar(input);
+    const criar = { cotacaoId: cotacao.id, forma: 'pix' as const, nfSolicitada: false, operacaoId: 'op' };
+    const promessa = checkout.criar(criar); await vi.runAllTimersAsync(); const result = await promessa;
+    expect(await checkout.criar(criar)).toEqual(result);
+    const pedido = db.pedidos.find((p) => p.id === result.pedidoId)!;
+    expect(pedido.status).toBe('aguardando_pagamento');
+    expect(pedido.total_pago_reais).toBe(107.9);
   });
+  it('revalida preço antes da criação e não deixa pedido parcial', async () => {
+    const { checkout, input, produto, db } = setup();
+    const q = await checkout.cotar(input); const count = db.pedidos.length; produto.preco_reais = 101;
+    await expect(checkout.criar({ cotacaoId: q.id, forma: 'pix', nfSolicitada: false, operacaoId: 'op' })).rejects.toThrow('COTACAO_DESATUALIZADA');
+    expect(db.pedidos).toHaveLength(count);
+  });
+});
+
+it('duas operações concorrentes não consomem a mesma cotação demo', async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-30T15:00:00Z'));
+  try {
+    const { checkout, input, db } = setup(); const q = await checkout.cotar(input); const count = db.pedidos.length;
+    const a = checkout.criar({ cotacaoId: q.id, forma: 'pix', nfSolicitada: false, operacaoId: 'primeira' });
+    const b = checkout.criar({ cotacaoId: q.id, forma: 'pix', nfSolicitada: false, operacaoId: 'segunda' });
+    const joined = Promise.allSettled([a, b]); await vi.runAllTimersAsync();
+    expect((await joined).filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(db.pedidos.length - count).toBe(1);
+  } finally { vi.useRealTimers(); }
 });
