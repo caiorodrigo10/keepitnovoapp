@@ -979,6 +979,10 @@ describe('admin.supabase.ts — financialDashboard (Story 8.7)', () => {
           id: 'oc-1', pedido_id: 'pedido-2', tipo: 'chargeback', estado: 'pendente',
           referencia_externa: 'pay-2', detalhe: 'Responsabilidade aguarda decisão administrativa.',
           criado_em: '2026-09-30T10:07:00.000Z',
+        }, {
+          id: 'oc-2', pedido_id: 'pedido-2', tipo: 'pagamento_adicional', estado: 'pendente',
+          referencia_externa: 'pay-3', detalhe: 'Segunda cobrança requer devolução administrativa.',
+          criado_em: '2026-09-30T10:08:00.000Z',
         }], error: null }],
         antecipacoes_recebiveis: [{ data: [{
           id: 'ant-local-1', antecipacao_externa_id: 'ant-asaas-1', pedido_id: 'pedido-2',
@@ -1007,6 +1011,7 @@ describe('admin.supabase.ts — financialDashboard (Story 8.7)', () => {
     ]);
     expect((dashboard as unknown as { ocorrenciasPagamento: unknown }).ocorrenciasPagamento).toEqual([
       expect.objectContaining({ id: 'oc-1', tipo: 'chargeback', estado: 'pendente' }),
+      expect.objectContaining({ id: 'oc-2', tipo: 'pagamento_adicional', estado: 'pendente' }),
     ]);
   });
 

@@ -124,7 +124,7 @@ export interface PaymentEventAdmin {
 export interface PaymentOccurrenceAdmin {
   id: string;
   pedidoId: string;
-  tipo: 'chargeback' | 'estorno' | 'pagamento_tardio';
+  tipo: 'chargeback' | 'estorno' | 'pagamento_tardio' | 'pagamento_adicional';
   estado: string;
   referenciaExterna: string | null;
   detalhe: string;

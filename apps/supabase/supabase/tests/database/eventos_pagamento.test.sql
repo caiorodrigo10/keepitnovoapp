@@ -49,7 +49,7 @@ INSERT INTO public.tentativas_pagamento (id,pedido_id,cliente_id,operacao_id,for
   ('66666666-0000-4000-8000-000000000203','66666666-0000-4000-8000-000000000103','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000303','cartao','recebido','pay-entregue',NULL),
   ('66666666-0000-4000-8000-000000000204','66666666-0000-4000-8000-000000000104','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000304','pix','reconciliacao','pay-overdue',NULL),
   ('66666666-0000-4000-8000-000000000205','66666666-0000-4000-8000-000000000105','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000305','cartao','expirado','pay-old-late',now()),
-  ('66666666-0000-4000-8000-000000000206','66666666-0000-4000-8000-000000000105','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000306','cartao','pendente','pay-new-active',NULL),
+  ('66666666-0000-4000-8000-000000000206','66666666-0000-4000-8000-000000000105','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000306','cartao','criando',NULL,NULL),
   ('66666666-0000-4000-8000-000000000207','66666666-0000-4000-8000-000000000106','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000307','cartao','reconciliacao',NULL,NULL);
 
 SET LOCAL ROLE service_role;
@@ -111,6 +111,12 @@ SELECT is(
   'evento_desconhecido', 'evento desconhecido fica persistido para diagnóstico'
 );
 
+SELECT set_config(
+  'test.claim_b',
+  (public.claim_tentativa_pagamento('66666666-0000-4000-8000-000000000206')->'attempt'->>'claim_token'),
+  true
+);
+
 SELECT is(
   (SELECT resultado FROM public.processar_evento_pagamento('evt-overdue','PAYMENT_OVERDUE','pay-overdue','66666666-0000-4000-8000-000000000204',10790,'pix')),
   'reconciliacao', 'OVERDUE isolado não confirma exclusão e mantém reconciliação'
@@ -125,6 +131,29 @@ SELECT lives_ok(
 SELECT is((SELECT estado FROM public.tentativas_pagamento WHERE id='66666666-0000-4000-8000-000000000205'),'confirmado','fato tardio fica registrado na tentativa original');
 SELECT is((SELECT encerrada_em IS NOT NULL FROM public.tentativas_pagamento WHERE id='66666666-0000-4000-8000-000000000205'),true,'tentativa antiga permanece encerrada se há outra ativa');
 SELECT is((SELECT estado FROM public.tentativas_pagamento WHERE id='66666666-0000-4000-8000-000000000206'),'reconciliacao','tentativa mais nova fica explícita para reconciliação após confirmação tardia');
+SELECT lives_ok(
+  $$SELECT public.salvar_tentativa_pagamento(
+    '66666666-0000-4000-8000-000000000206',current_setting('test.claim_b')::uuid,
+    '{"estado":"pendente","asaas_payment_id":"pay-new-active"}'::jsonb
+  )$$,
+  'worker B conclui salvamento obsoleto sem perder o ID externo para operação administrativa'
+);
+SELECT is((SELECT asaas_payment_id FROM public.pedidos WHERE id='66666666-0000-4000-8000-000000000105'),'pay-old-late','worker B não sobrescreve a cobrança confirmada A no pedido');
+SELECT is((SELECT asaas_payment_id FROM public.tentativas_pagamento WHERE id='66666666-0000-4000-8000-000000000206'),'pay-new-active','ID externo B fica preservado na tentativa');
+SELECT is((SELECT estado FROM public.tentativas_pagamento WHERE id='66666666-0000-4000-8000-000000000206'),'reconciliacao','salvamento B permanece na fila administrativa');
+SELECT is((SELECT claim_token IS NULL FROM public.tentativas_pagamento WHERE id='66666666-0000-4000-8000-000000000206'),true,'claim B obsoleto é consumido e invalidado');
+SELECT is(
+  (SELECT resultado FROM public.processar_evento_pagamento('evt-new-pending','PAYMENT_UPDATED','pay-new-active','66666666-0000-4000-8000-000000000206',10790,'cartao')),
+  'reconciliacao', 'PENDING de B não remove a divergência causada pela confirmação A'
+);
+SELECT is((SELECT estado FROM public.tentativas_pagamento WHERE id='66666666-0000-4000-8000-000000000206'),'reconciliacao','B continua visível para o Admin após PENDING');
+SELECT is(
+  (SELECT resultado FROM public.processar_evento_pagamento('evt-new-confirmed','PAYMENT_CONFIRMED','pay-new-active','66666666-0000-4000-8000-000000000206',10790,'cartao')),
+  'pagamento_adicional', 'segunda cobrança confirmada vira ocorrência auditável'
+);
+SELECT is((SELECT count(*)::int FROM public.ocorrencias_pagamento WHERE tentativa_id='66666666-0000-4000-8000-000000000206' AND tipo='pagamento_adicional'),1,'pagamento B adicional cria uma ocorrência');
+SELECT is((SELECT count(*)::int FROM public.lancamentos_financeiros WHERE pedido_id='66666666-0000-4000-8000-000000000105' AND tipo='charge'),1,'pagamentos A e B mantêm uma única receita/charge');
+SELECT is((SELECT asaas_payment_id FROM public.pedidos WHERE id='66666666-0000-4000-8000-000000000105'),'pay-old-late','pagamento adicional B não oculta cobrança A do pedido');
 
 SELECT is(
   (SELECT resultado FROM public.processar_evento_pagamento('evt-before-id','PAYMENT_CONFIRMED','pay-before-id','66666666-0000-4000-8000-000000000207',10790,'cartao')),
@@ -132,9 +161,19 @@ SELECT is(
 );
 SELECT is((SELECT processado_em IS NULL FROM public.eventos_pagamento WHERE evento_externo_id='evt-before-id'),true,'recibo aguardando vínculo não é finalizado');
 SELECT is(
+  (SELECT resultado FROM public.processar_evento_antecipacao('evt-ant-retry','RECEIVABLE_ANTICIPATION_PENDING','ant-retry','pay-before-id','PENDING',10790,300,10490,NULL,NULL)),
+  'aguardando_vinculo', 'antecipação antes do ID também aguarda vínculo'
+);
+SELECT is((SELECT erro_codigo FROM public.eventos_pagamento WHERE evento_externo_id='evt-ant-retry'),'COBRANCA_AGUARDANDO_VINCULO','primeira entrega registra erro operacional') ;
+SELECT is(
   public.vincular_cobranca_reconciliacao('66666666-0000-4000-8000-000000000207','pay-before-id'),
   true, 'reconciliação vincula o ID localizado por referência'
 );
+SELECT is(
+  (SELECT resultado FROM public.processar_evento_antecipacao('evt-ant-retry','RECEIVABLE_ANTICIPATION_PENDING','ant-retry','pay-before-id','PENDING',10790,300,10490,NULL,NULL)),
+  'antecipacao_atualizada', 'reentrega da antecipação conclui após vínculo'
+);
+SELECT is((SELECT erro_codigo FROM public.eventos_pagamento WHERE evento_externo_id='evt-ant-retry'),NULL,'reentrega bem-sucedida limpa erro anterior');
 SELECT is(
   (SELECT resultado FROM public.processar_evento_pagamento('evt-before-id','PAYMENT_CONFIRMED','pay-before-id','66666666-0000-4000-8000-000000000207',10790,'cartao')),
   'confirmado', 'replay do mesmo evento processa após o vínculo ser persistido'
@@ -166,7 +205,7 @@ SELECT is((SELECT count(*)::int FROM public.eventos_pagamento),0,'policy filtra 
 SELECT throws_ok($$SELECT * FROM public.processar_evento_pagamento('x','PAYMENT_RECEIVED','pay-main',NULL,10790,'cartao')$$,'42501',NULL,'cliente não processa webhook');
 SELECT set_config('request.jwt.claim.sub','66666666-0000-4000-8000-000000000003',true);
 SELECT is((SELECT count(*)::int FROM public.tentativas_pagamento WHERE estado IN ('reconciliacao','recebido','confirmado')),7,'Admin lê tentativas para reconciliação');
-SELECT is((SELECT count(*)::int FROM public.antecipacoes_recebiveis),2,'Admin lê custos e estados de antecipação');
+SELECT is((SELECT count(*)::int FROM public.antecipacoes_recebiveis),3,'Admin lê custos e estados de antecipação');
 RESET ROLE;
 
 SELECT * FROM finish();
