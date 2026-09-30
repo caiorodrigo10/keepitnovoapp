@@ -33,18 +33,30 @@ export function createPaymentMock(db: MockDb): PaymentPort {
   const cobrancasPorPedido = new Map<string, PixChargeResult>();
 
   const tentativas = new Map<string, { operacaoId: string; tentativa: PaymentAttempt }>();
+  const historico = new Map<string, { pedidoId: string; tentativa: PaymentAttempt; encerramentoId?: string }>();
   const port: PaymentPort = {
+    async encerrarTentativa(input) {
+      const entry = historico.get(input.tentativaId);
+      const pedido = db.pedidos.find((p) => p.id === entry?.pedidoId);
+      if (!entry || !pedido || pedido.cliente_id !== db.sessionClienteId) throw new Error('ACESSO_NEGADO');
+      if (entry.encerramentoId && entry.encerramentoId !== input.operacaoId) throw new Error('OPERACAO_CONFLITANTE');
+      if (!['pendente', 'expirado', 'recusado'].includes(entry.tentativa.estado) || pedido.status !== 'aguardando_pagamento') throw new Error('PAGAMENTO_RECONCILIACAO');
+      entry.encerramentoId = input.operacaoId;
+      entry.tentativa.estado = 'expirado'; delete entry.tentativa.pix;
+      return structuredClone(entry.tentativa);
+    },
     async iniciarPix(input) {
       const pedido = db.pedidos.find((p) => p.id === input.pedidoId);
       if (!pedido || pedido.cliente_id !== db.sessionClienteId) throw new Error('ACESSO_NEGADO');
       if (pedido.status !== 'aguardando_pagamento' || pedido.forma_pagamento !== 'pix') throw new Error('PEDIDO_NAO_PAGAVEL');
       const atual = tentativas.get(pedido.id);
-      if (atual) {
+      if (atual && (atual.operacaoId === input.operacaoId || !['expirado', 'recusado'].includes(atual.tentativa.estado))) {
         if (atual.operacaoId !== input.operacaoId) throw new Error('TENTATIVA_EM_ANDAMENTO');
         return structuredClone(atual.tentativa);
       }
       const tentativa: PaymentAttempt = { id: `tentativa_mock_${input.operacaoId}`, pedidoId: pedido.id, estado: 'criando' };
       tentativas.set(pedido.id, { operacaoId: input.operacaoId, tentativa });
+      historico.set(tentativa.id, { pedidoId: pedido.id, tentativa });
       const pix = await port.criarCobrancaPix(pedido.id, { delayMs: 0 });
       tentativa.estado = 'pendente';
       tentativa.pix = { imagemBase64: pix.qr_code_pix, copiaCola: pix.pix_copia_e_cola, expiraEm: null };

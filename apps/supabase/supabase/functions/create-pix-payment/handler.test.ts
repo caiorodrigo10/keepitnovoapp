@@ -75,6 +75,17 @@ describe('PIX com tentativa durável', () => {
     expect(t.attempt()).toBeNull();
     expect(t.externalPayments).toHaveLength(0);
   });
+  it.each([408, 429, 0, 503])('criarCliente com status incerto %s mantém reconciliação e bloqueia novas operações', async (status) => {
+    const t = setup();
+    vi.mocked(t.asaas.criarCliente).mockResolvedValue({ ok: false, error: { status, message: 'indisponível' } });
+    expect(await t.call()).toMatchObject({ ok: false, error: { code: 'PAGAMENTO_RECONCILIACAO' } });
+    expect(t.attempt()?.estado).toBe('reconciliacao');
+    expect(await t.call()).toMatchObject({ ok: false, error: { code: 'PAGAMENTO_RECONCILIACAO' } });
+    expect(await handleCreatePixPayment({ ...input, operacao_id: 'outra-operacao' }, { asaasClient: t.asaas, pedidos: t.repo }))
+      .toMatchObject({ ok: false, error: { code: 'PAGAMENTO_RECONCILIACAO' } });
+    expect(t.asaas.criarCliente).toHaveBeenCalledTimes(1);
+    expect(t.externalPayments).toHaveLength(0);
+  });
   it('recusa explícita do gateway encerra tentativa e não é reexecutada com a mesma operação', async () => {
     const t = setup();
     vi.mocked(t.asaas.criarCobranca).mockResolvedValue({ ok: false, error: { status: 400, message: 'invalid' } });

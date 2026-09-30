@@ -72,7 +72,16 @@ SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','44444444-0000-4000-8000-000000000001',true);
 SELECT throws_ok($$SELECT public.reservar_tentativa_pagamento(current_setting('test.pedido')::uuid,'cartao',gen_random_uuid())$$,'P0001','TENTATIVA_EM_ANDAMENTO','conciliação mantém bloqueio da troca');
 RESET ROLE;
-UPDATE public.tentativas_pagamento SET estado='expirado',encerrada_em=now() WHERE id=current_setting('test.tentativa')::uuid;
+-- Resposta Asaas sintética no limite do servidor; encerramento passa pelas RPCs reais.
+SET LOCAL ROLE authenticated;
+SELECT set_config('test.close_op',gen_random_uuid()::text,true);
+SELECT public.preparar_encerramento_tentativa(current_setting('test.tentativa')::uuid,current_setting('test.close_op')::uuid);
+RESET ROLE;
+SET LOCAL ROLE service_role;
+SELECT set_config('test.close_claim',public.claim_encerramento_tentativa(current_setting('test.tentativa')::uuid,current_setting('test.close_op')::uuid)::text,true);
+SELECT public.concluir_encerramento_tentativa(current_setting('test.tentativa')::uuid,(current_setting('test.close_claim')::jsonb->>'claim_token')::uuid,
+ jsonb_build_object('id','pay_closed_first','deleted',true,'status','PENDING','value',107.9,'billingType','PIX','externalReference',current_setting('test.tentativa')));
+RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT lives_ok($$SELECT public.reservar_tentativa_pagamento(current_setting('test.pedido')::uuid,'cartao','44444444-0000-4000-8000-000000000071')$$,'método só muda após encerramento confirmado pelo servidor');
 RESET ROLE;
@@ -96,7 +105,16 @@ SELECT throws_ok($$SELECT public.salvar_tentativa_pagamento(current_setting('tes
 RESET ROLE;
 SELECT is((SELECT asaas_payment_id FROM public.pedidos WHERE id=current_setting('test.pedido')::uuid),'pay_durable','leitor legado recebe vínculo externo');
 SELECT ok((SELECT pago_em IS NULL FROM public.pedidos WHERE id=current_setting('test.pedido')::uuid),'cobrança criada não confirma pagamento');
-UPDATE public.tentativas_pagamento SET estado='expirado',encerrada_em=now() WHERE id=current_setting('test.cartao')::uuid;
+-- Resposta Asaas sintética no limite do servidor; encerramento passa pelas RPCs reais.
+SET LOCAL ROLE authenticated;
+SELECT set_config('test.close_op',gen_random_uuid()::text,true);
+SELECT public.preparar_encerramento_tentativa(current_setting('test.cartao')::uuid,current_setting('test.close_op')::uuid);
+RESET ROLE;
+SET LOCAL ROLE service_role;
+SELECT set_config('test.close_claim',public.claim_encerramento_tentativa(current_setting('test.cartao')::uuid,current_setting('test.close_op')::uuid)::text,true);
+SELECT public.concluir_encerramento_tentativa(current_setting('test.cartao')::uuid,(current_setting('test.close_claim')::jsonb->>'claim_token')::uuid,
+ jsonb_build_object('id','pay_durable','deleted',true,'status','PENDING','value',107.9,'billingType','CREDIT_CARD','externalReference',current_setting('test.cartao')));
+RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT lives_ok($$SELECT public.reservar_tentativa_pagamento(current_setting('test.pedido')::uuid,'cartao',gen_random_uuid())$$,'nova operação no mesmo método após encerramento confirmado');
 RESET ROLE;

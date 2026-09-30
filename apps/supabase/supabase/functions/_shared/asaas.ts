@@ -107,6 +107,9 @@ export interface AsaasPayment {
   invoiceUrl?: string;
   dueDate?: string;
   dateCreated?: string;
+  deleted?: boolean;
+  paymentDate?: string | null;
+  clientPaymentDate?: string | null;
 }
 
 /** `docs/gateway/asaas-api-reference.md` item 3 — `GET /v3/payments/{id}/pixQrCode`. */
@@ -194,6 +197,11 @@ export interface AsaasClientConfig {
 }
 
 export interface AsaasClient {
+  /** Consultas pontuais para conciliação; nunca inferem ausência de efeito de uma resposta vazia. */
+  consultarCobranca(paymentId: string): Promise<AsaasResult<AsaasPayment>>;
+  listarCobrancasPorReferencia(reference: string): Promise<AsaasResult<{ data: AsaasPayment[]; hasMore: boolean }>>;
+  /** Exclusão de cobrança ainda não paga; não representa estorno. */
+  excluirCobranca(paymentId: string): Promise<AsaasResult<{ id: string; deleted: boolean }>>;
   /** `POST /v3/customers` — chamada HTTP real (AC1). */
   criarCliente(input: AsaasCreateCustomerInput): Promise<AsaasResult<AsaasCustomer>>;
   /** `POST /v3/payments` — só `billingType: 'PIX'` faz chamada HTTP real; `'CREDIT_CARD'` é stub reservado (AC1). */
@@ -216,6 +224,15 @@ export function createAsaasClient(config: AsaasClientConfig): AsaasClient {
   const fetchImpl = config.fetchImpl ?? fetch;
 
   return {
+    async consultarCobranca(paymentId) {
+      return request<AsaasPayment>(fetchImpl, baseUrl, apiKey, `/payments/${encodeURIComponent(paymentId)}`, { method: 'GET' });
+    },
+    async listarCobrancasPorReferencia(reference) {
+      return request<{ data: AsaasPayment[]; hasMore: boolean }>(fetchImpl, baseUrl, apiKey, `/payments?externalReference=${encodeURIComponent(reference)}&limit=2`, { method: 'GET' });
+    },
+    async excluirCobranca(paymentId) {
+      return request<{ id: string; deleted: boolean }>(fetchImpl, baseUrl, apiKey, `/payments/${encodeURIComponent(paymentId)}`, { method: 'DELETE' });
+    },
     async criarCliente(input) {
       return request<AsaasCustomer>(fetchImpl, baseUrl, apiKey, '/customers', {
         method: 'POST',
@@ -292,6 +309,7 @@ async function request<T>(
     response = await fetchImpl(`${baseUrl}${path}`, {
       method: init.method,
       body: init.body,
+      signal: AbortSignal.timeout(15_000),
       headers: {
         access_token: apiKey,
         'Content-Type': 'application/json',

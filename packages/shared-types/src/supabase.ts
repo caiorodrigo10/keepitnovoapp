@@ -49,6 +49,10 @@ export type Database = {
               "cliente_id": string;
               "criado_em": string;
               "encerrada_em": string | null;
+              "encerramento_claim_expira_em": string | null;
+              "encerramento_claim_token": string | null;
+              "encerramento_confirmacao": Json | null;
+              "encerramento_operacao_id": string | null;
               "estado": string;
               "expira_em": string | null;
               "forma": string;
@@ -65,6 +69,10 @@ export type Database = {
               "cliente_id": string;
               "criado_em"?: string;
               "encerrada_em"?: string | null;
+              "encerramento_claim_expira_em"?: string | null;
+              "encerramento_claim_token"?: string | null;
+              "encerramento_confirmacao"?: Json | null;
+              "encerramento_operacao_id"?: string | null;
               "estado"?: string;
               "expira_em"?: string | null;
               "forma": string;
@@ -81,6 +89,10 @@ export type Database = {
               "cliente_id"?: string;
               "criado_em"?: string;
               "encerrada_em"?: string | null;
+              "encerramento_claim_expira_em"?: string | null;
+              "encerramento_claim_token"?: string | null;
+              "encerramento_confirmacao"?: Json | null;
+              "encerramento_operacao_id"?: string | null;
               "estado"?: string;
               "expira_em"?: string | null;
               "forma"?: string;
@@ -914,6 +926,35 @@ export type Database = {
       }
     }
     Functions: {
+      "preparar_encerramento_tentativa": {
+          Args: {
+              "p_operacao_id": string;
+              "p_tentativa_id": string;
+          };
+          Returns: Json;
+      };
+      "claim_encerramento_tentativa": {
+          Args: {
+              "p_operacao_id": string;
+              "p_tentativa_id": string;
+          };
+          Returns: Json;
+      };
+      "registrar_incerteza_encerramento": {
+          Args: {
+              "p_claim_token": string;
+              "p_tentativa_id": string;
+          };
+          Returns: undefined;
+      };
+      "concluir_encerramento_tentativa": {
+          Args: {
+              "p_claim_token": string;
+              "p_confirmacao": Json;
+              "p_tentativa_id": string;
+          };
+          Returns: Json;
+      };
       "criar_pedido_cotado": {
           Args: {
               "p_cotacao_id": string;

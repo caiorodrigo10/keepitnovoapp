@@ -11,8 +11,8 @@ function parseAttempt(data: unknown): PaymentAttempt {
 }
 export function createPaymentSupabase(client?: SupabaseClient<Database>): PaymentPort {
   const resolve = () => (client ??= createClient());
-  async function invoke(pedidoId: string, operacaoId: string) {
-    const { data, error } = await resolve().functions.invoke('create-pix-payment', { body: { pedido_id: pedidoId, operacao_id: operacaoId } });
+  async function invoke(name: string, body: Record<string, string>) {
+    const { data, error } = await resolve().functions.invoke(name, { body });
     if (error) {
       // O SDK guarda o payload não-2xx na Response; preserva orientação de conciliação.
       const response = (error as { context?: Response }).context;
@@ -23,7 +23,10 @@ export function createPaymentSupabase(client?: SupabaseClient<Database>): Paymen
     return data;
   }
   return {
-    async iniciarPix(input) { return parseAttempt((await invoke(input.pedidoId, input.operacaoId)).tentativa); },
+    async encerrarTentativa(input) {
+      return parseAttempt((await invoke('close-payment-attempt', { tentativa_id: input.tentativaId, operacao_id: input.operacaoId })).tentativa);
+    },
+    async iniciarPix(input) { return parseAttempt((await invoke('create-pix-payment', { pedido_id: input.pedidoId, operacao_id: input.operacaoId })).tentativa); },
     async pagarCartao() { throw new Error('PAGAMENTO_CARTAO_INDISPONIVEL: integração de cartão ainda não habilitada.'); },
     async consultar(pedidoId) {
       const { data, error } = await resolve().rpc('consultar_tentativa_pagamento', { p_pedido_id: pedidoId });
@@ -32,7 +35,7 @@ export function createPaymentSupabase(client?: SupabaseClient<Database>): Paymen
     },
     async criarCobrancaPix(pedidoId): Promise<PixChargeResult> {
       // Compatibilidade segura: operação estável por pedido, nenhum preço do app.
-      const data = await invoke(pedidoId, pedidoId);
+      const data = await invoke('create-pix-payment', { pedido_id: pedidoId, operacao_id: pedidoId });
       return { pedido_id: data.pedido_id, asaas_payment_id: data.asaas_payment_id, qr_code_pix: data.qr_code_pix, pix_copia_e_cola: data.pix_copia_e_cola };
     },
   };

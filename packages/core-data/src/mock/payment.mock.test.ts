@@ -65,3 +65,16 @@ it('tentativa demo não libera aceite nem PIN antes da confirmação explícita 
   expect(await payment.consultar(pedido.id)).toEqual(tentativa);
   await expect(payment.iniciarPix({ pedidoId: pedido.id, operacaoId: 'outra-op' })).rejects.toThrow('TENTATIVA_EM_ANDAMENTO');
 });
+
+it('mock explícito só permite uma nova operação após encerramento da anterior', async () => {
+  const db = createMockDb(); const pedido = db.pedidos[0];
+  pedido.status = 'aguardando_pagamento'; pedido.forma_pagamento = 'pix'; db.sessionClienteId = pedido.cliente_id;
+  const payment = createPaymentMock(db);
+  const first = await payment.iniciarPix({ pedidoId: pedido.id, operacaoId: 'first' });
+  const closeInput = { tentativaId: first.id, operacaoId: 'close' };
+  expect((await payment.encerrarTentativa(closeInput)).estado).toBe('expirado');
+  const second = await payment.iniciarPix({ pedidoId: pedido.id, operacaoId: 'second' });
+  expect(second.id).not.toBe(first.id);
+  expect((await payment.encerrarTentativa(closeInput)).id).toBe(first.id);
+  expect((await payment.consultar(pedido.id))?.id).toBe(second.id);
+});

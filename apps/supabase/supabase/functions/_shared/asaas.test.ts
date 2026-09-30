@@ -259,3 +259,42 @@ describe('createAsaasClient', () => {
     });
   });
 });
+
+describe('consulta e encerramento de cobrança', () => {
+  it('consulta por ID e referência sem enviar corpo ou preços', async () => {
+    const fetchImpl = mockFetch(200, paymentPixFixture);
+    const client = createAsaasClient({ baseUrl: BASE_URL, apiKey: API_KEY, fetchImpl });
+    await client.consultarCobranca('pay/1');
+    expect(fetchImpl).toHaveBeenLastCalledWith(`${BASE_URL}/payments/pay%2F1`, expect.objectContaining({ method: 'GET', body: undefined }));
+    await client.listarCobrancasPorReferencia('attempt/1');
+    expect(fetchImpl).toHaveBeenLastCalledWith(`${BASE_URL}/payments?externalReference=attempt%2F1&limit=2`, expect.objectContaining({ method: 'GET', body: undefined }));
+  });
+  it('encerra com DELETE e devolve prova de exclusão, sem estorno', async () => {
+    const fetchImpl = mockFetch(200, { id: 'pay_1', deleted: true });
+    const client = createAsaasClient({ baseUrl: BASE_URL, apiKey: API_KEY, fetchImpl });
+    expect(await client.excluirCobranca('pay_1')).toEqual({ ok: true, data: { id: 'pay_1', deleted: true } });
+    expect(fetchImpl).toHaveBeenCalledWith(`${BASE_URL}/payments/pay_1`, expect.objectContaining({ method: 'DELETE', body: undefined }));
+  });
+  it('timeout de exclusão permanece erro incerto e não repete requisição', async () => {
+    const fetchImpl = mockFetchRejecting(new Error('timeout'));
+    const client = createAsaasClient({ baseUrl: BASE_URL, apiKey: API_KEY, fetchImpl });
+    expect(await client.excluirCobranca('pay_1')).toMatchObject({ ok: false, error: { status: 0 } });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+it('limita a chamada ao gateway e trata abort como efeito incerto sem retry', async () => {
+  const controller = new AbortController();
+  const deadline = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(controller.signal);
+  const fetchImpl = vi.fn((_url: URL | RequestInfo, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+    if (!init?.signal) { reject(new Error('deadline ausente')); return; }
+    init.signal.addEventListener('abort', () => reject(init.signal!.reason), { once: true });
+  }));
+  try {
+    const result = createAsaasClient({ baseUrl: BASE_URL, apiKey: API_KEY, fetchImpl }).excluirCobranca('pay_1');
+    expect(deadline).toHaveBeenCalledWith(15_000);
+    controller.abort(new DOMException('Gateway timeout', 'TimeoutError'));
+    expect(await result).toMatchObject({ ok: false, error: { status: 0 } });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  } finally { deadline.mockRestore(); }
+});

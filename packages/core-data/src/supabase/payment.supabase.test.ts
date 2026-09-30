@@ -70,3 +70,14 @@ it('consultar lê projeção autorizada e não inicia cobrança', async () => {
   expect(await createPaymentSupabase({ rpc } as unknown as SupabaseClient<Database>).consultar('pedido')).toBeNull();
   expect(rpc).toHaveBeenCalledWith('consultar_tentativa_pagamento', { p_pedido_id: 'pedido' });
 });
+
+it('encerramento pede confirmação ao servidor com identidade estável', async () => {
+  const tentativa = { id: 'tentativa', pedidoId: 'pedido', estado: 'expirado' };
+  const { client, invoke } = fakeClient({ data: { tentativa }, error: null });
+  expect(await createPaymentSupabase(client).encerrarTentativa({ tentativaId: 'tentativa', operacaoId: 'encerrar-op' })).toEqual(tentativa);
+  expect(invoke).toHaveBeenCalledWith('close-payment-attempt', { body: { tentativa_id: 'tentativa', operacao_id: 'encerrar-op' } });
+});
+it('falha de encerramento não é convertida em tentativa encerrada', async () => {
+  const { client } = fakeClient({ data: { error: { code: 'PAGAMENTO_RECONCILIACAO', message: 'Aguarde a conciliação.' } }, error: null });
+  await expect(createPaymentSupabase(client).encerrarTentativa({ tentativaId: 'tentativa', operacaoId: 'encerrar-op' })).rejects.toThrow('conciliação');
+});

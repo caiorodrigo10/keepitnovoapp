@@ -1,3 +1,4 @@
+import { createPaymentHttpHandler } from '../_shared/payment-http.ts';
 import type { AsaasClient } from '../_shared/asaas.ts';
 import { publicPaymentAttempt } from '../_shared/payment-attempt.ts';
 import type { DurablePaymentAttempt, PaymentAttempt } from '../_shared/payment-attempt.ts';
@@ -21,6 +22,7 @@ export interface PixChargeFields {
 export type CreatePixPaymentResult = { ok: true; data: PixChargeFields }
   | { ok: false; error: { status: number; code: string; message: string } };
 const failure = (status: number, code: string, message: string): CreatePixPaymentResult => ({ ok: false, error: { status, code, message } });
+const definitiveRejection = (status: number) => status >= 400 && status < 500 && ![408, 429].includes(status);
 const reconciliation = () => failure(409, 'PAGAMENTO_RECONCILIACAO', 'Aguarde a conciliação desta tentativa antes de pagar novamente.');
 
 export async function handleCreatePixPayment(
@@ -47,7 +49,7 @@ export async function handleCreatePixPayment(
     try {
       const customer = await deps.asaasClient.criarCliente({ name: pedido.cliente_nome, cpfCnpj: pedido.cliente_cpf, externalReference: pedido.cliente_id });
       if (!customer.ok) {
-        attempt = await deps.pedidos.save(attempt.id, attempt.claim_token, { estado: customer.error.status >= 400 && customer.error.status < 500 ? 'recusado' : 'reconciliacao' });
+        attempt = await deps.pedidos.save(attempt.id, attempt.claim_token, { estado: definitiveRejection(customer.error.status) ? 'recusado' : 'reconciliacao' });
         return attempt.estado === 'recusado' ? failure(422, 'PAGAMENTO_RECUSADO', 'Não foi possível iniciar o pagamento. Revise seu cadastro.') : reconciliation();
       }
       const charge = await deps.asaasClient.criarCobranca({
@@ -56,7 +58,7 @@ export async function handleCreatePixPayment(
       });
       if (!charge.ok) {
         // Respostas 408/429 e 5xx não provam ausência de efeito externo.
-        const rejected = charge.error.status >= 400 && charge.error.status < 500 && ![408, 429].includes(charge.error.status);
+        const rejected = definitiveRejection(charge.error.status);
         attempt = await deps.pedidos.save(attempt.id, attempt.claim_token, { estado: rejected ? 'recusado' : 'reconciliacao' });
         return rejected ? failure(422, 'PAGAMENTO_RECUSADO', 'Pagamento recusado pelo gateway.') : reconciliation();
       }
@@ -85,27 +87,11 @@ export function createPixHttpHandler(deps: {
   authenticate(token: string): Promise<string | null>;
   createDeps(token: string): CreatePixPaymentDeps;
 }) {
-  return async (req: Request): Promise<Response> => {
-    const origin = req.headers.get('origin');
-    const headers: Record<string, string> = { 'Content-Type': 'application/json', Vary: 'Origin' };
-    const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers });
-    if (origin && !deps.allowedOrigins.includes(origin)) return json(403, { error: { code: 'ORIGEM_NEGADA' } });
-    if (origin) Object.assign(headers, { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info' });
-    if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers });
-    if (req.method !== 'POST') return json(405, { error: { code: 'METODO_INVALIDO' } });
-    const authorization = req.headers.get('authorization');
-    if (!authorization?.startsWith('Bearer ')) return json(401, { error: { code: 'AUTENTICACAO_NECESSARIA' } });
-    try {
-      const token = authorization.slice(7);
-      const usuario = await deps.authenticate(token);
-      if (!usuario) return json(401, { error: { code: 'AUTENTICACAO_NECESSARIA' } });
-      let body: unknown;
-      try { body = await req.json(); } catch { return json(400, { error: { code: 'BODY_INVALIDO' } }); }
-      const b = body as { pedido_id?: unknown; operacao_id?: unknown } | null;
-      const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-      if (!b || typeof b.pedido_id !== 'string' || !uuid.test(b.pedido_id) || typeof b.operacao_id !== 'string' || !uuid.test(b.operacao_id)) return json(400, { error: { code: 'ENTRADA_INVALIDA' } });
-      const result = await handleCreatePixPayment({ pedido_id: b.pedido_id, operacao_id: b.operacao_id, usuario_id: usuario }, deps.createDeps(token));
-      return result.ok ? json(200, { pedido_id: b.pedido_id, ...result.data }) : json(result.error.status, { error: result.error });
-    } catch { return json(503, { error: { code: 'PAGAMENTO_INDISPONIVEL', message: 'Não foi possível consultar o pagamento. Preserve esta operação para tentar novamente.' } }); }
-  };
+  return createPaymentHttpHandler({
+    idField: 'pedido_id', allowedOrigins: deps.allowedOrigins, authenticate: deps.authenticate,
+    async execute(pedidoId, operacaoId, usuarioId, token) {
+      const result = await handleCreatePixPayment({ pedido_id: pedidoId, operacao_id: operacaoId, usuario_id: usuarioId }, deps.createDeps(token));
+      return result.ok ? { status: 200, body: { pedido_id: pedidoId, ...result.data } } : { status: result.error.status, body: { error: result.error } };
+    },
+  });
 }

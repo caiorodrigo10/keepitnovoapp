@@ -17,6 +17,8 @@ export interface HolderInput {
   name: string; email: string; cpfCnpj: string; postalCode: string; addressNumber: string; phone: string;
 }
 export interface PaymentExtensions {
+  /** Encerramento explícito e idempotente; só libera outra operação após confirmação do gateway. */
+  encerrarTentativa(input: { tentativaId: string; operacaoId: string }): Promise<PaymentAttempt>;
   iniciarPix(input: { pedidoId: string; operacaoId: string }): Promise<PaymentAttempt>;
   pagarCartao(input: { pedidoId: string; operacaoId: string; cartao: CardInput; titular: HolderInput }): Promise<PaymentAttempt>;
   consultar(pedidoId: string): Promise<PaymentAttempt | null>;
