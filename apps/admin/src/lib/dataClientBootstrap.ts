@@ -14,6 +14,7 @@ export interface BootstrapAdminDataClientOptions {
 }
 
 let sharedSupabaseClient: SupabaseClient<Database> | null = null;
+let sharedBootstrap: Promise<DataClient> | null = null;
 
 /** Live binding usado por `adminAuth` somente depois do bootstrap do provider. */
 export let adminDataSource: DataMode = 'mock';
@@ -27,19 +28,35 @@ export async function bootstrapAdminDataClient(
     return null;
   }
 
-  const initialize = options.recover ? recoverDataClient : initializeDataClient;
-  if (dataSource === 'mock') {
-    const client = await initialize({ source: 'mock' });
-    sharedSupabaseClient = null;
-    adminDataSource = 'mock';
-    return client;
+  if (!options.recover && sharedBootstrap) {
+    return sharedBootstrap;
   }
 
-  const supabaseClient = createClient();
-  const client = await initialize({ source: 'supabase', supabaseClient });
-  sharedSupabaseClient = supabaseClient;
-  adminDataSource = 'supabase';
-  return client;
+  const initialize = options.recover ? recoverDataClient : initializeDataClient;
+  const initialization = (async () => {
+    if (dataSource === 'mock') {
+      const client = await initialize({ source: 'mock' });
+      sharedSupabaseClient = null;
+      adminDataSource = 'mock';
+      return client;
+    }
+
+    const supabaseClient = createClient();
+    const client = await initialize({ source: 'supabase', supabaseClient });
+    sharedSupabaseClient = supabaseClient;
+    adminDataSource = 'supabase';
+    return client;
+  })();
+
+  let guardedInitialization: Promise<DataClient>;
+  guardedInitialization = initialization.catch((error: unknown) => {
+    if (sharedBootstrap === guardedInitialization) {
+      sharedBootstrap = null;
+    }
+    throw error;
+  });
+  sharedBootstrap = guardedInitialization;
+  return guardedInitialization;
 }
 
 export function getAdminSupabaseClient(): SupabaseClient<Database> | null {

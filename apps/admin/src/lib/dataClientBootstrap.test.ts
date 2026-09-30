@@ -45,6 +45,40 @@ describe('dataClientBootstrap (Admin)', () => {
     expect(initializeDataClientMock).not.toHaveBeenCalled();
   });
 
+  it('duas chamadas reutilizam a instância usada pelo DataClient e pela autenticação', async () => {
+    process.env.DATA_SOURCE = 'supabase';
+    vi.stubGlobal('window', {});
+    const supabaseClientA = { id: 'supabase-a' };
+    const supabaseClientB = { id: 'supabase-b' };
+    const dataClient = { adapterClient: supabaseClientA };
+    createClientMock
+      .mockReturnValueOnce(supabaseClientA)
+      .mockReturnValueOnce(supabaseClientB);
+    let resolveInitialization!: (value: typeof dataClient) => void;
+    initializeDataClientMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveInitialization = resolve;
+      }),
+    );
+    const module = await import('./dataClientBootstrap');
+
+    const firstInitialization = module.bootstrapAdminDataClient();
+    const secondInitialization = module.bootstrapAdminDataClient();
+
+    expect(createClientMock).toHaveBeenCalledTimes(1);
+    expect(initializeDataClientMock).toHaveBeenCalledTimes(1);
+    resolveInitialization(dataClient);
+    const [first, second] = await Promise.all([firstInitialization, secondInitialization]);
+
+    expect(first).toBe(dataClient);
+    expect(second).toBe(dataClient);
+    expect(initializeDataClientMock).toHaveBeenCalledWith({
+      source: 'supabase',
+      supabaseClient: supabaseClientA,
+    });
+    expect(module.getAdminSupabaseClient()).toBe(supabaseClientA);
+  });
+
   it('falha real no browser rejeita sem recuperar em mock', async () => {
     process.env.DATA_SOURCE = 'supabase';
     vi.stubGlobal('window', {});
