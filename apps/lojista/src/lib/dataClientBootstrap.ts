@@ -1,51 +1,92 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@keepit/supabase-client';
-import { getDataClient } from '@keepit/core-data';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  initializeDataClient,
+  recoverDataClient,
+  resolveDataMode,
+  type DataClient,
+} from '@keepit/core-data';
 
-/**
- * Bootstrap do `DataClient` do app Lojista — Story 3.2 (Dependencies, item 4;
- * "Bootstrap do `DataClient` real do app Lojista").
- *
- * [IDS] ADAPT de `apps/cliente/src/lib/dataClientBootstrap.ts` (Story 2.5.1).
- * Mesma estrutura (gate por `EXPO_PUBLIC_DATA_SOURCE`, `AsyncStorage` como
- * storage — [AUTO-DECISION] mesma escolha do Cliente → reason: a mission
- * desta Story pede explicitamente "espelhe a decisão do Cliente: AsyncStorage
- * (não SecureStore — fora de escopo)"; a Story 2.5.1 já fixou essa decisão
- * para o app Cliente, e nada nesta Story exige um storage diferente para o
- * Lojista), fallback silencioso para mock sem tela branca.
- *
- * **Diferença deliberada:** SEM `passwordRecoveryState` — esse conceito é
- * exclusivo do fluxo de recuperação de senha do Cliente (Story 2.7), que não
- * existe no Lojista nesta fatia (login real do Lojista é a Story 3.10, fora
- * deste lote). Passar `undefined` para `getDataClient()` mantém o adapter de
- * `auth` (Cliente) usando seu próprio estado em memória — o Lojista não usa
- * `auth`, usa `lojistaAuth` (Story 3.2), que não tem esse conceito.
- *
- * **Sessão mock do Lojista preservada.** Este bootstrap só afeta
- * `getDataClient()` (o `DataClient` de `packages/core-data`, consumido pelo
- * novo `lojistaAuth.signUp`) — `lojistaSession.ts` (sessão mock local do
- * Lojista, Story 9.0.4) continua inteiramente à parte, sem nenhuma relação
- * com este módulo. Login real do Lojista (Story 3.10) decidirá se/como os
- * dois se reconciliam.
- *
- * Precisa ser o PRIMEIRO import de `App.tsx` (mesmo motivo documentado no
- * Cliente): `getDataClient()` memoiza a configuração da primeira chamada.
- */
-const dataSource = process.env.EXPO_PUBLIC_DATA_SOURCE?.trim() === 'supabase' ? 'supabase' : 'mock';
+const DATA_CLIENT_BOOTSTRAP_TIMEOUT_MS = 5_000;
 
-if (dataSource === 'supabase') {
-  try {
-    const supabaseClient = createClient({
-      storage: AsyncStorage,
-      persistSession: true,
-      autoRefreshToken: true,
-    });
-    getDataClient({ source: 'supabase', supabaseClient });
-  } catch (error) {
-    console.warn(
-      '[dataClientBootstrap] falha ao inicializar o client Supabase — caindo para mock:',
-      error,
+export interface BootstrapDataClientOptions {
+  timeoutMs?: number;
+  recover?: boolean;
+}
+
+export type DataClientBootstrapState =
+  | { status: 'loading'; error: null }
+  | { status: 'ready'; error: null }
+  | { status: 'error'; error: Error };
+
+function settleWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('DataClient bootstrap timeout')), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timeout);
+        reject(error);
+      },
     );
-    getDataClient({ source: 'mock' });
+  });
+}
+
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error('DATA_CLIENT_INDISPONIVEL');
+}
+
+/** Inicializa ou recupera o mesmo modo configurado; nunca troca Supabase por mock. */
+export async function bootstrapDataClient(
+  options: BootstrapDataClientOptions = {},
+): Promise<DataClient> {
+  const timeoutMs = options.timeoutMs ?? DATA_CLIENT_BOOTSTRAP_TIMEOUT_MS;
+  const dataSource = resolveDataMode(process.env.EXPO_PUBLIC_DATA_SOURCE);
+  const initialize = options.recover ? recoverDataClient : initializeDataClient;
+
+  if (dataSource === 'mock') {
+    return settleWithin(initialize({ source: 'mock' }), timeoutMs);
   }
+
+  const supabaseClient = createClient({
+    storage: AsyncStorage,
+    persistSession: true,
+    autoRefreshToken: true,
+  });
+  return settleWithin(initialize({ source: 'supabase', supabaseClient }), timeoutMs);
+}
+
+export const dataClientReady: Promise<DataClient> = bootstrapDataClient();
+void dataClientReady.catch(() => undefined);
+
+/** Expõe loading/erro/retry ao root sem montar consumidores prematuramente. */
+export function useDataClientBootstrap(): DataClientBootstrapState & { retry: () => void } {
+  const [attempt, setAttempt] = useState(0);
+  const [state, setState] = useState<DataClientBootstrapState>({ status: 'loading', error: null });
+
+  useEffect(() => {
+    let mounted = true;
+    const readiness = attempt === 0 ? dataClientReady : bootstrapDataClient({ recover: true });
+    void readiness.then(
+      () => {
+        if (mounted) setState({ status: 'ready', error: null });
+      },
+      (error: unknown) => {
+        if (mounted) setState({ status: 'error', error: asError(error) });
+      },
+    );
+    return () => {
+      mounted = false;
+    };
+  }, [attempt]);
+
+  const retry = useCallback(() => {
+    setState({ status: 'loading', error: null });
+    setAttempt((current) => current + 1);
+  }, []);
+  return { ...state, retry };
 }

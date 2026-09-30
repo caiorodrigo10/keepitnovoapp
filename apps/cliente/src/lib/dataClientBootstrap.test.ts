@@ -24,6 +24,11 @@ const recoverDataClientMock = vi.fn();
 vi.mock('@keepit/core-data', () => ({
   initializeDataClient: (...args: unknown[]) => initializeDataClientMock(...args),
   recoverDataClient: (...args: unknown[]) => recoverDataClientMock(...args),
+  resolveDataMode: (value: string | undefined) => {
+    const normalized = value?.trim();
+    if (normalized === 'mock' || normalized === 'supabase') return normalized;
+    throw new Error('DATA_SOURCE_INVALIDO');
+  },
 }));
 
 describe('dataClientBootstrap', () => {
@@ -51,8 +56,8 @@ describe('dataClientBootstrap', () => {
     }
   });
 
-  it('modo mock injeta AsyncStorage e expõe uma promessa de hidratação', async () => {
-    delete process.env.EXPO_PUBLIC_DATA_SOURCE;
+  it('modo mock explícito injeta AsyncStorage e expõe uma promessa de hidratação', async () => {
+    process.env.EXPO_PUBLIC_DATA_SOURCE = 'mock';
 
     const module = await import('./dataClientBootstrap');
 
@@ -68,17 +73,15 @@ describe('dataClientBootstrap', () => {
     });
   });
 
-  it('EXPO_PUBLIC_DATA_SOURCE com valor diferente de "supabase" também hidrata o mock persistente', async () => {
-    process.env.EXPO_PUBLIC_DATA_SOURCE = 'mock';
+  it('ausência de modo rejeita o bootstrap sem inicializar demo', async () => {
+    delete process.env.EXPO_PUBLIC_DATA_SOURCE;
 
     const module = await import('./dataClientBootstrap');
 
-    await module.dataClientReady;
+    await expect(module.dataClientReady).rejects.toThrow('DATA_SOURCE_INVALIDO');
     expect(createClientMock).not.toHaveBeenCalled();
-    expect(initializeDataClientMock).toHaveBeenCalledWith({
-      source: 'mock',
-      clienteMockStorage: expect.any(Object),
-    });
+    expect(initializeDataClientMock).not.toHaveBeenCalled();
+    expect(recoverDataClientMock).not.toHaveBeenCalled();
   });
 
   it('EXPO_PUBLIC_DATA_SOURCE=supabase: cria o client móvel em PKCE persistente e aguarda sua inicialização', async () => {
@@ -128,122 +131,33 @@ describe('dataClientBootstrap', () => {
     expect(asyncStorageMock.removeItem).toHaveBeenCalledWith('@keepit/auth/password-recovery-active');
   });
 
-  it('falha no Supabase degrada pela mesma inicialização para mock persistente', async () => {
+  it('falha ao criar o Supabase rejeita sem recuperar em mock', async () => {
     process.env.EXPO_PUBLIC_DATA_SOURCE = 'supabase';
     createClientMock.mockImplementation(() => {
       throw new Error('EXPO_PUBLIC_SUPABASE_URL ausente');
     });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
     const module = await import('./dataClientBootstrap');
 
-    await expect(module.dataClientReady).resolves.toBe('recovered-mock-client');
-    expect(recoverDataClientMock).toHaveBeenCalledWith({
-      source: 'mock',
-      clienteMockStorage: expect.any(Object),
-    });
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[dataClientBootstrap] inicialização indisponível; usando fallback mock.',
-    );
-
-    warnSpy.mockRestore();
+    await expect(module.dataClientReady).rejects.toThrow('EXPO_PUBLIC_SUPABASE_URL ausente');
+    expect(recoverDataClientMock).not.toHaveBeenCalled();
   });
 
-  it('throw síncrono na hidratação mock resolve pelo fallback volátil sem criar client Supabase', async () => {
-    delete process.env.EXPO_PUBLIC_DATA_SOURCE;
-    initializeDataClientMock.mockImplementation(() => {
-      throw new Error('storage indisponível');
-    });
-    recoverDataClientMock.mockResolvedValue('volatile-mock-client');
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-    const module = await import('./dataClientBootstrap');
-
-    await expect(module.dataClientReady).resolves.toBe('volatile-mock-client');
-    expect(createClientMock).not.toHaveBeenCalled();
-    expect(initializeDataClientMock).toHaveBeenCalledOnce();
-    expect(recoverDataClientMock).toHaveBeenCalledWith({ source: 'mock' });
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[dataClientBootstrap] inicialização indisponível; usando fallback mock.',
-    );
-
-    warnSpy.mockRestore();
-  });
-
-  it('rejeição assíncrona na hidratação mock resolve pelo fallback volátil sem criar client Supabase', async () => {
-    delete process.env.EXPO_PUBLIC_DATA_SOURCE;
-    initializeDataClientMock.mockRejectedValue(new Error('storage indisponível'));
-    recoverDataClientMock.mockResolvedValue('volatile-mock-client');
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-    const module = await import('./dataClientBootstrap');
-
-    await expect(module.dataClientReady).resolves.toBe('volatile-mock-client');
-    expect(createClientMock).not.toHaveBeenCalled();
-    expect(initializeDataClientMock).toHaveBeenCalledOnce();
-    expect(recoverDataClientMock).toHaveBeenCalledWith({ source: 'mock' });
-    expect(warnSpy).toHaveBeenCalledWith(
-      '[dataClientBootstrap] inicialização indisponível; usando fallback mock.',
-    );
-
-    warnSpy.mockRestore();
-  });
-
-  it('notifica o gate somente depois que o fallback de hidratação libera dataClientReady', async () => {
-    delete process.env.EXPO_PUBLIC_DATA_SOURCE;
-    initializeDataClientMock.mockRejectedValue(new Error('storage indisponível'));
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const onReady = vi.fn();
-    const module = await import('./dataClientBootstrap');
-
-    const unsubscribe = module.subscribeToDataClientReady(module.dataClientReady, onReady);
-
-    expect(onReady).not.toHaveBeenCalled();
-    await module.dataClientReady;
-    await Promise.resolve();
-    expect(onReady).toHaveBeenCalledTimes(1);
-
-    unsubscribe();
-  });
-
-  it('limita uma hidratação pendente pelo timeout configurado e libera o boot com singleton novo', async () => {
-    delete process.env.EXPO_PUBLIC_DATA_SOURCE;
+  it('retry do modo real recupera somente em Supabase', async () => {
+    process.env.EXPO_PUBLIC_DATA_SOURCE = 'supabase';
+    createClientMock.mockReturnValue('fake-supabase-client');
     const module = await import('./dataClientBootstrap');
     await module.dataClientReady;
-    initializeDataClientMock.mockReset();
-    initializeDataClientMock.mockReturnValue(new Promise(() => {}));
     recoverDataClientMock.mockReset();
-    recoverDataClientMock.mockResolvedValue('volatile-mock-client');
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    vi.useFakeTimers();
+    recoverDataClientMock.mockResolvedValue('recovered-supabase-client');
 
-    let settled = false;
-    const readiness = module.bootstrapDataClient({ timeoutMs: 25 });
-    void readiness.then(() => {
-      settled = true;
-    });
-
-    await vi.advanceTimersByTimeAsync(24);
-    expect(settled).toBe(false);
-    await vi.advanceTimersByTimeAsync(1);
-    await expect(readiness).resolves.toBe('volatile-mock-client');
-    expect(recoverDataClientMock).toHaveBeenCalledWith({ source: 'mock' });
-  });
-
-  it('cleanup do gate impede notificação depois do unmount', async () => {
-    let resolveReady!: (value: string) => void;
-    const pendingReady = new Promise<string>((resolve) => {
-      resolveReady = resolve;
-    });
-    const onReady = vi.fn();
-    const module = await import('./dataClientBootstrap');
-
-    const unsubscribe = module.subscribeToDataClientReady(pendingReady, onReady);
-    unsubscribe();
-    resolveReady('mock-client');
-    await pendingReady;
-    await Promise.resolve();
-
-    expect(onReady).not.toHaveBeenCalled();
+    await expect(module.bootstrapDataClient({ recover: true })).resolves.toBe(
+      'recovered-supabase-client',
+    );
+    expect(recoverDataClientMock).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'supabase' }),
+    );
+    expect(recoverDataClientMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'mock' }),
+    );
   });
 });

@@ -1,9 +1,9 @@
 // PRIMEIRO import do arquivo, deliberadamente: inicia a hidratação antes que
 // qualquer consumidor de `getDataClient()` seja montado.
-import { useDataClientReady } from './src/lib/dataClientBootstrap';
+import { useDataClientBootstrap } from './src/lib/dataClientBootstrap';
 
 import { useMemo } from 'react';
-import { Linking } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
@@ -40,17 +40,41 @@ import { createPasswordRecoveryLinking } from './src/navigation/passwordRecovery
  * comportamento, só evitaria uma alocação desnecessária.
  */
 export default function App() {
-  const dataReady = useDataClientReady();
+  const dataClient = useDataClientBootstrap();
   const [fontsLoaded, fontError] = useFonts(fonts);
+
+  if (dataClient.status === 'error') {
+    return <DataClientUnavailable onRetry={dataClient.retry} />;
+  }
 
   // Espera as fontes carregarem no nativo; se o carregamento falhar (ex.: alvo
   // web onde o .ttf não decodifica), renderiza mesmo assim com fonte fallback
   // em vez de travar em tela branca.
-  if (!canMountReadyApp(dataReady, fontsLoaded, Boolean(fontError))) {
+  if (!canMountReadyApp(dataClient.status === 'ready', fontsLoaded, Boolean(fontError))) {
     return null;
   }
 
   return <ReadyApp />;
+}
+
+function DataClientUnavailable({ onRetry }: { onRetry: () => void }) {
+  return (
+    <SafeAreaProvider>
+      <View style={styles.unavailableContainer} accessibilityRole="alert">
+        <Text style={styles.unavailableTitle}>Serviço indisponível</Text>
+        <Text style={styles.unavailableMessage}>
+          Não foi possível conectar aos dados. Verifique a configuração e tente novamente.
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={onRetry}
+          style={styles.retryButton}
+        >
+          <Text style={styles.retryButtonText}>Tentar novamente</Text>
+        </Pressable>
+      </View>
+    </SafeAreaProvider>
+  );
 }
 
 function ReadyApp() {
@@ -81,3 +105,38 @@ function ReadyApp() {
     </GestureHandlerRootView>
   );
 }
+
+const styles = StyleSheet.create({
+  unavailableContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    backgroundColor: '#F7F7F7',
+  },
+  unavailableTitle: {
+    color: '#1F1F1F',
+    fontSize: 22,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  unavailableMessage: {
+    marginTop: 12,
+    color: '#5F5F5F',
+    fontSize: 16,
+    lineHeight: 24,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 24,
+    borderRadius: 10,
+    backgroundColor: '#1F6B45',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+});

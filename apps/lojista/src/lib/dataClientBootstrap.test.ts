@@ -18,9 +18,16 @@ vi.mock('@keepit/supabase-client', () => ({
   createClient: (...args: unknown[]) => createClientMock(...args),
 }));
 
-const getDataClientMock = vi.fn();
+const initializeDataClientMock = vi.fn();
+const recoverDataClientMock = vi.fn();
 vi.mock('@keepit/core-data', () => ({
-  getDataClient: (...args: unknown[]) => getDataClientMock(...args),
+  initializeDataClient: (...args: unknown[]) => initializeDataClientMock(...args),
+  recoverDataClient: (...args: unknown[]) => recoverDataClientMock(...args),
+  resolveDataMode: (value: string | undefined) => {
+    const normalized = value?.trim();
+    if (normalized === 'mock' || normalized === 'supabase') return normalized;
+    throw new Error('DATA_SOURCE_INVALIDO');
+  },
 }));
 
 describe('dataClientBootstrap (Lojista)', () => {
@@ -29,7 +36,10 @@ describe('dataClientBootstrap (Lojista)', () => {
   beforeEach(() => {
     vi.resetModules();
     createClientMock.mockReset();
-    getDataClientMock.mockReset();
+    initializeDataClientMock.mockReset();
+    initializeDataClientMock.mockResolvedValue('data-client');
+    recoverDataClientMock.mockReset();
+    recoverDataClientMock.mockResolvedValue('recovered-data-client');
     asyncStorageMock.getItem.mockReset();
     asyncStorageMock.setItem.mockReset();
     asyncStorageMock.removeItem.mockReset();
@@ -43,29 +53,34 @@ describe('dataClientBootstrap (Lojista)', () => {
     }
   });
 
-  it('modo mock (default seguro): não cria client Supabase nem chama getDataClient', async () => {
-    delete process.env.EXPO_PUBLIC_DATA_SOURCE;
-
-    await import('./dataClientBootstrap');
-
-    expect(createClientMock).not.toHaveBeenCalled();
-    expect(getDataClientMock).not.toHaveBeenCalled();
-  });
-
-  it('EXPO_PUBLIC_DATA_SOURCE com valor diferente de "supabase" também continua em modo mock', async () => {
+  it('modo mock precisa ser explícito e inicializa o DataClient', async () => {
     process.env.EXPO_PUBLIC_DATA_SOURCE = 'mock';
 
-    await import('./dataClientBootstrap');
+    const module = await import('./dataClientBootstrap');
 
+    await expect(module.dataClientReady).resolves.toBe('data-client');
     expect(createClientMock).not.toHaveBeenCalled();
-    expect(getDataClientMock).not.toHaveBeenCalled();
+    expect(initializeDataClientMock).toHaveBeenCalledWith({ source: 'mock' });
+  });
+
+  it('ausência de modo rejeita sem autorizar demo', async () => {
+    delete process.env.EXPO_PUBLIC_DATA_SOURCE;
+
+    const module = await import('./dataClientBootstrap');
+
+    await expect(module.dataClientReady).rejects.toThrow('DATA_SOURCE_INVALIDO');
+    expect(createClientMock).not.toHaveBeenCalled();
+    expect(initializeDataClientMock).not.toHaveBeenCalled();
+    expect(recoverDataClientMock).not.toHaveBeenCalled();
   });
 
   it('EXPO_PUBLIC_DATA_SOURCE=supabase: cria o client com AsyncStorage/persistSession/autoRefreshToken e injeta em getDataClient, sem passwordRecoveryState (exclusivo do Cliente)', async () => {
     process.env.EXPO_PUBLIC_DATA_SOURCE = 'supabase';
     createClientMock.mockReturnValue('fake-supabase-client');
 
-    await import('./dataClientBootstrap');
+    const module = await import('./dataClientBootstrap');
+
+    await module.dataClientReady;
 
     expect(createClientMock).toHaveBeenCalledTimes(1);
     const [options] = createClientMock.mock.calls[0] as [
@@ -75,24 +90,35 @@ describe('dataClientBootstrap (Lojista)', () => {
     expect(options.persistSession).toBe(true);
     expect(options.autoRefreshToken).toBe(true);
 
-    expect(getDataClientMock).toHaveBeenCalledWith({
+    expect(initializeDataClientMock).toHaveBeenCalledWith({
       source: 'supabase',
       supabaseClient: 'fake-supabase-client',
     });
   });
 
-  it('falha ao criar o client Supabase degrada para mock sem lançar (sem tela branca no boot)', async () => {
+  it('falha ao criar o client Supabase rejeita sem recuperar em mock', async () => {
     process.env.EXPO_PUBLIC_DATA_SOURCE = 'supabase';
     createClientMock.mockImplementation(() => {
       throw new Error('EXPO_PUBLIC_SUPABASE_URL ausente');
     });
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const module = await import('./dataClientBootstrap');
 
-    await expect(import('./dataClientBootstrap')).resolves.toBeDefined();
+    await expect(module.dataClientReady).rejects.toThrow('EXPO_PUBLIC_SUPABASE_URL ausente');
+    expect(recoverDataClientMock).not.toHaveBeenCalled();
+  });
 
-    expect(getDataClientMock).toHaveBeenCalledWith({ source: 'mock' });
-    expect(warnSpy).toHaveBeenCalledTimes(1);
+  it('retry do modo real recupera somente em Supabase', async () => {
+    process.env.EXPO_PUBLIC_DATA_SOURCE = 'supabase';
+    createClientMock.mockReturnValue('fake-supabase-client');
+    const module = await import('./dataClientBootstrap');
+    await module.dataClientReady;
 
-    warnSpy.mockRestore();
+    await module.bootstrapDataClient({ recover: true });
+
+    expect(recoverDataClientMock).toHaveBeenCalledWith({
+      source: 'supabase',
+      supabaseClient: 'fake-supabase-client',
+    });
+    expect(recoverDataClientMock).not.toHaveBeenCalledWith({ source: 'mock' });
   });
 });

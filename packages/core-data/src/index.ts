@@ -291,6 +291,7 @@ export * from './ports/payment.port';
 export * from './ports/product.port';
 export * from './ports/store.port';
 export * from './ports/wallet.port';
+export * from './data-mode';
 export * from './types';
 export type { ClienteMockStorage } from './mock/cliente-state';
 /** Story 2.3 (Task 6/7) — `EmailJaExisteError`, consumido por `CriarConta.tsx` (AC4). */
