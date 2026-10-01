@@ -151,16 +151,18 @@ export function AccountDeletionPublicFlow() {
     <div className="w-full max-w-lg">
       <div className="px-1">
         <div className="flex items-center gap-2.5">
-          <span className="text-xl font-extrabold tracking-wide text-text-primary">KEEPITHUB</span>
+          <span className="text-xl font-extrabold tracking-wide text-text-primary">Keepit</span>
           <span className="h-2.5 w-2.5 rounded-full bg-accent-brand" aria-hidden="true" />
         </div>
-        <p className="mt-3 text-smd font-medium text-text-tertiary">Conta do cliente</p>
+        <p className="mt-3 text-smd font-medium text-text-tertiary">Cliente ou lojista</p>
       </div>
 
       <Card className="mt-8 rounded-modal border-border-muted bg-bg-primary p-8 shadow-xl sm:p-10">
         <h1 className="text-3xl font-bold tracking-tight text-text-primary">Exclusão de conta</h1>
         <p className="mt-2 text-md text-text-secondary">
-          Consulte, agende ou recupere sua conta usando as próprias credenciais.
+          Consulte, agende ou recupere sua conta usando as próprias credenciais, sem instalar o aplicativo.
+          O agendamento abre um prazo de sete dias para recuperação. A conclusão depende da
+          política de retenção aplicável.
         </p>
 
         {completedAction ? (

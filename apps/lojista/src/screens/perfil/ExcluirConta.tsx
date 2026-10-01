@@ -1,103 +1,117 @@
-import { Linking, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
+import { getDataClient, resolveDataMode, type AccountDeletionRecord } from '@keepit/core-data';
 import { darkColors, spacing, typography } from '@keepit/ui-tokens';
-import { SUPORTE_WHATSAPP_DISPONIVEL, SUPORTE_WHATSAPP_NUMERO } from '@keepit/config';
 
+import { FormField } from '../../components/FormField';
 import { PrimaryButton } from '../../components/PrimaryButton';
+import { useCurrentStore } from '../../context/CurrentStoreContext';
+import { publishDeletionPersisted, scheduleLojistaDeletion } from '../../lib/accountDeletionAccess';
 import type { PerfilStackParamList } from '../../navigation/types';
+import { signOutLojista } from '../../navigation/lojistaSession';
 
 type Props = NativeStackScreenProps<PerfilStackParamList, 'ExcluirConta'>;
 
-function handleFalarComAtendimento(): void {
-  if (SUPORTE_WHATSAPP_DISPONIVEL && SUPORTE_WHATSAPP_NUMERO) {
-    void Linking.openURL(`https://wa.me/${SUPORTE_WHATSAPP_NUMERO}`);
-  }
-  // Enquanto `SUPORTE_WHATSAPP_DISPONIVEL` é `false` (WA-001 pendente), o
-  // botão fica `disabled` (ver JSX abaixo) — `onPress` nem chega a disparar
-  // neste estado, mesmo padrão já usado em `EmAnalise.tsx`/`ContaIndisponivel.tsx`.
-}
-
-/**
- * Excluir conta — Story 0.8 (Task 10), honestidade corrigida pela Story 3.12
- * (AC1).
- *
- * **Antes (Story 0.8):** simulava sucesso — `Alert.alert('Conta excluída',
- * 'Esta é uma simulação...')` seguido de `navigation.popToTop()`, sem
- * nenhuma chamada real. O próprio JSDoc anterior já documentava isso como
- * provisório.
- *
- * **Agora (Story 3.12, AC1).** A exclusão de conta é uma ação MANUAL do
- * atendimento/admin da Keepit — nunca automatizada por este app (fora do
- * roadmap do piloto, ver Dev Notes da Story). Esta tela nunca chama nenhuma
- * mutação (`estabelecimentos.status`, `auth.users`, ou qualquer outra) — só
- * comunica o caminho real (atendimento via WhatsApp) e o canal, honestamente,
- * como indisponível enquanto WA-001 (`docs/orchestration/PENDENCIAS-CAIO.md`)
- * não é respondido.
- *
- * [IDS] REUSE do MESMO seam central `SUPORTE_WHATSAPP_NUMERO`/
- * `SUPORTE_WHATSAPP_DISPONIVEL` (`@keepit/config`, Story 3.6) e do MESMO
- * padrão de botão desabilitado + rótulo "(em breve)" já usado em
- * `EmAnalise.tsx`/`ContaIndisponivel.tsx` — dois sinais (estado visual +
- * texto) de que o canal ainda não está ativo, sem `wa.me`/`tel:`/`mailto:`
- * com número inventado. Quando WA-001 for respondido, a ativação é só a
- * troca de UM valor em `@keepit/config`, sem redesenho desta tela.
- *
- * [AUTO-DECISION] `ConfirmModal` (Story 0.8) removido desta tela → (reason:
- * o modal existia para confirmar uma ação DESTRUTIVA local antes de um
- * `Alert` de sucesso fictício. Sem nenhuma ação destrutiva real acontecendo
- * aqui — só um link honesto para o atendimento, hoje desabilitado — um modal
- * de "tem certeza?" antes de um botão que nem dispara nada neste estado
- * criaria confirmação sem efeito, o que a própria regra de honestidade do
- * AC1 (Ajuste @po: "a copy não pode dar a entender que uma solicitação foi
- * registrada/enviada") pede para evitar. `ConfirmModal` continua em uso por
- * `EditarProduto.tsx` — não removido do design system, só desta tela).
- */
 export default function ExcluirConta(_props: Props) {
-  return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: darkColors.bg.primary }]}>
-      <View style={styles.content}>
-        <View style={styles.body}>
-          <Text style={[styles.title, { color: darkColors.text.primary }]}>Excluir conta</Text>
-          <Text style={[styles.description, { color: darkColors.text.secondary }]}>
-            A exclusão da sua conta é feita pelo atendimento da Keepit — não é uma ação automática
-            deste app. Fale com a gente pelo WhatsApp para solicitar; nenhum dado é apagado só por
-            você visitar esta tela.
-          </Text>
-        </View>
+  const { id: storeId } = useCurrentStore();
+  const realAccount = resolveDataMode(process.env.EXPO_PUBLIC_DATA_SOURCE) === 'supabase';
+  const [record, setRecord] = useState<AccountDeletionRecord | null>(null);
+  const [loading, setLoading] = useState(realAccount);
+  const [statusReady, setStatusReady] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [password, setPassword] = useState('');
+  const [confirmed, setConfirmed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-        <PrimaryButton
-          label={SUPORTE_WHATSAPP_DISPONIVEL ? 'Falar com o atendimento' : 'Falar com o atendimento (em breve)'}
-          onPress={handleFalarComAtendimento}
-          disabled={!SUPORTE_WHATSAPP_DISPONIVEL}
-          variant="warning"
-        />
+  useEffect(() => {
+    if (!realAccount) return;
+    let alive = true;
+    void getDataClient().accountDeletion.status().then(
+      (deletion) => {
+        if (alive) {
+          setRecord(deletion);
+          setStatusReady(true);
+          setLoading(false);
+          if (storeId && deletion && deletion.status !== 'cancelled') {
+            publishDeletionPersisted(storeId, deletion);
+          }
+        }
+      },
+      () => {
+        if (alive) { setError('Não foi possível consultar a solicitação. Tente novamente.'); setLoading(false); }
+      },
+    );
+    return () => { alive = false; };
+  }, [realAccount, storeId]);
+
+  async function handleSchedule() {
+    if (!storeId || !confirmed || !password || pending || !statusReady) return;
+    setPending(true);
+    setError(null);
+    let persisted = false;
+    try {
+      const client = getDataClient();
+      await scheduleLojistaDeletion(client.accountDeletion, client.lojistaAuth, password, (deletion) => {
+        persisted = true;
+        publishDeletionPersisted(storeId, deletion);
+      });
+      signOutLojista();
+    } catch {
+      setError(persisted
+        ? 'A solicitação foi agendada, mas não foi possível sair. Use “Sair” para tentar novamente.'
+        : 'Não foi possível agendar a exclusão. Confira sua senha e tente novamente.');
+    } finally {
+      setPending(false);
+    }
+  }
+
+  const canSchedule = realAccount && statusReady && !loading && (record === null || record.status === 'cancelled');
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.content}>
+        <Text style={styles.title}>Exclusão de conta</Text>
+        {!realAccount ? (
+          <Text style={styles.description}>A exclusão de conta está disponível somente para contas reais autenticadas.</Text>
+        ) : loading ? (
+          <Text style={styles.description}>Consultando sua solicitação…</Text>
+        ) : (
+          <>
+            <Text style={styles.description}>
+              Ao agendar, sua sessão será encerrada. Você terá sete dias para recuperar a conta.
+              A conclusão depende da política de retenção aplicável.
+            </Text>
+            {record && record.status !== 'cancelled' ? (
+              <Text style={styles.description}>Já existe uma solicitação. Volte ao início para consultar o estado.</Text>
+            ) : (
+              <Text style={styles.description}>Nenhuma exclusão ativa foi encontrada.</Text>
+            )}
+            {canSchedule ? (
+              <View style={styles.actions}>
+                <FormField label="Senha atual" value={password} onChangeText={setPassword} secureTextEntry />
+                <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: confirmed }}
+                  onPress={() => setConfirmed((value) => !value)}>
+                  <Text style={styles.description}>{confirmed ? '☑' : '☐'} Confirmo o agendamento da exclusão.</Text>
+                </Pressable>
+                <PrimaryButton label="Agendar exclusão" variant="warning" loading={pending}
+                  disabled={!confirmed || !password} onPress={() => void handleSchedule()} />
+              </View>
+            ) : null}
+          </>
+        )}
+        {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
       </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-  },
-  content: {
-    flex: 1,
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing[5],
-    paddingVertical: spacing[6],
-  },
-  body: {
-    gap: spacing[3],
-  },
-  title: {
-    fontFamily: 'HankenGrotesk-Bold',
-    fontSize: typography.sizes['2xl'].fontSize,
-  },
-  description: {
-    fontFamily: 'HankenGrotesk-Regular',
-    fontSize: typography.sizes.md.fontSize,
-    lineHeight: typography.sizes.md.lineHeight,
-  },
+  safeArea: { flex: 1, backgroundColor: darkColors.bg.primary },
+  content: { flex: 1, paddingHorizontal: spacing[5], paddingVertical: spacing[6], gap: spacing[4] },
+  title: { color: darkColors.text.primary, fontFamily: 'HankenGrotesk-Bold', fontSize: typography.sizes['2xl'].fontSize },
+  description: { color: darkColors.text.secondary, fontFamily: 'HankenGrotesk-Regular', fontSize: typography.sizes.md.fontSize, lineHeight: typography.sizes.md.lineHeight },
+  actions: { gap: spacing[4] },
+  error: { color: darkColors.accent.warning, fontFamily: 'HankenGrotesk-Regular', fontSize: typography.sizes.sm.fontSize },
 });
