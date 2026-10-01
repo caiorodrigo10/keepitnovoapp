@@ -8,6 +8,7 @@ import {
 import type { Pedido, PedidoItem, PedidoStatus } from '../ports/order.port';
 import { clientesCredenciaisFixture, clientesFixture } from './fixtures';
 import type { MockDb } from './db';
+import type { SupportCase } from '../ports/support.port';
 import type { OrderAutomationRuntime } from './order-auto-progress';
 
 export const CLIENTE_MOCK_SCHEMA_VERSION = 7 as const;
@@ -123,6 +124,9 @@ export interface ClienteMockSnapshotV7 {
   accounts: ClienteMockAccount[];
   sessionClienteId: string | null;
   orders: Pedido[];
+  /** Campos opcionais mantêm snapshots v7 anteriores legíveis. */
+  supportCases?: SupportCase[];
+  supportDecisions?: MockDb['decisoesSolicitacao'];
   orderAutomation: Record<string, OrderAutomationRuntime>;
   favoriteHubIdsByClienteId: Record<string, string[]>;
   favoriteStoreIdsByClienteId: Record<string, string[]>;
@@ -708,7 +712,24 @@ function isClienteMockSnapshotV7(value: unknown): value is ClienteMockSnapshotV7
   }
 
   const accountIds = new Set(value.accounts.map((account) => account.id));
+  const orderIds = new Set(value.orders.map((order) => order.id));
+  const cases = value.supportCases;
+  const validCases = cases === undefined || (Array.isArray(cases) && cases.every((item) =>
+    isRecord(item) && typeof item.id === 'string' && typeof item.pedidoId === 'string' && orderIds.has(item.pedidoId) &&
+    typeof item.operacaoId === 'string' && typeof item.motivo === 'string' &&
+    ['cancelamento','pos_entrega','cliente_ausente','lojista_ausente','atraso'].includes(String(item.tipo)) &&
+    ['aberta','aprovada','negada','encerrada_por_pin'].includes(String(item.estado)) &&
+    isNullableString(item.motivoDecisao) && typeof item.criadoEm === 'string' && isNullableString(item.encerradaEm)
+  ));
+  const decisions = value.supportDecisions;
+  const caseIds = new Set(Array.isArray(cases) ? cases.map((item) => item.id) : []);
+  const validDecisions = decisions === undefined || (Array.isArray(decisions) && decisions.every((item) =>
+    isRecord(item) && typeof item.casoId === 'string' && caseIds.has(item.casoId) &&
+    typeof item.operacaoId === 'string' && typeof item.aprovar === 'boolean' &&
+    typeof item.motivo === 'string' && typeof item.decididoEm === 'string'
+  ));
   const hasValidShape =
+    validCases && validDecisions &&
     isQaScenarioState(value.qa) &&
     hasValidOrderAutomation(value.orderAutomation, new Set(value.orders.map((order) => order.id))) &&
     hasValidFavoritesByClienteId(value.favoriteHubIdsByClienteId, accountIds) &&
@@ -845,6 +866,8 @@ export function createClienteBaseline(): ClienteMockSnapshotV7 {
     ],
     sessionClienteId: null,
     orders: [],
+    supportCases: [],
+    supportDecisions: [],
     orderAutomation: {},
     favoriteHubIdsByClienteId: {},
     favoriteStoreIdsByClienteId: {},
@@ -898,6 +921,10 @@ export function applyClienteSnapshot(db: MockDb, snapshot: ClienteMockSnapshotV7
   db.clientes = db.clientes.filter((cliente) => !clienteIds.has(cliente.id));
   db.clienteCredenciais = db.clienteCredenciais.filter((credential) => !clienteIds.has(credential.clienteId));
   db.pedidos = db.pedidos.filter((pedido) => !clienteIds.has(pedido.cliente_id));
+  const managedPedidoIds = new Set(snapshot.orders.map((pedido) => pedido.id));
+  const oldCaseIds = new Set(db.solicitacoesPedido.filter((item) => managedPedidoIds.has(item.pedidoId)).map((item) => item.id));
+  db.solicitacoesPedido = db.solicitacoesPedido.filter((item) => !managedPedidoIds.has(item.pedidoId));
+  db.decisoesSolicitacao = db.decisoesSolicitacao.filter((item) => !oldCaseIds.has(item.casoId));
 
   db.clientes.push(...structuredClone(snapshot.accounts.map((account) => account.profile)));
   db.clienteCredenciais.push(
@@ -915,6 +942,8 @@ export function applyClienteSnapshot(db: MockDb, snapshot: ClienteMockSnapshotV7
     delete publicPedido.pin_hash;
     return publicPedido;
   })));
+  db.solicitacoesPedido.push(...structuredClone(snapshot.supportCases ?? []));
+  db.decisoesSolicitacao.push(...structuredClone(snapshot.supportDecisions ?? []));
   db.sessionClienteId = snapshot.sessionClienteId;
   db.favoriteHubIdsByClienteId = structuredClone(snapshot.favoriteHubIdsByClienteId);
   db.favoriteStoreIdsByClienteId = structuredClone(snapshot.favoriteStoreIdsByClienteId);

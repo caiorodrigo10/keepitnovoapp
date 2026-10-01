@@ -200,6 +200,8 @@ export class ClienteMockStateStore {
       accounts,
       sessionClienteId: this.db.sessionClienteId,
       orders: this.db.pedidos.filter((pedido) => clienteIds.has(pedido.cliente_id)),
+      supportCases: this.db.solicitacoesPedido.filter((item) => this.db.pedidos.some((pedido) => pedido.id === item.pedidoId && clienteIds.has(pedido.cliente_id))),
+      supportDecisions: this.db.decisoesSolicitacao.filter((item) => this.db.solicitacoesPedido.some((caso) => caso.id === item.casoId && this.db.pedidos.some((pedido) => pedido.id === caso.pedidoId && clienteIds.has(pedido.cliente_id)))),
       orderAutomation: this.db.clienteOrderAutomation,
       favoriteHubIdsByClienteId: Object.fromEntries(
         Object.entries(this.db.favoriteHubIdsByClienteId).filter(([clienteId]) => clienteIds.has(clienteId)),
@@ -280,6 +282,9 @@ export class ClienteMockStateStore {
       (credential) => !this.managedClienteIds.has(credential.clienteId),
     );
     this.db.pedidos = this.db.pedidos.filter((pedido) => !this.managedClienteIds.has(pedido.cliente_id));
+    const removedCaseIds = new Set(this.db.solicitacoesPedido.filter((caso) => !this.db.pedidos.some((pedido) => pedido.id === caso.pedidoId)).map((caso) => caso.id));
+    this.db.solicitacoesPedido = this.db.solicitacoesPedido.filter((caso) => !removedCaseIds.has(caso.id));
+    this.db.decisoesSolicitacao = this.db.decisoesSolicitacao.filter((item) => !removedCaseIds.has(item.casoId));
   }
 
   private reconcileHydratedOrders(): boolean {

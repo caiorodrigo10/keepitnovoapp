@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { SUPORTE_WHATSAPP_DISPONIVEL, SUPORTE_WHATSAPP_NUMERO } from '@keepit/config';
-import { getDataClient } from '@keepit/core-data';
+import { createSupportOperationId, getDataClient } from '@keepit/core-data';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { AsyncStateBlock } from '../../components/discovery';
@@ -62,11 +62,8 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ModalConfirmarPin'>;
  * pedido está atrasado (`isPedidoAtrasado`, `NOW() > aceito_em + 2 *
  * tempo_estimado_min`) e mostra um banner com "Aguardar mais" (dispensa
  * local, sem chamada de backend — pode reaparecer no próximo poll enquanto a
- * condição continuar verdadeira, mesmo racional de `06.21 AC1`) / "Cancelar
- * com 100%" (chama `order.cancelPedidoAtraso`). Ao cancelar com sucesso, o
- * MESMO efeito de navegação para `Recibo` acima passa a cobrir também
- * `cancelado_atraso` (reembolso e falha já foram gravados atomicamente pela
- * RPC/mock).
+ * condição continuar verdadeira) / "Solicitar análise". A solicitação de
+ * atraso mantém o pedido em curso enquanto o atendimento decide.
  */
 export default function ModalConfirmarPin({ route, navigation }: Props) {
   const { data: cliente } = useCurrentCliente();
@@ -75,6 +72,8 @@ export default function ModalConfirmarPin({ route, navigation }: Props) {
   const [atrasoDispensado, setAtrasoDispensado] = useState(false);
   const [cancelandoAtraso, setCancelandoAtraso] = useState(false);
   const [erroAtraso, setErroAtraso] = useState<string | null>(null);
+  const [casoAtrasoAberto, setCasoAtrasoAberto] = useState(false);
+  const atrasoOperacaoId = useRef(createSupportOperationId());
 
   const [pinState, setPinState] = useState<{ key: string; pin: string | null; error: boolean } | null>(null);
   const pinKey = `${cliente?.id ?? ''}:${pedido?.id ?? ''}:${pedido?.status ?? ''}`;
@@ -107,14 +106,15 @@ export default function ModalConfirmarPin({ route, navigation }: Props) {
   }, [status]);
 
   const atrasado = pedido ? isPedidoAtrasado(pedido) : false;
-  const mostrarBannerAtraso = atrasado && !atrasoDispensado;
+  const mostrarBannerAtraso = atrasado && !atrasoDispensado && !casoAtrasoAberto;
 
   const handleCancelarPorAtraso = async () => {
     if (!pedido) return;
     setCancelandoAtraso(true);
     setErroAtraso(null);
     try {
-      await getDataClient().order.cancelPedidoAtraso(pedido.id);
+      await getDataClient().support.abrir({ pedidoId: pedido.id, tipo: 'atraso', motivo: 'Pedido atrasado além de duas vezes o tempo estimado', operacaoId: atrasoOperacaoId.current });
+      setCasoAtrasoAberto(true);
       refresh();
     } catch (e) {
       setErroAtraso(e instanceof Error ? e.message : 'Não foi possível cancelar. Tente novamente.');
@@ -186,17 +186,17 @@ export default function ModalConfirmarPin({ route, navigation }: Props) {
 
           {/**
            * Story 6.21 (AC1) — prompt/banner in-app com "Aguardar mais"
-           * (dispensa local) / "Cancelar com 100%" (chama backend), seguindo
+           * (dispensa local) / "Solicitar análise" (chama backend), seguindo
            * o MESMO padrão visual de `CancelarPedido.tsx` (card + CTA).
            * Reforçado server-side pela RPC `cancelar_pedido_atraso` — nunca
            * só a UI decide.
            */}
+          {casoAtrasoAberto && <Text style={styles.atrasoCopy}>A solicitação por atraso está em análise. O pedido continua ativo até a decisão.</Text>}
           {mostrarBannerAtraso && (
             <View style={styles.atrasoCard}>
               <Text style={styles.atrasoTitulo}>Seu pedido está atrasado</Text>
               <Text style={styles.atrasoCopy}>
-                O lojista está demorando muito mais do que o combinado. Você pode aguardar mais um pouco ou cancelar
-                com reembolso integral (100%).
+                O lojista está demorando mais do que o combinado. Você pode aguardar ou solicitar análise do atendimento.
               </Text>
               {!!erroAtraso && <Text style={styles.atrasoErro}>{erroAtraso}</Text>}
               <View style={styles.atrasoAcoes}>
@@ -204,7 +204,7 @@ export default function ModalConfirmarPin({ route, navigation }: Props) {
                   <Button title="Aguardar mais" variant="outline" onPress={() => setAtrasoDispensado(true)} />
                 </View>
                 <View style={styles.atrasoAcao}>
-                  <Button title="Cancelar com 100%" onPress={handleCancelarPorAtraso} loading={cancelandoAtraso} />
+                  <Button title="Solicitar análise" onPress={handleCancelarPorAtraso} loading={cancelandoAtraso} />
                 </View>
               </View>
             </View>

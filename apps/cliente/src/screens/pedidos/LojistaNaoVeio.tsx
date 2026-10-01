@@ -1,15 +1,14 @@
-import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { getDataClient } from '@keepit/core-data';
+import { createSupportOperationId, getDataClient } from '@keepit/core-data';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { AsyncStateBlock } from '../../components/discovery';
 import { AppHeader, Button, Screen } from '../../components/ui';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { usePedidoDetail } from '../../hooks/usePedidoDetail';
-import { cancelamentoPolicy } from '../../lib/cancelamentoPolicy';
 import type { PedidosStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<PedidosStackParamList, 'LojistaNaoVeio'>;
@@ -22,16 +21,7 @@ type Props = NativeStackScreenProps<PedidosStackParamList, 'LojistaNaoVeio'>;
  * (mesma tipografia/cores de alerta de `@keepit/ui-tokens`, mesmo padrão de
  * card/CTA de `CancelarPedido`/`ChegueiAoHub`) — sinalizado para @ux-expert
  * validar quando houver acesso a mais telas do protótipo/Figma.
- *
- * **Story 6.20 (AC2, AC4) — [IDS] ADAPT: fecha o `[TECH DEBT]` que este
- * arquivo documentava desde a Story 0.7.** Antes, `handleReportar` chamava
- * `order.cancel(...)`, que só grava o status genérico `cancelado` (sem
- * `nao_entregue_lojista`, sem refund 100% real, sem registrar a falha de
- * qualidade do lojista). Agora chama `order.reportLojistaNaoVeio(pedidoId)`
- * — método dedicado que transiciona para `nao_entregue_lojista`, insere o
- * refund 100% pendente e registra a falha (`tipo='lojista_nao_apareceu'`),
- * os 3 efeitos atômicos (mock e real). Esta tela NÃO foi redesenhada — só a
- * chamada de backend mudou.
+ * O relato abre atendimento e mantém o pedido ativo até decisão.
  */
 export default function LojistaNaoVeio({ route, navigation }: Props) {
   const { data: cliente } = useCurrentCliente();
@@ -39,13 +29,15 @@ export default function LojistaNaoVeio({ route, navigation }: Props) {
   const [enviando, setEnviando] = useState(false);
   const [confirmado, setConfirmado] = useState(false);
   const [erroAcao, setErroAcao] = useState<string | null>(null);
+  const [motivo, setMotivo] = useState('');
+  const operacaoId = useRef(createSupportOperationId());
 
   const handleReportar = async () => {
-    if (!pedido) return;
+    if (!pedido || !motivo.trim()) return;
     setEnviando(true);
     setErroAcao(null);
     try {
-      await getDataClient().order.reportLojistaNaoVeio(pedido.id);
+      await getDataClient().support.abrir({ pedidoId: pedido.id, tipo: 'lojista_ausente', motivo: motivo.trim(), operacaoId: operacaoId.current });
       refresh();
       setConfirmado(true);
     } catch (e) {
@@ -74,8 +66,7 @@ export default function LojistaNaoVeio({ route, navigation }: Props) {
             <>
               <Text style={styles.cardTitulo}>Registramos sua solicitação</Text>
               <Text style={styles.cardCopy}>
-                Você receberá {cancelamentoPolicy.lojistaNaoVeioPercent}% de reembolso e registramos uma falha de
-                qualidade para este lojista.
+                O atendimento vai analisar o ocorrido. Seu pedido continua disponível para retirada até a decisão.
               </Text>
               <Button title="Voltar para Meus pedidos" onPress={() => navigation.navigate('MeusPedidos')} />
             </>
@@ -83,12 +74,11 @@ export default function LojistaNaoVeio({ route, navigation }: Props) {
             <>
               <Text style={styles.cardTitulo}>O lojista não apareceu no hub?</Text>
               <Text style={styles.cardCopy}>
-                Se você já esperou o tempo combinado e o lojista não chegou, você recebe{' '}
-                {cancelamentoPolicy.lojistaNaoVeioPercent}% de reembolso e registramos uma falha de qualidade para
-                este lojista.
+                Se você já esperou o tempo combinado e o lojista não chegou, conte o que aconteceu. O atendimento vai analisar sua solicitação.
               </Text>
+              <TextInput style={styles.motivo} value={motivo} onChangeText={setMotivo} placeholder="Descreva o ocorrido" multiline accessibilityLabel="Motivo da solicitação" />
               {!!erroAcao && <Text style={styles.erro}>{erroAcao}</Text>}
-              <Button title="Confirmar — lojista não veio" onPress={handleReportar} loading={enviando} />
+              <Button title="Enviar solicitação" onPress={handleReportar} loading={enviando} disabled={!motivo.trim()} />
             </>
           )}
         </View>
@@ -122,4 +112,5 @@ const styles = StyleSheet.create({
     color: lightColors.accent.warning,
     marginBottom: spacing['3'],
   },
+  motivo: { borderWidth: 1, borderColor: lightColors.text.secondary, borderRadius: radii.card, padding: spacing['3'], minHeight: 80, marginBottom: spacing['3'], color: lightColors.text.primary },
 });

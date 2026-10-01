@@ -30,6 +30,7 @@ export default function ClienteNaoApareceu({ navigation, route }: Props) {
   const pedido = getById(pedidoId);
   const [motivo, setMotivo] = useState('');
   const [salvando, setSalvando] = useState(false);
+  const [enviado, setEnviado] = useState(false);
 
   if (!pedido) return null;
 
@@ -39,7 +40,7 @@ export default function ClienteNaoApareceu({ navigation, route }: Props) {
     setSalvando(true);
     try {
       await markCustomerNoShow(pedidoId, motivo.trim());
-      navigation.navigate('NovosPedidos');
+      setEnviado(true);
     } finally {
       setSalvando(false);
     }
@@ -53,7 +54,7 @@ export default function ClienteNaoApareceu({ navigation, route }: Props) {
         <PedidoResumoCard pedido={pedido} subtitle={`${pedido.itens.length} itens · ${nomeHub(pedido.hub_id)}`} />
 
         <Text style={[styles.alerta, { color: darkColors.accent.warning }]}>
-          Confirme apenas se o cliente não retirou o pedido dentro da janela de tolerância do hub.
+          {enviado ? 'Atendimento em análise. O pedido continua disponível para retirada até a decisão.' : 'Informe o ocorrido após a janela de tolerância do hub. O atendimento avaliará a solicitação.'}
         </Text>
 
         <FormField
@@ -67,9 +68,9 @@ export default function ClienteNaoApareceu({ navigation, route }: Props) {
 
       <View style={styles.footer}>
         <PrimaryButton
-          label={salvando ? 'Confirmando...' : 'Confirmar não retirada'}
-          onPress={onConfirmar}
-          disabled={!podeConfirmar}
+          label={enviado ? 'Voltar aos pedidos' : salvando ? 'Enviando...' : 'Solicitar análise'}
+          onPress={enviado ? () => navigation.navigate('NovosPedidos') : onConfirmar}
+          disabled={!enviado && !podeConfirmar}
           variant="warning"
         />
       </View>

@@ -10,6 +10,7 @@ const SECTIONS = [
   { href: '/reembolsos', label: 'Reembolsos' },
   { href: '/saques', label: 'Saques' },
   { href: '/pedidos', label: 'Pedidos' },
+  { href: '/atendimento', label: 'Atendimento' },
   { href: '/clientes', label: 'Clientes' },
   { href: '/lojistas', label: 'Lojistas' },
   { href: '/financeiro', label: 'Financeiro' },

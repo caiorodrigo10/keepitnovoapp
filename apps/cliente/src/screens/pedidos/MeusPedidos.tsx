@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import type { Pedido } from '@keepit/core-data';
+import { getDataClient, type Pedido, type SupportCase } from '@keepit/core-data';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { AsyncStateBlock } from '../../components/discovery';
@@ -34,8 +34,15 @@ export default function MeusPedidos(_props: Props) {
   const { data: cliente } = useCurrentCliente();
   const ordersSimulation = useQaSimulation('orders');
   const [tab, setTab] = useState<Tab>('andamento');
+  const [casos, setCasos] = useState<SupportCase[]>([]);
 
   const resourceState = usePedidosMine(cliente?.id ?? null);
+  useEffect(() => {
+    if (!cliente?.id) return;
+    let ativo = true;
+    void getDataClient().support.listar().then((lista) => { if (ativo) setCasos(lista); }).catch(() => undefined);
+    return () => { ativo = false; };
+  }, [cliente?.id, resourceState.data]);
   const viewState = resolveOrdersViewState(resourceState, ordersSimulation);
   const summary = partitionPedidos(viewState.kind === 'content' ? viewState.pedidos : []);
   const listaAtual = tab === 'andamento' ? summary.emAndamento : summary.concluidos;
@@ -84,7 +91,14 @@ export default function MeusPedidos(_props: Props) {
       {!loading &&
         !error &&
         listaAtual.map((pedido) => (
-          <MeusPedidosRow key={pedido.id} pedido={pedido} onPress={handlePress} />
+          <View key={pedido.id}>
+            <MeusPedidosRow pedido={pedido} onPress={handlePress} />
+            {casos.filter((item) => item.pedidoId === pedido.id).slice(-1).map((item) => (
+              <Text key={item.id} style={styles.atendimento}>
+                Atendimento: {item.estado === 'aberta' ? 'em análise' : item.estado === 'encerrada_por_pin' ? 'encerrado após retirada' : item.estado === 'aprovada' ? 'aprovado' : 'negado'}
+              </Text>
+            ))}
+          </View>
         ))}
     </Screen>
   );
@@ -121,4 +135,5 @@ const styles = StyleSheet.create({
   tabLabelActive: {
     color: lightColors.bg.primary,
   },
+  atendimento: { color: lightColors.text.secondary, fontFamily: 'HankenGrotesk-Medium', fontSize: typography.sizes.sm.fontSize, marginBottom: spacing['2'] },
 });

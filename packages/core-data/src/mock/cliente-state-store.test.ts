@@ -661,6 +661,23 @@ describe('ClienteMockStateStore', () => {
     ]);
   });
 
+  it('mantém solicitação de atendimento após reabrir o app mock', async () => {
+    const storage = memoryStorage();
+    const client = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    await client.auth.signIn('ana.souza@example.com', 'keepit123', { delayMs: 0 });
+    const pedido = await client.order.create({
+      cliente_id: 'cliente-ana', estabelecimento_id: 'estab-farmacia-vida', hub_id: 'hub-centro',
+      itens: [{ produto_id: 'produto-dipirona', nome_snapshot: 'Dipirona', preco_unitario_reais: 14.9, quantidade: 1 }],
+      forma_pagamento: 'pix', subtotal_produtos_reais: 14.9, taxa_deslocamento_reais: 5,
+      taxa_keepit_reais: 1.49, taxa_servico_comprador_reais: 2.9, total_pago_reais: 22.8, nf_solicitada: false,
+    }, { delayMs: 0 });
+    const aberto = await client.support.abrir({ pedidoId: pedido.id, tipo: 'cancelamento', motivo: 'Desisti', operacaoId: 'op-persistida' });
+    await client.demoScenario!.flush();
+    __resetDataClientForTests();
+    const reopened = await initializeDataClient({ source: 'mock', clienteMockStorage: storage });
+    expect((await reopened.support.listar()).find((item) => item.id === aberto.id)).toMatchObject({ estado: 'aprovada', motivo: 'Desisti' });
+  });
+
   it('mantém operações de auth e pedido pendentes até a escrita correspondente terminar', async () => {
     const values = new Map([[CLIENTE_MOCK_STATE_KEY, JSON.stringify(createClienteBaseline())]]);
     let writeStarted = deferred<void>();

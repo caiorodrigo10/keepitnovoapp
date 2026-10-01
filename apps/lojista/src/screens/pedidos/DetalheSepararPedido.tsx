@@ -26,12 +26,13 @@ type Props = NativeStackScreenProps<PedidosStackParamList, 'DetalheSepararPedido
  */
 export default function DetalheSepararPedido({ navigation, route }: Props) {
   const { pedidoId } = route.params;
-  const { getById, nomeHub, nomeCliente, markReadyForHub } = useOrdersContext();
+  const { getById, nomeHub, nomeCliente, markReadyForHub, solicitacoes } = useOrdersContext();
   const pedido = getById(pedidoId);
   const [checados, setChecados] = useState<Set<string>>(new Set());
   const [salvando, setSalvando] = useState(false);
 
   const badge = pedido ? getStatusBadge(pedido.status) : null;
+  const emAnalise = solicitacoes.some((item) => item.pedidoId === pedidoId && item.estado === 'aberta');
 
   const todosChecados = useMemo(() => {
     if (!pedido) return false;
@@ -73,6 +74,8 @@ export default function DetalheSepararPedido({ navigation, route }: Props) {
             </View>
           }
         />
+
+        {emAnalise && <Text style={{ color: darkColors.accent.warning }}>Há uma solicitação em análise. O pedido continua ativo até a decisão.</Text>}
 
         <View style={[styles.clienteCard, { backgroundColor: darkColors.bg.surface }]}>
           <View style={[styles.avatar, { backgroundColor: darkColors.bg.overlay }]}>

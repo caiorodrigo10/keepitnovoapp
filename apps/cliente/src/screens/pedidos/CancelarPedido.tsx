@@ -1,15 +1,15 @@
-import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { getDataClient } from '@keepit/core-data';
+import { createSupportOperationId, getDataClient, type SupportCase } from '@keepit/core-data';
 import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
 
 import { AsyncStateBlock } from '../../components/discovery';
 import { AppHeader, Button, Screen } from '../../components/ui';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { usePedidoDetail } from '../../hooks/usePedidoDetail';
-import { cancelamentoFaseFromStatus, cancelamentoPolicy } from '../../lib/cancelamentoPolicy';
+import { cancelamentoFaseFromStatus } from '../../lib/cancelamentoPolicy';
 import type { PedidosStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<PedidosStackParamList, 'CancelarPedido'>;
@@ -18,15 +18,16 @@ type Props = NativeStackScreenProps<PedidosStackParamList, 'CancelarPedido'>;
  * "Cancelar pedido" (Task 6, AC1/AC2/AC3/AC4) — CTA "Cancelar" já confirmado
  * no protótipo (verde/destaque, `#1F9D57` → `accent.successFg`). Sem tela de
  * confirmação dedicada visível no bundle — segue os padrões das demais
- * telas de exceção desta story. Respeita a matriz de cancelamento fechada
- * (Rodada 2): antes do aceite = 100%, após aceite/antes de sair para o hub
- * = 90%/10%, após sair para o hub = bloqueado.
+ * telas de exceção. Antes do aceite, o cancelamento é imediato; depois,
+ * o cliente abre uma solicitação e o pedido pode continuar em preparo.
  */
 export default function CancelarPedido({ route, navigation }: Props) {
   const { data: cliente } = useCurrentCliente();
   const { data: pedido, loading, error, refresh } = usePedidoDetail(cliente?.id ?? null, route.params?.pedidoId);
   const [cancelando, setCancelando] = useState(false);
-  const [cancelado, setCancelado] = useState(false);
+  const [caso, setCaso] = useState<SupportCase | null>(null);
+  const [motivo, setMotivo] = useState('');
+  const operacaoId = useRef(createSupportOperationId());
   const [erroAcao, setErroAcao] = useState<string | null>(null);
 
   const fase =
@@ -40,16 +41,23 @@ export default function CancelarPedido({ route, navigation }: Props) {
       ? cancelamentoFaseFromStatus(pedido.status)
       : null;
 
-  const bloqueado = fase === 'bloqueado_apos_saida';
+  useEffect(() => {
+    if (!pedido) return;
+    let ativo = true;
+    void getDataClient().support.listar().then((lista) => {
+      if (ativo) setCaso(lista.find((item) => item.pedidoId === pedido.id && item.tipo === 'cancelamento' && item.estado === 'aberta') ?? null);
+    }).catch(() => undefined);
+    return () => { ativo = false; };
+  }, [pedido?.id]);
 
   const handleCancelar = async () => {
-    if (!pedido) return;
+    if (!pedido || !motivo.trim()) return;
     setCancelando(true);
     setErroAcao(null);
     try {
-      await getDataClient().order.cancel(pedido.id, 'Cancelado pelo cliente');
+      const aberto = await getDataClient().support.abrir({ pedidoId: pedido.id, tipo: 'cancelamento', motivo: motivo.trim(), operacaoId: operacaoId.current });
       refresh();
-      setCancelado(true);
+      setCaso(aberto);
     } catch (e) {
       setErroAcao(e instanceof Error ? e.message : 'Não foi possível cancelar. Tente novamente.');
     } finally {
@@ -72,26 +80,19 @@ export default function CancelarPedido({ route, navigation }: Props) {
 
       {!loading && !error && pedido && (
         <>
-          {cancelado ? (
+          {caso ? (
             <View style={styles.card}>
-              <Text style={styles.cardTitulo}>Pedido cancelado</Text>
-              <Text style={styles.cardCopy}>{copyForFase(fase)}</Text>
+              <Text style={styles.cardTitulo}>{caso.estado === 'aprovada' ? 'Pedido cancelado' : 'Solicitação em análise'}</Text>
+              <Text style={styles.cardCopy}>{caso.estado === 'aprovada' ? 'O pedido foi cancelado. Se houve pagamento, a devolução integral será acompanhada pelo atendimento.' : 'A loja pode continuar preparando o pedido. O Admin avaliará seu motivo e você verá a decisão em Meus pedidos.'}</Text>
               <Button title="Voltar para Meus pedidos" onPress={() => navigation.navigate('MeusPedidos')} />
-            </View>
-          ) : bloqueado ? (
-            <View style={styles.card}>
-              <Text style={styles.cardTituloAlerta}>Não é possível cancelar nesta fase</Text>
-              <Text style={styles.cardCopy}>
-                Seu pedido já saiu para o hub. Você precisa comparecer para retirá-lo — se o lojista não aparecer,
-                use a opção "Lojista não veio" na tela do seu pedido.
-              </Text>
             </View>
           ) : (
             <View style={styles.card}>
-              <Text style={styles.cardTitulo}>Tem certeza que quer cancelar?</Text>
+              <Text style={styles.cardTitulo}>{fase === 'antes_aceite' ? 'Cancelar pedido' : 'Solicitar cancelamento'}</Text>
               <Text style={styles.cardCopy}>{copyForFase(fase)}</Text>
+              <TextInput style={styles.motivo} value={motivo} onChangeText={setMotivo} placeholder="Conte o motivo" multiline accessibilityLabel="Motivo do cancelamento" />
               {!!erroAcao && <Text style={styles.erro}>{erroAcao}</Text>}
-              <Button title="Cancelar pedido" onPress={handleCancelar} loading={cancelando} />
+              <Button title={fase === 'antes_aceite' ? 'Cancelar pedido' : 'Enviar solicitação'} onPress={handleCancelar} loading={cancelando} disabled={!motivo.trim() || !fase} />
             </View>
           )}
         </>
@@ -102,12 +103,12 @@ export default function CancelarPedido({ route, navigation }: Props) {
 
 function copyForFase(fase: ReturnType<typeof cancelamentoFaseFromStatus> | null): string {
   if (fase === 'antes_aceite') {
-    return `Como a loja ainda não aceitou seu pedido, você recebe ${cancelamentoPolicy.antesAceitePercent}% de reembolso.`;
+    return 'A loja ainda não aceitou. O cancelamento será imediato; se houve pagamento, o valor integral entra na fila de devolução.';
   }
-  if (fase === 'apos_aceite_antes_saida') {
-    return `Como a loja já aceitou seu pedido, você recebe ${cancelamentoPolicy.aposAceitePercentCliente}% de reembolso (${cancelamentoPolicy.aposAceitePercentLojista}% fica com o lojista pelo preparo já iniciado).`;
+  if (fase === 'em_analise') {
+    return 'A loja já aceitou. Informe o motivo para análise do Admin; o preparo e a retirada continuam disponíveis até a decisão.';
   }
-  return 'Cancelamento não permitido nesta fase do pedido.';
+  return 'Este pedido não aceita nova solicitação de cancelamento.';
 }
 
 const styles = StyleSheet.create({
@@ -141,4 +142,5 @@ const styles = StyleSheet.create({
     color: lightColors.accent.warning,
     marginBottom: spacing['3'],
   },
+  motivo: { borderWidth: 1, borderColor: lightColors.text.secondary, borderRadius: radii.card, padding: spacing['3'], minHeight: 80, marginBottom: spacing['3'], color: lightColors.text.primary },
 });

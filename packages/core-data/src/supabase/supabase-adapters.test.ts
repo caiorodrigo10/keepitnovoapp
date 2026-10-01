@@ -51,10 +51,8 @@ describe('supabase adapters (esqueleto — Story 1.9)', () => {
   // técnico da Story 6.14, que deixava `markClienteChegou` deliberadamente
   // `NotImplementedError` por falta da coluna `cliente_chegou_em`) já são
   // implementações reais, cobertas em `order.supabase.test.ts`.
-  it('order.supabase.ts — demais métodos rejeitam com NotImplementedError', async () => {
+  it('order.supabase.ts — avanço genérico de QA permanece indisponível no servidor', async () => {
     const port = createOrderSupabase();
-    await expectNotImplemented(port.cancel.bind(port), 2);
-    await expectNotImplemented(port.markCustomerNoShow.bind(port), 2);
     await expectNotImplemented(port.advanceStatus.bind(port), 2);
   });
 
@@ -80,8 +78,8 @@ describe('supabase adapters (esqueleto — Story 1.9)', () => {
     await expect(createStoreSupabase().getCatalog(undefined as never)).rejects.toThrow(
       '[core-data/supabase] store.getCatalog — implementar no Épico 5',
     );
-    await expect(createOrderSupabase().cancel(undefined as never, undefined as never)).rejects.toThrow(
-      '[core-data/supabase] order.cancel — implementar no Épico 6',
+    await expect(createOrderSupabase().advanceStatus(undefined as never, undefined as never)).rejects.toThrow(
+      '[core-data/supabase] order.advanceStatus — implementar no Épico 6',
     );
   });
 });

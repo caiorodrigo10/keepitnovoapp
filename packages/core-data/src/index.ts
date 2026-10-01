@@ -17,6 +17,7 @@ import type { HubFavoritesPort, StoreFavoritesPort } from './ports/favorites.por
 import type { HubPort } from './ports/hub.port';
 import type { LojistaAuthPort } from './ports/lojista-auth.port';
 import type { OrderPort } from './ports/order.port';
+import type { SupportPort } from './ports/support.port';
 import type { PaymentPort } from './ports/payment.port';
 import type { ProductPort } from './ports/product.port';
 import type { StorePort } from './ports/store.port';
@@ -34,6 +35,7 @@ import { createFavoritesMock } from './mock/favorites.mock';
 import { createHubMock } from './mock/hub.mock';
 import { createLojistaAuthMock } from './mock/lojista-auth.mock';
 import { createOrderMock } from './mock/order.mock';
+import { createSupportMock } from './mock/support.mock';
 import { createPaymentMock } from './mock/payment.mock';
 import { createProductMock } from './mock/product.mock';
 import { createStoreMock } from './mock/store.mock';
@@ -48,6 +50,7 @@ import { createFavoritesSupabase } from './supabase/favorites.supabase';
 import { createHubSupabase } from './supabase/hub.supabase';
 import { createLojistaAuthSupabase } from './supabase/lojista-auth.supabase';
 import { createOrderSupabase } from './supabase/order.supabase';
+import { createSupportSupabase } from './supabase/support.supabase';
 import { createPaymentSupabase } from './supabase/payment.supabase';
 import { createProductSupabase } from './supabase/product.supabase';
 import { createStoreSupabase } from './supabase/store.supabase';
@@ -94,6 +97,7 @@ export interface DataClient {
   store: StorePort;
   product: ProductPort;
   order: OrderPort;
+  support: SupportPort;
   /**
    * Story 7.2 (AC3) — CREATE justificado no JSDoc de `PaymentPort`
    * (`ports/payment.port.ts`). Cobrança PIX real via Asaas, deliberadamente
@@ -194,6 +198,7 @@ export function createDataClient(options: CreateDataClientOptions = {}): DataCli
       store: createStoreSupabase(client),
       product: createProductSupabase(client),
       order: createOrderSupabase(client),
+      support: createSupportSupabase(client),
       payment: createPaymentSupabase(client),
       wallet: createWalletSupabase(client),
       admin: createAdminSupabase(client),
@@ -217,6 +222,7 @@ export function createDataClient(options: CreateDataClientOptions = {}): DataCli
     store: createStoreMock(db),
     product: createProductMock(db),
     order: createOrderMock(db),
+    support: createSupportMock(db),
     payment: createPaymentMock(db),
     wallet: createWalletMock(db),
     admin: createAdminMock(db),
@@ -300,6 +306,8 @@ export * from './ports/favorites.port';
 export * from './ports/hub.port';
 export * from './ports/lojista-auth.port';
 export * from './ports/order.port';
+export * from './ports/support.port';
+export * from './support-operation-id';
 export * from './ports/payment.port';
 export * from './ports/product.port';
 export * from './ports/store.port';

@@ -108,6 +108,23 @@ describe('criação legada real desativada', () => {
   });
 });
 
+describe('OrderPort compatível com atendimento', () => {
+  it('cancel após aceite abre solicitação e devolve pedido ainda em preparo', async () => {
+    const row = { ...PEDIDO_ROW, status: 'em_preparo' };
+    const { client, rpc } = fakeClient({ rpc: { data: { id: 'caso-1', pedido_id: 'pedido-1', operacao_id: 'op-1', tipo: 'cancelamento', estado: 'aberta', motivo: 'Desisti', motivo_decisao: null, criado_em: '2026-10-01T00:00:00Z', encerrada_em: null }, error: null }, pedidos: { data: row, error: null } });
+    const pedido = await createOrderSupabase(client).cancel('pedido-1', 'Desisti');
+    expect(pedido.status).toBe('em_preparo');
+    expect(rpc).toHaveBeenCalledWith('abrir_solicitacao_pedido', expect.objectContaining({ p_pedido_id: 'pedido-1', p_tipo: 'cancelamento', p_motivo: 'Desisti', p_operacao_id: expect.stringMatching(/^[0-9a-f-]{36}$/) }));
+  });
+  it('ausência do cliente abre atendimento sem marcar pedido como não retirado', async () => {
+    const row = { ...PEDIDO_ROW, status: 'no_hub' };
+    const { client, rpc } = fakeClient({ rpc: { data: { id: 'caso-2', pedido_id: 'pedido-1', operacao_id: 'op-2', tipo: 'cliente_ausente', estado: 'aberta', motivo: 'Cliente não veio', motivo_decisao: null, criado_em: '2026-10-01T00:00:00Z', encerrada_em: null }, error: null }, pedidos: { data: row, error: null } });
+    const pedido = await createOrderSupabase(client).markCustomerNoShow('pedido-1', 'Cliente não veio');
+    expect(pedido.status).toBe('no_hub');
+    expect(rpc).toHaveBeenCalledWith('abrir_solicitacao_pedido', expect.objectContaining({ p_pedido_id: 'pedido-1', p_tipo: 'cliente_ausente', p_motivo: 'Cliente não veio' }));
+  });
+});
+
 describe('order.supabase.ts — listMine (Story 6.7, AC4, AC5)', () => {
   it('sem sessão resolve [] honesto sem consultar pedidos', async () => {
     const { client } = fakeClient({});

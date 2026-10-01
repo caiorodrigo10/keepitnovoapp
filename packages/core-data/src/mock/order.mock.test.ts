@@ -365,6 +365,7 @@ describe('order.mock (contract)', () => {
       await settleMock(port.confirmarPagamento(created.id, { delayMs: 0 }));
 
       if (terminalAction === 'cancel') {
+        db.sessionClienteId = created.cliente_id;
         await settleMock(port.cancel(created.id, 'Mudei de ideia', { delayMs: 0 }));
       } else {
         await settleMock(port.refuse(created.id, 'Sem estoque', { delayMs: 0 }));
@@ -550,15 +551,14 @@ describe('order.mock (contract)', () => {
     expect(pedido.lojista_chegou_em).not.toBeNull();
   });
 
-  it('markCustomerNoShow transitions no_hub -> nao_retirado and populates a reembolso (AC9: 20% cliente)', async () => {
+  it('markCustomerNoShow abre atendimento e mantém retirada disponível', async () => {
+    db.sessionLojistaUserId = db.estabelecimentosCadastrados.find((e) => e.id === 'estab-farmacia-vida')!.donoUserId;
     const pedido = await port.markCustomerNoShow('lj-pedido-2045', 'Cliente não veio', { delayMs: 1 });
-    expect(pedido.status).toBe('nao_retirado');
-    expect(pedido.motivo_nao_retirado).toBe('Cliente não veio');
+    expect(pedido.status).toBe('no_hub');
+    expect(db.solicitacoesPedido.find((item) => item.pedidoId === pedido.id)?.tipo).toBe('cliente_ausente');
 
     const reembolso = db.reembolsos.find((r) => r.pedido_id === 'lj-pedido-2045');
-    expect(reembolso).toBeDefined();
-    expect(reembolso?.motivo).toBe('nao_retirado_cliente');
-    expect(reembolso?.valor_a_estornar_reais).toBeCloseTo(pedido.total_pago_reais * 0.2, 2);
+    expect(reembolso).toBeUndefined();
   });
 
   // -------------------------------------------------------------------
@@ -587,23 +587,20 @@ describe('order.mock (contract)', () => {
     await expect(port.markClienteChegou('lj-pedido-2049', { delayMs: 1 })).rejects.toThrow(/não permitida/i);
   });
 
-  it('reportLojistaNaoVeio (Story 6.20, AC2/AC4): sucesso quando no_hub + cliente_chegou_em vencido, popula refund 100% + falha', async () => {
+  it('reportLojistaNaoVeio abre atendimento após tempo mínimo sem refund automático', async () => {
     // lj-pedido-2045: fixture status 'no_hub', tempo_estimado_min 15. Marca
     // chegada "no passado" (além de max(15, esperaLojistaMaxMin)=20min) para
     // exercitar o reforço de tempo sem depender de timers reais.
     const pedido = db.pedidos.find((p) => p.id === 'lj-pedido-2045')!;
     pedido.cliente_chegou_em = new Date(Date.now() - 25 * 60_000).toISOString();
+    db.sessionClienteId = pedido.cliente_id;
 
     const atualizado = await port.reportLojistaNaoVeio('lj-pedido-2045', { delayMs: 1 });
-    expect(atualizado.status).toBe('nao_entregue_lojista');
+    expect(atualizado.status).toBe('no_hub');
 
     const reembolso = db.reembolsos.find((r) => r.pedido_id === atualizado.id);
-    expect(reembolso?.motivo).toBe('nao_entregue_lojista');
-    expect(reembolso?.valor_a_estornar_reais).toBeCloseTo(atualizado.total_pago_reais, 2);
-
-    const falha = db.falhas.find((f) => f.pedido_id === atualizado.id);
-    expect(falha?.tipo).toBe('lojista_nao_apareceu');
-    expect(falha?.estabelecimento_id).toBe(atualizado.estabelecimento_id);
+    expect(reembolso).toBeUndefined();
+    expect(db.solicitacoesPedido.find((item) => item.pedidoId === atualizado.id)?.tipo).toBe('lojista_ausente');
   });
 
   it('reportLojistaNaoVeio rejects when the pedido is not in no_hub', async () => {
@@ -637,36 +634,33 @@ describe('order.mock (contract)', () => {
     await expect(port.refuse('lj-pedido-2048', 'Sem estoque', { delayMs: 1 })).rejects.toThrow(/não permitida/i);
   });
 
-  it('cancel derives the refund % from the pedido status (AC9: pre-aceite 100%, pós-aceite 90/10) and blocks after saindo_hub', async () => {
+  it('cancelamento pré-aceite é integral; após aceite vira solicitação sem interromper preparo', async () => {
+    db.sessionClienteId = db.pedidos.find((p) => p.id === 'lj-pedido-2049')!.cliente_id;
     const preAceite = await port.cancel('lj-pedido-2049', 'Mudei de ideia', { delayMs: 1 });
     const reembolsoPre = db.reembolsos.find((r) => r.pedido_id === preAceite.id);
     expect(reembolsoPre?.motivo).toBe('cancelamento_cliente_pre_aceite');
 
+    db.sessionClienteId = db.pedidos.find((p) => p.id === 'lj-pedido-2048')!.cliente_id;
     const posAceite = await port.cancel('lj-pedido-2048', 'Mudei de ideia', { delayMs: 1 });
     const reembolsoPos = db.reembolsos.find((r) => r.pedido_id === posAceite.id);
-    expect(reembolsoPos?.motivo).toBe('cancelamento_cliente_pos_aceite');
-    expect(reembolsoPos?.valor_a_estornar_reais).toBeCloseTo(posAceite.total_pago_reais * 0.9, 2);
-
-    await expect(port.cancel('lj-pedido-2045', 'Tarde demais', { delayMs: 1 })).rejects.toThrow(/não permitida/i);
+    expect(posAceite.status).toBe('em_preparo');
+    expect(reembolsoPos).toBeUndefined();
+    expect(db.solicitacoesPedido.find((item) => item.pedidoId === posAceite.id)?.estado).toBe('aberta');
   });
 
-  it('cancelPedidoAtraso (Story 6.21, AC2/AC3): sucesso quando 2x tempo_estimado_min vencido, popula refund 100% + falha atraso_grave', async () => {
+  it('cancelPedidoAtraso abre atendimento sem cancelar nem criar refund antes de decisão', async () => {
     // lj-pedido-2048: fixture status 'em_preparo', tempo_estimado_min 20 →
     // limiar de 2x = 40min. Empurra aceito_em para além disso.
     const pedido = db.pedidos.find((p) => p.id === 'lj-pedido-2048')!;
     pedido.aceito_em = new Date(Date.now() - 45 * 60_000).toISOString();
+    db.sessionClienteId = pedido.cliente_id;
 
     const atualizado = await port.cancelPedidoAtraso('lj-pedido-2048', { delayMs: 1 });
-    expect(atualizado.status).toBe('cancelado_atraso');
-    expect(atualizado.cancelado_em).not.toBeNull();
+    expect(atualizado.status).toBe('em_preparo');
 
     const reembolso = db.reembolsos.find((r) => r.pedido_id === atualizado.id);
-    expect(reembolso?.motivo).toBe('cancelamento_atraso');
-    expect(reembolso?.valor_a_estornar_reais).toBeCloseTo(atualizado.total_pago_reais, 2);
-
-    const falha = db.falhas.find((f) => f.pedido_id === atualizado.id);
-    expect(falha?.tipo).toBe('atraso_grave');
-    expect(falha?.estabelecimento_id).toBe(atualizado.estabelecimento_id);
+    expect(reembolso).toBeUndefined();
+    expect(db.solicitacoesPedido.find((item) => item.pedidoId === atualizado.id)?.tipo).toBe('atraso');
   });
 
   it('cancelPedidoAtraso rejects when the pedido is not in aceito/em_preparo', async () => {

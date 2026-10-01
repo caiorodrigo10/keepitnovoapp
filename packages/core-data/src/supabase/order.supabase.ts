@@ -1,5 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@keepit/shared-types';
+import { createSupportOperationId } from '../support-operation-id';
+import { createSupportSupabase } from './support.supabase';
 import { createClient } from '@keepit/supabase-client';
 
 import type {
@@ -423,8 +425,12 @@ export function createOrderSupabase(client?: SupabaseClient<Database>): OrderPor
       return pedido;
     },
 
-    async cancel(_pedidoId: string, _motivo: string, _options?: AsyncCallOptions): Promise<Pedido> {
-      throw new NotImplementedError(PORT, 'cancel', EPIC);
+    async cancel(pedidoId: string, motivo: string, _options?: AsyncCallOptions): Promise<Pedido> {
+      const supabase = resolveClient();
+      await createSupportSupabase(supabase).abrir({ pedidoId, tipo: 'cancelamento', motivo, operacaoId: createSupportOperationId() });
+      const pedido = await fetchPedidoPorId(supabase, pedidoId);
+      if (!pedido) throw new Error('PEDIDO_NAO_ENCONTRADO');
+      return pedido;
     },
 
     /**
@@ -556,8 +562,12 @@ export function createOrderSupabase(client?: SupabaseClient<Database>): OrderPor
       return pedido;
     },
 
-    async markCustomerNoShow(_pedidoId: string, _motivo: string, _options?: AsyncCallOptions): Promise<Pedido> {
-      throw new NotImplementedError(PORT, 'markCustomerNoShow', EPIC);
+    async markCustomerNoShow(pedidoId: string, motivo: string, _options?: AsyncCallOptions): Promise<Pedido> {
+      const supabase = resolveClient();
+      await createSupportSupabase(supabase).abrir({ pedidoId, tipo: 'cliente_ausente', motivo, operacaoId: createSupportOperationId() });
+      const pedido = await fetchPedidoPorId(supabase, pedidoId);
+      if (!pedido) throw new Error('PEDIDO_NAO_ENCONTRADO');
+      return pedido;
     },
 
     async advanceStatus(

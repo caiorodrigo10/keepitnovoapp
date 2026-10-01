@@ -188,13 +188,7 @@ export interface OrderPort {
   confirmPin(pedidoId: string, pin: string, options?: AsyncCallOptions): Promise<Pedido>;
   /** Mock confirma a simulação; Supabase apenas relê o estado confirmado pelo servidor. */
   confirmarPagamento(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido>;
-  /**
-   * Cancelamento pelo Cliente. A % de reembolso (AC9) é derivada do status
-   * ATUAL do pedido no momento da chamada (pré-aceite = 100%; pós-aceite,
-   * antes de "Saindo para o hub" = 90/10) — rejeita com `OrderTransitionError`
-   * se o pedido já passou de "Saindo para o hub" (matriz: "Não pode
-   * cancelar"). [Source: docs/PERGUNTAS_REGRAS_NEGOCIO.md#Rodada 2]
-   */
+  /** Compatibilidade: pré-aceite cancela; após aceite abre solicitação de atendimento e mantém o pedido em curso. */
   cancel(pedidoId: string, motivo: string, options?: AsyncCallOptions): Promise<Pedido>;
 
   // ---------------------------------------------------------------------
@@ -208,7 +202,7 @@ export interface OrderPort {
   markReadyForHub(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido>;
   /** `saindo_hub` → `no_hub` (preenche `lojista_chegou_em`). */
   markArrivedAtHub(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido>;
-  /** `no_hub` → `nao_retirado` (preenche `motivo_nao_retirado`; popula `reembolsos` 20/80 — AC9). */
+  /** Registra ausência do cliente para análise do atendimento; não conclui o pedido nem distribui crédito. */
   markCustomerNoShow(pedidoId: string, motivo: string, options?: AsyncCallOptions): Promise<Pedido>;
 
   // ---------------------------------------------------------------------
@@ -234,9 +228,8 @@ export interface OrderPort {
    * hub. Exige `status = 'no_hub'` E `cliente_chegou_em` preenchido; reforço
    * SERVER-SIDE (mock e real) da condição de tempo do AC1
    * (`cliente_chegou_em + max(tempo_estimado_min, businessConfig.esperaLojistaMaxMin)`)
-   * — nunca confia só na visibilidade do botão na UI. Em sucesso: `status ->
-   * 'nao_entregue_lojista'`, reembolso 100% pendente + falha de qualidade do
-   * lojista (`tipo='lojista_nao_apareceu'`), os 3 efeitos atômicos.
+   * — nunca confia só na visibilidade do botão na UI. Em sucesso, abre
+   * solicitação sem alterar o estado operacional nem reservar reembolso.
    */
   reportLojistaNaoVeio(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido>;
   /**
@@ -245,9 +238,8 @@ export interface OrderPort {
    * ver Classificação da Story). Exige `status IN ('aceito', 'em_preparo')`;
    * reforço SERVER-SIDE (mock e real) da condição de atraso do AC1
    * (`NOW() > aceito_em + 2 * tempo_estimado_min`) — nunca confia só no
-   * client ter mostrado o prompt. Em sucesso: `status -> 'cancelado_atraso'`,
-   * reembolso 100% pendente + falha de qualidade do lojista
-   * (`tipo='atraso_grave'`), os 3 efeitos atômicos.
+   * client ter mostrado o prompt. Em sucesso, abre solicitação sem alterar
+   * o estado operacional nem reservar reembolso.
    */
   cancelPedidoAtraso(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido>;
 }

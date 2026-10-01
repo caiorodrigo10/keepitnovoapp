@@ -14,7 +14,8 @@ import { OrderTransitionError, PinBloqueadoError, PinIncorretoError } from '../p
 import type { AsyncCallOptions } from '../types';
 import { generateMockId, simulateAsync } from './async-helpers';
 import type { MockDb } from './db';
-import { registrarFalha } from './falha-helpers';
+import { createSupportMock } from './support.mock';
+import { createSupportOperationId } from '../support-operation-id';
 import { reconcileAutomaticOrder, type OrderAutoTransition } from './order-auto-progress';
 import { registrarReembolso } from './refund-helpers';
 
@@ -316,6 +317,13 @@ export function createOrderMock(db: MockDb): OrderPort {
           pedido.entregue_em = new Date().toISOString();
           pedido.tentativas_pin = 0;
           pedido.pin_bloqueado_ate = null;
+          for (const caso of db.solicitacoesPedido) {
+            if (caso.pedidoId === pedido.id && caso.tipo === 'cancelamento' && caso.estado === 'aberta') {
+              caso.estado = 'encerrada_por_pin';
+              caso.encerradaEm = pedido.entregue_em;
+              caso.motivoDecisao = 'entrega confirmada';
+            }
+          }
           stopAutomation(pedido.id);
           await persistMutation(persist, pedido);
           return pedido;
@@ -352,38 +360,10 @@ export function createOrderMock(db: MockDb): OrderPort {
 
     cancel(pedidoId: string, motivo: string, options?: AsyncCallOptions): Promise<Pedido> {
       return simulateAsync(
-        () => db.runClienteMutation(async (persist) => {
-          const pedido = findOrThrow(pedidoId);
-
-          if (pedido.status === 'aguardando_pagamento' || pedido.status === 'aguardando_aceite') {
-            pedido.status = 'cancelado';
-            pedido.motivo_cancelamento = motivo;
-            pedido.cancelado_em = new Date().toISOString();
-            stopAutomation(pedido.id);
-            registrarReembolso(db, pedido, 'cancelamento_cliente_pre_aceite');
-            await persistMutation(persist, pedido);
-            return pedido;
-          }
-
-          if (pedido.status === 'aceito' || pedido.status === 'em_preparo') {
-            pedido.status = 'cancelado';
-            pedido.motivo_cancelamento = motivo;
-            pedido.cancelado_em = new Date().toISOString();
-            stopAutomation(pedido.id);
-            registrarReembolso(db, pedido, 'cancelamento_cliente_pos_aceite');
-            await persistMutation(persist, pedido);
-            return pedido;
-          }
-
-          // Matriz de cancelamento (AC9): a partir de "Saindo para o hub", o
-          // Cliente não pode mais cancelar. [Source: docs/PERGUNTAS_REGRAS_NEGOCIO.md#Rodada 2]
-          throw new OrderTransitionError('cancel', pedido.status, [
-            'aguardando_pagamento',
-            'aguardando_aceite',
-            'aceito',
-            'em_preparo',
-          ]);
-        }),
+        async () => {
+          await createSupportMock(db).abrir({ pedidoId, tipo: 'cancelamento', motivo, operacaoId: createSupportOperationId() });
+          return findOrThrow(pedidoId);
+        },
         {} as Pedido,
         options,
       );
@@ -446,16 +426,10 @@ export function createOrderMock(db: MockDb): OrderPort {
 
     markCustomerNoShow(pedidoId: string, motivo: string, options?: AsyncCallOptions): Promise<Pedido> {
       return simulateAsync(
-        () => db.runClienteMutation(async (persist) => {
-          const pedido = findOrThrow(pedidoId);
-          assertStatus(pedido, 'markCustomerNoShow', ['no_hub']);
-          pedido.status = 'nao_retirado';
-          pedido.motivo_nao_retirado = motivo;
-          stopAutomation(pedido.id);
-          registrarReembolso(db, pedido, 'nao_retirado_cliente');
-          await persistMutation(persist, pedido);
-          return pedido;
-        }),
+        async () => {
+          await createSupportMock(db).abrir({ pedidoId, tipo: 'cliente_ausente', motivo, operacaoId: createSupportOperationId() });
+          return findOrThrow(pedidoId);
+        },
         {} as Pedido,
         options,
       );
@@ -519,7 +493,7 @@ export function createOrderMock(db: MockDb): OrderPort {
      */
     reportLojistaNaoVeio(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido> {
       return simulateAsync(
-        () => db.runClienteMutation(async (persist) => {
+        async () => {
           const pedido = findOrThrow(pedidoId);
           assertStatus(pedido, 'reportLojistaNaoVeio', ['no_hub']);
 
@@ -537,18 +511,9 @@ export function createOrderMock(db: MockDb): OrderPort {
             );
           }
 
-          pedido.status = 'nao_entregue_lojista';
-          stopAutomation(pedido.id);
-          registrarReembolso(db, pedido, 'nao_entregue_lojista');
-          registrarFalha(
-            db,
-            pedido,
-            'lojista_nao_apareceu',
-            `Pedido #${pedido.numero} — lojista não compareceu ao hub dentro do prazo.`,
-          );
-          await persistMutation(persist, pedido);
+          await createSupportMock(db).abrir({ pedidoId, tipo: 'lojista_ausente', motivo: 'Lojista não compareceu ao hub', operacaoId: createSupportOperationId() });
           return pedido;
-        }),
+        },
         {} as Pedido,
         options,
       );
@@ -566,7 +531,7 @@ export function createOrderMock(db: MockDb): OrderPort {
      */
     cancelPedidoAtraso(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido> {
       return simulateAsync(
-        () => db.runClienteMutation(async (persist) => {
+        async () => {
           const pedido = findOrThrow(pedidoId);
           assertStatus(pedido, 'cancelPedidoAtraso', ['aceito', 'em_preparo']);
 
@@ -583,19 +548,9 @@ export function createOrderMock(db: MockDb): OrderPort {
             );
           }
 
-          pedido.status = 'cancelado_atraso';
-          pedido.cancelado_em = new Date().toISOString();
-          stopAutomation(pedido.id);
-          registrarReembolso(db, pedido, 'cancelamento_atraso');
-          registrarFalha(
-            db,
-            pedido,
-            'atraso_grave',
-            `Pedido #${pedido.numero} — cancelado pelo cliente por atraso além de 2x o tempo estimado.`,
-          );
-          await persistMutation(persist, pedido);
+          await createSupportMock(db).abrir({ pedidoId, tipo: 'atraso', motivo: 'Pedido atrasado além do prazo informado', operacaoId: createSupportOperationId() });
           return pedido;
-        }),
+        },
         {} as Pedido,
         options,
       );

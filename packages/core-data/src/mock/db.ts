@@ -3,6 +3,7 @@ import type { Hub } from '../ports/hub.port';
 import type { Estabelecimento, EstabelecimentoHorario } from '../ports/store.port';
 import type { Produto } from '../ports/product.port';
 import type { OrderChangeEvent, Pedido } from '../ports/order.port';
+import type { SupportCase } from '../ports/support.port';
 import type { Saque } from '../ports/wallet.port';
 import type { EstabelecimentoFalha, ReembolsoPendente } from '../ports/admin.port';
 import type { QaScenarioState } from '../ports/demo-scenario.port';
@@ -45,6 +46,8 @@ export interface MockDb {
   estabelecimentoHubIds: Record<string, string[]>;
   produtos: Produto[];
   pedidos: Pedido[];
+  solicitacoesPedido: SupportCase[];
+  decisoesSolicitacao: { casoId: string; operacaoId: string; aprovar: boolean; motivo: string; decididoEm: string }[];
   saques: Saque[];
   reembolsos: ReembolsoPendente[];
   /** `estabelecimentos_falhas` — Story 1.10 (Task 4), promovido de `apps/admin/src/mock/adminOpsTypes.ts`. */
@@ -180,6 +183,8 @@ export function createMockDb(): MockDb {
     ),
     produtos: structuredClone(produtosFixture),
     pedidos: structuredClone(pedidosFixture),
+    solicitacoesPedido: [],
+    decisoesSolicitacao: [],
     // Modo Demo (`docs/architecture/09-modo-demo-mock.md` §3.3) — antes
     // nascia `[]`; Extrato do Lojista e fila de Saques do Admin abriam
     // vazios. Ver `fixtures/saques.ts` para o racional dos valores.

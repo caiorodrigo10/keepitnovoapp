@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
 
-import { getDataClient, PinBloqueadoError, PinIncorretoError, type Pedido } from '@keepit/core-data';
+import { createSupportOperationId, getDataClient, PinBloqueadoError, PinIncorretoError, type Pedido, type SupportCase } from '@keepit/core-data';
 
 import { useCurrentStore } from '../../context/CurrentStoreContext';
 
@@ -49,6 +49,7 @@ export type ConfirmPinResult =
 interface OrdersContextValue {
   ativos: Pedido[];
   concluidos: Pedido[];
+  solicitacoes: SupportCase[];
   loading: boolean;
   error: Error | null;
   reload: () => void;
@@ -78,6 +79,7 @@ const OrdersContext = createContext<OrdersContextValue | null>(null);
 export function OrdersProvider({ children }: PropsWithChildren) {
   const { id: storeId } = useCurrentStore();
   const [pedidos, setPedidos] = useState<Pedido[]>([]);
+  const [solicitacoes, setSolicitacoes] = useState<SupportCase[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
@@ -101,6 +103,8 @@ export function OrdersProvider({ children }: PropsWithChildren) {
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+
+    void getDataClient().support.listar().then((lista) => { if (!cancelled) setSolicitacoes(lista); }).catch(() => undefined);
 
     return () => {
       cancelled = true;
@@ -145,6 +149,7 @@ export function OrdersProvider({ children }: PropsWithChildren) {
     return {
       ativos,
       concluidos,
+      solicitacoes,
       loading,
       error,
       reload: () => setReloadToken((token) => token + 1),
@@ -217,13 +222,15 @@ export function OrdersProvider({ children }: PropsWithChildren) {
       },
       async markCustomerNoShow(pedidoId, motivo) {
         if (!storeId) throw new Error('Loja não identificada.');
-        const pedido = await getDataClient().order.markCustomerNoShow(pedidoId, motivo);
-        upsert(pedido);
+        const caso = await getDataClient().support.abrir({ pedidoId, tipo: 'cliente_ausente', motivo, operacaoId: createSupportOperationId() });
+        setSolicitacoes((lista) => [...lista.filter((item) => item.id !== caso.id), caso]);
+        const pedido = await getDataClient().order.getById(pedidoId);
+        if (!pedido) throw new Error('Pedido não encontrado após registrar solicitação.');
         return pedido;
       },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pedidos, loading, error, tempoMedioPrepMin, hubNomes, storeId]);
+  }, [pedidos, solicitacoes, loading, error, tempoMedioPrepMin, hubNomes, storeId]);
 
   return <OrdersContext.Provider value={value}>{children}</OrdersContext.Provider>;
 }
