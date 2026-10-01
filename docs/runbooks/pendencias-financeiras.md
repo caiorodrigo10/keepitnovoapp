@@ -10,7 +10,7 @@ O responsável financeiro executa esta rotina uma vez por dia útil e registra a
 
 1. Abra **Admin > Financeiro > Pendências financeiras** sem filtros de período.
 2. Registre data, hora, responsável e quantidade de itens por tipo.
-3. Para cada item, copie para o registro privado: pedido, operação, idade, último erro e referência externa. Não copie chave, token, CPF, dados bancários completos ou conteúdo de comprovante.
+3. Para cada item, copie para o registro privado: pedido, operação, idade, último resultado, último erro e referência externa. Não copie chave, token, CPF, dados bancários completos ou conteúdo de comprovante.
 4. Consulte o Asaas pela referência externa. Quando a referência estiver ausente, pesquise somente pela referência durável da tentativa, nunca crie outra cobrança.
 5. Consulte o extrato bancário antes de concluir reembolso ou repasse com resposta perdida.
 6. Execute somente a ação mostrada na fila e recarregue a fila após o resultado.
@@ -24,7 +24,7 @@ Casos abertos há mais de um dia útil aparecem sinalizados e devem ser prioriza
 | --- | --- | --- | --- |
 | Reconciliação com ID Asaas | Consultar a cobrança pelo ID exibido e conferir pedido, valor, meio e estado | **Reconciliar pagamento** | A releitura persistida remove a tentativa da fila ou mantém estado incerto |
 | Reconciliação sem ID Asaas | Buscar no Asaas somente pela referência da tentativa | **Reconciliar pagamento** | Uma única cobrança compatível pode ser vinculada; zero ou várias mantêm o caso aberto |
-| Evento divergente | Conferir evento, cobrança, tentativa e pedido no Admin e no Asaas | **Consultar registros** | A divergência foi explicada e a operação relacionada ficou em estado persistido coerente |
+| Evento divergente | Abrir **Inspecionar pedido** e conferir evento, cobrança, tentativa e pedido no Admin e no Asaas | **Inspecionar pedido** | Um evento posterior da mesma tentativa ou cobrança registra resultado sem erro; esse estado persistido retira a divergência da fila |
 | Reembolso pendente ou com erro | Conferir pedido, reserva, referência e efeito no Asaas/banco | **Tratar reembolso** | Efeito externo comprovado é registrado, ou ausência de efeito é comprovada antes de reabrir/liberar |
 | Repasse em análise | Conferir lote, operação, comprovante privado e extrato bancário | **Revisar repasse** | PIX comprovado é confirmado uma vez, ou ausência de PIX é documentada antes de liberar fontes |
 

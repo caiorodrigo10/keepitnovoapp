@@ -1054,6 +1054,10 @@ describe('admin.supabase.ts — financialDashboard (Story 8.7)', () => {
           id: 'refund-erro', estabelecimento_id: 'estab-1', pedido_id: 'pedido-5', tipo: 'refund',
           valor_centavos: -700, status: 'erro', criado_em: '2026-09-29T12:00:00.000Z',
           concluido_em: null, detalhe: 'Resposta perdida após envio', asaas_id_externo: 'refund-ext-5', estado_reserva: 'ativa',
+        }, {
+          id: 'refund-sem-pedido', estabelecimento_id: 'estab-1', pedido_id: null, tipo: 'refund',
+          valor_centavos: -900, status: 'pendente', criado_em: '2026-09-29T13:00:00.000Z',
+          concluido_em: null, detalhe: null, asaas_id_externo: 'refund-ext-sem-pedido', estado_reserva: 'ativa',
         }], error: null }],
         repasses: [{ data: [{
           id: 'repasse-1', estado: 'em_analise', preparado_em: '2026-09-27T10:00:00.000Z', referencia: null,
@@ -1061,6 +1065,9 @@ describe('admin.supabase.ts — financialDashboard (Story 8.7)', () => {
         repasse_eventos: [{ data: [{
           repasse_id: 'repasse-1', operacao_id: 'operacao-repasse-1', tipo: 'analise',
           motivo: 'Resposta bancária perdida', referencia: null, criado_em: '2026-09-30T08:00:00.000Z',
+        }, {
+          repasse_id: 'repasse-1', operacao_id: 'operacao-repasse-inicial', tipo: 'analise',
+          motivo: 'Análise aberta', referencia: null, criado_em: '2026-09-28T08:00:00.000Z',
         }], error: null }],
       },
     });
@@ -1070,31 +1077,76 @@ describe('admin.supabase.ts — financialDashboard (Story 8.7)', () => {
     expect(dashboard.pendenciasFinanceiras).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: 'tentativa:tentativa-sem-id', tipo: 'reconciliacao_pagamento', pedidoId: 'pedido-1',
-        operacaoId: 'operacao-sem-id', referenciaExterna: null, acaoPermitida: 'reconciliar_pagamento',
+        operacaoId: 'operacao-sem-id', referenciaExterna: null, ultimoResultado: null,
+        acaoPermitida: 'reconciliar_pagamento',
       }),
       expect.objectContaining({
         id: 'tentativa:tentativa-com-id', tipo: 'reconciliacao_pagamento', pedidoId: 'pedido-2',
-        operacaoId: 'operacao-com-id', referenciaExterna: 'pay-2', ultimoErro: 'STATUS_INESPERADO',
+        operacaoId: 'operacao-com-id', referenciaExterna: 'pay-2', ultimoResultado: 'ignorado',
+        ultimoErro: 'STATUS_INESPERADO',
       }),
       expect.objectContaining({
         id: 'evento:evt-divergente', tipo: 'evento_divergente', pedidoId: 'pedido-3',
-        operacaoId: 'evt-divergente', referenciaExterna: 'pay-3', ultimoErro: 'COBRANCA_DESCONHECIDA',
+        operacaoId: 'evt-divergente', referenciaExterna: 'pay-3', ultimoResultado: 'vinculo_nao_encontrado',
+        ultimoErro: 'COBRANCA_DESCONHECIDA',
         acaoPermitida: 'consultar_divergencia',
       }),
       expect.objectContaining({
         id: 'reembolso:refund-pendente', tipo: 'reembolso', pedidoId: 'pedido-4',
-        operacaoId: 'refund-pendente', ultimoErro: null, acaoPermitida: 'tratar_reembolso',
+        operacaoId: 'refund-pendente', ultimoResultado: 'pendente', ultimoErro: null,
+        acaoPermitida: 'tratar_reembolso',
       }),
       expect.objectContaining({
         id: 'reembolso:refund-erro', tipo: 'reembolso', pedidoId: 'pedido-5',
-        operacaoId: 'refund-erro', referenciaExterna: 'refund-ext-5', ultimoErro: 'Resposta perdida após envio',
+        operacaoId: 'refund-erro', referenciaExterna: 'refund-ext-5', ultimoResultado: 'erro',
+        ultimoErro: 'Resposta perdida após envio',
+      }),
+      expect.objectContaining({
+        id: 'reembolso:refund-sem-pedido', tipo: 'reembolso', pedidoId: null,
+        operacaoId: 'refund-sem-pedido', ultimoResultado: 'pendente', referenciaExterna: 'refund-ext-sem-pedido',
+        acaoPermitida: 'tratar_reembolso',
       }),
       expect.objectContaining({
         id: 'repasse:repasse-1', tipo: 'repasse_em_analise', pedidoId: null,
-        operacaoId: 'operacao-repasse-1', ultimoErro: 'Resposta bancária perdida',
+        operacaoId: 'operacao-repasse-1', abertoEm: '2026-09-28T08:00:00.000Z',
+        ultimoResultado: 'Resposta bancária perdida', ultimoErro: 'Resposta bancária perdida',
         acaoPermitida: 'revisar_repasse',
       }),
     ]));
+  });
+
+  it('mantém na fila somente a divergência mais recente ainda aberta e vinculada a pedido', async () => {
+    const { client } = fakeTableClient({
+      tables: {
+        pedidos: [{ data: [], error: null }, { data: [], error: null }],
+        eventos_pagamento: [{ data: [{
+          evento_externo_id: 'evt-resolvido', tipo: 'PAYMENT_UPDATED', cobranca_id: 'pay-resolvido',
+          tentativa_id: null, pedido_id: 'pedido-resolvido', resultado: 'recebido', erro_codigo: null,
+          recebido_em: '2026-09-30T11:00:00.000Z',
+        }, {
+          evento_externo_id: 'evt-erro-antigo', tipo: 'PAYMENT_RECEIVED', cobranca_id: 'pay-resolvido',
+          tentativa_id: 'tentativa-resolvida', pedido_id: 'pedido-resolvido', resultado: 'vinculo_nao_encontrado',
+          erro_codigo: 'COBRANCA_DESCONHECIDA', recebido_em: '2026-09-30T10:00:00.000Z',
+        }, {
+          evento_externo_id: 'evt-aberto', tipo: 'PAYMENT_RECEIVED', cobranca_id: 'pay-aberto',
+          tentativa_id: null, pedido_id: 'pedido-aberto', resultado: 'conciliacao_necessaria',
+          erro_codigo: 'STATUS_INESPERADO', recebido_em: '2026-09-30T09:00:00.000Z',
+        }, {
+          evento_externo_id: 'evt-sem-pedido', tipo: 'PAYMENT_RECEIVED', cobranca_id: 'pay-sem-pedido',
+          tentativa_id: null, pedido_id: null, resultado: 'vinculo_nao_encontrado',
+          erro_codigo: 'COBRANCA_DESCONHECIDA', recebido_em: '2026-09-30T08:00:00.000Z',
+        }], error: null }],
+      },
+    });
+
+    const dashboard = await createAdminSupabase(client).financialDashboard(30);
+
+    expect(dashboard.pendenciasFinanceiras.filter((item) => item.tipo === 'evento_divergente')).toEqual([{
+      id: 'evento:evt-aberto', tipo: 'evento_divergente', pedidoId: 'pedido-aberto',
+      operacaoId: 'evt-aberto', abertoEm: '2026-09-30T09:00:00.000Z',
+      ultimoResultado: 'conciliacao_necessaria', ultimoErro: 'STATUS_INESPERADO',
+      referenciaExterna: 'pay-aberto', acaoPermitida: 'consultar_divergencia',
+    }]);
   });
 
   it('pagina a fila até o fim para nenhuma pendência desaparecer no limite do servidor', async () => {
@@ -1165,7 +1217,7 @@ describe('admin.supabase.ts — financialDashboard (Story 8.7)', () => {
     ]));
   });
 
-  it('filtra divergências no servidor antes de paginar e busca eventos apenas das tentativas exibidas', async () => {
+  it('pagina todo o histórico necessário para fechar divergências e busca eventos das tentativas exibidas', async () => {
     const { client, from } = fakeTableClient({
       tables: {
         pedidos: [{ data: [], error: null }, { data: [], error: null }],
@@ -1187,13 +1239,13 @@ describe('admin.supabase.ts — financialDashboard (Story 8.7)', () => {
     const latestBuilder = from.mock.results[eventCallIndexes[0]!]?.value as {
       in: ReturnType<typeof vi.fn>; range: ReturnType<typeof vi.fn>;
     };
-    const errorsBuilder = from.mock.results[eventCallIndexes[1]!]?.value as {
-      not: ReturnType<typeof vi.fn>; range: ReturnType<typeof vi.fn>;
+    const historyBuilder = from.mock.results[eventCallIndexes[1]!]?.value as {
+      order: ReturnType<typeof vi.fn>; range: ReturnType<typeof vi.fn>;
     };
     expect(latestBuilder.in).toHaveBeenCalledWith('tentativa_id', ['tentativa-1']);
     expect(latestBuilder.range).toHaveBeenCalledWith(0, 999);
-    expect(errorsBuilder.not).toHaveBeenCalledWith('erro_codigo', 'is', null);
-    expect(errorsBuilder.range).toHaveBeenCalledWith(0, 999);
+    expect(historyBuilder.order).toHaveBeenCalledWith('recebido_em', { ascending: false });
+    expect(historyBuilder.range).toHaveBeenCalledWith(0, 999);
   });
 
   it('reconcilia manualmente uma tentativa pela Edge Function sem criar cobrança', async () => {

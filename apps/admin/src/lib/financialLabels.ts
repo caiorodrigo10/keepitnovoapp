@@ -26,7 +26,10 @@ export function presentFinancialPending(item: FinancialPendingAdmin, now = new D
   const entityId = item.id.slice(item.id.indexOf(':') + 1);
   const action = {
     reconciliar_pagamento: { acaoLabel: 'Reconciliar pagamento', acaoHref: null },
-    consultar_divergencia: { acaoLabel: 'Consultar registros', acaoHref: null },
+    consultar_divergencia: {
+      acaoLabel: 'Inspecionar pedido',
+      acaoHref: item.pedidoId ? `/pedidos/${encodeURIComponent(item.pedidoId)}` : null,
+    },
     tratar_reembolso: { acaoLabel: 'Tratar reembolso', acaoHref: `/reembolsos/${entityId}` },
     revisar_repasse: { acaoLabel: 'Revisar repasse', acaoHref: `/repasses/${entityId}` },
   }[item.acaoPermitida];

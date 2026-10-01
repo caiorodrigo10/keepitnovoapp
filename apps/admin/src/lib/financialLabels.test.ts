@@ -16,7 +16,7 @@ describe('presentFinancialPending', () => {
   it('sinaliza somente casos abertos há mais de um dia útil', () => {
     const base = {
       id: 'tentativa:tentativa-1', tipo: 'reconciliacao_pagamento' as const,
-      pedidoId: 'pedido-1', operacaoId: 'tentativa-1', ultimoErro: null,
+      pedidoId: 'pedido-1', operacaoId: 'tentativa-1', ultimoResultado: null, ultimoErro: null,
       referenciaExterna: null, acaoPermitida: 'reconciliar_pagamento' as const,
     };
     const agora = new Date('2026-10-01T12:00:00.000Z');
@@ -28,7 +28,7 @@ describe('presentFinancialPending', () => {
   });
 
   it.each([
-    ['consultar_divergencia', 'Consultar registros', null],
+    ['consultar_divergencia', 'Inspecionar pedido', '/pedidos/pedido-1'],
     ['tratar_reembolso', 'Tratar reembolso', '/reembolsos/refund-1'],
     ['revisar_repasse', 'Revisar repasse', '/repasses/repasse-1'],
   ] as const)('expõe somente a ação segura %s', (acaoPermitida, acaoLabel, acaoHref) => {
@@ -38,8 +38,9 @@ describe('presentFinancialPending', () => {
     expect(presentFinancialPending({
       id, tipo: acaoPermitida === 'tratar_reembolso' ? 'reembolso'
         : acaoPermitida === 'revisar_repasse' ? 'repasse_em_analise' : 'evento_divergente',
-      pedidoId: null, operacaoId: 'op-1', abertoEm: '2026-10-01T10:00:00.000Z',
-      ultimoErro: null, referenciaExterna: null, acaoPermitida,
+      pedidoId: acaoPermitida === 'consultar_divergencia' ? 'pedido-1' : null,
+      operacaoId: 'op-1', abertoEm: '2026-10-01T10:00:00.000Z',
+      ultimoResultado: null, ultimoErro: null, referenciaExterna: null, acaoPermitida,
     }, new Date('2026-10-01T12:00:00.000Z'))).toMatchObject({ acaoLabel, acaoHref });
   });
 });

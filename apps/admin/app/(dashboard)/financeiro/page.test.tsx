@@ -11,19 +11,19 @@ vi.mock('../../../src/hooks/useAdminOps', () => ({ useFinancialDashboard: () => 
     reconciliacoes: [], antecipacoes: [], eventosComErro: [], ocorrenciasPagamento: [],
     pendenciasFinanceiras: [{
       id: 'tentativa:tentativa-1', tipo: 'reconciliacao_pagamento', pedidoId: 'pedido-1',
-      operacaoId: 'operacao-tentativa-1', abertoEm: '2026-09-28T10:00:00.000Z', ultimoErro: null,
+      operacaoId: 'operacao-tentativa-1', abertoEm: '2026-09-28T10:00:00.000Z', ultimoResultado: 'aguardando_consulta', ultimoErro: null,
       referenciaExterna: null, acaoPermitida: 'reconciliar_pagamento',
     }, {
-      id: 'evento:evt-1', tipo: 'evento_divergente', pedidoId: null,
-      operacaoId: 'evt-1', abertoEm: '2026-09-30T10:00:00.000Z', ultimoErro: 'COBRANCA_DESCONHECIDA',
+      id: 'evento:evt-1', tipo: 'evento_divergente', pedidoId: 'pedido-3',
+      operacaoId: 'evt-1', abertoEm: '2026-09-30T10:00:00.000Z', ultimoResultado: 'vinculo_nao_encontrado', ultimoErro: 'COBRANCA_DESCONHECIDA',
       referenciaExterna: 'pay-1', acaoPermitida: 'consultar_divergencia',
     }, {
       id: 'reembolso:refund-1', tipo: 'reembolso', pedidoId: 'pedido-2',
-      operacaoId: 'refund-1', abertoEm: '2026-09-29T10:00:00.000Z', ultimoErro: 'Resposta perdida',
+      operacaoId: 'refund-1', abertoEm: '2026-09-29T10:00:00.000Z', ultimoResultado: 'erro', ultimoErro: 'Resposta perdida',
       referenciaExterna: 'refund-ext-1', acaoPermitida: 'tratar_reembolso',
     }, {
       id: 'repasse:repasse-1', tipo: 'repasse_em_analise', pedidoId: null,
-      operacaoId: 'op-repasse-1', abertoEm: '2026-09-29T10:00:00.000Z', ultimoErro: 'PIX incerto',
+      operacaoId: 'op-repasse-1', abertoEm: '2026-09-29T10:00:00.000Z', ultimoResultado: 'análise mantida', ultimoErro: 'PIX incerto',
       referenciaExterna: null, acaoPermitida: 'revisar_repasse',
     }] },
   loading: false, error: null, refresh: vi.fn(),
@@ -59,9 +59,12 @@ describe('dashboard financeiro Admin', () => {
     expect(html).toContain('3 dias úteis');
     expect(html).toContain('Aberta há mais de 1 dia útil');
     expect(html).toContain('COBRANCA_DESCONHECIDA');
+    expect(html).toContain('Último resultado: aguardando_consulta');
+    expect(html).toContain('Último erro: sem erro registrado');
     expect(html).toContain('pay-1');
     expect(html).toContain('Reconciliar pagamento');
-    expect(html).toContain('Consultar registros');
+    expect(html).toContain('Inspecionar pedido');
+    expect(html).toContain('href="/pedidos/pedido-3"');
     expect(html).toContain('Tratar reembolso');
     expect(html).toContain('Revisar repasse');
     expect(html).not.toContain('Criar cobrança');

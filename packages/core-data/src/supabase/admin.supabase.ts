@@ -1409,20 +1409,22 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
           ultimoErroPorTentativa.set(event.tentativa_id, event.erro_codigo);
         }
       }
-      // O filtro roda antes da paginação no PostgREST: eventos bem-sucedidos
-      // não consomem as páginas e não escondem divergências do Admin.
-      const divergenciasResult = await fetchAllOperationalRows<(typeof eventosRows)[number]>((from, to) =>
+      // A fila precisa do histórico completo para que um evento posterior sem
+      // erro encerre uma divergência anterior da mesma cobrança/tentativa.
+      const historicoEventos = await fetchAllOperationalRows<(typeof eventosRows)[number]>((from, to) =>
         operational.from('eventos_pagamento')
           .select(eventColumns)
-          .not('erro_codigo', 'is', null)
           .order('recebido_em', { ascending: false })
           .order('evento_externo_id', { ascending: true })
           .range(from, to));
       const divergenciasRows = [
-        ...divergenciasResult,
+        ...historicoEventos,
         ...eventosRows.filter((event) => event.erro_codigo !== null),
-      ].filter((event, index, rows) => rows.findIndex((item) => item.evento_externo_id === event.evento_externo_id) === index);
+      ]
+        .filter((event, index, rows) => rows.findIndex((item) => item.evento_externo_id === event.evento_externo_id) === index)
+        .sort((a, b) => b.recebido_em.localeCompare(a.recebido_em));
       const eventosComErro: PaymentEventAdmin[] = divergenciasRows
+        .filter((event) => event.erro_codigo !== null)
         .map((event) => ({
           eventoExternoId: event.evento_externo_id,
           tipo: event.tipo,
@@ -1492,6 +1494,30 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
       const reembolsosPendentes = ledgerRows.filter((row) => row.tipo === 'refund'
         && (row.status === 'pendente' || row.status === 'erro') && row.estado_reserva !== 'liberada');
 
+      const chavesCorrelacaoEvento = (event: (typeof divergenciasRows)[number]) => {
+        const chaves = [
+          event.tentativa_id ? `tentativa:${event.tentativa_id}` : null,
+          event.cobranca_id ? `cobranca:${event.cobranca_id}` : null,
+        ].filter((chave): chave is string => chave !== null);
+        if (chaves.length === 0 && event.pedido_id) chaves.push(`pedido:${event.pedido_id}`);
+        return chaves;
+      };
+      const ultimoEventoPorCorrelacao = new Map<string, (typeof divergenciasRows)[number]>();
+      for (const event of divergenciasRows) {
+        for (const chave of chavesCorrelacaoEvento(event)) {
+          if (!ultimoEventoPorCorrelacao.has(chave)) ultimoEventoPorCorrelacao.set(chave, event);
+        }
+      }
+      const tentativasEmReconciliacao = new Set(tentativasRows.map((row) => row.id));
+      const divergenciasAbertas = divergenciasRows.filter((event) => {
+        const chaves = chavesCorrelacaoEvento(event);
+        return event.erro_codigo !== null
+          && event.pedido_id !== null
+          && chaves.length > 0
+          && chaves.every((chave) => ultimoEventoPorCorrelacao.get(chave)?.evento_externo_id === event.evento_externo_id)
+          && (!event.tentativa_id || !tentativasEmReconciliacao.has(event.tentativa_id));
+      });
+
       const repassesEmAnalise = await fetchAllOperationalRows<{
         id: string; preparado_em: string;
       }>((from, to) => operational.from('repasses')
@@ -1514,9 +1540,12 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
             .order('operacao_id', { ascending: true })
             .range(from, to)));
       }
+      eventosRepasse.sort((a, b) => b.criado_em.localeCompare(a.criado_em));
       const ultimoEventoPorRepasse = new Map<string, (typeof eventosRepasse)[number]>();
+      const primeiroEventoPorRepasse = new Map<string, (typeof eventosRepasse)[number]>();
       for (const event of eventosRepasse) {
         if (!ultimoEventoPorRepasse.has(event.repasse_id)) ultimoEventoPorRepasse.set(event.repasse_id, event);
+        primeiroEventoPorRepasse.set(event.repasse_id, event);
       }
 
       const pendenciasFinanceiras: FinancialPendingAdmin[] = [
@@ -1526,40 +1555,45 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
           pedidoId: item.pedidoId,
           operacaoId: item.operacaoId,
           abertoEm: item.criadoEm,
+          ultimoResultado: item.ultimoResultado,
           ultimoErro: item.ultimoErro,
           referenciaExterna: item.asaasPaymentId,
           acaoPermitida: 'reconciliar_pagamento' as const,
         })),
-        ...eventosComErro.map((item) => ({
-          id: `evento:${item.eventoExternoId}`,
+        ...divergenciasAbertas.map((item) => ({
+          id: `evento:${item.evento_externo_id}`,
           tipo: 'evento_divergente' as const,
-          pedidoId: item.pedidoId,
-          operacaoId: item.eventoExternoId,
-          abertoEm: item.recebidoEm,
-          ultimoErro: item.erro,
-          referenciaExterna: item.cobrancaId,
+          pedidoId: item.pedido_id,
+          operacaoId: item.evento_externo_id,
+          abertoEm: item.recebido_em,
+          ultimoResultado: item.resultado,
+          ultimoErro: item.erro_codigo,
+          referenciaExterna: item.cobranca_id,
           acaoPermitida: 'consultar_divergencia' as const,
         })),
-        ...reembolsosPendentes.filter((item) => item.pedido_id !== null).map((item) => ({
+        ...reembolsosPendentes.map((item) => ({
           id: `reembolso:${item.id}`,
           tipo: 'reembolso' as const,
           pedidoId: item.pedido_id,
           operacaoId: item.id,
           abertoEm: item.criado_em,
+          ultimoResultado: item.status,
           ultimoErro: item.status === 'erro' ? item.detalhe : null,
           referenciaExterna: item.asaas_id_externo ?? null,
           acaoPermitida: 'tratar_reembolso' as const,
         })),
         ...repassesEmAnalise.map((item) => {
-          const event = ultimoEventoPorRepasse.get(item.id);
+          const ultimoEvento = ultimoEventoPorRepasse.get(item.id);
+          const primeiroEvento = primeiroEventoPorRepasse.get(item.id);
           return {
             id: `repasse:${item.id}`,
             tipo: 'repasse_em_analise' as const,
             pedidoId: null,
-            operacaoId: event?.operacao_id ?? item.id,
-            abertoEm: event?.criado_em ?? item.preparado_em,
-            ultimoErro: event?.motivo ?? null,
-            referenciaExterna: event?.referencia ?? null,
+            operacaoId: ultimoEvento?.operacao_id ?? item.id,
+            abertoEm: primeiroEvento?.criado_em ?? item.preparado_em,
+            ultimoResultado: ultimoEvento?.motivo ?? 'em_analise',
+            ultimoErro: ultimoEvento?.motivo ?? null,
+            referenciaExterna: ultimoEvento?.referencia ?? null,
             acaoPermitida: 'revisar_repasse' as const,
           };
         }),

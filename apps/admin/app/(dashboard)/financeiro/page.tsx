@@ -203,7 +203,13 @@ export default function FinanceiroPage() {
                           {presentation.atrasada ? ' · Aberta há mais de 1 dia útil' : ''}
                         </p>
                         <p className="break-all text-text-secondary">
-                          Último erro: {item.ultimoErro ?? 'sem erro registrado'} · Referência externa: {item.referenciaExterna ?? 'não vinculada'}
+                          Último resultado: {item.ultimoResultado ?? 'sem resultado registrado'}
+                        </p>
+                        <p className="break-all text-text-secondary">
+                          Último erro: {item.ultimoErro ?? 'sem erro registrado'}
+                        </p>
+                        <p className="break-all text-text-secondary">
+                          Referência externa: {item.referenciaExterna ?? 'não vinculada'}
                         </p>
                       </div>
                       {item.acaoPermitida === 'reconciliar_pagamento' ? (

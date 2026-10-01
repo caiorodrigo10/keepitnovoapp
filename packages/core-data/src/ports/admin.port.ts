@@ -151,6 +151,7 @@ export interface FinancialPendingAdmin {
   pedidoId: string | null;
   operacaoId: string;
   abertoEm: string;
+  ultimoResultado: string | null;
   ultimoErro: string | null;
   referenciaExterna: string | null;
   acaoPermitida: FinancialPendingAction;
