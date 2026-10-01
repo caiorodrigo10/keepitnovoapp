@@ -19,6 +19,20 @@ function firstRow(data: EventRpcRow[] | EventRpcRow | null): EventRpcRow {
 function createPagamentosRepo(supabase: ReturnType<typeof createClient<Database>>): PagamentosRepo {
   const rpc = supabase as unknown as EventRpcClient;
   return {
+    async processRefundEvent(input) {
+      const { data, error } = await rpc.rpc('processar_evento_reembolso', {
+        p_evento_id: input.eventId,
+        p_evento: input.event,
+        p_cobranca_id: input.paymentId,
+        p_reembolso_id: input.refundId,
+        p_valor_centavos: input.valueCents,
+        p_metodo: input.method,
+        p_referencia: input.reference,
+      });
+      if (error) throw new Error('PROCESSAMENTO_REEMBOLSO_FALHOU');
+      const row = firstRow(data);
+      return { resultado: row.resultado ?? 'erro_persistencia', pedidoId: row.pedido_id ?? null };
+    },
     async processPaymentEvent(input) {
       const { data, error } = await rpc.rpc('processar_evento_pagamento', {
         p_evento_id: input.eventId,

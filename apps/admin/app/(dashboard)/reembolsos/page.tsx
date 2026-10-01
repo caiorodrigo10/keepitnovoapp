@@ -54,7 +54,7 @@ export default function ReembolsosPage() {
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-2xl font-bold text-text-primary">Fila de Reembolsos</h1>
-        <p className="text-sm text-text-secondary">Reembolsos pendentes de processamento manual.</p>
+        <p className="text-sm text-text-secondary">Devoluções aprovadas, executadas e com falha. A execução financeira é manual no gateway.</p>
       </div>
 
       {loading && <p className="text-sm text-text-tertiary">Carregando reembolsos…</p>}
@@ -70,7 +70,7 @@ export default function ReembolsosPage() {
 
       {!loading && !error && reembolsos.length === 0 && (
         <Card>
-          <p className="text-sm text-text-secondary">Nenhum reembolso pendente.</p>
+          <p className="text-sm text-text-secondary">Nenhuma devolução registrada.</p>
         </Card>
       )}
 
@@ -86,13 +86,17 @@ export default function ReembolsosPage() {
                       Pedido #{pedido?.numero ?? '—'}
                     </span>
                     <Badge variant="warning">{REEMBOLSO_MOTIVO_LABEL[reembolso.motivo]}</Badge>
+                    <Badge variant={reembolso.status === 'erro' ? 'warning' : 'neutral'}>
+                      {reembolso.status === 'estornado' ? 'Executado' : reembolso.status === 'erro' ? 'Erro na execução' : 'Aprovado, pendente'}
+                    </Badge>
                   </div>
                   <p className="text-sm text-text-secondary">
                     {formatReais(reembolso.valor_a_estornar_reais)} · {reembolso.forma_pagamento.toUpperCase()}
+                    {reembolso.responsavel ? ` · Responsável: ${reembolso.responsavel === 'lojista' ? 'lojista' : 'Keepit'}` : ''}
                   </p>
                 </div>
                 <LinkButton href={`/reembolsos/${reembolso.id}`} className="shrink-0">
-                  Processar
+                  Ver devolução
                 </LinkButton>
               </Card>
             );

@@ -30,6 +30,15 @@ describe('wallet.mock (contract)', () => {
     expect(carteira.saldo_disponivel_reais).toBeGreaterThan(0);
   });
 
+  it('desconta da carteira o ajuste único de devolução confirmado contra o lojista', async () => {
+    const pedido = db.pedidos.find((item) => item.estabelecimento_id === 'estab-farmacia-vida' && item.status === 'entregue')!;
+    const antes = await port.getBalance('estab-farmacia-vida', { delayMs: 1 });
+    db.ajustesReembolso.push({ reembolsoId: 'refund-1', pedidoId: pedido.id, valorCentavos: -500 });
+    const depois = await port.getBalance('estab-farmacia-vida', { delayMs: 1 });
+    expect(depois.saldo_disponivel_reais).toBeCloseTo(antes.saldo_disponivel_reais - 5, 2);
+    expect(depois.total_debitado_reais).toBe(5);
+  });
+
   it('requestWithdrawal rejects below businessConfig.saqueMinimoReais', async () => {
     await expect(
       port.requestWithdrawal('estab-farmacia-vida', businessConfig.saqueMinimoReais - 1, { delayMs: 1 }),

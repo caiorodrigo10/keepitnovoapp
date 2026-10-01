@@ -434,6 +434,20 @@ function fakeTableClient(options: {
 }
 
 describe('admin.supabase.ts — refundQueue (Story 8.1, 8.2)', () => {
+  it('reabre falha e libera reserva somente por RPC auditada com comprovação', async () => {
+    const rpc = vi.fn(async () => ({ data: null, error: null }));
+    const { client } = fakeTableClient({ rpc });
+    const port = createAdminSupabase(client);
+    await port.refundQueue.reopen('refund-1', 'Gateway confirmou ausência de efeito');
+    await port.refundQueue.release('refund-1', 'Gateway confirmou cancelamento');
+    expect(rpc).toHaveBeenNthCalledWith(1, 'reabrir_execucao_reembolso', {
+      p_lancamento_id: 'refund-1', p_comprovacao: 'Gateway confirmou ausência de efeito', p_operacao_id: expect.any(String),
+    });
+    expect(rpc).toHaveBeenNthCalledWith(2, 'liberar_reserva_reembolso', {
+      p_lancamento_id: 'refund-1', p_comprovacao: 'Gateway confirmou cancelamento', p_operacao_id: expect.any(String),
+    });
+  });
+
   it('list mapeia lançamentos refund reais para ReembolsoPendente, excluindo pedido_id null (AC1, AC2, AC4, AC5)', async () => {
     const { client } = fakeTableClient({
       tables: {
@@ -450,6 +464,8 @@ describe('admin.supabase.ts — refundQueue (Story 8.1, 8.2)', () => {
                 criado_em: '2026-08-01T10:00:00.000Z',
                 concluido_em: null,
                 detalhe: 'Reembolso total (100%) por cancelamento forçado do admin. Motivo: teste',
+                motivo_reembolso: 'pos_entrega', responsavel_reembolso: 'lojista',
+                solicitacao_id: 'caso-1', asaas_id_externo: null, estado_reserva: 'ativa',
               },
               {
                 id: 'lanc-2',
@@ -477,7 +493,7 @@ describe('admin.supabase.ts — refundQueue (Story 8.1, 8.2)', () => {
     expect(fila[0]).toMatchObject({
       id: 'lanc-1',
       pedido_id: 'pedido-1',
-      motivo: 'cancelamento_admin',
+      motivo: 'pos_entrega', responsavel: 'lojista', caso_id: 'caso-1',
       valor_a_estornar_reais: 29,
       valor_ao_lojista_reais: 0,
       forma_pagamento: 'pix',
@@ -515,7 +531,7 @@ describe('admin.supabase.ts — refundQueue (Story 8.1, 8.2)', () => {
     expect(fila[0].status).toBe('estornado');
   });
 
-  it('process chama confirmar_lancamento_admin com os args corretos e relê o lançamento (Story 8.2 AC2)', async () => {
+  it('process confirma manualmente pela nova RPC com referência externa e relê o lançamento', async () => {
     const rpc = vi.fn(async () => ({ data: [{ lancamento_id: 'lanc-1' }], error: null }));
     const { client } = fakeTableClient({
       rpc,
@@ -543,10 +559,12 @@ describe('admin.supabase.ts — refundQueue (Story 8.1, 8.2)', () => {
     const port = createAdminSupabase(client);
     const resultado = await port.refundQueue.process('lanc-1', 'concluido', 'referência pix 123');
 
-    expect(rpc).toHaveBeenCalledWith('confirmar_lancamento_admin', {
+    expect(rpc).toHaveBeenCalledWith('registrar_execucao_reembolso', {
       p_lancamento_id: 'lanc-1',
       p_resultado: 'concluido',
-      p_detalhe: 'referência pix 123',
+      p_referencia: 'referência pix 123',
+      p_operacao_id: expect.any(String),
+      p_detalhe: null,
     });
     expect(resultado.status).toBe('estornado');
   });
@@ -561,7 +579,7 @@ describe('admin.supabase.ts — refundQueue (Story 8.1, 8.2)', () => {
   ])('process — %s rejeita com o erro nomeado correspondente, nunca sucesso fictício', async (code, matcher) => {
     const { client } = fakeTableClient({ rpc: async () => ({ data: null, error: { message: code } }) });
     const port = createAdminSupabase(client);
-    await expect(port.refundQueue.process('lanc-1', 'concluido')).rejects.toThrow(matcher);
+    await expect(port.refundQueue.process('lanc-1', 'concluido', 'ref-1')).rejects.toThrow(matcher);
   });
 
   it('process(resultado="erro") nunca simula sucesso — RPC chamada com p_resultado=erro', async () => {
@@ -592,9 +610,11 @@ describe('admin.supabase.ts — refundQueue (Story 8.1, 8.2)', () => {
     const port = createAdminSupabase(client);
     const resultado = await port.refundQueue.process('lanc-1', 'erro', 'PIX falhou');
 
-    expect(rpc).toHaveBeenCalledWith('confirmar_lancamento_admin', {
+    expect(rpc).toHaveBeenCalledWith('registrar_execucao_reembolso', {
       p_lancamento_id: 'lanc-1',
       p_resultado: 'erro',
+      p_referencia: null,
+      p_operacao_id: expect.any(String),
       p_detalhe: 'PIX falhou',
     });
     expect(resultado.status).toBe('erro');

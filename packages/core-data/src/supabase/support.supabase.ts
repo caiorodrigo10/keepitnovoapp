@@ -42,6 +42,11 @@ export function createSupportSupabase(client?: SupabaseClient<Database>): Suppor
       if (error) throw error;
       return parseCase(data);
     },
-    async confirmarReembolso() { throw new Error('REEMBOLSO_EXTERNO_NAO_IMPLEMENTADO'); },
+    async confirmarReembolso(input) {
+      const { error } = await resolve().rpc('confirmar_reembolso' as never, {
+        p_caso_id: input.casoId, p_referencia: input.referencia, p_operacao_id: input.operacaoId,
+      } as never);
+      if (error) throw error;
+    },
   };
 }

@@ -3,7 +3,7 @@
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-import type { AdminPaymentInspection, Pedido, ReembolsoPendente } from '@keepit/core-data';
+import { remainingRefund, type AdminPaymentInspection, type Pedido, type ReembolsoPendente } from '@keepit/core-data';
 
 import { Badge } from '../../../../src/components/Badge';
 import { Button } from '../../../../src/components/Button';
@@ -31,6 +31,7 @@ export default function ExecutarReembolsoPage() {
   const [reembolso, setReembolso] = useState<ReembolsoPendente | null>(null);
   const [pedido, setPedido] = useState<Pedido | null>(null);
   const [payment, setPayment] = useState<AdminPaymentInspection | null>(null);
+  const [restanteCentavos, setRestanteCentavos] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<Error | null>(null);
 
@@ -38,6 +39,8 @@ export default function ExecutarReembolsoPage() {
   const [actionError, setActionError] = useState<Error | null>(null);
   const [showErroForm, setShowErroForm] = useState(false);
   const [detalheErro, setDetalheErro] = useState('');
+  const [referencia, setReferencia] = useState('');
+  const [comprovacao, setComprovacao] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -59,6 +62,14 @@ export default function ExecutarReembolsoPage() {
           if (!cancelled) {
             setPedido(p);
             setPayment(paymentResult);
+            if (p) {
+              const relacionados = reembolsos.filter((item) => item.pedido_id === p.id);
+              const concluido = relacionados.filter((item) => item.status === 'estornado')
+                .reduce((sum, item) => sum + Math.round(item.valor_a_estornar_reais * 100), 0);
+              const reservado = relacionados.filter((item) => item.status !== 'estornado')
+                .reduce((sum, item) => sum + Math.round(item.valor_a_estornar_reais * 100), 0);
+              setRestanteCentavos(remainingRefund(Math.round(p.total_pago_reais * 100), concluido, reservado));
+            }
           }
         }
         setLoading(false);
@@ -79,14 +90,15 @@ export default function ExecutarReembolsoPage() {
    * Story 8.2 (AC2) — "Confirmar estorno" registra a confirmação MANUAL
    * auditável (`resultado: 'concluido'`) — **nenhuma chamada Asaas real**
    * (seam honesta, ver Story 8.2 "Ajuste de piloto"). O admin confirma que
-   * já fez (ou vai fazer) o PIX/estorno de fato fora do sistema.
+   * já executou o estorno fora do sistema e informa sua referência.
    */
   function handleConfirmarEstorno() {
+    if (!referencia.trim()) { setActionError(new Error('Informe a referência do estorno executado no gateway.')); return; }
     setActionPending(true);
     setActionError(null);
 
     getAdminDataClient()
-      .admin.refundQueue.process(params.id, 'concluido', undefined, { forceError: forceActionError })
+      .admin.refundQueue.process(params.id, 'concluido', referencia.trim(), { forceError: forceActionError })
       .then((atualizado) => {
         setActionPending(false);
         setReembolso(atualizado);
@@ -104,11 +116,12 @@ export default function ExecutarReembolsoPage() {
    * `detalhe` — nenhum sucesso fictício é exibido.
    */
   function handleMarcarErro() {
+    if (!detalheErro.trim()) { setActionError(new Error('Descreva a falha da execução externa.')); return; }
     setActionPending(true);
     setActionError(null);
 
     getAdminDataClient()
-      .admin.refundQueue.process(params.id, 'erro', detalheErro.trim() || undefined, { forceError: forceActionError })
+      .admin.refundQueue.process(params.id, 'erro', detalheErro.trim(), { forceError: forceActionError })
       .then((atualizado) => {
         setActionPending(false);
         setReembolso(atualizado);
@@ -118,6 +131,23 @@ export default function ExecutarReembolsoPage() {
         setActionPending(false);
         setActionError(error instanceof Error ? error : new Error(String(error)));
       });
+  }
+
+  async function handleReconciliar(acao: 'reopen' | 'release') {
+    if (!comprovacao.trim()) { setActionError(new Error('Informe a comprovação obtida no gateway.')); return; }
+    setActionPending(true); setActionError(null);
+    try {
+      const queue = getAdminDataClient().admin.refundQueue;
+      if (acao === 'reopen') {
+        await queue.reopen(params.id, comprovacao.trim());
+        setReembolso((current) => current ? { ...current, status: 'pendente_admin', referencia_externa: null } : current);
+      } else {
+        await queue.release(params.id, comprovacao.trim());
+        router.push('/reembolsos');
+      }
+      setComprovacao('');
+    } catch (error) { setActionError(error instanceof Error ? error : new Error(String(error))); }
+    finally { setActionPending(false); }
   }
 
   if (loading) {
@@ -142,7 +172,7 @@ export default function ExecutarReembolsoPage() {
         <h1 className="text-2xl font-bold text-text-primary">Executar Reembolso</h1>
         <div className="mt-1 flex items-center gap-2">
           <Badge variant="warning">{REEMBOLSO_MOTIVO_LABEL[reembolso.motivo]}</Badge>
-          <Badge variant="neutral">{reembolso.status}</Badge>
+          <Badge variant="neutral">{reembolso.status === 'estornado' ? 'Executado' : reembolso.status === 'erro' ? 'Erro na execução' : 'Aprovado, aguardando execução'}</Badge>
         </div>
       </div>
 
@@ -175,8 +205,13 @@ export default function ExecutarReembolsoPage() {
           </dd>
           <dt className="text-text-tertiary">Valor a estornar</dt>
           <dd className="text-text-primary">{formatReais(reembolso.valor_a_estornar_reais)}</dd>
-          <dt className="text-text-tertiary">Valor ao lojista</dt>
-          <dd className="text-text-primary">{formatReais(reembolso.valor_ao_lojista_reais)}</dd>
+          {reembolso.motivo !== 'pos_entrega' && <><dt className="text-text-tertiary">Valor ao lojista</dt>
+          <dd className="text-text-primary">{formatReais(reembolso.valor_ao_lojista_reais)}</dd></>}
+          <dt className="text-text-tertiary">Responsabilidade</dt>
+          <dd className="text-text-primary">{reembolso.responsavel === 'lojista' ? 'Lojista' : 'Keepit'}</dd>
+          <dt className="text-text-tertiary">Saldo ainda reembolsável</dt>
+          <dd className="text-text-primary">{restanteCentavos === null ? '—' : formatReais(restanteCentavos / 100)}</dd>
+          {reembolso.referencia_externa && <><dt className="text-text-tertiary">Referência externa</dt><dd className="text-text-primary">{reembolso.referencia_externa}</dd></>}
         </dl>
         {pedido && (
           <ul className="border-t border-border-default pt-3 text-sm text-text-secondary">
@@ -196,22 +231,27 @@ export default function ExecutarReembolsoPage() {
         </Card>
       )}
 
-      {reembolso.status !== 'estornado' && reembolso.status !== 'erro' && !showErroForm && (
-        <div className="flex gap-3">
+      {reembolso.status !== 'estornado' && !showErroForm && (
+        <div className="flex flex-col gap-3">
+          <label className="text-sm text-text-secondary">Referência do estorno já executado no gateway
+            <input value={referencia} onChange={(event) => setReferencia(event.target.value)} className="mt-1 block w-full rounded-md border border-border-default bg-bg-elevated p-2 text-text-primary" />
+          </label>
+          <div className="flex gap-3">
           <Button onClick={handleConfirmarEstorno} disabled={actionPending}>
-            {actionPending ? 'Processando…' : 'Confirmar estorno'}
+            {actionPending ? 'Registrando…' : 'Confirmar execução manual'}
           </Button>
           <Button variant="secondary" onClick={() => setShowErroForm(true)} disabled={actionPending}>
             Marcar como erro
           </Button>
+          </div>
         </div>
       )}
 
-      {reembolso.status !== 'estornado' && reembolso.status !== 'erro' && showErroForm && (
+      {reembolso.status !== 'estornado' && showErroForm && (
         <Card className="flex flex-col gap-3">
           <label className="flex flex-col gap-1">
             <span className="text-xs font-semibold uppercase tracking-section text-text-tertiary">
-              Detalhe do erro (opcional)
+              Detalhe da falha externa
             </span>
             <textarea
               value={detalheErro}
@@ -231,6 +271,14 @@ export default function ExecutarReembolsoPage() {
           </div>
         </Card>
       )}
+      {reembolso.status === 'erro' && <Card className="flex flex-col gap-3">
+        <p className="text-sm text-text-secondary">A reserva permanece ativa. Comprovação de ausência de efeito externo permite reabrir a execução ou liberar o saldo.</p>
+        <textarea value={comprovacao} onChange={(event) => setComprovacao(event.target.value)} rows={2} placeholder="Comprovação obtida no gateway" className="rounded-md border border-border-default bg-bg-elevated p-2 text-text-primary" />
+        <div className="flex gap-3">
+          <Button variant="secondary" onClick={() => void handleReconciliar('reopen')} disabled={actionPending}>Reabrir execução</Button>
+          <Button variant="danger" onClick={() => void handleReconciliar('release')} disabled={actionPending}>Liberar reserva comprovada</Button>
+        </div>
+      </Card>}
     </div>
   );
 }

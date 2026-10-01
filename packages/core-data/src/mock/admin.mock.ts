@@ -337,7 +337,7 @@ export function createAdminMock(db: MockDb): AdminPort {
         return simulateAsync(
           () =>
             db.reembolsos
-              .filter((r) => r.status === 'pendente_admin')
+              .filter((r) => r.estado_reserva !== 'liberada')
               .sort((a, b) => a.criado_em.localeCompare(b.criado_em)),
           [],
           options,
@@ -363,12 +363,36 @@ export function createAdminMock(db: MockDb): AdminPort {
         return simulateAsync(
           () => {
             const reembolso = findReembolsoOrThrow(id);
+            if (resultado === 'concluido' && !_detalhe?.trim()) throw new Error('REFERENCIA_OBRIGATORIA');
+            if (resultado === 'erro' && !_detalhe?.trim()) throw new Error('DETALHE_OBRIGATORIO');
+            if (reembolso.status === 'estornado' && resultado === 'erro') throw new Error('ESTADO_INVALIDO');
+            if (reembolso.referencia_externa && resultado === 'concluido' && reembolso.referencia_externa !== _detalhe!.trim()) throw new Error('REFERENCIA_DIVERGENTE');
             reembolso.status = resultado === 'erro' ? 'erro' : 'estornado';
+            if (resultado === 'concluido') reembolso.referencia_externa = _detalhe!.trim();
+            if (resultado === 'concluido' && reembolso.responsavel === 'lojista' &&
+              !db.ajustesReembolso.some((item) => item.reembolsoId === id)) {
+              db.ajustesReembolso.push({ reembolsoId: id, pedidoId: reembolso.pedido_id,
+                valorCentavos: -Math.round(reembolso.valor_a_estornar_reais * 100) });
+            }
             return reembolso;
           },
           {} as ReembolsoPendente,
           options,
         );
+      },
+      async reopen(id: string, comprovacao: string): Promise<void> {
+        if (!comprovacao.trim()) throw new Error('COMPROVACAO_OBRIGATORIA');
+        const refund = findReembolsoOrThrow(id);
+        if (refund.status !== 'erro' || refund.estado_reserva === 'liberada') throw new Error('ESTADO_INVALIDO');
+        refund.status = 'pendente_admin';
+        refund.referencia_externa = null;
+      },
+      async release(id: string, comprovacao: string): Promise<void> {
+        if (!comprovacao.trim()) throw new Error('COMPROVACAO_OBRIGATORIA');
+        const refund = findReembolsoOrThrow(id);
+        if (refund.status === 'estornado') throw new Error('CONCILIACAO_NECESSARIA');
+        refund.estado_reserva = 'liberada';
+        refund.status = 'erro';
       },
     },
 

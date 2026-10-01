@@ -219,7 +219,7 @@ describe('admin.mock (contract)', () => {
     const fila = await port.refundQueue.list({ delayMs: 1 });
     expect(fila).toHaveLength(antes.length + 1);
 
-    const processado = await port.refundQueue.process('reembolso-teste', 'concluido', undefined, { delayMs: 1 });
+    const processado = await port.refundQueue.process('reembolso-teste', 'concluido', 'refund-manual-1', { delayMs: 1 });
     expect(processado.status).toBe('estornado');
   });
 
@@ -237,6 +237,25 @@ describe('admin.mock (contract)', () => {
 
     const processado = await port.refundQueue.process('reembolso-teste-erro', 'erro', 'PIX falhou', { delayMs: 1 });
     expect(processado.status).toBe('erro');
+  });
+
+  it('refundQueue.process debita lojista apenas na confirmação e uma vez por devolução', async () => {
+    db.reembolsos.push({ id: 'refund-credit-1', pedido_id: 'pedido-2049', motivo: 'pos_entrega',
+      valor_a_estornar_reais: 5, valor_ao_lojista_reais: 0, forma_pagamento: 'pix',
+      status: 'pendente_admin', criado_em: new Date().toISOString(), responsavel: 'lojista' });
+    await port.refundQueue.process('refund-credit-1', 'concluido', 'gateway-ref-1');
+    await port.refundQueue.process('refund-credit-1', 'concluido', 'gateway-ref-1');
+    expect(db.ajustesReembolso.filter((item) => item.reembolsoId === 'refund-credit-1')).toEqual([
+      { reembolsoId: 'refund-credit-1', pedidoId: 'pedido-2049', valorCentavos: -500 },
+    ]);
+  });
+
+  it('libera reserva após falha externa identificada quando Admin registra comprovação', async () => {
+    db.reembolsos.push({ id: 'refund-failed-1', pedido_id: 'pedido-2049', motivo: 'pos_entrega',
+      valor_a_estornar_reais: 5, valor_ao_lojista_reais: 0, forma_pagamento: 'pix',
+      status: 'erro', criado_em: new Date().toISOString(), responsavel: 'keepit', referencia_externa: 'failed-ext' });
+    await port.refundQueue.release('refund-failed-1', 'Gateway confirmou cancelamento sem efeito');
+    expect(db.reembolsos.find((item) => item.id === 'refund-failed-1')?.estado_reserva).toBe('liberada');
   });
 
   it('payoutQueue.list/process managed saques pendentes (Story 8.9)', async () => {

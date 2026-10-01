@@ -3,6 +3,41 @@ import { createMockDb } from './db';
 import { createSupportMock } from './support.mock';
 
 describe('SupportPort mock', () => {
+  it('reserva pós-entrega em centavos e confirma sem duplicar o ajuste do lojista', async () => {
+    const db = createMockDb();
+    const pedido = db.pedidos.find((item) => item.status === 'entregue')!;
+    db.sessionClienteId = pedido.cliente_id;
+    const support = createSupportMock(db);
+    const caso = await support.abrir({ pedidoId: pedido.id, tipo: 'pos_entrega', motivo: 'Produto faltou', operacaoId: 'op-r1' });
+    db.sessionClienteId = null;
+    await support.decidir({ casoId: caso.id, aprovar: true, motivo: 'Procede', valorCentavos: 500, responsavel: 'lojista', operacaoId: 'op-r2' });
+    const refund = db.reembolsos.find((item) => item.caso_id === caso.id);
+    expect(refund?.valor_a_estornar_reais).toBe(5);
+    expect(refund?.status).toBe('pendente_admin');
+    expect(refund?.responsavel).toBe('lojista');
+    await support.confirmarReembolso({ casoId: caso.id, referencia: 'refund-ext-1', operacaoId: 'op-r3' });
+    await support.confirmarReembolso({ casoId: caso.id, referencia: 'refund-ext-1', operacaoId: 'op-r3' });
+    expect(refund?.status).toBe('estornado');
+    expect(db.ajustesReembolso.filter((item) => item.reembolsoId === refund?.id)).toHaveLength(1);
+    await expect(support.confirmarReembolso({ casoId: caso.id, referencia: 'refund-ext-2', operacaoId: 'op-r4' })).rejects.toThrow('REFERENCIA_DIVERGENTE');
+  });
+
+  it('não excede o pago somando reservas e devoluções concluídas', async () => {
+    const db = createMockDb();
+    const pedido = db.pedidos.find((item) => item.status === 'entregue')!;
+    db.sessionClienteId = pedido.cliente_id;
+    const support = createSupportMock(db);
+    const primeiro = await support.abrir({ pedidoId: pedido.id, tipo: 'pos_entrega', motivo: 'Primeiro', operacaoId: 'op-limit-1' });
+    db.sessionClienteId = null;
+    const total = Math.round(pedido.total_pago_reais * 100);
+    await support.decidir({ casoId: primeiro.id, aprovar: true, motivo: 'Procede', valorCentavos: total - 100, responsavel: 'keepit', operacaoId: 'op-limit-3' });
+    db.sessionClienteId = pedido.cliente_id;
+    const segundo = await support.abrir({ pedidoId: pedido.id, tipo: 'pos_entrega', motivo: 'Segundo', operacaoId: 'op-limit-2' });
+    db.sessionClienteId = null;
+    await expect(support.decidir({ casoId: segundo.id, aprovar: true, motivo: 'Procede', valorCentavos: 101, responsavel: 'lojista', operacaoId: 'op-limit-4' })).rejects.toThrow('REEMBOLSO_EXCEDIDO');
+    expect(segundo.estado).toBe('aberta');
+  });
+
   it('deduplica a abertura pela operacaoId e preserva preparo após aceite', async () => {
     const db = createMockDb();
     const pedido = db.pedidos.find((item) => item.status === 'em_preparo');

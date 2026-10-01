@@ -12,11 +12,14 @@ function dependencies() {
   const processAnticipationEvent = vi.fn(async (): Promise<{ resultado: string; pedidoId: string | null }> => (
     { resultado: 'antecipacao_atualizada', pedidoId: 'pedido-1' }
   ));
+  const processRefundEvent = vi.fn(async (): Promise<{ resultado: string; pedidoId: string | null }> => (
+    { resultado: 'reembolso_conciliado', pedidoId: 'pedido-1' }
+  ));
   const value = {
     webhookToken: TOKEN,
-    pagamentos: { processPaymentEvent, processAnticipationEvent },
+    pagamentos: { processPaymentEvent, processAnticipationEvent, processRefundEvent },
   } as unknown as WebhookAsaasDeps;
-  return { value, processPaymentEvent, processAnticipationEvent };
+  return { value, processPaymentEvent, processAnticipationEvent, processRefundEvent };
 }
 
 const paymentPayload = (event: string, overrides: Record<string, unknown> = {}) => ({
@@ -32,6 +35,23 @@ const paymentPayload = (event: string, overrides: Record<string, unknown> = {}) 
 });
 
 describe('handleAsaasWebhook', () => {
+  it('concilia cada estorno identificado com valor próprio sem usar o total da cobrança', async () => {
+    const deps = dependencies();
+    const result = await handleAsaasWebhook({ headerToken: TOKEN, body: {
+      ...paymentPayload('PAYMENT_PARTIALLY_REFUNDED'),
+      payment: { ...paymentPayload('PAYMENT_PARTIALLY_REFUNDED').payment,
+        refunds: [{ id: 'ref-1', value: 5 }, { id: 'ref-2', value: 2.5 }] },
+    } }, deps.value);
+    expect(result.status).toBe(200);
+    expect(deps.processRefundEvent).toHaveBeenCalledTimes(2);
+    expect(deps.processRefundEvent).toHaveBeenCalledWith({
+      eventId: 'evt-payment-1:ref-1', event: 'PAYMENT_PARTIALLY_REFUNDED',
+      paymentId: 'pay-1', reference: 'tentativa-1', method: 'cartao',
+      refundId: 'ref-1', valueCents: 500,
+    });
+    expect(deps.processPaymentEvent).not.toHaveBeenCalled();
+  });
+
   it('rejeita token inválido antes de qualquer acesso ao repositório', async () => {
     const deps = dependencies();
     const result = await handleAsaasWebhook(

@@ -17,6 +17,7 @@ export const REEMBOLSO_MOTIVO_LABEL: Record<ReembolsoMotivo, string> = {
   nao_entregue_lojista: 'Lojista não entregou',
   chargeback: 'Chargeback',
   cancelamento_admin: 'Cancelamento pelo admin',
+  pos_entrega: 'Ocorrência pós-entrega',
 };
 
 export const PEDIDO_STATUS_LABEL: Record<PedidoStatus, string> = {

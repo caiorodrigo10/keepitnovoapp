@@ -39,13 +39,16 @@ function computeCarteira(db: MockDb, estabelecimentoId: string): CarteiraLojista
   const totalSacado = db.saques
     .filter((s) => s.estabelecimento_id === estabelecimentoId && s.status !== 'erro')
     .reduce((sum, s) => sum + s.valor_reais, 0);
+  const totalDebitadoCentavos = db.ajustesReembolso
+    .filter((ajuste) => db.pedidos.some((pedido) => pedido.id === ajuste.pedidoId && pedido.estabelecimento_id === estabelecimentoId))
+    .reduce((sum, ajuste) => sum - ajuste.valorCentavos, 0);
 
   return {
     estabelecimento_id: estabelecimentoId,
-    saldo_disponivel_reais: roundReais(saldoDisponivel - totalSacado),
+    saldo_disponivel_reais: roundReais(saldoDisponivel - totalSacado - totalDebitadoCentavos / 100),
     saldo_bloqueado_reais: roundReais(saldoBloqueado),
     total_sacado_reais: roundReais(totalSacado),
-    total_debitado_reais: 0,
+    total_debitado_reais: totalDebitadoCentavos / 100,
   };
 }
 

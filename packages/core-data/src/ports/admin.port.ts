@@ -19,8 +19,7 @@ import type { ChavePixTipoCadastro } from './estabelecimento-cadastro.port';
 import type { Saque } from './wallet.port';
 
 /**
- * 9 valores exatos do CHECK constraint de `reembolsos_pendentes.motivo`.
- * [Source: docs/architecture/03-data-models.md#6.1]
+ * Motivos legados e ocorrência pós-entrega gravados no ledger de devoluções.
  */
 export type ReembolsoMotivo =
   | 'timeout_aceite'
@@ -31,7 +30,8 @@ export type ReembolsoMotivo =
   | 'nao_retirado_cliente'
   | 'nao_entregue_lojista'
   | 'chargeback'
-  | 'cancelamento_admin';
+  | 'cancelamento_admin'
+  | 'pos_entrega';
 
 export type ReembolsoStatus = 'pendente_admin' | 'em_processamento' | 'estornado' | 'erro';
 
@@ -58,6 +58,10 @@ export interface ReembolsoPendente {
   forma_pagamento: FormaPagamento;
   status: ReembolsoStatus;
   criado_em: string;
+  caso_id?: string | null;
+  responsavel?: 'keepit' | 'lojista' | null;
+  referencia_externa?: string | null;
+  estado_reserva?: 'ativa' | 'liberada';
 }
 
 /**
@@ -334,20 +338,17 @@ export interface AdminPort {
   };
   refundQueue: {
     list(options?: AsyncCallOptions): Promise<ReembolsoPendente[]>;
-    /**
-     * [AUTO-DECISION] Story 8.2 (AC2) — assinatura estendida com `resultado`/
-     * `detalhe` (não existia no esqueleto original, que só marcava sucesso).
-     * A RPC real (`confirmar_lancamento_admin`) exige o desfecho explícito —
-     * sem isso não há como o admin registrar uma falha auditável (AC2: "marca
-     * 'concluido' OU 'erro' com detalhe"). `detalhe` é a nota livre (motivo do
-     * erro/referência do PIX manual) — opcional em ambos os resultados.
-     */
+    /** `detalhe` é a referência externa no sucesso e a descrição da falha no erro. */
     process(
       id: string,
       resultado: LancamentoConfirmResultado,
       detalhe?: string,
       options?: AsyncCallOptions,
     ): Promise<ReembolsoPendente>;
+    /** Reabre a mesma reserva depois de comprovar que a tentativa externa não teve efeito. */
+    reopen(id: string, comprovacao: string): Promise<void>;
+    /** Libera a reserva somente após comprovação administrativa de cancelamento sem efeito. */
+    release(id: string, comprovacao: string): Promise<void>;
   };
 
   /**

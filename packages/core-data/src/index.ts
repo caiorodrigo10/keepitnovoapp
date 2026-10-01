@@ -308,6 +308,7 @@ export * from './ports/lojista-auth.port';
 export * from './ports/order.port';
 export * from './ports/support.port';
 export * from './support-operation-id';
+export * from './refund-limits';
 export * from './ports/payment.port';
 export * from './ports/product.port';
 export * from './ports/store.port';

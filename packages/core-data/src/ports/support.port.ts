@@ -15,6 +15,6 @@ export interface SupportPort {
   abrir(input: { pedidoId: string; tipo: SupportCase['tipo']; motivo: string; operacaoId: string }): Promise<SupportCase>;
   listar(): Promise<SupportCase[]>;
   decidir(input: { casoId: string; aprovar: boolean; motivo: string; valorCentavos?: number; responsavel?: 'keepit' | 'lojista'; operacaoId: string }): Promise<SupportCase>;
-  /** Implementado na Task 9, após confirmação de devolução externa. */
+  /** Registra a execução manual já comprovada no gateway; repetir referência/operação é idempotente. */
   confirmarReembolso(input: { casoId: string; referencia: string; operacaoId: string }): Promise<void>;
 }

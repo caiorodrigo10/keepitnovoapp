@@ -30,6 +30,7 @@ import type { FormaPagamento, Pedido, PedidoStatus } from '../ports/order.port';
 import type { Estabelecimento, EstabelecimentoHorario, EstabelecimentoStatus } from '../ports/store.port';
 import type { Saque } from '../ports/wallet.port';
 import type { AsyncCallOptions } from '../types';
+import { createSupportOperationId } from '../support-operation-id';
 import {
   AcessoNegadoError,
   AutenticacaoNecessariaError,
@@ -392,7 +393,7 @@ async function fetchClientePorId(supabase: SupabaseClient<Database>, id: string)
  * distinguir `tipo` na leitura mista.
  */
 const LANCAMENTO_ADMIN_COLUMNS =
-  'id, estabelecimento_id, pedido_id, tipo, valor_centavos, status, criado_em, concluido_em, detalhe';
+  'id, estabelecimento_id, pedido_id, tipo, valor_centavos, status, criado_em, concluido_em, detalhe, motivo_reembolso, responsavel_reembolso, solicitacao_id, asaas_id_externo, estado_reserva';
 
 type LancamentoAdminRow = {
   id: string;
@@ -404,6 +405,11 @@ type LancamentoAdminRow = {
   criado_em: string;
   concluido_em: string | null;
   detalhe: string | null;
+  motivo_reembolso?: string | null;
+  responsavel_reembolso?: 'keepit' | 'lojista' | null;
+  solicitacao_id?: string | null;
+  asaas_id_externo?: string | null;
+  estado_reserva?: 'ativa' | 'liberada';
 };
 
 /**
@@ -413,25 +419,13 @@ type LancamentoAdminRow = {
  * mesmo precedente de `wallet.supabase.ts#mapLancamentoToSaque` (conversão
  * centavos→reais, status honesto nunca inventado).
  *
- * [AUTO-DECISION] `motivo` — o ledger não tem coluna `motivo` estruturada
- * (Story 8.1 Dependencies item 2, sinalizado, não prescrito). HOJE o ÚNICO
- * produtor de `tipo='refund'` no piloto é `forcar_cancelamento_pedido`
- * (Story 8.4, sempre 100%, motivo de negócio SEMPRE
- * `'cancelamento_admin'`) — mapear `motivo: 'cancelamento_admin'`
- * deterministicamente para TODO refund lido hoje é honesto (não é um
- * fallback arbitrário: é a única origem possível dado o estado real do
- * sistema), não uma invenção. Quando o Bloco 10 introduzir os demais 8
- * produtores (motivos variados), este mapeamento PRECISA ser revisitado
- * (idealmente com uma coluna `motivo` estruturada no ledger, não
- * parsing frágil de `detalhe`) — documentado aqui para não silenciar a
- * limitação.
- *
- * `valor_ao_lojista_reais` — fallback `0` honesto: nenhuma RPC do Bloco 09
- * cria o par `merchant_credit` de reembolso parcial (Story 8.1 Dependencies
- * item 3) — `forcar_cancelamento_pedido` é sempre 100% cliente, 0% lojista.
+ * Task 9 grava motivo, responsabilidade, caso e referência no próprio
+ * lançamento. Linhas anteriores à migração recebem o motivo legado de
+ * cancelamento administrativo; `valor_ao_lojista_reais` permanece zero pois
+ * o ajuste de responsabilidade é lançado separadamente na confirmação.
  */
 function mapLancamentoRowToReembolsoPendente(row: LancamentoAdminRow, formaPagamento: FormaPagamento): ReembolsoPendente {
-  const motivo: ReembolsoMotivo = 'cancelamento_admin';
+  const motivo = (row.motivo_reembolso ?? 'cancelamento_admin') as ReembolsoMotivo;
   return {
     id: row.id,
     pedido_id: row.pedido_id ?? '',
@@ -441,6 +435,10 @@ function mapLancamentoRowToReembolsoPendente(row: LancamentoAdminRow, formaPagam
     forma_pagamento: formaPagamento,
     status: REFUND_STATUS_MAP[row.status] ?? 'erro',
     criado_em: row.criado_em,
+    caso_id: row.solicitacao_id ?? null,
+    responsavel: row.responsavel_reembolso ?? null,
+    referencia_externa: row.asaas_id_externo ?? null,
+    estado_reserva: row.estado_reserva ?? 'ativa',
   };
 }
 
@@ -984,7 +982,7 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
           throw error;
         }
 
-        const rows = ((data ?? []) as unknown as LancamentoAdminRow[]).filter((r) => r.pedido_id !== null);
+        const rows = ((data ?? []) as unknown as LancamentoAdminRow[]).filter((r) => r.pedido_id !== null && r.estado_reserva !== 'liberada');
         if (rows.length === 0) {
           return [];
         }
@@ -999,14 +997,7 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
         );
       },
 
-      /**
-       * Story 8.2 (AC2, AC5) — chama a RPC compartilhada
-       * `confirmar_lancamento_admin`. **Nenhuma chamada Asaas** — o
-       * "sucesso" é a confirmação manual auditada (seam honesta, ver
-       * "Ajuste de piloto" da Story 8.2). Após o sucesso, relê o lançamento
-       * (a RPC devolve só um subconjunto de campos) e remonta
-       * `ReembolsoPendente` com o mesmo mapeamento de `list`.
-       */
+      /** Registra execução ou falha externa; a RPC mantém a mesma reserva e aplica responsabilidade uma vez. */
       async process(
         id: string,
         resultado: LancamentoConfirmResultado,
@@ -1015,13 +1006,16 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
       ): Promise<ReembolsoPendente> {
         const supabase = resolveClient();
 
-        const { error } = await supabase.rpc('confirmar_lancamento_admin', {
+        if (!detalhe?.trim()) throw new Error(resultado === 'concluido' ? 'REFERENCIA_OBRIGATORIA' : 'DETALHE_OBRIGATORIO');
+        const { error } = await supabase.rpc('registrar_execucao_reembolso' as never, {
           p_lancamento_id: id,
           p_resultado: resultado,
-          p_detalhe: detalhe ?? null,
-        });
+          p_referencia: resultado === 'concluido' ? detalhe.trim() : null,
+          p_operacao_id: createSupportOperationId(),
+          p_detalhe: resultado === 'erro' ? detalhe.trim() : null,
+        } as never);
         if (error) {
-          throwConfirmarLancamentoAdminError(error.message ?? '');
+          throw new Error(error.message ?? 'REEMBOLSO_FALHOU');
         }
 
         const row = await fetchLancamentoAdminPorId(supabase, id);
@@ -1030,6 +1024,18 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
           row.pedido_id ? [row.pedido_id] : [],
         );
         return mapLancamentoRowToReembolsoPendente(row, formaPagamentoPorPedido.get(row.pedido_id ?? '') ?? 'pix');
+      },
+      async reopen(id: string, comprovacao: string): Promise<void> {
+        const { error } = await resolveClient().rpc('reabrir_execucao_reembolso' as never, {
+          p_lancamento_id: id, p_comprovacao: comprovacao, p_operacao_id: createSupportOperationId(),
+        } as never);
+        if (error) throw error;
+      },
+      async release(id: string, comprovacao: string): Promise<void> {
+        const { error } = await resolveClient().rpc('liberar_reserva_reembolso' as never, {
+          p_lancamento_id: id, p_comprovacao: comprovacao, p_operacao_id: createSupportOperationId(),
+        } as never);
+        if (error) throw error;
       },
     },
 

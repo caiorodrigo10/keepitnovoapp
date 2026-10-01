@@ -7,6 +7,11 @@ export interface PaymentEventInput {
   method: 'pix' | 'cartao' | null;
 }
 
+export interface RefundEventInput extends PaymentEventInput {
+  refundId: string;
+  valueCents: number;
+}
+
 export interface AnticipationEventInput {
   eventId: string;
   event: string;
@@ -22,6 +27,7 @@ export interface AnticipationEventInput {
 
 export interface PagamentosRepo {
   processPaymentEvent(input: PaymentEventInput): Promise<{ resultado: string; pedidoId: string | null }>;
+  processRefundEvent(input: RefundEventInput): Promise<{ resultado: string; pedidoId: string | null }>;
   processAnticipationEvent(input: AnticipationEventInput): Promise<{ resultado: string; pedidoId: string | null }>;
 }
 
@@ -92,6 +98,22 @@ function parsePaymentEvent(body: Record<string, unknown>, eventId: string, event
   };
 }
 
+function parseRefundEvents(body: Record<string, unknown>, eventId: string, event: string): RefundEventInput[] | null {
+  const payment = record(body.payment);
+  if (!payment || !Array.isArray(payment.refunds) || payment.refunds.length === 0) return null;
+  const base = parsePaymentEvent(body, eventId, event);
+  if (!base) return null;
+  const results: RefundEventInput[] = [];
+  for (const value of payment.refunds) {
+    const refund = record(value);
+    const refundId = nonEmptyString(refund?.id);
+    const valueCents = cents(refund?.value);
+    if (!refundId || valueCents === null || valueCents === 0) return null;
+    results.push({ ...base, eventId: `${eventId}:${refundId}`, refundId, valueCents });
+  }
+  return results;
+}
+
 function parseAnticipationEvent(
   body: Record<string, unknown>, eventId: string, event: string,
 ): AnticipationEventInput | null {
@@ -148,6 +170,17 @@ export async function handleAsaasWebhook(
     }
 
     if (event.startsWith('PAYMENT_')) {
+      if (['PAYMENT_REFUNDED','PAYMENT_PARTIALLY_REFUNDED','PAYMENT_REFUND_IN_PROGRESS','PAYMENT_REFUND_DENIED'].includes(event)) {
+        const refunds = parseRefundEvents(body, eventId, event);
+        if (refunds) {
+          let result: { resultado: string; pedidoId: string | null } = { resultado: 'reembolso_conciliado', pedidoId: null };
+          for (const refund of refunds) {
+            result = await deps.pagamentos.processRefundEvent(refund);
+            if (result.resultado === 'aguardando_vinculo') return processedResponse(result);
+          }
+          return processedResponse(result);
+        }
+      }
       const parsed = parsePaymentEvent(body, eventId, event);
       if (!parsed) return { status: 200, body: { ok: true, resultado: 'payload_invalido' } };
       const result = await deps.pagamentos.processPaymentEvent(parsed);

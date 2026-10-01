@@ -3,6 +3,7 @@ import { businessConfig } from '@keepit/config';
 import type { MockDb } from './db';
 import { generateMockId } from './async-helpers';
 import { registrarReembolso } from './refund-helpers';
+import { remainingRefund } from '../refund-limits';
 
 const TERMINAIS = new Set(['entregue', 'cancelado', 'cancelado_timeout', 'cancelado_atraso', 'cancelado_admin', 'recusado', 'nao_retirado', 'nao_entregue_lojista', 'estornado_chargeback']);
 
@@ -61,7 +62,11 @@ export function createSupportMock(db: MockDb): SupportPort {
           pedido.cancelado_em = agora;
           pedido.motivo_cancelamento = input.motivo.trim();
           delete db.clienteOrderAutomation[pedido.id];
-          if (pago) registrarReembolso(db, pedido, 'cancelamento_cliente_pre_aceite');
+          if (pago) {
+            const refund = registrarReembolso(db, pedido, 'cancelamento_cliente_pre_aceite');
+            refund.caso_id = caso.id;
+            refund.responsavel = 'keepit';
+          }
           db.decisoesSolicitacao.push({ id: generateMockId('decisao'), casoId: caso.id, operacaoId: input.operacaoId, aprovar: true, motivo: 'cancelamento antes do aceite', decididoEm: agora, evento: 'decisao' });
         }
         await persist();
@@ -90,18 +95,35 @@ export function createSupportMock(db: MockDb): SupportPort {
         if (caso.estado !== 'aberta') throw new Error('ESTADO_INVALIDO');
         const pedido = db.pedidos.find((item) => item.id === caso.pedidoId)!;
         if (input.aprovar && caso.tipo !== 'pos_entrega' && TERMINAIS.has(pedido.status)) throw new Error('ESTADO_INVALIDO');
-        if (input.aprovar && caso.tipo === 'pos_entrega' && (!Number.isInteger(input.valorCentavos) || input.valorCentavos! < 0 || !['keepit', 'lojista'].includes(input.responsavel ?? ''))) throw new Error('VALOR_RESPONSABILIDADE_OBRIGATORIOS');
+        if (input.aprovar && caso.tipo === 'pos_entrega' && (!Number.isSafeInteger(input.valorCentavos) || input.valorCentavos! <= 0 || !['keepit', 'lojista'].includes(input.responsavel ?? ''))) throw new Error('VALOR_RESPONSABILIDADE_OBRIGATORIOS');
+        if (input.aprovar && caso.tipo === 'pos_entrega') {
+          const comprometido = db.reembolsos.filter((item) => item.pedido_id === pedido.id && item.estado_reserva !== 'liberada');
+          const concluido = comprometido.filter((item) => item.status === 'estornado').reduce((sum, item) => sum + Math.round(item.valor_a_estornar_reais * 100), 0);
+          const reservado = comprometido.filter((item) => item.status !== 'estornado').reduce((sum, item) => sum + Math.round(item.valor_a_estornar_reais * 100), 0);
+          if (input.valorCentavos! > remainingRefund(Math.round(pedido.total_pago_reais * 100), concluido, reservado)) throw new Error('REEMBOLSO_EXCEDIDO');
+        }
         const agora = new Date().toISOString();
         caso.estado = input.aprovar ? 'aprovada' : 'negada';
         caso.motivoDecisao = input.motivo.trim();
         caso.encerradaEm = agora;
         const decisaoId = generateMockId('decisao');
         db.decisoesSolicitacao.push({ id: decisaoId, casoId: caso.id, operacaoId: input.operacaoId, aprovar: input.aprovar, motivo: input.motivo.trim(), decididoEm: agora, evento: 'decisao' });
+        if (input.aprovar && caso.tipo === 'pos_entrega') {
+          db.reembolsos.push({
+            id: generateMockId('reembolso'), pedido_id: pedido.id, caso_id: caso.id,
+            motivo: 'pos_entrega', valor_a_estornar_reais: input.valorCentavos! / 100,
+            valor_ao_lojista_reais: 0, forma_pagamento: pedido.forma_pagamento,
+            status: 'pendente_admin', criado_em: agora, responsavel: input.responsavel,
+            referencia_externa: null, estado_reserva: 'ativa',
+          });
+        }
         if (input.aprovar && caso.tipo !== 'pos_entrega') {
           pedido.status = 'cancelado_admin';
           pedido.cancelado_em = agora;
           pedido.motivo_cancelamento = input.motivo.trim();
-          registrarReembolso(db, pedido, 'cancelamento_admin');
+          const refund = registrarReembolso(db, pedido, 'cancelamento_admin');
+          refund.caso_id = caso.id;
+          refund.responsavel = 'keepit';
           for (const outro of db.solicitacoesPedido) {
             if (outro.pedidoId === pedido.id && outro.estado === 'aberta') {
               outro.estado = 'negada'; outro.motivoDecisao = 'pedido cancelado por decisão administrativa'; outro.encerradaEm = agora;
@@ -114,6 +136,24 @@ export function createSupportMock(db: MockDb): SupportPort {
         return caso;
       });
     },
-    async confirmarReembolso() { throw new Error('REEMBOLSO_EXTERNO_NAO_IMPLEMENTADO'); },
+    async confirmarReembolso(input) {
+      return db.runClienteMutation(async (persist) => {
+        if (db.sessionClienteId || db.sessionLojistaUserId) throw new Error('ACESSO_NEGADO');
+        if (!input.referencia.trim()) throw new Error('REFERENCIA_OBRIGATORIA');
+        const caso = db.solicitacoesPedido.find((item) => item.id === input.casoId && item.estado === 'aprovada');
+        if (!caso) throw new Error('SOLICITACAO_NAO_APROVADA');
+        const refund = db.reembolsos.find((item) => item.caso_id === caso.id);
+        if (!refund) throw new Error('REEMBOLSO_NAO_ENCONTRADO');
+        if (refund.referencia_externa && refund.referencia_externa !== input.referencia.trim()) throw new Error('REFERENCIA_DIVERGENTE');
+        if (refund.estado_reserva === 'liberada') throw new Error('RESERVA_LIBERADA');
+        if (refund.status === 'estornado') return;
+        refund.status = 'estornado';
+        refund.referencia_externa = input.referencia.trim();
+        if (refund.responsavel === 'lojista' && !db.ajustesReembolso.some((item) => item.reembolsoId === refund.id)) {
+          db.ajustesReembolso.push({ reembolsoId: refund.id, pedidoId: refund.pedido_id, valorCentavos: -Math.round(refund.valor_a_estornar_reais * 100) });
+        }
+        await persist();
+      });
+    },
   };
 }

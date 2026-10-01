@@ -51,6 +51,7 @@ export interface MockDb {
   decisoesSolicitacao: { id?: string; casoId: string; operacaoId: string; aprovar: boolean; motivo: string; decididoEm: string; decisaoOrigemId?: string | null; evento?: 'decisao' | 'pin' | 'recusa' | 'cancelamento_admin' }[];
   saques: Saque[];
   reembolsos: ReembolsoPendente[];
+  ajustesReembolso: { reembolsoId: string; pedidoId: string; valorCentavos: number }[];
   /** `estabelecimentos_falhas` — Story 1.10 (Task 4), promovido de `apps/admin/src/mock/adminOpsTypes.ts`. */
   falhas: EstabelecimentoFalha[];
   /** Sessão de auth mock atual (id do cliente logado, ou `null`). */
@@ -197,6 +198,7 @@ export function createMockDb(): MockDb {
     // sendo inseridas organicamente pelas transições de cancelamento
     // (ver `mock/refund-helpers.ts`).
     reembolsos: structuredClone(reembolsosFixture),
+    ajustesReembolso: [],
     falhas: structuredClone(estabelecimentosFalhasFixture),
     sessionClienteId: null,
     favoriteHubIdsByClienteId: {},
