@@ -53,6 +53,7 @@ SELECT lives_ok($$SELECT public.reabrir_execucao_reembolso((SELECT id FROM publi
 SELECT is((SELECT asaas_id_externo FROM public.lancamentos_financeiros WHERE pedido_id='79999999-0000-4000-8000-000000000103' AND tipo='refund'),NULL::text,'referência da tentativa sem efeito é liberada');
 SELECT lives_ok($$SELECT public.confirmar_reembolso((SELECT id FROM public.solicitacoes_pedido WHERE operacao_id='79999999-0000-4000-8000-000000000203'),'ext-ref-1','79999999-0000-4000-8000-000000000207')$$,'Admin confirma a mesma reserva');
 SELECT lives_ok($$SELECT public.confirmar_reembolso((SELECT id FROM public.solicitacoes_pedido WHERE operacao_id='79999999-0000-4000-8000-000000000203'),'ext-ref-1','79999999-0000-4000-8000-000000000207')$$,'retry é idempotente');
+SELECT throws_ok($$SELECT public.confirmar_reembolso((SELECT id FROM public.solicitacoes_pedido WHERE operacao_id='79999999-0000-4000-8000-000000000203'),'outra-ref','79999999-0000-4000-8000-000000000207')$$,'P0001','REFERENCIA_DIVERGENTE','mesma operação com referência diferente não é replay válido');
 SELECT is((SELECT count(*)::integer FROM public.lancamentos_financeiros WHERE pedido_id='79999999-0000-4000-8000-000000000103' AND tipo='merchant_credit' AND valor_centavos=-500),1,'confirmação debita lojista uma vez');
 SELECT throws_ok($$SELECT public.confirmar_reembolso((SELECT id FROM public.solicitacoes_pedido WHERE operacao_id='79999999-0000-4000-8000-000000000203'),'outra-ref','79999999-0000-4000-8000-000000000208')$$,'P0001','REFERENCIA_DIVERGENTE','identidade divergente exige conciliação');
 
@@ -71,14 +72,21 @@ SET LOCAL ROLE service_role;
 SELECT is((SELECT resultado FROM public.processar_evento_reembolso('evt-r1:ext-ref-1','PAYMENT_PARTIALLY_REFUNDED','pay-refund-103','ext-ref-1',500,'pix','79999999-0000-4000-8000-000000000301')),'reembolso_conciliado','manual antes do webhook correlaciona');
 SELECT is((SELECT resultado FROM public.processar_evento_reembolso('evt-r1:ext-ref-1','PAYMENT_PARTIALLY_REFUNDED','pay-refund-103','ext-ref-1',500,'pix','79999999-0000-4000-8000-000000000301')),'reembolso_conciliado','evento repetido é idempotente');
 SELECT is((SELECT resultado FROM public.processar_evento_reembolso('evt-r1-denied:ext-ref-1','PAYMENT_REFUND_DENIED','pay-refund-103','ext-ref-1',500,'pix','79999999-0000-4000-8000-000000000301')),'conciliacao_necessaria','negação tardia não desfaz confirmação');
+SELECT is((SELECT resultado FROM public.processar_evento_reembolso('evt-r2-progress','PAYMENT_REFUND_IN_PROGRESS','pay-refund-104','ext-ref-2',500,'pix','79999999-0000-4000-8000-000000000302')),'estorno_em_processamento','progresso encontra a reserva única');
+SELECT throws_ok($$SELECT * FROM public.processar_evento_reembolso('evt-r2-progress','PAYMENT_REFUND_IN_PROGRESS','pay-refund-104','ext-ref-2',500,'pix','outra-referencia')$$,'P0001','EVENTO_DIVERGENTE','replay do webhook com identidade divergente é recusado');
+SELECT is((SELECT asaas_id_externo FROM public.lancamentos_financeiros WHERE pedido_id='79999999-0000-4000-8000-000000000104' AND tipo='refund'),'ext-ref-2','progresso vincula identidade externa à reserva');
+INSERT INTO public.lancamentos_financeiros(id,estabelecimento_id,pedido_id,tipo,valor_centavos,status,responsavel_reembolso,motivo_reembolso)
+VALUES('79999999-0000-4000-8000-000000000501','79999999-0000-4000-8000-000000000020','79999999-0000-4000-8000-000000000104','refund',-500,'pendente','keepit','pos_entrega');
+SELECT is((SELECT count(*)::integer FROM public.lancamentos_financeiros WHERE pedido_id='79999999-0000-4000-8000-000000000104' AND tipo='refund' AND valor_centavos=-500),2,'duas reservas do mesmo valor coexistem');
 SELECT is((SELECT resultado FROM public.processar_evento_reembolso('evt-r2:ext-ref-2','PAYMENT_PARTIALLY_REFUNDED','pay-refund-104','ext-ref-2',500,'pix','79999999-0000-4000-8000-000000000302')),'reembolso_conciliado','webhook antes da confirmação correlaciona');
+SELECT is((SELECT status FROM public.lancamentos_financeiros WHERE id='79999999-0000-4000-8000-000000000501'),'pendente','conclusão da identidade vinculada preserva segunda reserva');
 SELECT is((SELECT resultado FROM public.processar_evento_reembolso('evt-r3:wrong','PAYMENT_PARTIALLY_REFUNDED','pay-refund-104','wrong',501,'pix','79999999-0000-4000-8000-000000000302')),'conciliacao_necessaria','valor ou identidade divergente não cria outro refund');
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','79999999-0000-4000-8000-000000000003',true);
 SELECT lives_ok($$SELECT public.confirmar_reembolso((SELECT id FROM public.solicitacoes_pedido WHERE operacao_id='79999999-0000-4000-8000-000000000209'),'ext-ref-2','79999999-0000-4000-8000-000000000211')$$,'Admin depois do webhook aceita mesmo estorno');
 SELECT is((SELECT count(*)::integer FROM public.lancamentos_financeiros WHERE pedido_id='79999999-0000-4000-8000-000000000103' AND tipo='merchant_credit' AND valor_centavos=-500),1,'manual/webhook não duplicam débito');
-SELECT is((SELECT count(*)::integer FROM public.despesas_reembolso WHERE lancamento_id=(SELECT id FROM public.lancamentos_financeiros WHERE pedido_id='79999999-0000-4000-8000-000000000104' AND tipo='refund')),1,'Keepit assume despesa fora da carteira');
-SELECT is((SELECT count(*)::integer FROM public.lancamentos_financeiros WHERE pedido_id='79999999-0000-4000-8000-000000000104' AND tipo='refund'),1,'webhook não cria segunda devolução');
+SELECT is((SELECT count(*)::integer FROM public.despesas_reembolso WHERE lancamento_id=(SELECT id FROM public.lancamentos_financeiros WHERE pedido_id='79999999-0000-4000-8000-000000000104' AND tipo='refund' AND asaas_id_externo='ext-ref-2')),1,'Keepit assume despesa fora da carteira');
+SELECT is((SELECT count(*)::integer FROM public.lancamentos_financeiros WHERE pedido_id='79999999-0000-4000-8000-000000000104' AND tipo='refund'),2,'webhook não cria outra devolução');
 
 RESET ROLE;
 SELECT throws_ok($$UPDATE public.lancamentos_financeiros SET responsavel_reembolso='keepit' WHERE pedido_id='79999999-0000-4000-8000-000000000103' AND tipo='refund'$$,'P0001','REEMBOLSO_METADATA_IMUTAVEL','responsabilidade confirmada é imutável');

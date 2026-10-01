@@ -250,6 +250,16 @@ describe('admin.mock (contract)', () => {
     ]);
   });
 
+  it('refundQueue.process recusa reserva liberada sem debitar lojista', async () => {
+    db.reembolsos.push({ id: 'refund-released-1', pedido_id: 'pedido-2049', motivo: 'pos_entrega',
+      valor_a_estornar_reais: 5, valor_ao_lojista_reais: 0, forma_pagamento: 'pix',
+      status: 'erro', estado_reserva: 'liberada', criado_em: new Date().toISOString(), responsavel: 'lojista' });
+    await expect(port.refundQueue.process('refund-released-1', 'concluido', 'gateway-ref-2'))
+      .rejects.toThrow('RESERVA_LIBERADA');
+    expect(db.reembolsos.find((item) => item.id === 'refund-released-1')?.status).toBe('erro');
+    expect(db.ajustesReembolso.some((item) => item.reembolsoId === 'refund-released-1')).toBe(false);
+  });
+
   it('libera reserva após falha externa identificada quando Admin registra comprovação', async () => {
     db.reembolsos.push({ id: 'refund-failed-1', pedido_id: 'pedido-2049', motivo: 'pos_entrega',
       valor_a_estornar_reais: 5, valor_ao_lojista_reais: 0, forma_pagamento: 'pix',

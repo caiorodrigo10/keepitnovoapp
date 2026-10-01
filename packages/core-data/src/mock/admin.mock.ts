@@ -363,6 +363,7 @@ export function createAdminMock(db: MockDb): AdminPort {
         return simulateAsync(
           () => {
             const reembolso = findReembolsoOrThrow(id);
+            if (reembolso.estado_reserva === 'liberada') throw new Error('RESERVA_LIBERADA');
             if (resultado === 'concluido' && !_detalhe?.trim()) throw new Error('REFERENCIA_OBRIGATORIA');
             if (resultado === 'erro' && !_detalhe?.trim()) throw new Error('DETALHE_OBRIGATORIO');
             if (reembolso.status === 'estornado' && resultado === 'erro') throw new Error('ESTADO_INVALIDO');
