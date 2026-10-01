@@ -656,46 +656,14 @@ describe('admin.supabase.ts — payoutQueue (Story 8.9)', () => {
     });
   });
 
-  it('process chama a MESMA RPC confirmar_lancamento_admin e relê o saque (compartilhada com refundQueue, Story 8.2/8.9)', async () => {
-    const rpc = vi.fn(async () => ({ data: [{ lancamento_id: 'payout-1' }], error: null }));
-    const { client } = fakeTableClient({
-      rpc,
-      tables: {
-        lancamentos_financeiros: [
-          {
-            data: {
-              id: 'payout-1',
-              estabelecimento_id: 'estab-1',
-              pedido_id: null,
-              tipo: 'payout',
-              valor_centavos: 15000,
-              status: 'concluido',
-              criado_em: '2026-08-01T10:00:00.000Z',
-              concluido_em: '2026-08-02T10:00:00.000Z',
-              detalhe: null,
-            },
-            error: null,
-          },
-        ],
-      },
-    });
-
+  it('process não chama RPC antiga para payout avulso', async () => {
+    const rpc = vi.fn(async () => ({ data: null, error: null }));
+    const { client } = fakeTableClient({ rpc });
     const port = createAdminSupabase(client);
-    const resultado = await port.payoutQueue.process('payout-1', 'concluido');
-
-    expect(rpc).toHaveBeenCalledWith('confirmar_lancamento_admin', {
-      p_lancamento_id: 'payout-1',
-      p_resultado: 'concluido',
-      p_detalhe: null,
-    });
-    expect(resultado.status).toBe('concluido');
+    await expect(port.payoutQueue.process('payout-1', 'concluido')).rejects.toThrow('SAQUES_DESATIVADOS_USE_REPASSE_SEMANAL');
+    expect(rpc).not.toHaveBeenCalled();
   });
 
-  it('process — NAO_AUTORIZADO rejeita sem chamada Asaas nem sucesso fictício', async () => {
-    const { client } = fakeTableClient({ rpc: async () => ({ data: null, error: { message: 'NAO_AUTORIZADO' } }) });
-    const port = createAdminSupabase(client);
-    await expect(port.payoutQueue.process('payout-1', 'concluido')).rejects.toThrow(/NAO_AUTORIZADO/);
-  });
 });
 
 describe('admin.supabase.ts — listClientes/blockCliente/unblockCliente (Story 8.5)', () => {

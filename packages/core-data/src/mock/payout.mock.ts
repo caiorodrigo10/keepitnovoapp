@@ -25,9 +25,6 @@ function validWeek(week: string): boolean {
 }
 
 export function createPayoutMock(db: MockDb): PayoutPort {
-  const confirmOperations = new Map<string, string>();
-  const invalidateOperations = new Map<string, string>();
-  const analysisOperations = new Map<string, string>();
   const admin = () => {
     if (db.sessionClienteId || db.sessionLojistaUserId) throw new Error('ACESSO_NEGADO');
   };
@@ -132,31 +129,59 @@ export function createPayoutMock(db: MockDb): PayoutPort {
       admin();
       if (!input.referencia.trim()) throw new Error('REFERENCIA_OBRIGATORIA');
       const repasse = find(input.repasseId);
-      if (repasse.estado === 'pago' && repasse.referencia === input.referencia.trim()) return repasse;
+      const prior = db.repasseEventos.find((item) => item.repasseId === repasse.id && item.tipo === 'confirmacao');
+      if (repasse.estado === 'pago') {
+        if (prior?.operacaoId !== input.operacaoId) throw new Error('OPERACAO_ID_EM_USO');
+        if (repasse.referencia !== input.referencia.trim()) throw new Error('REFERENCIA_DIVERGENTE');
+        return repasse;
+      }
       if (!['pendente', 'em_analise'].includes(repasse.estado)) throw new Error('ESTADO_INVALIDO');
-      if (confirmOperations.has(input.operacaoId) && confirmOperations.get(input.operacaoId) !== repasse.id) throw new Error('OPERACAO_ID_EM_USO');
+      if (db.repasseEventos.some((item) => item.tipo === 'confirmacao' && item.operacaoId === input.operacaoId)) throw new Error('OPERACAO_ID_EM_USO');
       if (db.repasses.some((item) => item.id !== repasse.id && item.estado === 'pago' && item.referencia === input.referencia.trim())) throw new Error('REFERENCIA_EM_USO');
       repasse.estado = 'pago'; repasse.referencia = input.referencia.trim(); repasse.confirmadoEm = new Date().toISOString();
-      confirmOperations.set(input.operacaoId, repasse.id);
+      db.repasseEventos.push({ repasseId: repasse.id, tipo: 'confirmacao', operacaoId: input.operacaoId, referencia: input.referencia.trim() });
       return repasse;
     },
     async marcarEmAnalise(input) {
       admin();
       if (!input.motivo.trim()) throw new Error('MOTIVO_OBRIGATORIO');
       const repasse = find(input.repasseId);
-      if (analysisOperations.get(input.operacaoId) === repasse.id) return repasse;
+      const prior = db.repasseEventos.find((item) => item.tipo === 'analise' && item.operacaoId === input.operacaoId);
+      if (prior) {
+        if (prior.repasseId !== repasse.id || prior.motivo !== input.motivo.trim()) throw new Error('OPERACAO_ID_EM_USO');
+        return repasse;
+      }
       if (!['pendente', 'em_analise'].includes(repasse.estado)) throw new Error('ESTADO_INVALIDO');
-      repasse.estado = 'em_analise'; analysisOperations.set(input.operacaoId, repasse.id);
+      repasse.estado = 'em_analise';
+      db.repasseEventos.push({ repasseId: repasse.id, tipo: 'analise', operacaoId: input.operacaoId, motivo: input.motivo.trim() });
       return repasse;
     },
     async invalidar(input) {
       admin();
       if (!input.motivo.trim()) throw new Error('MOTIVO_OBRIGATORIO');
       const repasse = find(input.repasseId);
-      if (repasse.estado === 'invalidado' && invalidateOperations.get(input.operacaoId) === repasse.id) return repasse;
+      if (repasse.estado === 'invalidado' && db.repasseEventos.some((item) => item.tipo === 'invalidacao' && item.operacaoId === input.operacaoId && item.repasseId === repasse.id)) return repasse;
       if (repasse.estado !== 'pendente') throw new Error('ESTADO_INVALIDO');
-      repasse.estado = 'invalidado'; invalidateOperations.set(input.operacaoId, repasse.id);
+      repasse.estado = 'invalidado';
+      db.repasseEventos.push({ repasseId: repasse.id, tipo: 'invalidacao', operacaoId: input.operacaoId, motivo: input.motivo.trim() });
       db.repasseItens.filter((item) => item.repasseId === repasse.id).forEach((item) => { item.liberado = true; });
+      return repasse;
+    },
+    async resolverSemPix(input) {
+      admin();
+      if (!input.motivo.trim()) throw new Error('MOTIVO_OBRIGATORIO');
+      if (!input.evidencia.trim()) throw new Error('EVIDENCIA_SEM_PIX_OBRIGATORIA');
+      const repasse = find(input.repasseId);
+      const prior = db.repasseEventos.find((item) => item.tipo === 'resolucao_sem_pix' && item.repasseId === repasse.id && item.operacaoId === input.operacaoId);
+      if (prior && repasse.estado === 'invalidado') {
+        if (prior.motivo !== input.motivo.trim() || prior.evidencia !== input.evidencia.trim()) throw new Error('OPERACAO_ID_EM_USO');
+        return repasse;
+      }
+      if (repasse.estado !== 'em_analise') throw new Error('ESTADO_INVALIDO');
+      if (db.repasseEventos.some((item) => item.operacaoId === input.operacaoId && item.repasseId === repasse.id)) throw new Error('OPERACAO_ID_EM_USO');
+      repasse.estado = 'invalidado';
+      db.repasseItens.filter((item) => item.repasseId === repasse.id).forEach((item) => { item.liberado = true; });
+      db.repasseEventos.push({ repasseId: repasse.id, tipo: 'resolucao_sem_pix', operacaoId: input.operacaoId, motivo: input.motivo.trim(), evidencia: input.evidencia.trim() });
       return repasse;
     },
   };

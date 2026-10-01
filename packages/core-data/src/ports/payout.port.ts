@@ -26,4 +26,6 @@ export interface PayoutPort {
   marcarEmAnalise(input: { repasseId: string; motivo: string; operacaoId: string }): Promise<Repasse>;
   /** Libera alocações apenas quando nenhum PIX foi executado ou está incerto. */
   invalidar(input: { repasseId: string; motivo: string; operacaoId: string }): Promise<Repasse>;
+  /** Fecha análise incerta somente após conciliação documentada que confirme ausência de PIX. */
+  resolverSemPix(input: { repasseId: string; motivo: string; evidencia: string; operacaoId: string }): Promise<Repasse>;
 }

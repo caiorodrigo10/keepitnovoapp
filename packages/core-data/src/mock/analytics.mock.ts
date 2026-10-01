@@ -101,23 +101,30 @@ export function createAnalyticsMock(db: MockDb): AnalyticsPort {
               taxaKeepitReais: p.taxa_keepit_reais,
             }));
 
-          const saques: MovimentacaoExtrato[] = db.saques
+          const saquesLegados: MovimentacaoExtrato[] = db.saques
             .filter(
               (s) =>
                 s.estabelecimento_id === estabelecimentoId &&
-                s.status !== 'erro' &&
-                new Date(s.solicitado_em).getUTCFullYear() === agora.getUTCFullYear() &&
-                new Date(s.solicitado_em).getUTCMonth() === agora.getUTCMonth(),
+                s.status === 'concluido' && !!s.concluido_em &&
+                new Date(s.concluido_em).getUTCFullYear() === agora.getUTCFullYear() &&
+                new Date(s.concluido_em).getUTCMonth() === agora.getUTCMonth(),
             )
             .map((s) => ({
               tipo: 'saque' as const,
-              data: s.solicitado_em,
+              data: s.concluido_em as string,
               valorReais: s.valor_reais,
               referenciaId: s.id,
               descricao: 'Saque · PIX',
             }));
 
-          return [...vendas, ...saques].sort((a, b) => b.data.localeCompare(a.data));
+          const repassesPagos: MovimentacaoExtrato[] = db.repasses
+            .filter((r) => r.estabelecimentoId === estabelecimentoId && r.estado === 'pago' && !!r.confirmadoEm &&
+              new Date(r.confirmadoEm).getUTCFullYear() === agora.getUTCFullYear() &&
+              new Date(r.confirmadoEm).getUTCMonth() === agora.getUTCMonth())
+            .map((r) => ({ tipo: 'saque', data: r.confirmadoEm as string, valorReais: r.valorCentavos / 100,
+              referenciaId: r.id, descricao: 'Repasse · PIX' }));
+
+          return [...vendas, ...saquesLegados, ...repassesPagos].sort((a, b) => b.data.localeCompare(a.data));
         },
         [],
         options,

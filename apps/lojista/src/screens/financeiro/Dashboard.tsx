@@ -23,7 +23,7 @@ const EMPTY_VENDAS: VendasResumo = { totalReais: 0, variacaoPercent: 0, variacao
 /**
  * Dashboard financeiro (Painel do lojista) — Story 0.11 (Task 1). Fiel a
  * `docs/design-refs/lojista-01-painel.png` (painel P1): header com nome da
- * loja, card de saldo + "a receber" + CTA "Solicitar saque", bloco "Vendas"
+ * loja, card de saldo + reservas semanais + CTA "Ver carteira", bloco "Vendas"
  * com tabs de período + mini-gráfico.
  *
  * [AUTO-DECISION] A seção "Pedidos novos" do painel P1 NÃO é implementada
@@ -34,7 +34,7 @@ const EMPTY_VENDAS: VendasResumo = { totalReais: 0, variacaoPercent: 0, variacao
  */
 export default function Dashboard({ navigation }: Props) {
   const { id: storeId } = useCurrentStore();
-  const { carteira, carteiraLoading, carteiraError, reload, carteiraLiberacaoDias } = useFinanceiro();
+  const { carteira, carteiraLoading, carteiraError, reload } = useFinanceiro();
   const [periodo, setPeriodo] = useState<Periodo>('7d');
   const [vendas, setVendas] = useState<VendasResumo>(EMPTY_VENDAS);
   const [vendasLoading, setVendasLoading] = useState(true);
@@ -104,12 +104,12 @@ export default function Dashboard({ navigation }: Props) {
                   {formatBRL(carteira.saldo_disponivel_reais)}
                 </Text>
                 <Text style={[styles.aReceber, { color: darkColors.text.tertiary }]}>
-                  + {formatBRL(carteira.saldo_bloqueado_reais)} a receber (em até {carteiraLiberacaoDias} dias)
+                  {formatBRL(carteira.saldo_bloqueado_reais)} reservado para repasses semanais
                 </Text>
               </>
             )}
             <View style={styles.ctaSpacer}>
-              <PrimaryButton label="Solicitar saque" onPress={() => navigation.navigate('Carteira')} />
+              <PrimaryButton label="Ver carteira" onPress={() => navigation.navigate('Carteira')} />
             </View>
           </View>
         )}

@@ -154,7 +154,7 @@ export function createAnalyticsSupabase(client?: SupabaseClient<Database>): Anal
      * corrente (UTC) → `tipo: 'venda'`, `valorReais = subtotal_produtos_reais
      * - taxa_keepit_reais + taxa_deslocamento_reais` (fonte: `pedidos`, não o
      * ledger — decisão [IDS] documentada em `ports/analytics.port.ts`); (b)
-     * `lancamentos_financeiros` tipo `payout`, `status <> 'erro'`, do mês
+     * `lancamentos_financeiros` tipo `payout`, `status = 'concluido'`, do mês
      * corrente → `tipo: 'saque'`, `valorReais = ABS(valor_centavos)/100`.
      * Ordenado por `data DESC`, paridade de fórmula com
      * `analytics.mock.ts#monthlyStatement`.

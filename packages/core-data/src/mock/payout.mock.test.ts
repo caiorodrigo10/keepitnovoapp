@@ -19,6 +19,8 @@ describe('PayoutPort mock', () => {
     expect(lote.valorCentavos).toBe(Math.round((pedido.subtotal_produtos_reais - pedido.taxa_keepit_reais + pedido.taxa_deslocamento_reais) * 100));
     const paid = await payout.confirmar({ repasseId: lote.id, referencia: 'pix-001', operacaoId: 'op-confirmar-1' });
     expect((await payout.confirmar({ repasseId: lote.id, referencia: 'pix-001', operacaoId: 'op-confirmar-1' })).id).toBe(paid.id);
+    await expect(payout.confirmar({ repasseId: lote.id, referencia: 'pix-001', operacaoId: 'op-diferente' })).rejects.toThrow('OPERACAO_ID_EM_USO');
+    await expect(payout.confirmar({ repasseId: lote.id, referencia: 'pix-diferente', operacaoId: 'op-confirmar-1' })).rejects.toThrow('REFERENCIA_DIVERGENTE');
     expect(db.repasses.filter((item) => item.id === lote.id)).toHaveLength(1);
     expect(paid.estado).toBe('pago');
     db.pedidos.push({ ...pedido, id: 'pedido-seguinte', entregue_em: '2026-10-05T03:00:00.000Z' });
@@ -56,5 +58,22 @@ describe('PayoutPort mock', () => {
     const pedido = db.pedidos.find((item) => item.status === 'no_hub')!;
     db.pedidos = [{ ...pedido, id: 'sem-pix', estabelecimento_id: 'loja-sem-pix', status: 'entregue', entregue_em: '2026-09-28T03:00:00.000Z' }];
     await expect(createPayoutMock(db).preparar({ semanaInicio: '2026-09-28', operacaoId: 'op-sem-pix' })).rejects.toThrow('CHAVE_PIX_OBRIGATORIA');
+  });
+
+  it('resolve análise incerta só após evidência sem PIX e não reutiliza operação de análise', async () => {
+    const db = createMockDb();
+    const pedido = db.pedidos.find((item) => item.status === 'no_hub')!;
+    db.pedidos = [pedido]; pedido.status = 'entregue'; pedido.entregue_em = '2026-09-28T03:00:00.000Z';
+    const payout = createPayoutMock(db);
+    const first = (await payout.preparar({ semanaInicio: '2026-09-28', operacaoId: 'prep-1' }))[0]!;
+    await payout.marcarEmAnalise({ repasseId: first.id, motivo: 'PIX incerto', operacaoId: 'analise-1' });
+    await expect(payout.invalidar({ repasseId: first.id, motivo: 'Incerto', operacaoId: 'inv-1' })).rejects.toThrow('ESTADO_INVALIDO');
+    await expect(payout.resolverSemPix({ repasseId: first.id, motivo: 'Conciliado', evidencia: ' ', operacaoId: 'resolver-1' })).rejects.toThrow('EVIDENCIA_SEM_PIX_OBRIGATORIA');
+    const resolved = await payout.resolverSemPix({ repasseId: first.id, motivo: 'Conciliado', evidencia: 'Extrato sem transferência', operacaoId: 'resolver-1' });
+    expect(resolved.estado).toBe('invalidado');
+    expect(db.repasseItens.every((item) => item.liberado)).toBe(true);
+    expect(db.repasseEventos).toContainEqual(expect.objectContaining({ repasseId: first.id, tipo: 'resolucao_sem_pix', evidencia: 'Extrato sem transferência' }));
+    const next = (await payout.preparar({ semanaInicio: '2026-09-28', operacaoId: 'prep-2' }))[0]!;
+    await expect(payout.marcarEmAnalise({ repasseId: next.id, motivo: 'Outro lote', operacaoId: 'analise-1' })).rejects.toThrow('OPERACAO_ID_EM_USO');
   });
 });

@@ -40,6 +40,18 @@ describe('analytics.mock (contract) — Story 1.10, Task 7', () => {
     }
   });
 
+  it('extrato mock inclui só repasse semanal pago, mantendo histórico legado concluído', async () => {
+    db.repasses.push({ id: 'repasse-pago', estabelecimentoId: 'estab-farmacia-vida', semanaInicio: '2026-09-28',
+      previstoPara: '2026-10-09', valorCentavos: 500, estado: 'pago', destinatarioNome: 'Loja', destinatarioResponsavel: 'Titular',
+      chavePix: 'pix', chavePixTipo: 'email', referencia: 'pix-1', preparadoEm: new Date().toISOString(), confirmadoEm: new Date().toISOString() });
+    db.repasses.push({ id: 'repasse-pendente', estabelecimentoId: 'estab-farmacia-vida', semanaInicio: '2026-10-05',
+      previstoPara: '2026-10-16', valorCentavos: 300, estado: 'pendente', destinatarioNome: 'Loja', destinatarioResponsavel: 'Titular',
+      chavePix: 'pix', chavePixTipo: 'email', referencia: null, preparadoEm: new Date().toISOString(), confirmadoEm: null });
+    const list = await port.monthlyStatement('estab-farmacia-vida', { delayMs: 1 });
+    expect(list).toContainEqual(expect.objectContaining({ tipo: 'saque', referenciaId: 'repasse-pago', valorReais: 5 }));
+    expect(list.some((item) => item.referenciaId === 'repasse-pendente')).toBe(false);
+  });
+
   it('is genuinely asynchronous — does not resolve on the same tick', () => {
     let resolved = false;
     const promise = port.salesSummary('estab-farmacia-vida', '7d', { delayMs: 0 }).then(() => {

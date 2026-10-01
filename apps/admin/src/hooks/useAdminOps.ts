@@ -11,7 +11,7 @@ import type {
   Pedido,
   PedidoStatus,
   ReembolsoPendente,
-  Saque,
+  Repasse,
 } from '@keepit/core-data';
 import { useAsyncResource, type AsyncResourceState } from '@keepit/core-data/hooks';
 
@@ -51,10 +51,13 @@ export function useRefundQueue(options?: AsyncCallOptions): RefreshableAsyncReso
   );
 }
 
-/** Story 8.9 — fila administrativa de saques, mesmo padrão de `useRefundQueue`. */
-export function usePayoutQueue(options?: AsyncCallOptions): RefreshableAsyncResource<Saque[]> {
-  return useRefreshable<Saque[]>(
-    () => getAdminDataClient().admin.payoutQueue.list(options),
+/** Lotes semanais materializados e previsões, sem a fila legada de saques avulsos. */
+export function useRepasses(options?: AsyncCallOptions): RefreshableAsyncResource<Repasse[]> {
+  return useRefreshable<Repasse[]>(
+    async () => {
+      if (options?.forceError) throw new Error('Falha simulada ao carregar repasses.');
+      return options?.forceEmpty ? [] : getAdminDataClient().payout.listar();
+    },
     [],
     [options?.forceEmpty, options?.forceError, options?.delayMs],
   );

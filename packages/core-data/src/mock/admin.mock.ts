@@ -398,14 +398,7 @@ export function createAdminMock(db: MockDb): AdminPort {
     },
 
     payoutQueue: {
-      /**
-       * Story 8.9 — [IDS] REUSE de `db.saques` (mesma coleção mock que
-       * `wallet.mock.ts#requestWithdrawal` já popula com `status:
-       * 'solicitado'`, ver Dev Notes da Story). Filtra os pendentes
-       * (`'solicitado'` = ângulo do lojista para o mesmo estado que o
-       * ledger real chama `'pendente'`), ordenados por `solicitado_em asc`
-       * — mesma ordenação de `refundQueue.list`.
-       */
+      /** Leitura do histórico legado; processar saques avulsos está desativado. */
       list(options?: AsyncCallOptions): Promise<Saque[]> {
         return simulateAsync(
           () =>
@@ -418,24 +411,12 @@ export function createAdminMock(db: MockDb): AdminPort {
       },
 
       process(
-        id: string,
-        resultado: LancamentoConfirmResultado,
+        _id: string,
+        _resultado: LancamentoConfirmResultado,
         _detalhe?: string,
-        options?: AsyncCallOptions,
+        _options?: AsyncCallOptions,
       ): Promise<Saque> {
-        return simulateAsync(
-          () => {
-            const saque = db.saques.find((s) => s.id === id);
-            if (!saque) {
-              throw new Error(`[mock] Saque não encontrado: ${id}`);
-            }
-            saque.status = resultado === 'erro' ? 'erro' : 'concluido';
-            saque.concluido_em = new Date().toISOString();
-            return saque;
-          },
-          {} as Saque,
-          options,
-        );
+        return Promise.reject(new Error('SAQUES_DESATIVADOS_USE_REPASSE_SEMANAL'));
       },
     },
 

@@ -84,9 +84,7 @@ export type FinanceiroStackParamList = {
   Dashboard: undefined;
   Vendas: undefined;
   Carteira: undefined;
-  SolicitarSaque: undefined;
   ExtratoFinanceiro: undefined;
-  FormasRecebimento: undefined;
 };
 
 export type PerfilStackParamList = {

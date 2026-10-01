@@ -351,14 +351,7 @@ export interface AdminPort {
     release(id: string, comprovacao: string): Promise<void>;
   };
 
-  /**
-   * Story 8.9 — fila administrativa de saques (`lancamentos_financeiros
-   * WHERE tipo='payout' AND status='pendente'`), mesmo padrão estrutural de
-   * `refundQueue` (IDS: ADAPT do precedente 8.1/8.2). Reaproveita `Saque`/
-   * `SaqueStatus` (`WalletPort`) em vez de um tipo `PayoutPendente` novo —
-   * mesma entidade, ângulo administrativo (todos os estabelecimentos) em vez
-   * do ângulo do lojista (um `estabelecimento_id`).
-   */
+  /** @deprecated Leitura de saques legados; `process` rejeita. Operação semanal usa `PayoutPort`. */
   payoutQueue: {
     list(options?: AsyncCallOptions): Promise<Saque[]>;
     process(

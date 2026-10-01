@@ -1,4 +1,3 @@
-import { businessConfig } from '@keepit/config';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { WalletPort } from '../ports/wallet.port';
@@ -39,25 +38,26 @@ describe('wallet.mock (contract)', () => {
     expect(depois.total_debitado_reais).toBe(5);
   });
 
-  it('requestWithdrawal rejects below businessConfig.saqueMinimoReais', async () => {
-    await expect(
-      port.requestWithdrawal('estab-farmacia-vida', businessConfig.saqueMinimoReais - 1, { delayMs: 1 }),
-    ).rejects.toThrow(/mínimo/i);
+  it('saque avulso mock também fica desativado, mas histórico permanece legível', async () => {
+    await expect(port.requestWithdrawal('estab-farmacia-vida', 250, { delayMs: 1 })).rejects.toThrow('SAQUES_DESATIVADOS_USE_REPASSE_SEMANAL');
+    expect(await port.statement('estab-farmacia-vida', { delayMs: 1 })).toEqual(db.saques.filter((item) => item.estabelecimento_id === 'estab-farmacia-vida'));
   });
 
-  it('requestWithdrawal rejects when the amount exceeds saldo disponível', async () => {
-    await expect(
-      port.requestWithdrawal('estab-farmacia-vida', 999999, { delayMs: 1 }),
-    ).rejects.toThrow(/insuficiente/i);
-  });
-
-  it('statement lists saques created via requestWithdrawal', async () => {
-    const carteira = await port.getBalance('estab-farmacia-vida', { delayMs: 1 });
-    if (carteira.saldo_disponivel_reais >= businessConfig.saqueMinimoReais) {
-      await port.requestWithdrawal('estab-farmacia-vida', businessConfig.saqueMinimoReais, { delayMs: 1 });
-      const statement = await port.statement('estab-farmacia-vida', { delayMs: 1 });
-      expect(statement.length).toBeGreaterThan(0);
-    }
+  it('reserva lote pendente e registra apenas PIX confirmado como sacado', async () => {
+    const antes = await port.getBalance('estab-farmacia-vida', { delayMs: 1 });
+    const lote = { id: 'lote-test', estabelecimentoId: 'estab-farmacia-vida', semanaInicio: '2026-09-28', previstoPara: '2026-10-09',
+      valorCentavos: 500, estado: 'pendente' as const, destinatarioNome: 'Loja', destinatarioResponsavel: 'Titular',
+      chavePix: 'pix', chavePixTipo: 'email', referencia: null, preparadoEm: new Date().toISOString(), confirmadoEm: null };
+    db.repasses.push(lote);
+    const pendente = await port.getBalance('estab-farmacia-vida', { delayMs: 1 });
+    expect(pendente.saldo_bloqueado_reais).toBeCloseTo(antes.saldo_bloqueado_reais + 5, 2);
+    expect(pendente.saldo_disponivel_reais).toBeCloseTo(antes.saldo_disponivel_reais - 5, 2);
+    db.repasses[0]!.estado = 'pago';
+    db.repasses[0]!.confirmadoEm = new Date().toISOString();
+    const pago = await port.getBalance('estab-farmacia-vida', { delayMs: 1 });
+    expect(pago.total_sacado_reais).toBeCloseTo(antes.total_sacado_reais + 5, 2);
+    expect(pago.saldo_bloqueado_reais).toBeCloseTo(antes.saldo_bloqueado_reais, 2);
+    expect(await port.statement('estab-farmacia-vida', { delayMs: 1 })).toContainEqual(expect.objectContaining({ id: 'lote-test', valor_reais: 5, status: 'concluido' }));
   });
 
   it('is genuinely asynchronous — does not resolve on the same tick', () => {

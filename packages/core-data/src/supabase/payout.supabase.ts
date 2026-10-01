@@ -77,5 +77,12 @@ export function createPayoutSupabase(client?: SupabaseClient<Database>): PayoutP
       if (error) throw error;
       return parse(data);
     },
+    async resolverSemPix(input) {
+      const { data, error } = await resolve().rpc('resolver_repasse_sem_pix' as never,
+        { p_repasse_id: input.repasseId, p_motivo: input.motivo, p_evidencia_sem_pix: input.evidencia,
+          p_operacao_id: input.operacaoId } as never);
+      if (error) throw error;
+      return parse(data);
+    },
   };
 }

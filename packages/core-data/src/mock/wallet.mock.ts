@@ -1,8 +1,6 @@
-import { businessConfig } from '@keepit/config';
-
 import type { CarteiraLojista, Saque, WalletPort } from '../ports/wallet.port';
 import type { AsyncCallOptions } from '../types';
-import { generateMockId, simulateAsync } from './async-helpers';
+import { simulateAsync } from './async-helpers';
 import type { MockDb } from './db';
 
 function roundReais(value: number): number {
@@ -10,17 +8,10 @@ function roundReais(value: number): number {
 }
 
 /**
- * Reimplementa em memória a mesma lógica da view SQL `carteira_lojista`
- * (docs/architecture/03-data-models.md#6.5): pedidos entregues há mais de
- * `businessConfig.carteiraLiberacaoDias` dias entram em saldo disponível;
- * os mais recentes ficam bloqueados. Saques e débitos abatem do disponível.
+ * Projeta créditos por PIN, ajustes, repasses reservados e histórico de PIX.
  */
 function computeCarteira(db: MockDb, estabelecimentoId: string): CarteiraLojista {
-  const liberacaoMs = businessConfig.carteiraLiberacaoDias * 24 * 60 * 60 * 1000;
-  const agora = Date.now();
-
-  let saldoDisponivel = 0;
-  let saldoBloqueado = 0;
+  let creditos = 0;
 
   for (const pedido of db.pedidos) {
     if (pedido.estabelecimento_id !== estabelecimentoId || pedido.status !== 'entregue' || !pedido.entregue_em) {
@@ -28,26 +19,29 @@ function computeCarteira(db: MockDb, estabelecimentoId: string): CarteiraLojista
     }
     const valorLiquido =
       pedido.subtotal_produtos_reais - pedido.taxa_keepit_reais + pedido.taxa_deslocamento_reais;
-    const entregueEm = new Date(pedido.entregue_em).getTime();
-    if (agora - entregueEm >= liberacaoMs) {
-      saldoDisponivel += valorLiquido;
-    } else {
-      saldoBloqueado += valorLiquido;
-    }
+    creditos += valorLiquido;
   }
 
-  const totalSacado = db.saques
+  const saquesLegados = db.saques
     .filter((s) => s.estabelecimento_id === estabelecimentoId && s.status !== 'erro')
     .reduce((sum, s) => sum + s.valor_reais, 0);
+  const saquesLegadosPagos = db.saques
+    .filter((s) => s.estabelecimento_id === estabelecimentoId && s.status === 'concluido')
+    .reduce((sum, s) => sum + s.valor_reais, 0);
+  const lotes = db.repasses.filter((item) => item.estabelecimentoId === estabelecimentoId);
+  const reservado = lotes.filter((item) => item.estado === 'pendente' || item.estado === 'em_analise')
+    .reduce((sum, item) => sum + item.valorCentavos / 100, 0);
+  const pago = lotes.filter((item) => item.estado === 'pago')
+    .reduce((sum, item) => sum + item.valorCentavos / 100, 0);
   const totalDebitadoCentavos = db.ajustesReembolso
     .filter((ajuste) => db.pedidos.some((pedido) => pedido.id === ajuste.pedidoId && pedido.estabelecimento_id === estabelecimentoId))
     .reduce((sum, ajuste) => sum - ajuste.valorCentavos, 0);
 
   return {
     estabelecimento_id: estabelecimentoId,
-    saldo_disponivel_reais: roundReais(saldoDisponivel - totalSacado - totalDebitadoCentavos / 100),
-    saldo_bloqueado_reais: roundReais(saldoBloqueado),
-    total_sacado_reais: roundReais(totalSacado),
+    saldo_disponivel_reais: roundReais(creditos - saquesLegados - reservado - pago - totalDebitadoCentavos / 100),
+    saldo_bloqueado_reais: roundReais(reservado),
+    total_sacado_reais: roundReais(saquesLegadosPagos + pago),
     total_debitado_reais: totalDebitadoCentavos / 100,
   };
 }
@@ -68,38 +62,18 @@ export function createWalletMock(db: MockDb): WalletPort {
       );
     },
 
-    requestWithdrawal(estabelecimentoId: string, valorReais: number, options?: AsyncCallOptions): Promise<Saque> {
-      return simulateAsync(
-        () => {
-          if (valorReais < businessConfig.saqueMinimoReais) {
-            throw new Error(
-              `[mock] Valor de saque abaixo do mínimo (R$ ${businessConfig.saqueMinimoReais})`,
-            );
-          }
-          const carteira = computeCarteira(db, estabelecimentoId);
-          if (valorReais > carteira.saldo_disponivel_reais) {
-            throw new Error('[mock] Saldo disponível insuficiente para o saque solicitado');
-          }
-          const saque: Saque = {
-            id: generateMockId('saque'),
-            estabelecimento_id: estabelecimentoId,
-            valor_reais: valorReais,
-            status: 'solicitado',
-            solicitado_em: new Date().toISOString(),
-            processado_em: null,
-            concluido_em: null,
-          };
-          db.saques.push(saque);
-          return saque;
-        },
-        {} as Saque,
-        options,
-      );
+    requestWithdrawal(_estabelecimentoId: string, _valorReais: number): Promise<Saque> {
+      return Promise.reject(new Error('SAQUES_DESATIVADOS_USE_REPASSE_SEMANAL'));
     },
 
     statement(estabelecimentoId: string, options?: AsyncCallOptions): Promise<Saque[]> {
       return simulateAsync(
-        () => db.saques.filter((s) => s.estabelecimento_id === estabelecimentoId),
+        () => [
+          ...db.saques.filter((s) => s.estabelecimento_id === estabelecimentoId),
+          ...db.repasses.filter((r) => r.estabelecimentoId === estabelecimentoId && r.estado === 'pago' && !!r.confirmadoEm)
+            .map((r): Saque => ({ id: r.id, estabelecimento_id: estabelecimentoId, valor_reais: r.valorCentavos / 100,
+              status: 'concluido', solicitado_em: r.confirmadoEm as string, processado_em: null, concluido_em: r.confirmadoEm })),
+        ].sort((a, b) => b.solicitado_em.localeCompare(a.solicitado_em)),
         [],
         options,
       );

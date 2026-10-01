@@ -177,8 +177,8 @@ export default function Configuracoes({ navigation }: Props) {
           />
           <SettingsListItem
             icon="card-outline"
-            label="Formas de recebimento"
-            onPress={() => navigateToTab('FinanceiroTab', 'FormasRecebimento')}
+            label="Carteira e repasses"
+            onPress={() => navigateToTab('FinanceiroTab', 'Carteira')}
           />
         </View>
 

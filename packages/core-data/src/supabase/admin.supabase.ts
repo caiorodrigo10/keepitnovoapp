@@ -37,12 +37,9 @@ import {
   ClienteNaoEncontradoError,
   EstabelecimentoNaoEncontradoError,
   EstadoInvalidoError,
-  LancamentoNaoEncontradoError,
   MotivoObrigatorioError,
   NaoAutorizadoError,
   PedidoNaoEncontradoError,
-  ResultadoInvalidoError,
-  TipoInvalidoError,
 } from './admin-errors';
 import { mapRowToEstabelecimento, ESTABELECIMENTO_COLUMNS, type EstabelecimentoRow } from './store.supabase';
 import { fetchItensPorPedidoIds, fetchPedidoPorId, mapRowToPedido, PEDIDO_COLUMNS, type PedidoRow } from './order.supabase';
@@ -492,17 +489,6 @@ async function fetchLancamentoAdminPorId(
     );
   }
   return data as unknown as LancamentoAdminRow;
-}
-
-/** Mapeia os 6 erros nomeados de `confirmar_lancamento_admin` (Stories 8.2/8.9) — compartilhado entre `refundQueue.process`/`payoutQueue.process`. */
-function throwConfirmarLancamentoAdminError(message: string): never {
-  if (message.includes('AUTENTICACAO_NECESSARIA')) throw new AutenticacaoNecessariaError('confirmar_lancamento_admin');
-  if (message.includes('NAO_AUTORIZADO')) throw new NaoAutorizadoError('confirmar_lancamento_admin');
-  if (message.includes('RESULTADO_INVALIDO')) throw new ResultadoInvalidoError();
-  if (message.includes('LANCAMENTO_NAO_ENCONTRADO')) throw new LancamentoNaoEncontradoError();
-  if (message.includes('TIPO_INVALIDO')) throw new TipoInvalidoError();
-  if (message.includes('ESTADO_INVALIDO')) throw new EstadoInvalidoError('confirmar_lancamento_admin');
-  throw new Error(message);
 }
 
 /**
@@ -1065,39 +1051,14 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
         return rows.map(mapLancamentoToSaque);
       },
 
-      /**
-       * Story 8.9 (AC3, AC4, AC5) — MESMA RPC de `refundQueue.process`
-       * (`confirmar_lancamento_admin`, compartilhada por decisão de
-       * @architect registrada na migration). Sem chamada Asaas. Relê o
-       * lançamento após o sucesso (`LancamentoAdminRow` é superset dos
-       * campos que `mapLancamentoToSaque` precisa — sem query extra).
-       */
+      /** Saque avulso legado é somente histórico; repasses usam `PayoutPort`. */
       async process(
-        id: string,
-        resultado: LancamentoConfirmResultado,
-        detalhe?: string,
+        _id: string,
+        _resultado: LancamentoConfirmResultado,
+        _detalhe?: string,
         _options?: AsyncCallOptions,
       ): Promise<Saque> {
-        const supabase = resolveClient();
-
-        const { error } = await supabase.rpc('confirmar_lancamento_admin', {
-          p_lancamento_id: id,
-          p_resultado: resultado,
-          p_detalhe: detalhe ?? null,
-        });
-        if (error) {
-          throwConfirmarLancamentoAdminError(error.message ?? '');
-        }
-
-        const row = await fetchLancamentoAdminPorId(supabase, id);
-        return mapLancamentoToSaque({
-          id: row.id,
-          estabelecimento_id: row.estabelecimento_id,
-          valor_centavos: row.valor_centavos,
-          status: row.status,
-          criado_em: row.criado_em,
-          concluido_em: row.concluido_em,
-        });
+        throw new Error('SAQUES_DESATIVADOS_USE_REPASSE_SEMANAL');
       },
     },
 

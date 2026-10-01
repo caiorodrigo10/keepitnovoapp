@@ -8,7 +8,7 @@ const SECTIONS = [
   { href: '/aprovacoes', label: 'Aprovações' },
   { href: '/hubs', label: 'Hubs' },
   { href: '/reembolsos', label: 'Reembolsos' },
-  { href: '/saques', label: 'Saques' },
+  { href: '/repasses', label: 'Repasses' },
   { href: '/pedidos', label: 'Pedidos' },
   { href: '/atendimento', label: 'Atendimento' },
   { href: '/clientes', label: 'Clientes' },

@@ -23,5 +23,7 @@ describe('PayoutPort Supabase', () => {
     expect(rpc).toHaveBeenCalledWith('preparar_repasses_semanais', { p_semana_inicio: '2026-09-28', p_operacao_id: 'op-1' });
     expect((await payout.confirmar({ repasseId: 'repasse-1', referencia: 'pix-1', operacaoId: 'op-2' })).estado).toBe('pago');
     expect(rpc).toHaveBeenCalledWith('confirmar_repasse', { p_repasse_id: 'repasse-1', p_referencia: 'pix-1', p_operacao_id: 'op-2' });
+    await payout.resolverSemPix({ repasseId: 'repasse-1', motivo: 'Conciliação', evidencia: 'Extrato sem PIX', operacaoId: 'op-3' });
+    expect(rpc).toHaveBeenCalledWith('resolver_repasse_sem_pix', { p_repasse_id: 'repasse-1', p_motivo: 'Conciliação', p_evidencia_sem_pix: 'Extrato sem PIX', p_operacao_id: 'op-3' });
   });
 });

@@ -268,26 +268,13 @@ describe('admin.mock (contract)', () => {
     expect(db.reembolsos.find((item) => item.id === 'refund-failed-1')?.estado_reserva).toBe('liberada');
   });
 
-  it('payoutQueue.list/process managed saques pendentes (Story 8.9)', async () => {
-    db.saques.push({
-      id: 'saque-teste',
-      estabelecimento_id: 'estab-farmacia-vida',
-      valor_reais: 150,
-      status: 'solicitado',
-      solicitado_em: new Date().toISOString(),
-      processado_em: null,
-      concluido_em: null,
-    });
-
-    const fila = await port.payoutQueue.list({ delayMs: 1 });
-    expect(fila.some((s) => s.id === 'saque-teste')).toBe(true);
-
-    const processado = await port.payoutQueue.process('saque-teste', 'concluido', undefined, { delayMs: 1 });
-    expect(processado.status).toBe('concluido');
-    expect(processado.concluido_em).not.toBeNull();
-
-    const filaDepois = await port.payoutQueue.list({ delayMs: 1 });
-    expect(filaDepois.some((s) => s.id === 'saque-teste')).toBe(false);
+  it('payoutQueue preserva histórico pendente mas não processa saques avulsos', async () => {
+    const saque = { id: 'saque-teste', estabelecimento_id: 'estab-farmacia-vida', valor_reais: 150,
+      status: 'solicitado' as const, solicitado_em: new Date().toISOString(), processado_em: null, concluido_em: null };
+    db.saques.push(saque);
+    expect((await port.payoutQueue.list({ delayMs: 1 })).some((item) => item.id === saque.id)).toBe(true);
+    await expect(port.payoutQueue.process(saque.id, 'concluido', undefined, { delayMs: 1 })).rejects.toThrow('SAQUES_DESATIVADOS_USE_REPASSE_SEMANAL');
+    expect(saque.status).toBe('solicitado');
   });
 
   it('is genuinely asynchronous — does not resolve on the same tick', () => {

@@ -55,6 +55,7 @@ export interface MockDb {
   ajustesReembolso: { reembolsoId: string; pedidoId: string; valorCentavos: number }[];
   repasses: Repasse[];
   repasseItens: { repasseId: string; fonteId: string; pedidoId: string | null; valorCentavos: number; liberado: boolean }[];
+  repasseEventos: { repasseId: string; operacaoId: string; tipo: 'analise' | 'confirmacao' | 'invalidacao' | 'resolucao_sem_pix'; motivo?: string; referencia?: string; evidencia?: string }[];
   operacoesPreparacaoRepasse: { operacaoId: string; semanaInicio: string; repasseIds: string[] }[];
   /** `estabelecimentos_falhas` — Story 1.10 (Task 4), promovido de `apps/admin/src/mock/adminOpsTypes.ts`. */
   falhas: EstabelecimentoFalha[];
@@ -205,6 +206,7 @@ export function createMockDb(): MockDb {
     ajustesReembolso: [],
     repasses: [],
     repasseItens: [],
+    repasseEventos: [],
     operacoesPreparacaoRepasse: [],
     falhas: structuredClone(estabelecimentosFalhasFixture),
     sessionClienteId: null,

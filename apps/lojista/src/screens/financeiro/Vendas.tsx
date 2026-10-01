@@ -38,7 +38,7 @@ const EMPTY: VendasDetalhe = {
  *
  * [AUTO-DECISION] Rota nova em `FinanceiroStackParamList` — o esqueleto de
  * navegação da Story 0.3 registrou apenas 5 stubs (Dashboard, Carteira,
- * SolicitarSaque, ExtratoFinanceiro, FormasRecebimento), sem uma rota
+ * ExtratoFinanceiro), sem uma rota
  * dedicada para "Vendas" mesmo esta story listando `Vendas.tsx` em File
  * Locations (Dev Notes). Adicionar a rota é extensão de `apps/lojista/**`
  * (dentro do escopo desta execução), não uma mudança de framework/pacote.
