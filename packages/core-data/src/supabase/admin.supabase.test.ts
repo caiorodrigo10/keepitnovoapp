@@ -514,6 +514,38 @@ describe('admin.supabase.ts — refundQueue (Story 8.1, 8.2)', () => {
     });
   });
 
+  it('list pagina além de 1.000 lançamentos para o detalhe encontrar qualquer reembolso', async () => {
+    const primeiraPagina = Array.from({ length: 1_000 }, (_, index) => ({
+      id: `refund-${String(index).padStart(4, '0')}`,
+      estabelecimento_id: 'estab-1', pedido_id: null, tipo: 'refund', valor_centavos: -100,
+      status: 'pendente', criado_em: '2026-08-01T10:00:00.000Z', concluido_em: null,
+      detalhe: null, estado_reserva: 'ativa',
+    }));
+    const ultimaPagina = [{
+      id: 'refund-1000', estabelecimento_id: 'estab-1', pedido_id: null, tipo: 'refund',
+      valor_centavos: -250, status: 'erro', criado_em: '2026-08-02T10:00:00.000Z',
+      concluido_em: null, detalhe: 'Resposta perdida', estado_reserva: 'ativa',
+    }];
+    const { client, from } = fakeTableClient({
+      tables: { lancamentos_financeiros: [
+        { data: primeiraPagina, error: null },
+        { data: ultimaPagina, error: null },
+      ] },
+    });
+
+    const fila = await createAdminSupabase(client).refundQueue.list();
+
+    expect(fila).toHaveLength(1_001);
+    expect(fila.find((item) => item.id === 'refund-1000')).toMatchObject({
+      pedido_id: null, status: 'erro', valor_a_estornar_reais: 2.5,
+    });
+    const queries = from.mock.results
+      .filter((_, index) => from.mock.calls[index]?.[0] === 'lancamentos_financeiros')
+      .map((result) => result.value as { range: ReturnType<typeof vi.fn> });
+    expect(queries[0]?.range).toHaveBeenCalledWith(0, 999);
+    expect(queries[1]?.range).toHaveBeenCalledWith(1_000, 1_999);
+  });
+
   it('list mapeia status ledger -> UI (pendente->pendente_admin, concluido->estornado, erro->erro)', async () => {
     const { client } = fakeTableClient({
       tables: {

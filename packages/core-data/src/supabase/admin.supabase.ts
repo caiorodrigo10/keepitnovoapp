@@ -940,17 +940,16 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
        */
       async list(_options?: AsyncCallOptions): Promise<ReembolsoPendente[]> {
         const supabase = resolveClient();
+        const operational = supabase as unknown as OperationalReadClient;
 
-        const { data, error } = await supabase
+        const rows = (await fetchAllOperationalRows<LancamentoAdminRow>((from, to) => operational
           .from('lancamentos_financeiros')
           .select(LANCAMENTO_ADMIN_COLUMNS)
           .eq('tipo', 'refund')
-          .order('criado_em', { ascending: true });
-        if (error) {
-          throw error;
-        }
-
-        const rows = ((data ?? []) as unknown as LancamentoAdminRow[]).filter((r) => r.estado_reserva !== 'liberada');
+          .order('criado_em', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, to)))
+          .filter((row) => row.estado_reserva !== 'liberada');
         if (rows.length === 0) {
           return [];
         }
