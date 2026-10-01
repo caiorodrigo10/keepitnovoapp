@@ -2,12 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@keepit/shared-types';
 
-import {
-  AutenticacaoNecessariaError,
-  EstabelecimentoNaoEncontradoError,
-  SaldoInsuficienteError,
-  ValorMinimoSaqueError,
-} from './wallet-errors';
 import { createWalletSupabase } from './wallet.supabase';
 
 /**
@@ -148,88 +142,11 @@ describe('wallet.supabase.ts — statement (Story 7.7, AC2, AC3, AC5)', () => {
   });
 });
 
-describe('wallet.supabase.ts — requestWithdrawal (Story 7.8, AC1-AC4, AC6, AC7)', () => {
-  it('converte reais para centavos (Math.round) e chama solicitar_saque com p_valor_centavos', async () => {
-    const { client, rpc } = fakeClient({
-      rpc: {
-        data: [
-          {
-            lancamento_id: 'lanc-1',
-            estabelecimento_id: 'estab-1',
-            valor_centavos: -25000,
-            status: 'pendente',
-            solicitado_em: '2026-08-13T12:00:00.000Z',
-          },
-        ],
-        error: null,
-      },
-    });
-
+describe('wallet.supabase.ts — saque avulso desativado', () => {
+  it('não chama RPC nem cria payout fora de lote semanal', async () => {
+    const { client, rpc } = fakeClient({});
     const port = createWalletSupabase(client);
-    const saque = await port.requestWithdrawal('estab-1', 250);
-
-    expect(rpc).toHaveBeenCalledWith('solicitar_saque', { p_valor_centavos: 25000 });
-    expect(saque).toEqual({
-      id: 'lanc-1',
-      estabelecimento_id: 'estab-1',
-      valor_reais: 250,
-      status: 'solicitado',
-      solicitado_em: '2026-08-13T12:00:00.000Z',
-      processado_em: null,
-      concluido_em: null,
-    });
-  });
-
-  it('mapeia AUTENTICACAO_NECESSARIA para AutenticacaoNecessariaError', async () => {
-    const { client } = fakeClient({ rpc: { data: null, error: { message: 'AUTENTICACAO_NECESSARIA', code: 'P0001' } } });
-    const port = createWalletSupabase(client);
-    await expect(port.requestWithdrawal('estab-1', 250)).rejects.toBeInstanceOf(AutenticacaoNecessariaError);
-  });
-
-  it('mapeia ESTABELECIMENTO_NAO_ENCONTRADO para EstabelecimentoNaoEncontradoError', async () => {
-    const { client } = fakeClient({
-      rpc: { data: null, error: { message: 'ESTABELECIMENTO_NAO_ENCONTRADO', code: 'P0001' } },
-    });
-    const port = createWalletSupabase(client);
-    await expect(port.requestWithdrawal('estab-1', 250)).rejects.toBeInstanceOf(EstabelecimentoNaoEncontradoError);
-  });
-
-  it('mapeia VALOR_MINIMO_SAQUE para ValorMinimoSaqueError', async () => {
-    const { client } = fakeClient({ rpc: { data: null, error: { message: 'VALOR_MINIMO_SAQUE', code: 'P0001' } } });
-    const port = createWalletSupabase(client);
-    await expect(port.requestWithdrawal('estab-1', 10)).rejects.toBeInstanceOf(ValorMinimoSaqueError);
-  });
-
-  it('mapeia SALDO_INSUFICIENTE para SaldoInsuficienteError', async () => {
-    const { client } = fakeClient({ rpc: { data: null, error: { message: 'SALDO_INSUFICIENTE', code: 'P0001' } } });
-    const port = createWalletSupabase(client);
-    await expect(port.requestWithdrawal('estab-1', 999999)).rejects.toBeInstanceOf(SaldoInsuficienteError);
-  });
-
-  it('propaga qualquer outro erro sem mascarar e sem sucesso simulado', async () => {
-    const { client } = fakeClient({ rpc: { data: null, error: { message: 'erro de rede', code: '500' } } });
-    const port = createWalletSupabase(client);
-    await expect(port.requestWithdrawal('estab-1', 250)).rejects.toMatchObject({ message: 'erro de rede' });
-  });
-
-  it('nunca dispara transferência PIX real — sucesso sempre resolve status pendente/solicitado (Bloco 09 executa manualmente)', async () => {
-    const { client } = fakeClient({
-      rpc: {
-        data: [
-          {
-            lancamento_id: 'lanc-1',
-            estabelecimento_id: 'estab-1',
-            valor_centavos: -20000,
-            status: 'pendente',
-            solicitado_em: '2026-08-13T12:00:00.000Z',
-          },
-        ],
-        error: null,
-      },
-    });
-    const port = createWalletSupabase(client);
-    const saque = await port.requestWithdrawal('estab-1', 200);
-    expect(saque.status).toBe('solicitado');
-    expect(saque.concluido_em).toBeNull();
+    await expect(port.requestWithdrawal('estab-1', 250)).rejects.toThrow('SAQUES_DESATIVADOS_USE_REPASSE_SEMANAL');
+    expect(rpc).not.toHaveBeenCalled();
   });
 });

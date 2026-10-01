@@ -1,0 +1,60 @@
+import { describe, expect, it } from 'vitest';
+import { createMockDb } from './db';
+import { createPayoutMock } from './payout.mock';
+
+describe('PayoutPort mock', () => {
+  it('prepara uma vez o crédito de pedido entregue por PIN e confirma sem dupla baixa', async () => {
+    const db = createMockDb();
+    const pedido = db.pedidos.find((item) => item.status === 'no_hub')!;
+    db.pedidos = [pedido];
+    pedido.status = 'entregue';
+    pedido.entregue_em = '2026-09-28T03:00:00.000Z';
+    const payout = createPayoutMock(db);
+    const first = await payout.preparar({ semanaInicio: '2026-09-28', operacaoId: 'op-preparar-1' });
+    const repeat = await payout.preparar({ semanaInicio: '2026-09-28', operacaoId: 'op-preparar-1' });
+    const lote = first.find((item) => item.estabelecimentoId === pedido.estabelecimento_id)!;
+    expect(lote).toMatchObject({ estado: 'pendente', previstoPara: '2026-10-09' });
+    expect(lote.chavePix).toBeTruthy();
+    expect(repeat.find((item) => item.id === lote.id)).toBeDefined();
+    expect(lote.valorCentavos).toBe(Math.round((pedido.subtotal_produtos_reais - pedido.taxa_keepit_reais + pedido.taxa_deslocamento_reais) * 100));
+    const paid = await payout.confirmar({ repasseId: lote.id, referencia: 'pix-001', operacaoId: 'op-confirmar-1' });
+    expect((await payout.confirmar({ repasseId: lote.id, referencia: 'pix-001', operacaoId: 'op-confirmar-1' })).id).toBe(paid.id);
+    expect(db.repasses.filter((item) => item.id === lote.id)).toHaveLength(1);
+    expect(paid.estado).toBe('pago');
+    db.pedidos.push({ ...pedido, id: 'pedido-seguinte', entregue_em: '2026-10-05T03:00:00.000Z' });
+    const next = (await payout.preparar({ semanaInicio: '2026-10-05', operacaoId: 'op-preparar-2' }))[0]!;
+    await expect(payout.confirmar({ repasseId: next.id, referencia: 'pix-001', operacaoId: 'op-confirmar-2' })).rejects.toThrow('REFERENCIA_EM_USO');
+  });
+
+  it('não inclui pedido sem PIN e impede ações de lojista', async () => {
+    const db = createMockDb();
+    const payout = createPayoutMock(db);
+    db.sessionLojistaUserId = db.estabelecimentosCadastrados[0]!.donoUserId;
+    await expect(payout.preparar({ semanaInicio: '2026-09-28', operacaoId: 'op-merchant' })).rejects.toThrow('ACESSO_NEGADO');
+  });
+
+  it('carrega ajuste parcial sem criar PIX negativo nem consumir duas vezes', async () => {
+    const db = createMockDb();
+    const pedido = db.pedidos.find((item) => item.status === 'no_hub')!;
+    db.pedidos = [pedido];
+    pedido.status = 'entregue'; pedido.entregue_em = '2026-09-28T03:00:00.000Z';
+    const credit = Math.round((pedido.subtotal_produtos_reais - pedido.taxa_keepit_reais + pedido.taxa_deslocamento_reais) * 100);
+    db.ajustesReembolso.push({ reembolsoId: 'refund-1', pedidoId: pedido.id, valorCentavos: -(credit + 500) });
+    const payout = createPayoutMock(db);
+    const first = (await payout.preparar({ semanaInicio: '2026-09-28', operacaoId: 'op-1' }))[0]!;
+    expect(first).toMatchObject({ estado: 'compensado', valorCentavos: 0 });
+    await expect(payout.confirmar({ repasseId: first.id, referencia: 'pix-1', operacaoId: 'op-2' })).rejects.toThrow('ESTADO_INVALIDO');
+    const next = { ...pedido, id: 'pedido-next', entregue_em: '2026-10-05T03:00:00.000Z' };
+    db.pedidos.push(next);
+    const second = (await payout.preparar({ semanaInicio: '2026-10-05', operacaoId: 'op-3' }))[0]!;
+    expect(second.valorCentavos).toBe(credit - 500);
+    expect(db.repasseItens.filter((item) => item.fonteId === 'refund-1' && !item.liberado).reduce((sum, item) => sum - item.valorCentavos, 0)).toBe(credit + 500);
+  });
+
+  it('não prepara PIX sem dados bancários verificados da loja', async () => {
+    const db = createMockDb();
+    const pedido = db.pedidos.find((item) => item.status === 'no_hub')!;
+    db.pedidos = [{ ...pedido, id: 'sem-pix', estabelecimento_id: 'loja-sem-pix', status: 'entregue', entregue_em: '2026-09-28T03:00:00.000Z' }];
+    await expect(createPayoutMock(db).preparar({ semanaInicio: '2026-09-28', operacaoId: 'op-sem-pix' })).rejects.toThrow('CHAVE_PIX_OBRIGATORIA');
+  });
+});

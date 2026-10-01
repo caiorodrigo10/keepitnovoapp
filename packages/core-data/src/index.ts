@@ -19,6 +19,7 @@ import type { LojistaAuthPort } from './ports/lojista-auth.port';
 import type { OrderPort } from './ports/order.port';
 import type { SupportPort } from './ports/support.port';
 import type { PaymentPort } from './ports/payment.port';
+import type { PayoutPort } from './ports/payout.port';
 import type { ProductPort } from './ports/product.port';
 import type { StorePort } from './ports/store.port';
 import type { WalletPort } from './ports/wallet.port';
@@ -37,6 +38,7 @@ import { createLojistaAuthMock } from './mock/lojista-auth.mock';
 import { createOrderMock } from './mock/order.mock';
 import { createSupportMock } from './mock/support.mock';
 import { createPaymentMock } from './mock/payment.mock';
+import { createPayoutMock } from './mock/payout.mock';
 import { createProductMock } from './mock/product.mock';
 import { createStoreMock } from './mock/store.mock';
 import { createWalletMock } from './mock/wallet.mock';
@@ -52,6 +54,7 @@ import { createLojistaAuthSupabase } from './supabase/lojista-auth.supabase';
 import { createOrderSupabase } from './supabase/order.supabase';
 import { createSupportSupabase } from './supabase/support.supabase';
 import { createPaymentSupabase } from './supabase/payment.supabase';
+import { createPayoutSupabase } from './supabase/payout.supabase';
 import { createProductSupabase } from './supabase/product.supabase';
 import { createStoreSupabase } from './supabase/store.supabase';
 import { createWalletSupabase } from './supabase/wallet.supabase';
@@ -104,6 +107,7 @@ export interface DataClient {
    * separada de `order` (ciclo de vida do pedido em si).
    */
   payment: PaymentPort;
+  payout: PayoutPort;
   wallet: WalletPort;
   admin: AdminPort;
   /** Vendas/top produtos/extrato do Lojista (Story 1.10, Task 7) — CREATE justificado nas Dev Notes da story. */
@@ -200,6 +204,7 @@ export function createDataClient(options: CreateDataClientOptions = {}): DataCli
       order: createOrderSupabase(client),
       support: createSupportSupabase(client),
       payment: createPaymentSupabase(client),
+      payout: createPayoutSupabase(client),
       wallet: createWalletSupabase(client),
       admin: createAdminSupabase(client),
       analytics: createAnalyticsSupabase(client),
@@ -224,6 +229,7 @@ export function createDataClient(options: CreateDataClientOptions = {}): DataCli
     order: createOrderMock(db),
     support: createSupportMock(db),
     payment: createPaymentMock(db),
+    payout: createPayoutMock(db),
     wallet: createWalletMock(db),
     admin: createAdminMock(db),
     analytics: createAnalyticsMock(db),
@@ -310,6 +316,7 @@ export * from './ports/support.port';
 export * from './support-operation-id';
 export * from './refund-limits';
 export * from './ports/payment.port';
+export * from './ports/payout.port';
 export * from './ports/product.port';
 export * from './ports/store.port';
 export * from './ports/wallet.port';

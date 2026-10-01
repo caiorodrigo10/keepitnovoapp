@@ -176,7 +176,7 @@ export function createAnalyticsSupabase(client?: SupabaseClient<Database>): Anal
           .select('id, valor_centavos, criado_em')
           .eq('estabelecimento_id', estabelecimentoId)
           .eq('tipo', 'payout')
-          .neq('status', 'erro')
+          .eq('status', 'concluido')
           .gte('criado_em', inicio)
           .lt('criado_em', fimExclusive),
       ]);

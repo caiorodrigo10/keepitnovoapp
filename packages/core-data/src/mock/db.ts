@@ -4,6 +4,7 @@ import type { Estabelecimento, EstabelecimentoHorario } from '../ports/store.por
 import type { Produto } from '../ports/product.port';
 import type { OrderChangeEvent, Pedido } from '../ports/order.port';
 import type { SupportCase } from '../ports/support.port';
+import type { Repasse } from '../ports/payout.port';
 import type { Saque } from '../ports/wallet.port';
 import type { EstabelecimentoFalha, ReembolsoPendente } from '../ports/admin.port';
 import type { QaScenarioState } from '../ports/demo-scenario.port';
@@ -52,6 +53,9 @@ export interface MockDb {
   saques: Saque[];
   reembolsos: ReembolsoPendente[];
   ajustesReembolso: { reembolsoId: string; pedidoId: string; valorCentavos: number }[];
+  repasses: Repasse[];
+  repasseItens: { repasseId: string; fonteId: string; pedidoId: string | null; valorCentavos: number; liberado: boolean }[];
+  operacoesPreparacaoRepasse: { operacaoId: string; semanaInicio: string; repasseIds: string[] }[];
   /** `estabelecimentos_falhas` — Story 1.10 (Task 4), promovido de `apps/admin/src/mock/adminOpsTypes.ts`. */
   falhas: EstabelecimentoFalha[];
   /** Sessão de auth mock atual (id do cliente logado, ou `null`). */
@@ -199,6 +203,9 @@ export function createMockDb(): MockDb {
     // (ver `mock/refund-helpers.ts`).
     reembolsos: structuredClone(reembolsosFixture),
     ajustesReembolso: [],
+    repasses: [],
+    repasseItens: [],
+    operacoesPreparacaoRepasse: [],
     falhas: structuredClone(estabelecimentosFalhasFixture),
     sessionClienteId: null,
     favoriteHubIdsByClienteId: {},

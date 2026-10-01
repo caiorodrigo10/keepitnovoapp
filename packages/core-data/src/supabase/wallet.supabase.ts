@@ -4,12 +4,6 @@ import { createClient } from '@keepit/supabase-client';
 
 import type { CarteiraLojista, Saque, SaqueStatus, WalletPort } from '../ports/wallet.port';
 import type { AsyncCallOptions } from '../types';
-import {
-  AutenticacaoNecessariaError,
-  EstabelecimentoNaoEncontradoError,
-  SaldoInsuficienteError,
-  ValorMinimoSaqueError,
-} from './wallet-errors';
 
 const CARTEIRA_COLUMNS =
   'estabelecimento_id, saldo_disponivel_reais, saldo_bloqueado_reais, total_sacado_reais, total_debitado_reais';
@@ -75,8 +69,7 @@ function carteiraZerada(estabelecimentoId: string): CarteiraLojista {
  * `getBalance`/`statement` leem, respectivamente, a view `carteira_lojista` e
  * o ledger `lancamentos_financeiros` (Story 7.6, RLS já garante isolamento
  * por `estabelecimento_id` — o adapter não reimplementa a checagem de
- * ownership). `requestWithdrawal` chama a RPC `SECURITY DEFINER`
- * `solicitar_saque(p_valor_centavos)` (Story 7.8, já aplicada via MCP).
+ * ownership). Saque avulso foi desativado: o PIX manual passa pelo lote semanal.
  */
 export function createWalletSupabase(client?: SupabaseClient<Database>): WalletPort {
   let cachedClient: SupabaseClient<Database> | null = client ?? null;
@@ -88,7 +81,7 @@ export function createWalletSupabase(client?: SupabaseClient<Database>): WalletP
      * filtrando por `estabelecimento_id` — a RLS da view (`security_invoker`
      * + `WHERE` dono/admin, Story 7.6 AC3/AC4) garante que o lojista só
      * enxerga a própria carteira. Um lojista sem nenhum lançamento (ou cujo
-     * `estabelecimento` não bate o `WHERE e.status = 'ativo'` da view)
+     * `estabelecimento` ainda não existe na view)
      * resolve saldo ZERO honesto (`maybeSingle()` retorna `null`, não erro)
      * — nunca lança nesse caso; qualquer erro real de rede/RLS (`error`
      * preenchido) SEMPRE propaga, nunca vira sucesso fictício.
@@ -118,50 +111,9 @@ export function createWalletSupabase(client?: SupabaseClient<Database>): WalletP
       };
     },
 
-    /**
-     * Story 7.8 (AC1, AC2, AC3, AC4, AC6). Converte `valorReais → centavos`
-     * (`Math.round(valorReais * 100)`, nunca ponto flutuante cru na chamada)
-     * e chama a RPC `solicitar_saque(p_valor_centavos)` — validação de
-     * sessão/ownership/mínimo/saldo é INTEIRAMENTE server-side (a RPC relê
-     * `carteira_lojista.saldo_disponivel_reais` dentro de si, serializando
-     * saques concorrentes do mesmo lojista via `FOR UPDATE`). Mapeia os 4
-     * erros NOMEADOS reais para classes dedicadas (`wallet-errors.ts`) —
-     * nunca engole o erro, nunca simula sucesso. Sucesso = `payout`
-     * `status = 'pendente'` (NÃO dispara PIX real — o Admin executa
-     * manualmente no Bloco 09).
-     */
-    async requestWithdrawal(
-      estabelecimentoId: string,
-      valorReais: number,
-      _options?: AsyncCallOptions,
-    ): Promise<Saque> {
-      const supabase = resolveClient();
-      const valorCentavos = Math.round(valorReais * 100);
-
-      const { data, error } = await supabase.rpc('solicitar_saque', { p_valor_centavos: valorCentavos });
-
-      if (error) {
-        const message = error.message ?? '';
-        if (message.includes('AUTENTICACAO_NECESSARIA')) throw new AutenticacaoNecessariaError();
-        if (message.includes('ESTABELECIMENTO_NAO_ENCONTRADO')) throw new EstabelecimentoNaoEncontradoError();
-        if (message.includes('VALOR_MINIMO_SAQUE')) throw new ValorMinimoSaqueError();
-        if (message.includes('SALDO_INSUFICIENTE')) throw new SaldoInsuficienteError();
-        throw error;
-      }
-
-      const row = data?.[0];
-      if (!row) {
-        throw new Error('[core-data/supabase] solicitar_saque — RPC retornou vazio sem erro.');
-      }
-
-      return mapLancamentoToSaque({
-        id: row.lancamento_id,
-        estabelecimento_id: row.estabelecimento_id ?? estabelecimentoId,
-        valor_centavos: Number(row.valor_centavos),
-        status: row.status,
-        criado_em: row.solicitado_em,
-        concluido_em: null,
-      });
+    /** Saque avulso foi substituído pelo lote semanal confirmado pelo Admin. */
+    async requestWithdrawal(_estabelecimentoId: string, _valorReais: number): Promise<Saque> {
+      throw new Error('SAQUES_DESATIVADOS_USE_REPASSE_SEMANAL');
     },
 
     /**

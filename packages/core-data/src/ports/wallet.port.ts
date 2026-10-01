@@ -30,10 +30,7 @@ export interface Saque {
 
 export interface WalletPort {
   getBalance(estabelecimentoId: string, options?: AsyncCallOptions): Promise<CarteiraLojista>;
-  /**
-   * Valida `valorReais >= businessConfig.saqueMinimoReais` antes de criar o
-   * saque — nunca hard-coded. Rejeita a Promise se o valor for menor.
-   */
+  /** @deprecated Saque avulso desativado no datasource real; use `PayoutPort` para lotes semanais. */
   requestWithdrawal(estabelecimentoId: string, valorReais: number, options?: AsyncCallOptions): Promise<Saque>;
   statement(estabelecimentoId: string, options?: AsyncCallOptions): Promise<Saque[]>;
 }

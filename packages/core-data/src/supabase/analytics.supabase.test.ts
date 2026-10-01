@@ -172,6 +172,7 @@ describe('analytics.supabase.ts — monthlyStatement (Story 7.9, AC1, AC2, AC3, 
     await port.monthlyStatement('estab-2');
     expect(builders.pedidos.eq).toHaveBeenCalledWith('estabelecimento_id', 'estab-2');
     expect(builders.lancamentos_financeiros.eq).toHaveBeenCalledWith('estabelecimento_id', 'estab-2');
+    expect(builders.lancamentos_financeiros.eq).toHaveBeenCalledWith('status', 'concluido');
   });
 
   it('paridade de fórmula com analytics.mock.ts — venda: subtotal - taxa_keepit + deslocamento; saque: ABS(valor_centavos)/100', async () => {
