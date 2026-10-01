@@ -2,7 +2,7 @@
 
 import { useParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import type { Repasse } from '@keepit/core-data';
+import type { ComprovanteRepasse, Repasse } from '@keepit/core-data';
 
 import { Badge } from '../../../../src/components/Badge';
 import { Button } from '../../../../src/components/Button';
@@ -25,6 +25,8 @@ export default function RepasseDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [pending, setPending] = useState<Action | null>(null);
   const [referencia, setReferencia] = useState('');
+  const [comprovanteIdentificador, setComprovanteIdentificador] = useState('');
+  const [comprovante, setComprovante] = useState<ComprovanteRepasse | null>(null);
   const [motivo, setMotivo] = useState('');
   const [evidencia, setEvidencia] = useState('');
   const operations = useRef<Partial<Record<Action, string>>>({});
@@ -32,9 +34,19 @@ export default function RepasseDetailPage() {
 
   useEffect(() => {
     let active = true;
-    getAdminDataClient().payout.listar().then((list) => {
+    const client = getAdminDataClient();
+    client.payout.listar().then(async (list) => {
       if (!active) return;
-      setRepasse(list.find((item) => item.id === id && item.estado !== 'previsto') ?? null);
+      const found = list.find((item) => item.id === id && item.estado !== 'previsto') ?? null;
+      setRepasse(found);
+      if (found?.estado === 'pago') {
+        try {
+          const proof = await client.payout.consultarComprovante(id);
+          if (active) setComprovante(proof);
+        } catch (cause) {
+          if (active) setActionError(cause instanceof Error ? cause.message : String(cause));
+        }
+      }
     }).catch((cause: unknown) => {
       if (active) setLoadError(cause instanceof Error ? cause.message : String(cause));
     }).finally(() => { if (active) setLoading(false); });
@@ -51,7 +63,10 @@ export default function RepasseDetailPage() {
     try {
       let updated: Repasse;
       if (action === 'confirmar') {
-        updated = await client.payout.confirmar({ repasseId: id, referencia: referencia.trim(), operacaoId: operationId });
+        updated = await client.payout.confirmar({ repasseId: id, referencia: referencia.trim(),
+          comprovanteIdentificador: comprovanteIdentificador.trim(), operacaoId: operationId });
+        setRepasse((before) => ({ ...updated, itens: before?.itens }));
+        setComprovante(await client.payout.consultarComprovante(id));
       } else if (action === 'analise') {
         updated = await client.payout.marcarEmAnalise({ repasseId: id, motivo: motivo.trim(), operacaoId: operationId });
       } else if (action === 'invalidar') {
@@ -85,9 +100,13 @@ export default function RepasseDetailPage() {
         <dt className="text-text-tertiary">Responsável</dt><dd className="text-text-primary">{repasse.destinatarioResponsavel}</dd>
         <dt className="text-text-tertiary">Chave PIX</dt><dd className="break-all text-text-primary">{repasse.chavePixTipo} · {repasse.chavePix}</dd>
         <dt className="text-text-tertiary">Valor</dt><dd className="font-semibold text-text-primary">{formatReais(repasse.valorCentavos / 100)}</dd>
-        {repasse.referencia && <><dt className="text-text-tertiary">Referência</dt><dd className="text-text-primary">{repasse.referencia}</dd></>}
       </dl>
     </Card>
+    {repasse.estado === 'pago' && <Card className="flex flex-col gap-2">
+      <h2 className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Registro privado do PIX</h2>
+      <p className="text-sm text-text-primary">Referência: {comprovante?.referencia ?? 'Não registrada'}</p>
+      <p className="text-sm text-text-secondary">Comprovante: {comprovante?.comprovanteIdentificador ?? 'Sem metadado vinculado (histórico anterior)'}</p>
+    </Card>}
     <Card className="flex flex-col gap-2">
       <h2 className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Créditos e ajustes incluídos</h2>
       {(repasse.itens ?? []).map((item) => <div key={item.lancamentoId} className="flex justify-between gap-3 text-sm text-text-secondary"><span>{item.valorCentavos < 0 ? 'Ajuste' : 'Pedido'} {item.pedidoId ?? item.lancamentoId}</span><span>{formatReais(item.valorCentavos / 100)}</span></div>)}
@@ -95,10 +114,13 @@ export default function RepasseDetailPage() {
     </Card>
     {actionError && <Card className="border-accent-warning/40"><p className="text-sm text-accent-warning">{actionError}</p></Card>}
     {actionable && <Card className="flex flex-col gap-3">
-      <p className="text-sm text-text-secondary">Confirme apenas um PIX já executado fora do sistema. A referência é obrigatória.</p>
-      <input value={referencia} onChange={(event) => { setReferencia(event.target.value); operations.current.confirmar = undefined; }} placeholder="Referência da transferência" aria-label="Referência do PIX"
+      <p className="text-sm text-text-secondary">Confirme apenas um PIX já executado fora do sistema. Referência e identificador do comprovante ficam no registro privado do Admin.</p>
+      <input value={referencia} maxLength={256} onChange={(event) => { setReferencia(event.target.value); operations.current.confirmar = undefined; }} placeholder="Referência da transferência" aria-label="Referência do PIX"
         className="rounded-md border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary" />
-      <Button onClick={() => run('confirmar')} disabled={!!pending || !referencia.trim()}>{pending === 'confirmar' ? 'Confirmando…' : 'Confirmar PIX executado'}</Button>
+      <input value={comprovanteIdentificador} maxLength={512} onChange={(event) => { setComprovanteIdentificador(event.target.value); operations.current.confirmar = undefined; }}
+        placeholder="Identificador do comprovante bancário/arquivo privado" aria-label="Identificador do comprovante"
+        className="rounded-md border border-border-default bg-bg-elevated px-3 py-2 text-sm text-text-primary" />
+      <Button onClick={() => run('confirmar')} disabled={!!pending || !referencia.trim() || !comprovanteIdentificador.trim()}>{pending === 'confirmar' ? 'Confirmando…' : 'Confirmar PIX executado'}</Button>
     </Card>}
     {actionable && <Card className="flex flex-col gap-3">
       <label className="text-sm text-text-secondary">Motivo da conciliação</label>

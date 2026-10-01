@@ -18,15 +18,21 @@ describe('PayoutPort mock', () => {
     expect(lote.chavePix).toBeTruthy();
     expect(repeat.find((item) => item.id === lote.id)).toBeDefined();
     expect(lote.valorCentavos).toBe(Math.round((pedido.subtotal_produtos_reais - pedido.taxa_keepit_reais + pedido.taxa_deslocamento_reais) * 100));
-    const paid = await payout.confirmar({ repasseId: lote.id, referencia: 'pix-001', operacaoId: 'op-confirmar-1' });
-    expect((await payout.confirmar({ repasseId: lote.id, referencia: 'pix-001', operacaoId: 'op-confirmar-1' })).id).toBe(paid.id);
-    await expect(payout.confirmar({ repasseId: lote.id, referencia: 'pix-001', operacaoId: 'op-diferente' })).rejects.toThrow('OPERACAO_ID_EM_USO');
-    await expect(payout.confirmar({ repasseId: lote.id, referencia: 'pix-diferente', operacaoId: 'op-confirmar-1' })).rejects.toThrow('REFERENCIA_DIVERGENTE');
+    const paid = await payout.confirmar({ repasseId: lote.id, referencia: 'pix-001', comprovanteIdentificador: 'banco:arquivo-1', operacaoId: 'op-confirmar-1' });
+    db.sessionLojistaUserId = db.estabelecimentosCadastrados.find((item) => item.id === pedido.estabelecimento_id)?.donoUserId ?? null;
+    expect((await payout.listar()).find((item) => item.id === lote.id)).toMatchObject({ referencia: null, chavePix: null });
+    await expect(payout.consultarComprovante(lote.id)).rejects.toThrow('ACESSO_NEGADO');
+    db.sessionLojistaUserId = null;
+    expect(await payout.consultarComprovante(lote.id)).toMatchObject({ referencia: 'pix-001', comprovanteIdentificador: 'banco:arquivo-1' });
+    expect((await payout.confirmar({ repasseId: lote.id, referencia: 'pix-001', comprovanteIdentificador: 'banco:arquivo-1', operacaoId: 'op-confirmar-1' })).id).toBe(paid.id);
+    await expect(payout.confirmar({ repasseId: lote.id, referencia: 'pix-001', comprovanteIdentificador: 'banco:arquivo-1', operacaoId: 'op-diferente' })).rejects.toThrow('OPERACAO_ID_EM_USO');
+    await expect(payout.confirmar({ repasseId: lote.id, referencia: 'pix-diferente', comprovanteIdentificador: 'banco:arquivo-1', operacaoId: 'op-confirmar-1' })).rejects.toThrow('REFERENCIA_DIVERGENTE');
+    await expect(payout.confirmar({ repasseId: lote.id, referencia: 'pix-001', comprovanteIdentificador: 'banco:outro-arquivo', operacaoId: 'op-confirmar-1' })).rejects.toThrow('COMPROVANTE_DIVERGENTE');
     expect(db.repasses.filter((item) => item.id === lote.id)).toHaveLength(1);
     expect(paid.estado).toBe('pago');
     db.pedidos.push({ ...pedido, id: 'pedido-seguinte', entregue_em: '2026-10-05T03:00:00.000Z' });
     const next = (await payout.preparar({ semanaInicio: '2026-10-05', operacaoId: 'op-preparar-2' }))[0]!;
-    await expect(payout.confirmar({ repasseId: next.id, referencia: 'pix-001', operacaoId: 'op-confirmar-2' })).rejects.toThrow('REFERENCIA_EM_USO');
+    await expect(payout.confirmar({ repasseId: next.id, referencia: 'pix-001', comprovanteIdentificador: 'banco:arquivo-1', operacaoId: 'op-confirmar-2' })).rejects.toThrow('REFERENCIA_EM_USO');
   });
 
   it('não inclui pedido sem PIN e impede ações de lojista', async () => {
@@ -46,7 +52,7 @@ describe('PayoutPort mock', () => {
     const payout = createPayoutMock(db);
     const first = (await payout.preparar({ semanaInicio: '2026-09-28', operacaoId: 'op-1' }))[0]!;
     expect(first).toMatchObject({ estado: 'compensado', valorCentavos: 0 });
-    await expect(payout.confirmar({ repasseId: first.id, referencia: 'pix-1', operacaoId: 'op-2' })).rejects.toThrow('ESTADO_INVALIDO');
+    await expect(payout.confirmar({ repasseId: first.id, referencia: 'pix-1', comprovanteIdentificador: 'banco:arquivo-1', operacaoId: 'op-2' })).rejects.toThrow('ESTADO_INVALIDO');
     const next = { ...pedido, id: 'pedido-next', entregue_em: '2026-10-05T03:00:00.000Z' };
     db.pedidos.push(next);
     const second = (await payout.preparar({ semanaInicio: '2026-10-05', operacaoId: 'op-3' }))[0]!;
@@ -67,7 +73,7 @@ describe('PayoutPort mock', () => {
       status: 'estornado', criado_em: '2026-09-29T00:00:00Z', responsavel: 'keepit' });
     expect(await wallet.getBalance(pedido.estabelecimento_id)).toEqual(initial);
     const first = (await payout.preparar({ semanaInicio: '2026-09-28', operacaoId: 'prep-refund-1' }))[0]!;
-    await payout.confirmar({ repasseId: first.id, referencia: 'pix-refund-1', operacaoId: 'pay-refund-1' });
+    await payout.confirmar({ repasseId: first.id, referencia: 'pix-refund-1', comprovanteIdentificador: 'banco:arquivo-1', operacaoId: 'pay-refund-1' });
     db.ajustesReembolso.push({ reembolsoId: 'refund-merchant', pedidoId: pedido.id, valorCentavos: -300 });
     expect((await wallet.getBalance(pedido.estabelecimento_id)).saldo_disponivel_reais).toBe(-3);
     db.pedidos.push({ ...pedido, id: 'pedido-futuro', entregue_em: '2026-10-05T03:00:00.000Z' });

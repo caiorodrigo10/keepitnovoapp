@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@keepit/shared-types';
 import { createClient } from '@keepit/supabase-client';
-import type { PayoutPort, Repasse } from '../ports/payout.port';
+import type { ComprovanteRepasse, PayoutPort, Repasse } from '../ports/payout.port';
 
 type Row = {
   id: string; estabelecimento_id: string; semana_inicio: string; previsto_para: string;
@@ -30,7 +30,7 @@ export function createPayoutSupabase(client?: SupabaseClient<Database>): PayoutP
   return {
     async listar() {
       const [batches, forecasts, allocations, credits] = await Promise.all([
-        resolve().from('repasses' as never).select('*').order('semana_inicio', { ascending: false }),
+        resolve().rpc('listar_repasses_visiveis' as never),
         resolve().from('previsoes_repasse' as never).select('*').order('semana_inicio', { ascending: false }),
         resolve().from('repasse_itens' as never).select('repasse_id,lancamento_id,valor_centavos,liberado_em,lancamentos_financeiros(pedido_id,pedidos(numero,taxa_keepit_reais))').order('criado_em', { ascending: true }),
         resolve().from('lancamentos_financeiros').select('id,estabelecimento_id,semana_inicio,valor_centavos,pedido_id,pedidos(numero,taxa_keepit_reais)').eq('tipo', 'merchant_credit').eq('status', 'concluido'),
@@ -82,9 +82,20 @@ export function createPayoutSupabase(client?: SupabaseClient<Database>): PayoutP
     },
     async confirmar(input) {
       const { data, error } = await resolve().rpc('confirmar_repasse' as never,
-        { p_repasse_id: input.repasseId, p_referencia: input.referencia, p_operacao_id: input.operacaoId } as never);
+        { p_repasse_id: input.repasseId, p_referencia: input.referencia,
+          p_comprovante_identificador: input.comprovanteIdentificador, p_operacao_id: input.operacaoId } as never);
       if (error) throw error;
       return parse(data);
+    },
+    async consultarComprovante(repasseId) {
+      const { data, error } = await resolve().rpc('consultar_comprovante_repasse' as never,
+        { p_repasse_id: repasseId } as never);
+      if (error) throw error;
+      if (data == null) return null;
+      const row = data as unknown as { referencia: string; comprovante_identificador: string | null; registrado_em: string };
+      if (!row.referencia || !row.registrado_em) throw new Error('RESPOSTA_COMPROVANTE_INVALIDA');
+      return { referencia: row.referencia, comprovanteIdentificador: row.comprovante_identificador,
+        registradoEm: row.registrado_em } satisfies ComprovanteRepasse;
     },
     async marcarEmAnalise(input) {
       const { data, error } = await resolve().rpc('marcar_repasse_em_analise' as never,

@@ -74,6 +74,7 @@ def cleanup() -> None:
       DELETE FROM private.operacoes_preparacao_repasse WHERE operacao_id IN ('{PREP_OP}','{PREP_OP_2}');
       DELETE FROM public.repasse_itens WHERE repasse_id IN (SELECT id FROM public.repasses WHERE estabelecimento_id='{STORE}');
       DELETE FROM public.lancamentos_financeiros WHERE estabelecimento_id='{STORE}';
+      DELETE FROM private.repasse_comprovantes WHERE repasse_id IN (SELECT id FROM public.repasses WHERE estabelecimento_id='{STORE}');
       DELETE FROM public.repasses WHERE estabelecimento_id='{STORE}';
       DELETE FROM private.pedido_segredos WHERE pedido_id='{ORDER}';
       DELETE FROM public.pedidos WHERE id='{ORDER}';
@@ -98,7 +99,7 @@ def main() -> None:
         assert run(f"SELECT count(*) FROM public.repasses WHERE estabelecimento_id='{STORE}' AND estado='pendente'").stdout.strip() == '1'
         assert run(f"SELECT count(*) FROM public.repasse_itens WHERE liberado_em IS NULL AND valor_centavos>0").stdout.strip() == '1'
         batch = run(f"SELECT id FROM public.repasses WHERE estabelecimento_id='{STORE}' AND estado='pendente'").stdout.strip()
-        confirm = f"SELECT (public.confirmar_repasse('{batch}','pix-task10-001','{CONF_OP}')).estado"
+        confirm = f"SELECT (public.confirmar_repasse('{batch}','pix-task10-001','banco:comprovante-task10','{CONF_OP}')).estado"
         first = f"BEGIN; SET LOCAL application_name='task10_hold'; SELECT id FROM public.repasses WHERE id='{batch}' FOR UPDATE; SET LOCAL ROLE authenticated; SELECT set_config('request.jwt.claim.sub','{ADMIN}',true); SELECT pg_sleep(1.5); {confirm}; COMMIT;"
         race('confirmação simultânea', first, admin(confirm))
         assert run(f"SELECT count(*) FROM public.lancamentos_financeiros WHERE repasse_id='{batch}' AND tipo='payout'").stdout.strip() == '1'

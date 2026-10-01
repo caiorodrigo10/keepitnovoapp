@@ -51,7 +51,12 @@ export function createPayoutMock(db: MockDb): PayoutPort {
         ? new Set(db.estabelecimentosCadastrados.filter((item) => item.donoUserId === db.sessionLojistaUserId).map((item) => item.id))
         : null;
       if (db.sessionClienteId) return [];
-      const materialized = db.repasses.filter((item) => !ownStoreIds || ownStoreIds.has(item.estabelecimentoId));
+      const materialized = db.repasses.filter((item) => !ownStoreIds || ownStoreIds.has(item.estabelecimentoId))
+        .map((item) => ({ ...item, referencia: null,
+          destinatarioNome: ownStoreIds ? null : item.destinatarioNome,
+          destinatarioResponsavel: ownStoreIds ? null : item.destinatarioResponsavel,
+          chavePix: ownStoreIds ? null : item.chavePix,
+          chavePixTipo: ownStoreIds ? null : item.chavePixTipo }));
       materialized.forEach((repasse) => {
         repasse.itens = db.repasseItens.filter((item) => item.repasseId === repasse.id)
           .map((item) => {
@@ -139,19 +144,31 @@ export function createPayoutMock(db: MockDb): PayoutPort {
     async confirmar(input) {
       admin();
       if (!input.referencia.trim()) throw new Error('REFERENCIA_OBRIGATORIA');
+      if (!input.comprovanteIdentificador.trim()) throw new Error('COMPROVANTE_OBRIGATORIO');
       const repasse = find(input.repasseId);
-      const prior = db.repasseEventos.find((item) => item.repasseId === repasse.id && item.tipo === 'confirmacao');
+      const prior = db.repasseComprovantes.find((item) => item.repasseId === repasse.id);
       if (repasse.estado === 'pago') {
         if (prior?.operacaoId !== input.operacaoId) throw new Error('OPERACAO_ID_EM_USO');
-        if (repasse.referencia !== input.referencia.trim()) throw new Error('REFERENCIA_DIVERGENTE');
+        if (prior?.referencia !== input.referencia.trim()) throw new Error('REFERENCIA_DIVERGENTE');
+        if (prior?.comprovanteIdentificador !== input.comprovanteIdentificador.trim()) throw new Error('COMPROVANTE_DIVERGENTE');
         return repasse;
       }
       if (!['pendente', 'em_analise'].includes(repasse.estado)) throw new Error('ESTADO_INVALIDO');
       if (db.repasseEventos.some((item) => item.tipo === 'confirmacao' && item.operacaoId === input.operacaoId)) throw new Error('OPERACAO_ID_EM_USO');
-      if (db.repasses.some((item) => item.id !== repasse.id && item.estado === 'pago' && item.referencia === input.referencia.trim())) throw new Error('REFERENCIA_EM_USO');
-      repasse.estado = 'pago'; repasse.referencia = input.referencia.trim(); repasse.confirmadoEm = new Date().toISOString();
-      db.repasseEventos.push({ repasseId: repasse.id, tipo: 'confirmacao', operacaoId: input.operacaoId, referencia: input.referencia.trim() });
+      if (db.repasseComprovantes.some((item) => item.repasseId !== repasse.id && item.referencia === input.referencia.trim())) throw new Error('REFERENCIA_EM_USO');
+      repasse.estado = 'pago'; repasse.confirmadoEm = new Date().toISOString();
+      db.repasseComprovantes.push({ repasseId: repasse.id, operacaoId: input.operacaoId,
+        referencia: input.referencia.trim(), comprovanteIdentificador: input.comprovanteIdentificador.trim(),
+        registradoEm: repasse.confirmadoEm });
+      db.repasseEventos.push({ repasseId: repasse.id, tipo: 'confirmacao', operacaoId: input.operacaoId });
       return repasse;
+    },
+    async consultarComprovante(repasseId) {
+      admin();
+      find(repasseId);
+      const item = db.repasseComprovantes.find((entry) => entry.repasseId === repasseId);
+      return item ? { referencia: item.referencia, comprovanteIdentificador: item.comprovanteIdentificador,
+        registradoEm: item.registradoEm } : null;
     },
     async marcarEmAnalise(input) {
       admin();
