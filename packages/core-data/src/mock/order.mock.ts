@@ -322,6 +322,7 @@ export function createOrderMock(db: MockDb): OrderPort {
               caso.estado = 'encerrada_por_pin';
               caso.encerradaEm = pedido.entregue_em;
               caso.motivoDecisao = 'entrega confirmada';
+              db.decisoesSolicitacao.push({ id: generateMockId('decisao'), casoId: caso.id, operacaoId: generateMockId('operacao'), aprovar: false, motivo: caso.motivoDecisao, decididoEm: pedido.entregue_em, evento: 'pin' });
             }
           }
           stopAutomation(pedido.id);

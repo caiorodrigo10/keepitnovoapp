@@ -8,6 +8,7 @@ import { Button } from '../../../../src/components/Button';
 import { Card } from '../../../../src/components/Card';
 import { getAdminDataClient } from '../../../../src/lib/adminClient';
 import { formatReais } from '../../../../src/lib/adminLabels';
+import { decideSupportCase } from '../../../../src/lib/decideSupportCase';
 
 export default function AtendimentoDetalhePage() {
   const { id } = useParams<{ id: string }>();
@@ -34,11 +35,12 @@ export default function AtendimentoDetalhePage() {
     if (!caso || !motivo.trim()) return;
     setOcupado(true); setErro(null);
     try {
-      const result = await getAdminDataClient().support.decidir({
+      const result = await decideSupportCase(getAdminDataClient(), {
         casoId: caso.id, aprovar, motivo: motivo.trim(), operacaoId: operacaoId.current,
         ...(aprovar && caso.tipo === 'pos_entrega' ? { valorCentavos: Math.round(Number(valor.replace(',', '.')) * 100), responsavel } : {}),
       });
-      setCaso(result);
+      setCaso(result.caso);
+      setPedido(result.pedido);
     } catch (error) { setErro(error instanceof Error ? error.message : String(error)); }
     finally { setOcupado(false); }
   }

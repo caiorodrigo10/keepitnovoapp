@@ -126,6 +126,7 @@ export interface ClienteMockSnapshotV7 {
   orders: Pedido[];
   /** Campos opcionais mantêm snapshots v7 anteriores legíveis. */
   supportCases?: SupportCase[];
+  supportOperations?: MockDb['operacoesSolicitacao'];
   supportDecisions?: MockDb['decisoesSolicitacao'];
   orderAutomation: Record<string, OrderAutomationRuntime>;
   favoriteHubIdsByClienteId: Record<string, string[]>;
@@ -723,13 +724,21 @@ function isClienteMockSnapshotV7(value: unknown): value is ClienteMockSnapshotV7
   ));
   const decisions = value.supportDecisions;
   const caseIds = new Set(Array.isArray(cases) ? cases.map((item) => item.id) : []);
+  const caseById = new Map(Array.isArray(cases) ? cases.map((item) => [item.id, item]) : []);
+  const operations = value.supportOperations;
+  const validOperations = operations === undefined || (Array.isArray(operations) && operations.every((item) => {
+    if (!isRecord(item) || typeof item.casoId !== 'string') return false;
+    const supportCase = caseById.get(item.casoId);
+    return supportCase && typeof item.operacaoId === 'string' && item.pedidoId === supportCase.pedidoId &&
+      item.tipo === supportCase.tipo && typeof item.solicitanteId === 'string';
+  }));
   const validDecisions = decisions === undefined || (Array.isArray(decisions) && decisions.every((item) =>
     isRecord(item) && typeof item.casoId === 'string' && caseIds.has(item.casoId) &&
     typeof item.operacaoId === 'string' && typeof item.aprovar === 'boolean' &&
     typeof item.motivo === 'string' && typeof item.decididoEm === 'string'
   ));
   const hasValidShape =
-    validCases && validDecisions &&
+    validCases && validOperations && validDecisions &&
     isQaScenarioState(value.qa) &&
     hasValidOrderAutomation(value.orderAutomation, new Set(value.orders.map((order) => order.id))) &&
     hasValidFavoritesByClienteId(value.favoriteHubIdsByClienteId, accountIds) &&
@@ -867,6 +876,7 @@ export function createClienteBaseline(): ClienteMockSnapshotV7 {
     sessionClienteId: null,
     orders: [],
     supportCases: [],
+    supportOperations: [],
     supportDecisions: [],
     orderAutomation: {},
     favoriteHubIdsByClienteId: {},
@@ -924,6 +934,7 @@ export function applyClienteSnapshot(db: MockDb, snapshot: ClienteMockSnapshotV7
   const managedPedidoIds = new Set(snapshot.orders.map((pedido) => pedido.id));
   const oldCaseIds = new Set(db.solicitacoesPedido.filter((item) => managedPedidoIds.has(item.pedidoId)).map((item) => item.id));
   db.solicitacoesPedido = db.solicitacoesPedido.filter((item) => !managedPedidoIds.has(item.pedidoId));
+  db.operacoesSolicitacao = db.operacoesSolicitacao.filter((item) => !oldCaseIds.has(item.casoId));
   db.decisoesSolicitacao = db.decisoesSolicitacao.filter((item) => !oldCaseIds.has(item.casoId));
 
   db.clientes.push(...structuredClone(snapshot.accounts.map((account) => account.profile)));
@@ -943,6 +954,7 @@ export function applyClienteSnapshot(db: MockDb, snapshot: ClienteMockSnapshotV7
     return publicPedido;
   })));
   db.solicitacoesPedido.push(...structuredClone(snapshot.supportCases ?? []));
+  db.operacoesSolicitacao.push(...structuredClone(snapshot.supportOperations ?? []));
   db.decisoesSolicitacao.push(...structuredClone(snapshot.supportDecisions ?? []));
   db.sessionClienteId = snapshot.sessionClienteId;
   db.favoriteHubIdsByClienteId = structuredClone(snapshot.favoriteHubIdsByClienteId);

@@ -11,6 +11,7 @@ import { useQaSimulation } from '../../context/QaScenarioContext';
 import { useCurrentCliente } from '../../hooks/useCurrentCliente';
 import { usePedidosMine } from '../../hooks/usePedidosMine';
 import { getPedidoNavigationTarget } from '../../lib/pedidoNavigation';
+import { currentSupportCase } from '../../lib/currentSupportCase';
 import { partitionPedidos } from '../../lib/pedidoStatus';
 import { resolveOrdersViewState } from '../../lib/ordersViewState';
 import { Screen } from '../../components/ui';
@@ -93,7 +94,7 @@ export default function MeusPedidos(_props: Props) {
         listaAtual.map((pedido) => (
           <View key={pedido.id}>
             <MeusPedidosRow pedido={pedido} onPress={handlePress} />
-            {casos.filter((item) => item.pedidoId === pedido.id).slice(-1).map((item) => (
+            {[currentSupportCase(casos, pedido.id)].filter((item): item is SupportCase => item !== null).map((item) => (
               <Text key={item.id} style={styles.atendimento}>
                 Atendimento: {item.estado === 'aberta' ? 'em análise' : item.estado === 'encerrada_por_pin' ? 'encerrado após retirada' : item.estado === 'aprovada' ? 'aprovado' : 'negado'}
               </Text>

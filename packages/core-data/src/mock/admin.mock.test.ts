@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { AdminPort } from '../ports/admin.port';
 import { createAdminMock } from './admin.mock';
 import { createMockDb, type MockDb } from './db';
+import { createSupportMock } from './support.mock';
 
 describe('admin.mock (contract)', () => {
   let db: MockDb;
@@ -378,5 +379,23 @@ describe('admin.mock (contract)', () => {
     expect(reembolso?.motivo).toBe('cancelamento_admin');
 
     await expect(port.forceCancelOrder(cancelado.id, 'motivo', { delayMs: 1 })).rejects.toThrow(/terminal/i);
+  });
+
+  it('forceCancelOrder fecha casos em análise com histórico', async () => {
+    const pedido = db.pedidos.find((item) => item.status === 'em_preparo')!;
+    db.sessionClienteId = pedido.cliente_id;
+    const caso = await createSupportMock(db).abrir({ pedidoId: pedido.id, tipo: 'cancelamento', motivo: 'Desisti', operacaoId: 'op-force-open' });
+    db.sessionClienteId = null;
+    await port.forceCancelOrder(pedido.id, 'Decisão administrativa', { delayMs: 0 });
+    expect(caso.estado).toBe('negada');
+    expect(db.decisoesSolicitacao.find((item) => item.casoId === caso.id)).toMatchObject({ evento: 'cancelamento_admin', aprovar: false });
+  });
+
+  it('forceCancelOrder não reserva devolução quando o pedido ainda não foi pago', async () => {
+    const pedido = db.pedidos.find((item) => item.status === 'aguardando_aceite')!;
+    pedido.status = 'aguardando_pagamento';
+    const antes = db.reembolsos.filter((item) => item.pedido_id === pedido.id).length;
+    await port.forceCancelOrder(pedido.id, 'Expirado', { delayMs: 0 });
+    expect(db.reembolsos.filter((item) => item.pedido_id === pedido.id)).toHaveLength(antes);
   });
 });

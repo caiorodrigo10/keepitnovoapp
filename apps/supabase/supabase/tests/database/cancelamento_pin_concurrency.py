@@ -62,6 +62,7 @@ def cleanup() -> None:
       BEGIN;
       ALTER TABLE public.decisoes_solicitacao DISABLE TRIGGER decisoes_solicitacao_imutaveis;
       DELETE FROM public.decisoes_solicitacao WHERE solicitacao_id IN (SELECT id FROM public.solicitacoes_pedido WHERE pedido_id IN (SELECT id FROM public.pedidos WHERE estabelecimento_id='{STORE}'));
+      DELETE FROM private.operacoes_abertura_solicitacao WHERE pedido_id IN (SELECT id FROM public.pedidos WHERE estabelecimento_id='{STORE}');
       DELETE FROM public.solicitacoes_pedido WHERE pedido_id IN (SELECT id FROM public.pedidos WHERE estabelecimento_id='{STORE}');
       DELETE FROM public.lancamentos_financeiros WHERE pedido_id IN (SELECT id FROM public.pedidos WHERE estabelecimento_id='{STORE}');
       DELETE FROM private.pedido_segredos WHERE pedido_id IN (SELECT id FROM public.pedidos WHERE estabelecimento_id='{STORE}');

@@ -677,19 +677,28 @@ export function createAdminMock(db: MockDb): AdminPort {
 
     forceCancelOrder(pedidoId: string, motivo: string, options?: AsyncCallOptions): Promise<Pedido> {
       return simulateAsync(
-        () => {
+        () => db.runClienteMutation(async (persist) => {
           const pedido = findPedidoOrThrow(pedidoId);
           if (TERMINAL_PEDIDO_STATUSES.has(pedido.status)) {
             throw new Error(`[mock] Pedido ${pedido.numero} já está em estado terminal (${pedido.status})`);
           }
 
+          const pago = pedido.status !== 'aguardando_pagamento';
           pedido.status = 'cancelado_admin';
           pedido.motivo_cancelamento = motivo;
           pedido.cancelado_em = new Date().toISOString();
-          registrarReembolso(db, pedido, 'cancelamento_admin');
+          if (pago) registrarReembolso(db, pedido, 'cancelamento_admin');
+          for (const caso of db.solicitacoesPedido) {
+            if (caso.pedidoId !== pedido.id || caso.estado !== 'aberta') continue;
+            caso.estado = 'negada';
+            caso.motivoDecisao = 'pedido cancelado pelo Admin';
+            caso.encerradaEm = pedido.cancelado_em;
+            db.decisoesSolicitacao.push({ id: generateMockId('decisao'), casoId: caso.id, operacaoId: generateMockId('operacao'), aprovar: false, motivo: caso.motivoDecisao, decididoEm: pedido.cancelado_em, evento: 'cancelamento_admin' });
+          }
+          await persist();
 
           return pedido;
-        },
+        }),
         {} as Pedido,
         options,
       );

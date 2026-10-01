@@ -47,7 +47,8 @@ export interface MockDb {
   produtos: Produto[];
   pedidos: Pedido[];
   solicitacoesPedido: SupportCase[];
-  decisoesSolicitacao: { casoId: string; operacaoId: string; aprovar: boolean; motivo: string; decididoEm: string }[];
+  operacoesSolicitacao: { operacaoId: string; casoId: string; pedidoId: string; tipo: SupportCase['tipo']; solicitanteId: string }[];
+  decisoesSolicitacao: { id?: string; casoId: string; operacaoId: string; aprovar: boolean; motivo: string; decididoEm: string; decisaoOrigemId?: string | null; evento?: 'decisao' | 'pin' | 'recusa' | 'cancelamento_admin' }[];
   saques: Saque[];
   reembolsos: ReembolsoPendente[];
   /** `estabelecimentos_falhas` — Story 1.10 (Task 4), promovido de `apps/admin/src/mock/adminOpsTypes.ts`. */
@@ -184,6 +185,7 @@ export function createMockDb(): MockDb {
     produtos: structuredClone(produtosFixture),
     pedidos: structuredClone(pedidosFixture),
     solicitacoesPedido: [],
+    operacoesSolicitacao: [],
     decisoesSolicitacao: [],
     // Modo Demo (`docs/architecture/09-modo-demo-mock.md` §3.3) — antes
     // nascia `[]`; Extrato do Lojista e fila de Saques do Admin abriam

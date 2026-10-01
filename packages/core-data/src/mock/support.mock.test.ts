@@ -18,6 +18,49 @@ describe('SupportPort mock', () => {
     expect(db.solicitacoesPedido).toHaveLength(1);
   });
 
+  it('persiste o alias da segunda operação para retry depois da decisão', async () => {
+    const db = createMockDb();
+    const pedido = db.pedidos.find((item) => item.status === 'em_preparo')!;
+    db.sessionClienteId = pedido.cliente_id;
+    const support = createSupportMock(db);
+    const first = await support.abrir({ pedidoId: pedido.id, tipo: 'cancelamento', motivo: 'Primeira', operacaoId: 'op-alias-1' });
+    expect((await support.abrir({ pedidoId: pedido.id, tipo: 'cancelamento', motivo: 'Retry diferente', operacaoId: 'op-alias-2' })).id).toBe(first.id);
+    db.sessionClienteId = null;
+    await support.decidir({ casoId: first.id, aprovar: false, motivo: 'Pode retirar', operacaoId: 'op-decide' });
+    db.sessionClienteId = pedido.cliente_id;
+    const retry = await support.abrir({ pedidoId: pedido.id, tipo: 'cancelamento', motivo: 'Retry', operacaoId: 'op-alias-2' });
+    expect(retry.id).toBe(first.id);
+    expect(retry.estado).toBe('negada');
+    await expect(support.abrir({ pedidoId: pedido.id, tipo: 'atraso', motivo: 'Reuso', operacaoId: 'op-alias-2' })).rejects.toThrow('OPERACAO_ID_EM_USO');
+    expect(db.solicitacoesPedido).toHaveLength(1);
+  });
+
+  it('cliente não declara ausência própria e pós-entrega exige pedido entregue', async () => {
+    const db = createMockDb();
+    const pedido = db.pedidos.find((item) => item.status === 'no_hub')!;
+    db.sessionClienteId = pedido.cliente_id;
+    const support = createSupportMock(db);
+    await expect(support.abrir({ pedidoId: pedido.id, tipo: 'cliente_ausente', motivo: 'Ausente', operacaoId: 'op-author' })).rejects.toThrow('ACESSO_NEGADO');
+    await expect(support.abrir({ pedidoId: pedido.id, tipo: 'pos_entrega', motivo: 'Falta', operacaoId: 'op-status' })).rejects.toThrow('ESTADO_INVALIDO');
+  });
+
+  it('fecha os casos relacionados com histórico vinculado à decisão principal', async () => {
+    const db = createMockDb();
+    const pedido = db.pedidos.find((item) => item.status === 'em_preparo')!;
+    db.sessionClienteId = pedido.cliente_id;
+    const support = createSupportMock(db);
+    const cancelamento = await support.abrir({ pedidoId: pedido.id, tipo: 'cancelamento', motivo: 'Desisti', operacaoId: 'op-close-1' });
+    pedido.aceito_em = new Date(Date.now() - 3_600_000).toISOString();
+    pedido.tempo_estimado_min = 10;
+    const atraso = await support.abrir({ pedidoId: pedido.id, tipo: 'atraso', motivo: 'Demora', operacaoId: 'op-close-2' });
+    db.sessionClienteId = null;
+    await support.decidir({ casoId: cancelamento.id, aprovar: true, motivo: 'Procede', operacaoId: 'op-close-3' });
+    expect(atraso.estado).toBe('negada');
+    const principal = db.decisoesSolicitacao.find((item) => item.casoId === cancelamento.id);
+    const relacionada = db.decisoesSolicitacao.find((item) => item.casoId === atraso.id);
+    expect(relacionada?.decisaoOrigemId).toBe(principal?.id);
+  });
+
   it('cancela antes do aceite e só registra reembolso integral se pago', async () => {
     const db = createMockDb();
     const pedido = db.pedidos.find((item) => item.status === 'aguardando_aceite');
