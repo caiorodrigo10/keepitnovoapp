@@ -256,7 +256,7 @@ describe('estabelecimento-cadastro.supabase.ts — getMeuEstabelecimento (Story 
 
     await port.getMeuEstabelecimento();
 
-    expect(rpc).toHaveBeenCalledWith('obter_estabelecimentos_privados', { p_id: null });
+    expect(rpc).toHaveBeenCalledWith('obter_meu_estabelecimento_privado');
   });
 
   it('resolve null quando não há nenhuma linha (AC4 — "0 linhas" nunca é erro)', async () => {
@@ -377,7 +377,7 @@ describe('estabelecimento-cadastro.supabase.ts — getMeuPerfil (Story 3.11, AC1
 
     await port.getMeuPerfil();
 
-    expect(rpc).toHaveBeenCalledWith('obter_estabelecimentos_privados', { p_id: null });
+    expect(rpc).toHaveBeenCalledWith('obter_meu_estabelecimento_privado');
   });
 
   it('prefill correto (nome_fantasia, categoria, descricao, horarios ordenados) sem foto', async () => {
@@ -519,6 +519,7 @@ describe('estabelecimento-cadastro.supabase.ts — atualizarMeuPerfil (Story 3.1
     updateError?: unknown;
     perfilResult?: { data: unknown; error: unknown };
     horariosResult?: { data: unknown; error: unknown };
+    dualRole?: boolean;
   }) {
     const updateEq = vi.fn(async () => ({ error: options.updateError ?? null }));
     const update = vi.fn((_payload: Record<string, unknown>) => ({ eq: updateEq }));
@@ -544,7 +545,10 @@ describe('estabelecimento-cadastro.supabase.ts — atualizarMeuPerfil (Story 3.1
     horariosBuilder.select = vi.fn(() => horariosBuilder);
     horariosBuilder.eq = vi.fn(async () => options.horariosResult ?? { data: [], error: null });
 
-    const rpc = vi.fn(async () => asPrivateRows(options.perfilResult ?? { data: { id: 'estab-1', nome_fantasia: 'Farmácia Vida', categoria: 'restaurante', descricao: 'Nova descrição', foto_fachada_url: null }, error: null }));
+    const ownResult = options.perfilResult ?? { data: { id: 'estab-1', nome_fantasia: 'Farmácia Vida', categoria: 'restaurante', descricao: 'Nova descrição', foto_fachada_url: null }, error: null };
+    const rpc = vi.fn(async (fn: string) => options.dualRole && fn === 'obter_estabelecimentos_privados'
+      ? asPrivateRows({ data: [{ id: 'estab-de-outra-loja' }, ownResult.data], error: null })
+      : asPrivateRows(ownResult));
     const from = vi.fn((table: string) => {
       if (table === 'estabelecimentos') {
         return { update, ...perfilBuilder };
@@ -586,6 +590,12 @@ describe('estabelecimento-cadastro.supabase.ts — atualizarMeuPerfil (Story 3.1
     expect(payload).not.toHaveProperty('nome_fantasia');
     expect(payload).not.toHaveProperty('cnpj');
     expect(payload).not.toHaveProperty('status');
+  });
+
+  it('Admin que também é lojista atualiza somente a própria loja', async () => {
+    const { client, updateEq } = fakeClientForUpdate({ userId: 'admin-dono', dualRole: true });
+    await createEstabelecimentoCadastroSupabase(client).atualizarMeuPerfil({ categoria: 'restaurante', descricao: 'Nova descrição' });
+    expect(updateEq).toHaveBeenCalledWith('id', 'estab-1');
   });
 
   it('relê e devolve o perfil real após o UPDATE (nunca ecoa o input como sucesso simulado)', async () => {
@@ -668,7 +678,7 @@ describe('estabelecimento-cadastro.supabase.ts — getMeuEstabelecimentoId (Stor
 
     await port.getMeuEstabelecimentoId();
 
-    expect(rpc).toHaveBeenCalledWith('obter_estabelecimentos_privados', { p_id: null });
+    expect(rpc).toHaveBeenCalledWith('obter_meu_estabelecimento_privado');
   });
 
   it('resolve null quando não há nenhuma linha (0 linhas nunca é erro)', async () => {

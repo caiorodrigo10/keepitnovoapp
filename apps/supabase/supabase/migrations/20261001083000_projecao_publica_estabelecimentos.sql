@@ -42,6 +42,18 @@ $$;
 REVOKE ALL ON FUNCTION public.obter_estabelecimentos_privados(uuid) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.obter_estabelecimentos_privados(uuid) TO authenticated;
 
+-- A jornada do lojista precisa sempre da propria loja, inclusive quando a
+-- mesma conta tambem e Admin. A listagem administrativa acima tem escopo
+-- deliberadamente diferente e nunca deve servir como "minha loja".
+CREATE FUNCTION public.obter_meu_estabelecimento_privado()
+RETURNS SETOF public.estabelecimentos
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
+  SELECT e.* FROM public.estabelecimentos e
+  WHERE auth.uid() IS NOT NULL AND e.dono_user_id=auth.uid();
+$$;
+REVOKE ALL ON FUNCTION public.obter_meu_estabelecimento_privado() FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.obter_meu_estabelecimento_privado() TO authenticated;
+
 -- Policies das tabelas filhas nao podem depender de SELECT(dono_user_id).
 DROP POLICY publico_ve_horarios ON public.estabelecimentos_horarios;
 CREATE POLICY publico_ve_horarios ON public.estabelecimentos_horarios FOR SELECT

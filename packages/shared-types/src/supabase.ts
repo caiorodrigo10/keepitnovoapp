@@ -945,6 +945,10 @@ export type Database = {
       }
     }
     Functions: {
+      obter_meu_estabelecimento_privado: {
+        Args: Record<PropertyKey, never>
+        Returns: Database["public"]["Tables"]["estabelecimentos"]["Row"][]
+      }
       obter_estabelecimentos_privados: {
         Args: { p_id?: string | null }
         Returns: Database["public"]["Tables"]["estabelecimentos"]["Row"][]

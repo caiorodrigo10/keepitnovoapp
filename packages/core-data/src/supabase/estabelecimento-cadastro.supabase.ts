@@ -66,7 +66,7 @@ type EstabelecimentoHorarioRow = {
 async function fetchMeuPerfilAutorizado(
   supabase: SupabaseClient<Database>,
 ): Promise<MeuPerfilLojista | null> {
-  const { data: privateRows, error } = await supabase.rpc('obter_estabelecimentos_privados', { p_id: null });
+  const { data: privateRows, error } = await supabase.rpc('obter_meu_estabelecimento_privado');
   const data = privateRows?.[0] ?? null;
   if (error) {
     throw error;
@@ -230,7 +230,7 @@ export function createEstabelecimentoCadastroSupabase(
       }
 
       const { data, error } = await supabase
-        .rpc('obter_estabelecimentos_privados', { p_id: null });
+        .rpc('obter_meu_estabelecimento_privado');
       if (error) {
         throw error;
       }
@@ -276,7 +276,7 @@ export function createEstabelecimentoCadastroSupabase(
         throw new AutenticacaoNecessariaError();
       }
 
-      const { data: minhasLojas, error: leituraError } = await supabase.rpc('obter_estabelecimentos_privados', { p_id: null });
+      const { data: minhasLojas, error: leituraError } = await supabase.rpc('obter_meu_estabelecimento_privado');
       if (leituraError) {
         throw leituraError;
       }
@@ -315,7 +315,7 @@ export function createEstabelecimentoCadastroSupabase(
       }
 
       const { data, error } = await supabase
-        .rpc('obter_estabelecimentos_privados', { p_id: null });
+        .rpc('obter_meu_estabelecimento_privado');
       if (error) {
         throw error;
       }
