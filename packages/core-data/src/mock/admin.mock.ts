@@ -648,6 +648,7 @@ export function createAdminMock(db: MockDb): AdminPort {
             pagoEm: recebido ? (pedido.aceito_em ?? pedido.criado_em) : null,
             valorPrevistoReais: pedido.total_pago_reais,
             valorRecebidoReais: recebido ? pedido.total_pago_reais : null,
+            pendencia: null,
           };
         },
         null,

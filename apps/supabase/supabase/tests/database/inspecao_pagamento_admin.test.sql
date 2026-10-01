@@ -1,6 +1,6 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT plan(7);
+SELECT plan(11);
 
 SELECT has_function(
   'public', 'inspecionar_pagamento_admin', ARRAY['uuid']::text[],
@@ -28,12 +28,15 @@ INSERT INTO public.pedidos (
 ) VALUES
   ('78888888-0000-4000-8000-000000000101','78888888-0000-4000-8000-000000000001','78888888-0000-4000-8000-000000000020','78888888-0000-4000-8000-000000000010','aguardando_pagamento',35,5,4.2,2.5,42.5,'pix',NULL),
   ('78888888-0000-4000-8000-000000000102','78888888-0000-4000-8000-000000000001','78888888-0000-4000-8000-000000000020','78888888-0000-4000-8000-000000000010','entregue',35,5,4.2,2.5,42.5,'cartao','2026-09-30T10:01:00Z'),
-  ('78888888-0000-4000-8000-000000000103','78888888-0000-4000-8000-000000000001','78888888-0000-4000-8000-000000000020','78888888-0000-4000-8000-000000000010','aguardando_pagamento',35,5,4.2,2.5,42.5,'pix',NULL);
+  ('78888888-0000-4000-8000-000000000103','78888888-0000-4000-8000-000000000001','78888888-0000-4000-8000-000000000020','78888888-0000-4000-8000-000000000010','aguardando_pagamento',35,5,4.2,2.5,42.5,'pix',NULL),
+  ('78888888-0000-4000-8000-000000000104','78888888-0000-4000-8000-000000000001','78888888-0000-4000-8000-000000000020','78888888-0000-4000-8000-000000000010','aguardando_aceite',35,5,4.2,2.5,42.5,'pix','2026-09-30T10:03:00Z');
 INSERT INTO public.tentativas_pagamento (
-  id,pedido_id,cliente_id,operacao_id,forma,estado,asaas_payment_id
+  id,pedido_id,cliente_id,operacao_id,forma,estado,asaas_payment_id,encerrada_em,reconciliacao_motivo,criado_em
 ) VALUES
-  ('78888888-0000-4000-8000-000000000201','78888888-0000-4000-8000-000000000101','78888888-0000-4000-8000-000000000001','78888888-0000-4000-8000-000000000301','pix','pendente','pay-pendente'),
-  ('78888888-0000-4000-8000-000000000202','78888888-0000-4000-8000-000000000102','78888888-0000-4000-8000-000000000001','78888888-0000-4000-8000-000000000302','cartao','recebido','pay-recebido');
+  ('78888888-0000-4000-8000-000000000201','78888888-0000-4000-8000-000000000101','78888888-0000-4000-8000-000000000001','78888888-0000-4000-8000-000000000301','pix','pendente','pay-pendente',NULL,NULL,'2026-09-30T09:00:00Z'),
+  ('78888888-0000-4000-8000-000000000202','78888888-0000-4000-8000-000000000102','78888888-0000-4000-8000-000000000001','78888888-0000-4000-8000-000000000302','cartao','recebido','pay-recebido',NULL,NULL,'2026-09-30T09:00:00Z'),
+  ('78888888-0000-4000-8000-000000000203','78888888-0000-4000-8000-000000000104','78888888-0000-4000-8000-000000000001','78888888-0000-4000-8000-000000000303','pix','recebido','pay-a','2026-09-30T10:02:00Z',NULL,'2026-09-30T10:00:00Z'),
+  ('78888888-0000-4000-8000-000000000204','78888888-0000-4000-8000-000000000104','78888888-0000-4000-8000-000000000001','78888888-0000-4000-8000-000000000304','pix','reconciliacao','pay-b',NULL,'pagamento_anterior_confirmado','2026-09-30T10:01:00Z');
 
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','78888888-0000-4000-8000-000000000003',true);
@@ -48,6 +51,22 @@ SELECT is(
 SELECT is(
   (public.inspecionar_pagamento_admin('78888888-0000-4000-8000-000000000102')->>'valorRecebidoReais')::numeric,
   42.5::numeric, 'valor recebido só aparece com confirmação persistida'
+);
+SELECT is(
+  public.inspecionar_pagamento_admin('78888888-0000-4000-8000-000000000104')->>'tentativaId',
+  '78888888-0000-4000-8000-000000000203', 'pagamento efetivado aponta para a tentativa A'
+);
+SELECT is(
+  public.inspecionar_pagamento_admin('78888888-0000-4000-8000-000000000104')->>'estado',
+  'recebido', 'estado financeiro reflete A recebida, não B em reconciliação'
+);
+SELECT is(
+  (public.inspecionar_pagamento_admin('78888888-0000-4000-8000-000000000104')->>'valorRecebidoReais')::numeric,
+  42.5::numeric, 'valor recebido permanece associado ao pagamento A'
+);
+SELECT is(
+  public.inspecionar_pagamento_admin('78888888-0000-4000-8000-000000000104')->'pendencia'->>'tentativaId',
+  '78888888-0000-4000-8000-000000000204', 'tentativa B continua visível como pendência separada'
 );
 SELECT is(
   public.inspecionar_pagamento_admin('78888888-0000-4000-8000-000000000103'),

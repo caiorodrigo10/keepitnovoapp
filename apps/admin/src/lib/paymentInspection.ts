@@ -17,5 +17,11 @@ export function presentPaymentInspection(inspection: AdminPaymentInspection) {
     valorLabel: recebido ? 'Valor recebido' : 'Valor previsto',
     valorReais: inspection.valorRecebidoReais ?? inspection.valorPrevistoReais,
     recebido,
+    pendencia: inspection.pendencia
+      ? {
+          tentativaId: inspection.pendencia.tentativaId,
+          estadoLabel: PAYMENT_STATE_LABEL[inspection.pendencia.estado],
+        }
+      : null,
   };
 }

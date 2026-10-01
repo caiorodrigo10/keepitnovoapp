@@ -134,9 +134,27 @@ describe('admin.supabase.ts — inspeção financeira autorizada', () => {
     };
     const { client, rpc, from } = fakeClient({ rpc: async () => ({ data: projection, error: null }) });
 
-    await expect(createAdminSupabase(client).inspectPayment('pedido-1')).resolves.toEqual(projection);
+    await expect(createAdminSupabase(client).inspectPayment('pedido-1')).resolves.toEqual({
+      ...projection,
+      pendencia: null,
+    });
     expect(rpc).toHaveBeenCalledWith('inspecionar_pagamento_admin', { p_pedido_id: 'pedido-1' });
     expect(from).not.toHaveBeenCalledWith('tentativas_pagamento');
+  });
+
+  it('preserva a pendência posterior separada do pagamento efetivado', async () => {
+    const projection = {
+      tentativaId: 'tentativa-a', pedidoId: 'pedido-1', forma: 'pix', estado: 'recebido',
+      asaasPaymentId: 'pay-a', criadoEm: '2026-09-30T10:00:00Z', pagoEm: '2026-09-30T10:03:00Z',
+      valorPrevistoReais: 42.5, valorRecebidoReais: 42.5,
+      pendencia: {
+        tentativaId: 'tentativa-b', forma: 'pix', estado: 'reconciliacao',
+        asaasPaymentId: 'pay-b', criadoEm: '2026-09-30T10:01:00Z',
+      },
+    };
+    const { client } = fakeClient({ rpc: async () => ({ data: projection, error: null }) });
+
+    await expect(createAdminSupabase(client).inspectPayment('pedido-1')).resolves.toEqual(projection);
   });
 
   it('devolve null quando o pedido ainda não possui tentativa', async () => {

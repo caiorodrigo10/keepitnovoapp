@@ -95,10 +95,12 @@ describe('admin.mock (contract)', () => {
       valorPrevistoReais: pendente.total_pago_reais,
       valorRecebidoReais: null,
       pagoEm: null,
+      pendencia: null,
     });
     await expect(port.inspectPayment('pedido-2048', { delayMs: 1 })).resolves.toMatchObject({
       estado: 'recebido',
       valorRecebidoReais: db.pedidos.find((pedido) => pedido.id === 'pedido-2048')!.total_pago_reais,
+      pendencia: null,
     });
   });
 

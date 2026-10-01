@@ -15,7 +15,7 @@ describe('inspeção financeira do pedido', () => {
     expect(presentPaymentInspection({
       tentativaId: 'tentativa-1', pedidoId: 'pedido-1', forma: 'pix', estado,
       asaasPaymentId: null, criadoEm: '2026-09-30T10:00:00Z', pagoEm: null,
-      valorPrevistoReais: 42.5, valorRecebidoReais: null,
+      valorPrevistoReais: 42.5, valorRecebidoReais: null, pendencia: null,
     }).estadoLabel).toBe(estadoLabel);
   });
 
@@ -23,7 +23,7 @@ describe('inspeção financeira do pedido', () => {
     expect(presentPaymentInspection({
       tentativaId: 'tentativa-1', pedidoId: 'pedido-1', forma: 'pix', estado: 'pendente',
       asaasPaymentId: 'pay-1', criadoEm: '2026-09-30T10:00:00Z', pagoEm: null,
-      valorPrevistoReais: 42.5, valorRecebidoReais: null,
+      valorPrevistoReais: 42.5, valorRecebidoReais: null, pendencia: null,
     })).toMatchObject({ estadoLabel: 'Pendente', valorLabel: 'Valor previsto', valorReais: 42.5, recebido: false });
   });
 
@@ -31,7 +31,24 @@ describe('inspeção financeira do pedido', () => {
     expect(presentPaymentInspection({
       tentativaId: 'tentativa-1', pedidoId: 'pedido-1', forma: 'cartao', estado: 'recebido',
       asaasPaymentId: 'pay-1', criadoEm: '2026-09-30T10:00:00Z', pagoEm: '2026-09-30T10:01:00Z',
-      valorPrevistoReais: 42.5, valorRecebidoReais: 42.5,
+      valorPrevistoReais: 42.5, valorRecebidoReais: 42.5, pendencia: null,
     })).toMatchObject({ estadoLabel: 'Recebido', valorLabel: 'Valor recebido', valorReais: 42.5, recebido: true });
+  });
+
+  it('mantém a tentativa posterior em reconciliação visível sem rebaixar o pagamento recebido', () => {
+    expect(presentPaymentInspection({
+      tentativaId: 'tentativa-a', pedidoId: 'pedido-1', forma: 'pix', estado: 'recebido',
+      asaasPaymentId: 'pay-a', criadoEm: '2026-09-30T10:00:00Z', pagoEm: '2026-09-30T10:03:00Z',
+      valorPrevistoReais: 42.5, valorRecebidoReais: 42.5,
+      pendencia: {
+        tentativaId: 'tentativa-b', forma: 'pix', estado: 'reconciliacao',
+        asaasPaymentId: 'pay-b', criadoEm: '2026-09-30T10:01:00Z',
+      },
+    })).toMatchObject({
+      estadoLabel: 'Recebido',
+      valorLabel: 'Valor recebido',
+      valorReais: 42.5,
+      pendencia: { tentativaId: 'tentativa-b', estadoLabel: 'Em reconciliação' },
+    });
   });
 });

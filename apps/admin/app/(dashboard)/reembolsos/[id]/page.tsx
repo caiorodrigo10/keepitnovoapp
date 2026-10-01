@@ -161,6 +161,14 @@ export default function ExecutarReembolsoPage() {
           <dd className="text-text-primary">{payment?.forma.toUpperCase() ?? reembolso.forma_pagamento.toUpperCase()}</dd>
           <dt className="text-text-tertiary">Estado da tentativa</dt>
           <dd className="text-text-primary">{paymentPresentation?.estadoLabel ?? 'Sem tentativa registrada'}</dd>
+          {paymentPresentation?.pendencia && (
+            <>
+              <dt className="text-text-tertiary">Pendência posterior</dt>
+              <dd className="text-accent-warning">
+                {paymentPresentation.pendencia.estadoLabel} · {paymentPresentation.pendencia.tentativaId}
+              </dd>
+            </>
+          )}
           <dt className="text-text-tertiary">{paymentPresentation?.valorLabel ?? 'Valor previsto'}</dt>
           <dd className="text-text-primary">
             {formatReais(paymentPresentation?.valorReais ?? pedido?.total_pago_reais ?? reembolso.valor_a_estornar_reais)}

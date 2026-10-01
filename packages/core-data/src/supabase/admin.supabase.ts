@@ -1542,7 +1542,11 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
         p_pedido_id: pedidoId,
       });
       if (error) throw error;
-      return data as unknown as AdminPaymentInspection | null;
+      if (data === null) return null;
+      const inspection = data as unknown as Omit<AdminPaymentInspection, 'pendencia'> & {
+        pendencia?: AdminPaymentInspection['pendencia'];
+      };
+      return { ...inspection, pendencia: inspection.pendencia ?? null };
     },
 
     async reconcilePayment(tentativaId: string, _options?: AsyncCallOptions) {

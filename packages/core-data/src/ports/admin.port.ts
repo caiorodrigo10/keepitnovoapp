@@ -134,6 +134,14 @@ export interface PaymentOccurrenceAdmin {
 }
 
 /** Projeção financeira mínima e autorizada para inspeção administrativa de um pedido. */
+export interface AdminPaymentPending {
+  tentativaId: string;
+  forma: FormaPagamento;
+  estado: Exclude<PaymentAttempt['estado'], 'confirmado' | 'recebido'>;
+  asaasPaymentId: string | null;
+  criadoEm: string;
+}
+
 export interface AdminPaymentInspection {
   tentativaId: string;
   pedidoId: string;
@@ -143,8 +151,10 @@ export interface AdminPaymentInspection {
   criadoEm: string;
   pagoEm: string | null;
   valorPrevistoReais: number;
-  /** Só existe quando a confirmação do pagamento também está persistida no pedido. */
+  /** Só existe quando há uma tentativa confirmada/recebida. */
   valorRecebidoReais: number | null;
+  /** Tentativa mais nova ainda não efetivada, sem substituir o pagamento canônico. */
+  pendencia: AdminPaymentPending | null;
 }
 
 export interface FinancialDashboardResult {
