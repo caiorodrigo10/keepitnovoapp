@@ -631,6 +631,7 @@ export function createAdminMock(db: MockDb): AdminPort {
             antecipacoes: [],
             eventosComErro: [],
             ocorrenciasPagamento: [],
+            pendenciasFinanceiras: [],
           };
         },
         {
@@ -652,6 +653,7 @@ export function createAdminMock(db: MockDb): AdminPort {
           antecipacoes: [],
           eventosComErro: [],
           ocorrenciasPagamento: [],
+          pendenciasFinanceiras: [],
         },
         options,
       );

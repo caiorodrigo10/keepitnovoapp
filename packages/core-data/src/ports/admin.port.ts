@@ -94,6 +94,7 @@ export interface FinancialRankingEntry {
 
 export interface PaymentReconciliationAdmin {
   tentativaId: string;
+  operacaoId: string;
   pedidoId: string;
   forma: string;
   estado: 'reconciliacao';
@@ -135,6 +136,24 @@ export interface PaymentOccurrenceAdmin {
   referenciaExterna: string | null;
   detalhe: string;
   criadoEm: string;
+}
+
+export type FinancialPendingAction =
+  | 'reconciliar_pagamento'
+  | 'consultar_divergencia'
+  | 'tratar_reembolso'
+  | 'revisar_repasse';
+
+/** Item correlacionável da fila operacional financeira do Admin. */
+export interface FinancialPendingAdmin {
+  id: string;
+  tipo: 'reconciliacao_pagamento' | 'evento_divergente' | 'reembolso' | 'repasse_em_analise';
+  pedidoId: string | null;
+  operacaoId: string;
+  abertoEm: string;
+  ultimoErro: string | null;
+  referenciaExterna: string | null;
+  acaoPermitida: FinancialPendingAction;
 }
 
 /** Projeção financeira mínima e autorizada para inspeção administrativa de um pedido. */
@@ -196,6 +215,7 @@ export interface FinancialDashboardResult {
   antecipacoes: ReceivableAnticipationAdmin[];
   eventosComErro: PaymentEventAdmin[];
   ocorrenciasPagamento: PaymentOccurrenceAdmin[];
+  pendenciasFinanceiras: FinancialPendingAdmin[];
 }
 
 /** Extensões aceitas pelo bucket PÚBLICO `hubs` (`allowed_mime_types`, migration `20260812164200`). */

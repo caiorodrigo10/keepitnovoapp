@@ -5,10 +5,10 @@ import { useState } from 'react';
 
 import { Button } from '../../../src/components/Button';
 import { Card } from '../../../src/components/Card';
-import { useFinancialDashboard } from '../../../src/hooks/useAdminOps';
-import { getAdminDataClient } from '../../../src/lib/adminClient';
+import { LinkButton } from '../../../src/components/LinkButton';
+import { reconcilePaymentAndRefresh, useFinancialDashboard } from '../../../src/hooks/useAdminOps';
 import { formatReais } from '../../../src/lib/adminLabels';
-import { anticipationIdentityLabel } from '../../../src/lib/financialLabels';
+import { anticipationIdentityLabel, presentFinancialPending } from '../../../src/lib/financialLabels';
 
 const PERIODO_OPTIONS = [7, 30, 90] as const;
 
@@ -30,8 +30,7 @@ export default function FinanceiroPage() {
     setReconciliando(tentativaId);
     setErroReconciliacao(null);
     try {
-      await getAdminDataClient().admin.reconcilePayment(tentativaId);
-      refresh();
+      await reconcilePaymentAndRefresh(tentativaId, refresh);
     } catch (cause) {
       setErroReconciliacao(cause instanceof Error ? cause.message : 'Não foi possível reconciliar a tentativa.');
     } finally {
@@ -174,6 +173,58 @@ export default function FinanceiroPage() {
               )}
             </Card>
           </div>
+
+          <Card className="flex flex-col gap-3">
+            <div>
+              <h2 className="text-xs font-semibold uppercase tracking-section text-text-tertiary">
+                Pendências financeiras
+              </h2>
+              <p className="mt-1 text-sm text-text-secondary">
+                Casos incertos permanecem abertos até conferência no banco, no Asaas e no estado persistido.
+              </p>
+            </div>
+            {dashboard.pendenciasFinanceiras.length === 0 ? (
+              <p className="text-sm text-text-secondary">Nenhuma pendência financeira aberta.</p>
+            ) : (
+              <ul className="flex flex-col gap-3">
+                {dashboard.pendenciasFinanceiras.map((item) => {
+                  const presentation = presentFinancialPending(item);
+                  const tentativaId = item.tipo === 'reconciliacao_pagamento'
+                    ? item.id.slice('tentativa:'.length)
+                    : null;
+                  return (
+                    <li key={item.id} className="flex items-center justify-between gap-4 border-t border-border-subtle pt-3 text-sm first:border-t-0 first:pt-0">
+                      <div className="min-w-0">
+                        <p className="font-medium text-text-primary">
+                          Pedido {item.pedidoId ?? 'sem vínculo'} · Operação {item.operacaoId}
+                        </p>
+                        <p className="text-text-secondary">
+                          Idade: {presentation.idadeLabel}
+                          {presentation.atrasada ? ' · Aberta há mais de 1 dia útil' : ''}
+                        </p>
+                        <p className="break-all text-text-secondary">
+                          Último erro: {item.ultimoErro ?? 'sem erro registrado'} · Referência externa: {item.referenciaExterna ?? 'não vinculada'}
+                        </p>
+                      </div>
+                      {item.acaoPermitida === 'reconciliar_pagamento' ? (
+                        <Button
+                          variant="secondary"
+                          disabled={reconciliando === tentativaId}
+                          onClick={() => tentativaId && void reconciliar(tentativaId)}
+                        >
+                          {reconciliando === tentativaId ? 'Consultando…' : presentation.acaoLabel}
+                        </Button>
+                      ) : presentation.acaoHref ? (
+                        <LinkButton href={presentation.acaoHref} className="shrink-0">{presentation.acaoLabel}</LinkButton>
+                      ) : (
+                        <span className="shrink-0 text-xs font-semibold text-text-secondary">{presentation.acaoLabel}</span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Card>
 
           <Card className="flex flex-col gap-3">
             <div>

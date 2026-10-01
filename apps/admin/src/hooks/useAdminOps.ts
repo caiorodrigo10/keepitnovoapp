@@ -137,6 +137,7 @@ const EMPTY_FINANCIAL_DASHBOARD: FinancialDashboardResult = {
   antecipacoes: [],
   eventosComErro: [],
   ocorrenciasPagamento: [],
+  pendenciasFinanceiras: [],
 };
 
 export function useFinancialDashboard(
@@ -148,4 +149,16 @@ export function useFinancialDashboard(
     EMPTY_FINANCIAL_DASHBOARD,
     [periodoDias, options?.forceEmpty, options?.forceError, options?.delayMs],
   );
+}
+
+export async function reconcilePaymentAndRefresh(
+  tentativaId: string,
+  refresh: () => void | Promise<void>,
+  reconcilePayment = (id: string) => getAdminDataClient().admin.reconcilePayment(id),
+) {
+  try {
+    return await reconcilePayment(tentativaId);
+  } finally {
+    await refresh();
+  }
 }

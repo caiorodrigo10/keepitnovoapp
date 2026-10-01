@@ -10,6 +10,7 @@ import type {
   EstabelecimentoFalha,
   EstabelecimentoFalhaTipo,
   FinancialDashboardResult,
+  FinancialPendingAdmin,
   FinancialRankingEntry,
   PaymentReconciliationAdmin,
   PaymentEventAdmin,
@@ -77,9 +78,31 @@ interface OperationalQuery extends PromiseLike<OperationalQueryResult> {
   not(column: string, operator: string, value: unknown): OperationalQuery;
   order(column: string, options?: { ascending?: boolean }): OperationalQuery;
   limit(count: number): OperationalQuery;
+  range(from: number, to: number): OperationalQuery;
 }
 interface OperationalReadClient {
   from(table: string): OperationalQuery;
+}
+
+const OPERATIONAL_PAGE_SIZE = 1_000;
+
+async function fetchAllOperationalRows<T>(
+  queryPage: (from: number, to: number) => OperationalQuery,
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += OPERATIONAL_PAGE_SIZE) {
+    const result = await queryPage(from, from + OPERATIONAL_PAGE_SIZE - 1);
+    if (result.error) throw result.error;
+    const page = (result.data ?? []) as T[];
+    rows.push(...page);
+    if (page.length < OPERATIONAL_PAGE_SIZE) return rows;
+  }
+}
+
+function chunks<T>(values: T[], size: number): T[][] {
+  const result: T[][] = [];
+  for (let index = 0; index < values.length; index += size) result.push(values.slice(index, index + size));
+  return result;
 }
 
 type EstabelecimentoAdminRow = {
@@ -1350,15 +1373,15 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
       // snapshot gerado de Database. O cast fica restrito a estas leituras;
       // linhas continuam mapeadas campo a campo para os tipos de domínio.
       const operational = supabase as unknown as OperationalReadClient;
-      const tentativasResult = await operational.from('tentativas_pagamento')
-        .select('id, pedido_id, forma, estado, asaas_payment_id, criado_em')
-        .eq('estado', 'reconciliacao')
-        .order('criado_em', { ascending: false });
-      if (tentativasResult.error) throw tentativasResult.error;
-      const tentativasRows = (tentativasResult.data ?? []) as Array<{
-        id: string; pedido_id: string; forma: string; estado: 'reconciliacao';
+      const tentativasRows = await fetchAllOperationalRows<{
+        id: string; pedido_id: string; operacao_id: string; forma: string; estado: 'reconciliacao';
         asaas_payment_id: string | null; criado_em: string;
-      }>;
+      }>((from, to) => operational.from('tentativas_pagamento')
+        .select('id, pedido_id, operacao_id, forma, estado, asaas_payment_id, criado_em')
+        .eq('estado', 'reconciliacao')
+        .order('criado_em', { ascending: false })
+        .order('id', { ascending: true })
+        .range(from, to));
 
       const eventColumns = 'evento_externo_id, tipo, cobranca_id, tentativa_id, pedido_id, resultado, erro_codigo, recebido_em';
       let eventosRows: Array<{
@@ -1366,31 +1389,40 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
         tentativa_id: string | null; pedido_id: string | null; resultado: string;
         erro_codigo: string | null; recebido_em: string;
       }> = [];
-      if (tentativasRows.length > 0) {
-        const eventosResult = await operational.from('eventos_pagamento')
-          .select(eventColumns)
-          .in('tentativa_id', tentativasRows.map((row) => row.id))
-          .order('recebido_em', { ascending: false })
-          .limit(500);
-        if (eventosResult.error) throw eventosResult.error;
-        eventosRows = ((eventosResult.data ?? []) as typeof eventosRows)
-          .sort((a, b) => b.recebido_em.localeCompare(a.recebido_em));
+      for (const tentativaIds of chunks(tentativasRows.map((row) => row.id), 100)) {
+        eventosRows.push(...await fetchAllOperationalRows<(typeof eventosRows)[number]>((from, to) =>
+          operational.from('eventos_pagamento')
+            .select(eventColumns)
+            .in('tentativa_id', tentativaIds)
+            .order('recebido_em', { ascending: false })
+            .order('evento_externo_id', { ascending: true })
+            .range(from, to)));
       }
+      eventosRows.sort((a, b) => b.recebido_em.localeCompare(a.recebido_em));
       const ultimoEventoPorTentativa = new Map<string, { resultado: string; erro_codigo: string | null }>();
+      const ultimoErroPorTentativa = new Map<string, string>();
       for (const event of eventosRows) {
         if (event.tentativa_id && !ultimoEventoPorTentativa.has(event.tentativa_id)) {
           ultimoEventoPorTentativa.set(event.tentativa_id, event);
         }
+        if (event.tentativa_id && event.erro_codigo && !ultimoErroPorTentativa.has(event.tentativa_id)) {
+          ultimoErroPorTentativa.set(event.tentativa_id, event.erro_codigo);
+        }
       }
-      // O filtro roda antes do limite no PostgREST: eventos bem-sucedidos não
-      // consomem a janela e não escondem divergências recentes do Admin.
-      const divergenciasResult = await operational.from('eventos_pagamento')
-        .select(eventColumns)
-        .not('erro_codigo', 'is', null)
-        .order('recebido_em', { ascending: false })
-        .limit(100);
-      if (divergenciasResult.error) throw divergenciasResult.error;
-      const eventosComErro: PaymentEventAdmin[] = ((divergenciasResult.data ?? []) as typeof eventosRows)
+      // O filtro roda antes da paginação no PostgREST: eventos bem-sucedidos
+      // não consomem as páginas e não escondem divergências do Admin.
+      const divergenciasResult = await fetchAllOperationalRows<(typeof eventosRows)[number]>((from, to) =>
+        operational.from('eventos_pagamento')
+          .select(eventColumns)
+          .not('erro_codigo', 'is', null)
+          .order('recebido_em', { ascending: false })
+          .order('evento_externo_id', { ascending: true })
+          .range(from, to));
+      const divergenciasRows = [
+        ...divergenciasResult,
+        ...eventosRows.filter((event) => event.erro_codigo !== null),
+      ].filter((event, index, rows) => rows.findIndex((item) => item.evento_externo_id === event.evento_externo_id) === index);
+      const eventosComErro: PaymentEventAdmin[] = divergenciasRows
         .map((event) => ({
           eventoExternoId: event.evento_externo_id,
           tipo: event.tipo,
@@ -1403,13 +1435,14 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
         }));
       const reconciliacoes: PaymentReconciliationAdmin[] = tentativasRows.map((row) => ({
         tentativaId: row.id,
+        operacaoId: row.operacao_id,
         pedidoId: row.pedido_id,
         forma: row.forma,
         estado: row.estado,
         asaasPaymentId: row.asaas_payment_id,
         criadoEm: row.criado_em,
         ultimoResultado: ultimoEventoPorTentativa.get(row.id)?.resultado ?? null,
-        ultimoErro: ultimoEventoPorTentativa.get(row.id)?.erro_codigo ?? null,
+        ultimoErro: ultimoErroPorTentativa.get(row.id) ?? null,
       }));
 
       const antecipacoesResult = await operational.from('antecipacoes_recebiveis')
@@ -1450,15 +1483,91 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
         criadoEm: row.criado_em,
       }));
 
-      const [receivedResult, ledgerResult] = await Promise.all([
-        supabase.from('pedidos').select('total_pago_reais').not('pago_em', 'is', null).gte('pago_em', limiteIso),
-        supabase.from('lancamentos_financeiros').select('tipo,valor_centavos,status,criado_em,concluido_em'),
-      ]);
+      const ledgerRows = await fetchAllOperationalRows<LancamentoAdminRow>((from, to) =>
+        operational.from('lancamentos_financeiros')
+          .select(LANCAMENTO_ADMIN_COLUMNS)
+          .order('criado_em', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, to));
+      const reembolsosPendentes = ledgerRows.filter((row) => row.tipo === 'refund'
+        && (row.status === 'pendente' || row.status === 'erro') && row.estado_reserva !== 'liberada');
+
+      const repassesEmAnalise = await fetchAllOperationalRows<{
+        id: string; preparado_em: string;
+      }>((from, to) => operational.from('repasses')
+        .select('id, preparado_em')
+        .eq('estado', 'em_analise')
+        .order('preparado_em', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to));
+      let eventosRepasse: Array<{
+        repasse_id: string; operacao_id: string; motivo: string | null;
+        referencia: string | null; criado_em: string;
+      }> = [];
+      for (const repasseIds of chunks(repassesEmAnalise.map((row) => row.id), 100)) {
+        eventosRepasse.push(...await fetchAllOperationalRows<(typeof eventosRepasse)[number]>((from, to) =>
+          operational.from('repasse_eventos')
+            .select('repasse_id, operacao_id, motivo, referencia, criado_em')
+            .in('repasse_id', repasseIds)
+            .eq('tipo', 'analise')
+            .order('criado_em', { ascending: false })
+            .order('operacao_id', { ascending: true })
+            .range(from, to)));
+      }
+      const ultimoEventoPorRepasse = new Map<string, (typeof eventosRepasse)[number]>();
+      for (const event of eventosRepasse) {
+        if (!ultimoEventoPorRepasse.has(event.repasse_id)) ultimoEventoPorRepasse.set(event.repasse_id, event);
+      }
+
+      const pendenciasFinanceiras: FinancialPendingAdmin[] = [
+        ...reconciliacoes.map((item) => ({
+          id: `tentativa:${item.tentativaId}`,
+          tipo: 'reconciliacao_pagamento' as const,
+          pedidoId: item.pedidoId,
+          operacaoId: item.operacaoId,
+          abertoEm: item.criadoEm,
+          ultimoErro: item.ultimoErro,
+          referenciaExterna: item.asaasPaymentId,
+          acaoPermitida: 'reconciliar_pagamento' as const,
+        })),
+        ...eventosComErro.map((item) => ({
+          id: `evento:${item.eventoExternoId}`,
+          tipo: 'evento_divergente' as const,
+          pedidoId: item.pedidoId,
+          operacaoId: item.eventoExternoId,
+          abertoEm: item.recebidoEm,
+          ultimoErro: item.erro,
+          referenciaExterna: item.cobrancaId,
+          acaoPermitida: 'consultar_divergencia' as const,
+        })),
+        ...reembolsosPendentes.filter((item) => item.pedido_id !== null).map((item) => ({
+          id: `reembolso:${item.id}`,
+          tipo: 'reembolso' as const,
+          pedidoId: item.pedido_id,
+          operacaoId: item.id,
+          abertoEm: item.criado_em,
+          ultimoErro: item.status === 'erro' ? item.detalhe : null,
+          referenciaExterna: item.asaas_id_externo ?? null,
+          acaoPermitida: 'tratar_reembolso' as const,
+        })),
+        ...repassesEmAnalise.map((item) => {
+          const event = ultimoEventoPorRepasse.get(item.id);
+          return {
+            id: `repasse:${item.id}`,
+            tipo: 'repasse_em_analise' as const,
+            pedidoId: null,
+            operacaoId: event?.operacao_id ?? item.id,
+            abertoEm: event?.criado_em ?? item.preparado_em,
+            ultimoErro: event?.motivo ?? null,
+            referenciaExterna: event?.referencia ?? null,
+            acaoPermitida: 'revisar_repasse' as const,
+          };
+        }),
+      ].sort((a, b) => a.abertoEm.localeCompare(b.abertoEm));
+
+      const receivedResult = await supabase.from('pedidos')
+        .select('total_pago_reais').not('pago_em', 'is', null).gte('pago_em', limiteIso);
       if (receivedResult.error) throw receivedResult.error;
-      if (ledgerResult.error) throw ledgerResult.error;
-      const ledgerRows = ((ledgerResult.data ?? []) as unknown as Array<{
-        tipo: string; valor_centavos: number; status: string; criado_em: string; concluido_em: string | null;
-      }>);
       const overview = calculateFinancialOverview({
         receipts: ((receivedResult.data ?? []) as unknown as Array<{ total_pago_reais: number }>),
         delivered: entreguesRows,
@@ -1485,6 +1594,7 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
         antecipacoes,
         eventosComErro,
         ocorrenciasPagamento,
+        pendenciasFinanceiras,
       };
     },
 

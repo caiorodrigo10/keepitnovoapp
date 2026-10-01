@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createReconcileHttpHandler, handleReconcilePayment } from './handler';
 import type { ReconcileDeps } from './handler';
+import type { PaymentEventInput } from '../asaas-payment-webhook/handler';
 
 const attempt = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -155,6 +156,44 @@ describe('handleReconcilePayment', () => {
     } as Partial<ReconcileDeps>);
     await handleReconcilePayment({ attemptId: attempt.id }, deps.value);
     expect(deps.processPaymentEvent).toHaveBeenCalledWith(expect.objectContaining({ event: 'PAYMENT_UPDATED' }));
+  });
+
+  it('chamadas concorrentes usam a mesma identidade e produzem um único efeito persistido', async () => {
+    const efeitos = new Map<string, { resultado: string; pedidoId: string | null }>();
+    const processPaymentEvent = vi.fn(async (input: PaymentEventInput) => {
+      const persisted = efeitos.get(input.eventId) ?? { resultado: 'recebido', pedidoId: 'pedido-1' };
+      efeitos.set(input.eventId, persisted);
+      return persisted;
+    });
+    const deps = dependencies({ events: { processPaymentEvent } });
+
+    const results = await Promise.all([
+      handleReconcilePayment({ attemptId: attempt.id }, deps.value),
+      handleReconcilePayment({ attemptId: attempt.id }, deps.value),
+    ]);
+
+    expect(results).toEqual([
+      { status: 200, body: { ok: true, resultado: 'recebido', pedido_id: 'pedido-1' } },
+      { status: 200, body: { ok: true, resultado: 'recebido', pedido_id: 'pedido-1' } },
+    ]);
+    expect(efeitos.size).toBe(1);
+    expect([...efeitos.keys()]).toEqual([`reconcile:${attempt.id}:pay-1:RECEIVED`]);
+  });
+
+  it('retry após resposta perdida reutiliza a identidade e relê o mesmo desfecho', async () => {
+    const efeitos = new Map<string, { resultado: string; pedidoId: string | null }>();
+    const processPaymentEvent = vi.fn(async (input: PaymentEventInput) => {
+      const persisted = efeitos.get(input.eventId) ?? { resultado: 'recebido', pedidoId: 'pedido-1' };
+      efeitos.set(input.eventId, persisted);
+      return persisted;
+    });
+    const deps = dependencies({ events: { processPaymentEvent } });
+
+    await handleReconcilePayment({ attemptId: attempt.id }, deps.value); // resposta não chegou ao operador
+    const retry = await handleReconcilePayment({ attemptId: attempt.id }, deps.value);
+
+    expect(retry).toEqual({ status: 200, body: { ok: true, resultado: 'recebido', pedido_id: 'pedido-1' } });
+    expect(efeitos.size).toBe(1);
   });
 });
 
