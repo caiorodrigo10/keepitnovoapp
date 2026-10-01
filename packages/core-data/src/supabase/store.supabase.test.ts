@@ -61,6 +61,7 @@ function fakeClient(results: {
   estabelecimentos?: QueryResult;
   estabelecimentos_horarios?: QueryResult;
   estabelecimentos_hubs?: QueryResult;
+  privateRows?: QueryResult;
 }): {
   client: SupabaseClient<Database>;
   from: (table: string) => unknown;
@@ -76,9 +77,10 @@ function fakeClient(results: {
     estabelecimentos_hubs: makeQueryBuilder(results.estabelecimentos_hubs ?? { data: [], error: null }),
   };
   const from = vi.fn(
-    (table: string) => builders[table as 'estabelecimentos' | 'estabelecimentos_horarios' | 'estabelecimentos_hubs'],
+    (table: string) => table === 'estabelecimentos_publicos' ? builders.estabelecimentos : builders[table as 'estabelecimentos' | 'estabelecimentos_horarios' | 'estabelecimentos_hubs'],
   );
-  const client = { from } as unknown as SupabaseClient<Database>;
+  const rpc = vi.fn(async () => results.privateRows ?? { data: results.estabelecimentos?.data ? [results.estabelecimentos.data] : [], error: null });
+  const client = { from, rpc } as unknown as SupabaseClient<Database>;
   return { client, from, builders };
 }
 
@@ -109,7 +111,7 @@ const HORARIOS_ROWS = [
 
 describe('store.supabase.ts — getById (Stories 4.7/4.8, AUTO-DECISION escopo estreito)', () => {
   it('devolve o Estabelecimento real com horarios ordenados por dia_semana', async () => {
-    const { client, builders } = fakeClient({
+    const { client, builders, from } = fakeClient({
       estabelecimentos: { data: ESTABELECIMENTO_ROW, error: null },
       estabelecimentos_horarios: { data: [HORARIOS_ROWS[1], HORARIOS_ROWS[0]], error: null },
     });
@@ -117,12 +119,27 @@ describe('store.supabase.ts — getById (Stories 4.7/4.8, AUTO-DECISION escopo e
 
     const estabelecimento = await port.getById('estab-1');
 
+    expect(from).toHaveBeenCalledWith('estabelecimentos_publicos');
     expect(builders.estabelecimentos.eq).toHaveBeenCalledWith('id', 'estab-1');
     expect(builders.estabelecimentos_horarios.eq).toHaveBeenCalledWith('estabelecimento_id', 'estab-1');
     expect(estabelecimento?.id).toBe('estab-1');
     expect(estabelecimento?.pausado_manualmente).toBe(false);
     expect(estabelecimento?.excluido_em).toBeNull();
     expect(estabelecimento?.horarios).toEqual([HORARIOS_ROWS[0], HORARIOS_ROWS[1]]);
+  });
+
+  it('dono ainda lê loja suspensa pela RPC privada quando a projeção pública a oculta', async () => {
+    const { client } = fakeClient({
+      estabelecimentos: { data: null, error: null },
+      privateRows: { data: [{ ...ESTABELECIMENTO_ROW, status: 'suspenso', motivo_suspensao: 'Manutenção' }], error: null },
+    });
+    const loja = await createStoreSupabase(client).getById('estab-1');
+    expect(loja).toMatchObject({ id: 'estab-1', status: 'suspenso', motivo_suspensao: 'Manutenção' });
+  });
+
+  it('anon recebe null quando a loja não é pública e a RPC privada nega acesso', async () => {
+    const { client } = fakeClient({ estabelecimentos: { data: null, error: null }, privateRows: { data: null, error: { code: '42501' } } });
+    await expect(createStoreSupabase(client).getById('estab-suspenso')).resolves.toBeNull();
   });
 
   it('devolve null quando o id não existe / RLS bloqueia (sem lançar)', async () => {
@@ -232,6 +249,11 @@ describe('store.supabase.ts — setPausadoManualmente (Story 4.8, AC1, AC2, AC4)
     expect(atualizado.pausado_manualmente).toBe(false);
   });
 
+  it('não confirma UPDATE sem efeito quando a loja de outro dono é pública', async () => {
+    const { client } = fakeClient({ estabelecimentos: { data: ESTABELECIMENTO_ROW, error: null }, privateRows: { data: [], error: null } });
+    await expect(createStoreSupabase(client).setPausadoManualmente('estab-1', true)).rejects.toThrow(/não encontrou a linha/);
+  });
+
   it('RLS bloqueando UPDATE de estabelecimento de outro dono — 0 linhas afetadas, releitura rejeita (AC2)', async () => {
     const { client } = fakeClient({ estabelecimentos: { data: null, error: null } });
     const port = createStoreSupabase(client);
@@ -333,7 +355,7 @@ describe('store.supabase.ts — listByHub (Stories 5.2/12.10)', () => {
     expect(builders.estabelecimentos_hubs.eq).toHaveBeenCalledWith('hub_id', 'hub-centro');
     expect(builders.estabelecimentos.in).toHaveBeenCalledWith('id', ['open', 'closed', 'paused', 'suspended', 'deleted']);
     expect(builders.estabelecimentos.eq).toHaveBeenCalledWith('status', 'ativo');
-    expect(builders.estabelecimentos.is).toHaveBeenCalledWith('excluido_em', null);
+    expect(builders.estabelecimentos.is).not.toHaveBeenCalled();
     expect(builders.estabelecimentos.eq).not.toHaveBeenCalledWith('pausado_manualmente', false);
     expect(ids).toEqual(expect.arrayContaining(['open', 'closed', 'paused']));
     expect(ids).not.toContain('suspended');

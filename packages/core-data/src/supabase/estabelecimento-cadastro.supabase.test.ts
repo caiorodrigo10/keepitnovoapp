@@ -38,6 +38,10 @@ const INPUT: CriarEstabelecimentoInput = {
   horarios: HORARIOS,
 };
 
+function asPrivateRows(result: { data: unknown; error: unknown }) {
+  return { ...result, data: result.data == null ? null : Array.isArray(result.data) ? result.data : [result.data] };
+}
+
 function fakeClientForRpc(
   rpcImpl: (fn: string, args: unknown) => Promise<{ data: unknown; error: unknown }>,
 ): SupabaseClient<Database> {
@@ -212,6 +216,7 @@ describe('estabelecimento-cadastro.supabase.ts — getMeuEstabelecimento (Story 
   }) {
     const builder = makeQueryBuilder(options.queryResult ?? { data: null, error: null });
     const from = vi.fn((_table: string) => builder);
+    const rpc = vi.fn(async () => asPrivateRows(options.queryResult ?? { data: null, error: null }));
     const client = {
       auth: {
         getUser: async () =>
@@ -221,9 +226,9 @@ describe('estabelecimento-cadastro.supabase.ts — getMeuEstabelecimento (Story 
               ? { data: { user: { id: options.userId } }, error: null }
               : { data: { user: null }, error: null },
       },
-      from,
+      from, rpc,
     } as unknown as SupabaseClient<Database>;
-    return { client, from, eq: builder.eq as unknown as ReturnType<typeof vi.fn> };
+    return { client, from, rpc };
   }
 
   it('resolve null sem sessão (nunca consulta a tabela)', async () => {
@@ -243,7 +248,7 @@ describe('estabelecimento-cadastro.supabase.ts — getMeuEstabelecimento (Story 
   });
 
   it('filtra por dono_user_id = auth.uid() (AC6 — nunca a loja ativa de outro dono)', async () => {
-    const { client, eq } = fakeClientForOwn({
+    const { client, rpc } = fakeClientForOwn({
       userId: 'user-lojista-1',
       queryResult: { data: { status: 'em_analise', motivo_rejeicao: null }, error: null },
     });
@@ -251,7 +256,7 @@ describe('estabelecimento-cadastro.supabase.ts — getMeuEstabelecimento (Story 
 
     await port.getMeuEstabelecimento();
 
-    expect(eq).toHaveBeenCalledWith('dono_user_id', 'user-lojista-1');
+    expect(rpc).toHaveBeenCalledWith('obter_estabelecimentos_privados', { p_id: null });
   });
 
   it('resolve null quando não há nenhuma linha (AC4 — "0 linhas" nunca é erro)', async () => {
@@ -313,6 +318,7 @@ describe('estabelecimento-cadastro.supabase.ts — getMeuPerfil (Story 3.11, AC1
     horariosBuilder.eq = vi.fn(async () => options.horariosResult ?? { data: [], error: null });
 
     const from = vi.fn((table: string) => (table === 'estabelecimentos' ? perfilBuilder : horariosBuilder));
+    const rpc = vi.fn(async () => asPrivateRows(options.perfilResult ?? { data: null, error: null }));
 
     const createSignedUrl = vi.fn(
       async () => options.signedUrlResult ?? { data: { signedUrl: 'https://signed.example/foto.jpg' }, error: null },
@@ -328,11 +334,11 @@ describe('estabelecimento-cadastro.supabase.ts — getMeuPerfil (Story 3.11, AC1
               ? { data: { user: { id: options.userId } }, error: null }
               : { data: { user: null }, error: null },
       },
-      from,
+      from, rpc,
       storage,
     } as unknown as SupabaseClient<Database>;
 
-    return { client, from, createSignedUrl, perfilEq: perfilBuilder.eq as ReturnType<typeof vi.fn> };
+    return { client, from, rpc, createSignedUrl };
   }
 
   it('resolve null sem sessão (nunca consulta a tabela)', async () => {
@@ -354,7 +360,7 @@ describe('estabelecimento-cadastro.supabase.ts — getMeuPerfil (Story 3.11, AC1
   });
 
   it('filtra por dono_user_id = auth.uid() (mesma defesa de getMeuEstabelecimento)', async () => {
-    const { client, perfilEq } = fakeClientForPerfil({
+    const { client, rpc } = fakeClientForPerfil({
       userId: 'user-lojista-2',
       perfilResult: {
         data: {
@@ -371,7 +377,7 @@ describe('estabelecimento-cadastro.supabase.ts — getMeuPerfil (Story 3.11, AC1
 
     await port.getMeuPerfil();
 
-    expect(perfilEq).toHaveBeenCalledWith('dono_user_id', 'user-lojista-2');
+    expect(rpc).toHaveBeenCalledWith('obter_estabelecimentos_privados', { p_id: null });
   });
 
   it('prefill correto (nome_fantasia, categoria, descricao, horarios ordenados) sem foto', async () => {
@@ -514,9 +520,8 @@ describe('estabelecimento-cadastro.supabase.ts — atualizarMeuPerfil (Story 3.1
     perfilResult?: { data: unknown; error: unknown };
     horariosResult?: { data: unknown; error: unknown };
   }) {
-    const update = vi.fn((_payload: Record<string, unknown>) => ({
-      eq: vi.fn(async () => ({ error: options.updateError ?? null })),
-    }));
+    const updateEq = vi.fn(async () => ({ error: options.updateError ?? null }));
+    const update = vi.fn((_payload: Record<string, unknown>) => ({ eq: updateEq }));
 
     const perfilBuilder: Record<string, unknown> = {};
     perfilBuilder.select = vi.fn(() => perfilBuilder);
@@ -539,6 +544,7 @@ describe('estabelecimento-cadastro.supabase.ts — atualizarMeuPerfil (Story 3.1
     horariosBuilder.select = vi.fn(() => horariosBuilder);
     horariosBuilder.eq = vi.fn(async () => options.horariosResult ?? { data: [], error: null });
 
+    const rpc = vi.fn(async () => asPrivateRows(options.perfilResult ?? { data: { id: 'estab-1', nome_fantasia: 'Farmácia Vida', categoria: 'restaurante', descricao: 'Nova descrição', foto_fachada_url: null }, error: null }));
     const from = vi.fn((table: string) => {
       if (table === 'estabelecimentos') {
         return { update, ...perfilBuilder };
@@ -553,10 +559,10 @@ describe('estabelecimento-cadastro.supabase.ts — atualizarMeuPerfil (Story 3.1
             ? { data: { user: { id: options.userId } }, error: null }
             : { data: { user: null }, error: null },
       },
-      from,
+      from, rpc,
     } as unknown as SupabaseClient<Database>;
 
-    return { client, update };
+    return { client, update, updateEq };
   }
 
   it('rejeita com AutenticacaoNecessariaError sem sessão', async () => {
@@ -569,12 +575,13 @@ describe('estabelecimento-cadastro.supabase.ts — atualizarMeuPerfil (Story 3.1
   });
 
   it('envia só categoria/descricao no payload de UPDATE — nunca nome_fantasia/cnpj/status (AC2)', async () => {
-    const { client, update } = fakeClientForUpdate({ userId: 'user-lojista-1' });
+    const { client, update, updateEq } = fakeClientForUpdate({ userId: 'user-lojista-1' });
     const port = createEstabelecimentoCadastroSupabase(client);
 
     await port.atualizarMeuPerfil({ categoria: 'restaurante', descricao: 'Nova descrição' });
 
     expect(update).toHaveBeenCalledWith({ categoria: 'restaurante', descricao: 'Nova descrição' });
+    expect(updateEq).toHaveBeenCalledWith('id', 'estab-1');
     const payload = update.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(payload).not.toHaveProperty('nome_fantasia');
     expect(payload).not.toHaveProperty('cnpj');
@@ -623,6 +630,7 @@ describe('estabelecimento-cadastro.supabase.ts — getMeuEstabelecimentoId (Stor
   }) {
     const builder = makeQueryBuilder(options.queryResult ?? { data: null, error: null });
     const from = vi.fn((_table: string) => builder);
+    const rpc = vi.fn(async () => asPrivateRows(options.queryResult ?? { data: null, error: null }));
     const client = {
       auth: {
         getUser: async () =>
@@ -632,9 +640,9 @@ describe('estabelecimento-cadastro.supabase.ts — getMeuEstabelecimentoId (Stor
               ? { data: { user: { id: options.userId } }, error: null }
               : { data: { user: null }, error: null },
       },
-      from,
+      from, rpc,
     } as unknown as SupabaseClient<Database>;
-    return { client, from, eq: builder.eq as unknown as ReturnType<typeof vi.fn>, select: builder.select as ReturnType<typeof vi.fn> };
+    return { client, from, rpc };
   }
 
   it('resolve null sem sessão (nunca consulta a tabela)', async () => {
@@ -652,7 +660,7 @@ describe('estabelecimento-cadastro.supabase.ts — getMeuEstabelecimentoId (Stor
   });
 
   it('filtra por dono_user_id = auth.uid() e seleciona só id', async () => {
-    const { client, eq, select } = fakeClientForOwnId({
+    const { client, rpc } = fakeClientForOwnId({
       userId: 'user-lojista-1',
       queryResult: { data: { id: 'estab-1' }, error: null },
     });
@@ -660,8 +668,7 @@ describe('estabelecimento-cadastro.supabase.ts — getMeuEstabelecimentoId (Stor
 
     await port.getMeuEstabelecimentoId();
 
-    expect(select).toHaveBeenCalledWith('id');
-    expect(eq).toHaveBeenCalledWith('dono_user_id', 'user-lojista-1');
+    expect(rpc).toHaveBeenCalledWith('obter_estabelecimentos_privados', { p_id: null });
   });
 
   it('resolve null quando não há nenhuma linha (0 linhas nunca é erro)', async () => {

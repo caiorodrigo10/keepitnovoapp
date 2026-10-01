@@ -18,16 +18,9 @@ import { NotImplementedError } from './not-implemented-error';
 const PORT = 'store';
 const EPIC_DESCOBERTA = 'Épico 5';
 
-/**
- * [IDS] REUSE (Bloco 09, Story 8.3) — `ESTABELECIMENTO_COLUMNS`/
- * `mapRowToEstabelecimento`/`fetchHorarios` exportados para
- * `admin.supabase.ts#listAllEstabelecimentos` reaproveitar a MESMA
- * leitura/mapeamento de `estabelecimentos` (mesmo tipo de domínio
- * `Estabelecimento`, sem status filtrado — o admin precisa ver TODOS os
- * status, ao contrário da Descoberta pública).
- */
-export const ESTABELECIMENTO_COLUMNS =
-  'id, nome_fantasia, categoria, descricao, foto_fachada_url, endereco, lat, lng, raio_atendimento_km, tempo_medio_entrega_min, taxa_deslocamento_reais, ticket_minimo_reais, status, motivo_rejeicao, motivo_suspensao, pausado_manualmente, excluido_em';
+/** Campos comerciais publicados pela view com RLS do chamador. */
+export const ESTABELECIMENTO_PUBLICO_COLUMNS =
+  'id, nome_fantasia, categoria, descricao, foto_fachada_url, endereco, lat, lng, raio_atendimento_km, tempo_medio_entrega_min, taxa_deslocamento_reais, ticket_minimo_reais, status, pausado_manualmente';
 
 export type EstabelecimentoRow = {
   id: string;
@@ -43,10 +36,10 @@ export type EstabelecimentoRow = {
   taxa_deslocamento_reais: number;
   ticket_minimo_reais: number | null;
   status: string;
-  motivo_rejeicao: string | null;
-  motivo_suspensao: string | null;
+  motivo_rejeicao?: string | null;
+  motivo_suspensao?: string | null;
   pausado_manualmente: boolean;
-  excluido_em: string | null;
+  excluido_em?: string | null;
 };
 
 type EstabelecimentoHorarioRow = {
@@ -136,10 +129,10 @@ export function mapRowToEstabelecimento(row: EstabelecimentoRow, horarios: Estab
     taxa_deslocamento_reais: row.taxa_deslocamento_reais,
     ticket_minimo_reais: row.ticket_minimo_reais,
     status: row.status as EstabelecimentoStatus,
-    motivo_rejeicao: row.motivo_rejeicao,
-    motivo_suspensao: row.motivo_suspensao,
+    motivo_rejeicao: row.motivo_rejeicao ?? null,
+    motivo_suspensao: row.motivo_suspensao ?? null,
     pausado_manualmente: row.pausado_manualmente,
-    excluido_em: row.excluido_em,
+    excluido_em: row.excluido_em ?? null,
     horarios,
   };
 }
@@ -149,31 +142,32 @@ async function fetchEstabelecimentoPorId(
   id: string,
 ): Promise<Estabelecimento | null> {
   const { data, error } = await supabase
-    .from('estabelecimentos')
-    .select(ESTABELECIMENTO_COLUMNS)
+    .from('estabelecimentos_publicos')
+    .select(ESTABELECIMENTO_PUBLICO_COLUMNS)
     .eq('id', id)
     .maybeSingle();
   if (error) {
     throw error;
   }
-  if (!data) {
+  let rowData = data as EstabelecimentoRow | null;
+  if (!rowData) {
+    const { data: privateRows, error: privateError } = await supabase.rpc('obter_estabelecimentos_privados', { p_id: id });
+    if (privateError && privateError.code !== '42501') {
+      throw privateError;
+    }
+    rowData = (privateRows?.[0] ?? null) as EstabelecimentoRow | null;
+  }
+  if (!rowData) {
     return null;
   }
-  const row = data as unknown as EstabelecimentoRow;
+  const row = rowData;
   const horarios = await fetchHorarios(supabase, id);
 
   return mapRowToEstabelecimento(row, horarios);
 }
 
-/**
- * Story 5.2 (AC2, AC3, AC6) — `estabelecimentos` cujo `id` está no conjunto
- * `ids` (ids já filtrados pela junção `estabelecimentos_hubs`, via
- * `fetchEstabelecimentoIdsPorHub`), com o filtro explícito `status = 'ativo'
- * AND excluido_em IS NULL` aplicado na
- * própria query — defesa em profundidade redundante com a RLS
- * `publico_ve_estab_hubs`/`publico_ve_ativos` (mesmo padrão de
- * `product.supabase.ts#list`), não uma substituição dela. `ids` vazio resolve
- * `[]` sem tocar a rede (AC6 — hub sem associação).
+/** Busca pela projeção pública os ids vinculados ao hub. A view já exclui
+ * lojas não ativas e registros excluídos; lista vazia evita a consulta.
  */
 async function fetchEstabelecimentosPorIds(
   supabase: SupabaseClient<Database>,
@@ -184,11 +178,10 @@ async function fetchEstabelecimentosPorIds(
   }
 
   const { data, error } = await supabase
-    .from('estabelecimentos')
-    .select(ESTABELECIMENTO_COLUMNS)
+    .from('estabelecimentos_publicos')
+    .select(ESTABELECIMENTO_PUBLICO_COLUMNS)
     .in('id', ids)
-    .eq('status', 'ativo')
-    .is('excluido_em', null);
+    .eq('status', 'ativo');
   if (error) {
     throw error;
   }
@@ -261,16 +254,9 @@ export function createStoreSupabase(client?: SupabaseClient<Database>): StorePor
       return deriveLojaEstado(estabelecimento);
     },
 
-    /**
-     * Story 4.8 (AC1, AC2, AC4). `UPDATE` restrito ao dono via RLS
-     * `lojista_atualiza_proprio` (`docs/architecture/05-security.md §3.4`,
-     * já aplicada — a `WITH CHECK` só trava `status`/`cnpj`/
-     * `asaas_wallet_id`, nunca `pausado_manualmente`). Um `estabelecimentoId`
-     * de outro dono afeta 0 linhas (sem erro do Postgres) — a releitura via
-     * `fetchEstabelecimentoPorId` devolve `null` e este método lança, nunca
-     * um sucesso simulado (mesmo padrão de `applyProdutoPatch`,
-     * `product.supabase.ts`, Stories 4.5/4.6). Sempre relê a linha real
-     * pós-escrita, nunca ecoa o input.
+    /** Atualiza a própria loja por RLS e confirma a autorização na RPC privada
+     * antes de devolver o estado persistido. Uma loja pública de outro dono
+     * pode ser lida, mas não conta como sucesso da escrita.
      */
     async setPausadoManualmente(
       estabelecimentoId: string,
@@ -285,6 +271,14 @@ export function createStoreSupabase(client?: SupabaseClient<Database>): StorePor
         .eq('id', estabelecimentoId);
       if (error) {
         throw error;
+      }
+
+      const { data: autorizadas, error: autorizacaoError } = await supabase.rpc('obter_estabelecimentos_privados', { p_id: estabelecimentoId });
+      if (autorizacaoError) {
+        throw autorizacaoError;
+      }
+      if (!autorizadas?.some((loja) => loja.id === estabelecimentoId)) {
+        throw new Error('[core-data/supabase] setPausadoManualmente — UPDATE concluiu mas não encontrou a linha autorizada.');
       }
 
       const atualizado = await fetchEstabelecimentoPorId(supabase, estabelecimentoId);

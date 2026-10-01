@@ -42,7 +42,7 @@ import {
   NaoAutorizadoError,
   PedidoNaoEncontradoError,
 } from './admin-errors';
-import { mapRowToEstabelecimento, ESTABELECIMENTO_COLUMNS, type EstabelecimentoRow } from './store.supabase';
+import { mapRowToEstabelecimento, type EstabelecimentoRow } from './store.supabase';
 import { fetchItensPorPedidoIds, fetchPedidoPorId, mapRowToPedido, PEDIDO_COLUMNS, type PedidoRow } from './order.supabase';
 import { LANCAMENTO_COLUMNS, mapLancamentoToSaque, type LancamentoRow } from './wallet.supabase';
 
@@ -81,12 +81,6 @@ interface OperationalQuery extends PromiseLike<OperationalQueryResult> {
 interface OperationalReadClient {
   from(table: string): OperationalQuery;
 }
-
-const ESTABELECIMENTOS_ADMIN_COLUMNS =
-  'id, nome_fantasia, cnpj, categoria, descricao, foto_fachada_url, endereco, lat, lng, ' +
-  'raio_atendimento_km, tempo_medio_entrega_min, taxa_deslocamento_reais, ticket_minimo_reais, ' +
-  'chave_pix, chave_pix_tipo, status, motivo_rejeicao, motivo_suspensao, pausado_manualmente, excluido_em, ' +
-  'responsavel_nome, telefone, dados_receita, criado_em, aprovado_em, aprovado_por';
 
 type EstabelecimentoAdminRow = {
   id: string;
@@ -199,11 +193,8 @@ async function fetchEstabelecimentoAposMutacao(
   supabase: SupabaseClient<Database>,
   id: string,
 ): Promise<Estabelecimento> {
-  const { data, error } = await supabase
-    .from('estabelecimentos')
-    .select(ESTABELECIMENTOS_ADMIN_COLUMNS)
-    .eq('id', id)
-    .maybeSingle();
+  const { data: privateRows, error } = await supabase.rpc('obter_estabelecimentos_privados', { p_id: id });
+  const data = privateRows?.[0] ?? null;
   if (error) {
     throw error;
   }
@@ -548,23 +539,12 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
   }
 
   return {
-    /**
-     * Story 3.7 (AC2, AC4). RLS `admin_gerencia_estab` (`is_admin()`) é a
-     * ÚNICA barreira de autorização — este método não reimplementa a
-     * checagem de admin no client: um usuário autenticado sem entrada em
-     * `admin_users` simplesmente recebe `[]` (a policy filtra a query no
-     * Postgres), nunca um erro nem um vazamento parcial. Ordena por
-     * `criado_em` ascendente no client (mais antigo primeiro na fila) — sem
-     * `.order()` do PostgREST para manter a chamada simples de mockar em
-     * teste.
-     */
+    /** A RPC valida Admin no banco; a fila mantém somente lojas em análise. */
     async pendingStores(_options?: AsyncCallOptions): Promise<EstabelecimentoAdmin[]> {
       const supabase = resolveClient();
 
-      const { data, error } = await supabase
-        .from('estabelecimentos')
-        .select(ESTABELECIMENTOS_ADMIN_COLUMNS)
-        .eq('status', 'em_analise');
+      const { data: privateRows, error } = await supabase.rpc('obter_estabelecimentos_privados', { p_id: null });
+      const data = privateRows?.filter((row) => row.status === 'em_analise');
       if (error) {
         throw error;
       }
@@ -580,31 +560,12 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
         .sort((a, b) => a.criado_em.localeCompare(b.criado_em));
     },
 
-    /**
-     * Story 3.7 (AC3). `.maybeSingle()` — `null` honesto quando o `id` não
-     * existe (ou quando RLS bloqueia, indistinguível por design — mesma
-     * postura de `store.getById`), nunca um erro genérico disfarçando um
-     * "não encontrado". Foto de fachada: só assina quando `foto_fachada_url`
-     * está presente — nunca chama Storage para um path inexistente.
-     *
-     * [FIX REL-001, QA gate 3.7 FAIL] Degradação graciosa: se
-     * `createSignedUrl` falhar (ex.: policy de storage ausente/RLS negando),
-     * a foto vira `null` — o restante do detalhe (CNPJ, responsável, PIX,
-     * horários, `dados_receita`) é retornado normalmente. Nunca lança por
-     * causa da foto (era o bug que derrubava a tela inteira). Erros na
-     * query principal de `estabelecimentos`/`estabelecimentos_horarios`
-     * continuam propagando normalmente — só o passo de assinatura da foto é
-     * tratado como não-fatal, honestidade preservada (sem foto → `null`,
-     * nunca uma URL inventada).
-     */
+    /** Detalhe privado autorizado pela RPC; foto assinada sob demanda. */
     async pendingStoreDetail(id: string, _options?: AsyncCallOptions): Promise<EstabelecimentoAdmin | null> {
       const supabase = resolveClient();
 
-      const { data, error } = await supabase
-        .from('estabelecimentos')
-        .select(ESTABELECIMENTOS_ADMIN_COLUMNS)
-        .eq('id', id)
-        .maybeSingle();
+      const { data: privateRows, error } = await supabase.rpc('obter_estabelecimentos_privados', { p_id: id });
+      const data = privateRows?.[0] ?? null;
       if (error) {
         throw error;
       }
@@ -1129,7 +1090,7 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
     /**
      * Story 8.3/8.6/8.8 dependem deste método para resolver nome de
      * loja/hub em listagens administrativas. [IDS] REUSE de
-     * `ESTABELECIMENTO_COLUMNS`/`mapRowToEstabelecimento`/`fetchHorarios`
+     * `mapRowToEstabelecimento`/`fetchHorarios`
      * (`store.supabase.ts`) — SEM filtro de `status` (o admin precisa ver
      * TODOS, inclusive suspensos/em análise/rejeitados), ao contrário da
      * Descoberta pública.
@@ -1137,10 +1098,7 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
     async listAllEstabelecimentos(_options?: AsyncCallOptions): Promise<Estabelecimento[]> {
       const supabase = resolveClient();
 
-      const { data, error } = await supabase
-        .from('estabelecimentos')
-        .select(ESTABELECIMENTO_COLUMNS)
-        .order('nome_fantasia', { ascending: true });
+      const { data, error } = await supabase.rpc('obter_estabelecimentos_privados', { p_id: null });
       if (error) {
         throw error;
       }
@@ -1150,7 +1108,9 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
       }
 
       const horariosPorEstabelecimento = await fetchHorariosByEstabelecimentoIds(rows.map((r) => r.id));
-      return rows.map((row) => mapRowToEstabelecimento(row, horariosPorEstabelecimento.get(row.id) ?? []));
+      return rows
+        .map((row) => mapRowToEstabelecimento(row, horariosPorEstabelecimento.get(row.id) ?? []))
+        .sort((a, b) => a.nome_fantasia.localeCompare(b.nome_fantasia));
     },
 
     /**

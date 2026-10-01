@@ -59,19 +59,15 @@ type EstabelecimentoHorarioRow = {
  * `atualizarMeuPerfil` (após a escrita, relê a linha para devolver o estado
  * real persistido — nunca inventa o retorno a partir do input recebido,
  * mesmo padrão de `fetchEstabelecimentoAposMutacao` em `admin.supabase.ts`).
- * `null` = nenhuma linha para `donoUserId` (0 linhas — honesto, nunca erro).
+ * `null` = nenhuma loja vinculada ao usuário autenticado.
  * Falha ao assinar a foto degrada para `null` sem derrubar o restante (AC4,
  * mesmo padrão REL-001 da Story 3.7).
  */
-async function fetchMeuPerfilPorDono(
+async function fetchMeuPerfilAutorizado(
   supabase: SupabaseClient<Database>,
-  donoUserId: string,
 ): Promise<MeuPerfilLojista | null> {
-  const { data, error } = await supabase
-    .from('estabelecimentos')
-    .select('id, nome_fantasia, categoria, descricao, foto_fachada_url')
-    .eq('dono_user_id', donoUserId)
-    .maybeSingle();
+  const { data: privateRows, error } = await supabase.rpc('obter_estabelecimentos_privados', { p_id: null });
+  const data = privateRows?.[0] ?? null;
   if (error) {
     throw error;
   }
@@ -220,19 +216,7 @@ export function createEstabelecimentoCadastroSupabase(
       return { id: data };
     },
 
-    /**
-     * Story 3.10 (AC2-AC6). Lê a própria linha de `estabelecimentos` sob a
-     * RLS `publico_ve_ativos` (Story 3.5, `dono_user_id = auth.uid()`, sem
-     * filtro de status — cobre `em_analise`/`ativo`/`rejeitado`/`suspenso`
-     * igualmente). `.eq('dono_user_id', user.id)` é necessário: sem esse
-     * filtro, a mesma policy também libera leitura pública de QUALQUER loja
-     * `status = 'ativo'` — sem filtrar por dono, um `SELECT` "solto" poderia
-     * devolver a loja `ativo` de OUTRO lojista, não a própria (AC6 — a rota
-     * depende só do estado REAL do PRÓPRIO estabelecimento). `.maybeSingle()`
-     * porque 0 linhas é um resultado válido (AC4 — nunca lançado como erro);
-     * qualquer outro erro (rede, RLS negando por falta de sessão) propaga
-     * tal como recebido.
-     */
+    /** Lê o status da loja do usuário pela RPC que valida auth.uid() no banco. */
     async getMeuEstabelecimento(_options?: AsyncCallOptions): Promise<MeuEstabelecimentoStatus | null> {
       const supabase = resolveClient();
 
@@ -246,27 +230,21 @@ export function createEstabelecimentoCadastroSupabase(
       }
 
       const { data, error } = await supabase
-        .from('estabelecimentos')
-        .select('status, motivo_rejeicao')
-        .eq('dono_user_id', user.id)
-        .maybeSingle();
+        .rpc('obter_estabelecimentos_privados', { p_id: null });
       if (error) {
         throw error;
       }
-      if (!data) {
+      const row = data?.[0];
+      if (!row) {
         return null;
       }
 
       // `status` é `text` no banco (sem enum PostgreSQL) — mesmo cast
       // documentado em `admin.supabase.ts` (Story 3.7).
-      return { status: data.status as MeuEstabelecimentoStatus['status'], motivo_rejeicao: data.motivo_rejeicao };
+      return { status: row.status as MeuEstabelecimentoStatus['status'], motivo_rejeicao: row.motivo_rejeicao };
     },
 
-    /**
-     * Story 3.11 (AC1, AC4). Mesmo filtro explícito `.eq('dono_user_id',
-     * user.id)` de `getMeuEstabelecimento` (AC6 daquela Story) — sem sessão,
-     * `null` honesto sem consultar a tabela.
-     */
+    /** Lê o perfil autorizado do lojista; sem sessão resolve null. */
     async getMeuPerfil(_options?: AsyncCallOptions): Promise<MeuPerfilLojista | null> {
       const supabase = resolveClient();
 
@@ -279,20 +257,10 @@ export function createEstabelecimentoCadastroSupabase(
         return null;
       }
 
-      return fetchMeuPerfilPorDono(supabase, user.id);
+      return fetchMeuPerfilAutorizado(supabase);
     },
 
-    /**
-     * Story 3.11 (AC2, AC3). `UPDATE` restrito a `categoria`/`descricao` —
-     * `nome_fantasia`/`cnpj`/`status` NUNCA entram no payload (AC2), mesmo
-     * que a RLS `lojista_atualiza_proprio`/o trigger de imutabilidade não
-     * bloqueiem `nome_fantasia` especificamente (defesa em profundidade na
-     * camada de app). `.eq('dono_user_id', user.id)` filtra a escrita à
-     * própria linha (mesma razão de `getMeuEstabelecimento`/AC6 da Story
-     * 3.10 — sem esse filtro, um `UPDATE` "solto" dependeria só da RLS).
-     * Após o sucesso, relê a linha real (`fetchMeuPerfilPorDono`) em vez de
-     * ecoar o input de volta — nunca um sucesso simulado.
-     */
+    /** Atualiza por id obtido da RPC privada e relê o perfil persistido. */
     async atualizarMeuPerfil(
       input: AtualizarMeuPerfilInput,
       _options?: AsyncCallOptions,
@@ -308,15 +276,23 @@ export function createEstabelecimentoCadastroSupabase(
         throw new AutenticacaoNecessariaError();
       }
 
+      const { data: minhasLojas, error: leituraError } = await supabase.rpc('obter_estabelecimentos_privados', { p_id: null });
+      if (leituraError) {
+        throw leituraError;
+      }
+      const estabelecimentoId = minhasLojas?.[0]?.id;
+      if (!estabelecimentoId) {
+        throw new Error('[core-data/supabase] atualizarMeuPerfil — estabelecimento do usuário não encontrado.');
+      }
       const { error } = await supabase
         .from('estabelecimentos')
         .update({ categoria: input.categoria, descricao: input.descricao })
-        .eq('dono_user_id', user.id);
+        .eq('id', estabelecimentoId);
       if (error) {
         throw error;
       }
 
-      const perfil = await fetchMeuPerfilPorDono(supabase, user.id);
+      const perfil = await fetchMeuPerfilAutorizado(supabase);
       if (!perfil) {
         throw new Error(
           '[core-data/supabase] atualizarMeuPerfil — UPDATE concluiu com sucesso mas a releitura não encontrou a linha (inesperado).',
@@ -325,13 +301,7 @@ export function createEstabelecimentoCadastroSupabase(
       return perfil;
     },
 
-    /**
-     * Stories 4.3/4.4 (Dependencies) — mesmo filtro explícito
-     * `.eq('dono_user_id', user.id)` de `getMeuEstabelecimento`/`getMeuPerfil`
-     * (AC6 da Story 3.10) — sem sessão, `null` honesto sem consultar a
-     * tabela. `.maybeSingle()` porque "sem cadastro ainda" é um resultado
-     * válido (nunca lançado como erro).
-     */
+    /** Obtém o id da loja do usuário pela RPC privada. */
     async getMeuEstabelecimentoId(_options?: AsyncCallOptions): Promise<string | null> {
       const supabase = resolveClient();
 
@@ -345,14 +315,11 @@ export function createEstabelecimentoCadastroSupabase(
       }
 
       const { data, error } = await supabase
-        .from('estabelecimentos')
-        .select('id')
-        .eq('dono_user_id', user.id)
-        .maybeSingle();
+        .rpc('obter_estabelecimentos_privados', { p_id: null });
       if (error) {
         throw error;
       }
-      return data ? data.id : null;
+      return data?.[0]?.id ?? null;
     },
   };
 }

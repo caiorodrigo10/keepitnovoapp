@@ -914,6 +914,25 @@ export type Database = {
       }
     }
     Views: {
+      estabelecimentos_publicos: {
+        Row: {
+          id: string
+          nome_fantasia: string
+          categoria: string
+          descricao: string | null
+          foto_fachada_url: string | null
+          endereco: string
+          lat: number | null
+          lng: number | null
+          raio_atendimento_km: number | null
+          tempo_medio_entrega_min: number
+          taxa_deslocamento_reais: number
+          ticket_minimo_reais: number | null
+          status: string
+          pausado_manualmente: boolean
+        }
+        Relationships: []
+      }
       carteira_lojista: {
         Row: {
           estabelecimento_id: string | null
@@ -926,6 +945,14 @@ export type Database = {
       }
     }
     Functions: {
+      obter_estabelecimentos_privados: {
+        Args: { p_id?: string | null }
+        Returns: Database["public"]["Tables"]["estabelecimentos"]["Row"][]
+      }
+      estabelecimento_pertence_ao_usuario: {
+        Args: { p_id: string }
+        Returns: boolean
+      }
       "preparar_encerramento_tentativa": {
           Args: {
               "p_operacao_id": string;

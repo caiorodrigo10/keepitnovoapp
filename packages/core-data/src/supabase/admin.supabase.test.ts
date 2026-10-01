@@ -45,7 +45,13 @@ function fakeClient(options: {
   const createSignedUrl =
     options.createSignedUrl ?? vi.fn(async () => ({ data: { signedUrl: 'https://signed.example/never-called' }, error: null }));
   const storage = { from: vi.fn(() => ({ createSignedUrl })) };
-  const rpc = vi.fn(options.rpc ?? (async () => ({ data: null, error: null })));
+  const rpc = vi.fn(async (fn: string, args: unknown) => {
+    if (fn === 'obter_estabelecimentos_privados') {
+      const result = queues.estabelecimentos?.shift() ?? { data: [], error: null };
+      return { ...result, data: result.data == null ? null : Array.isArray(result.data) ? result.data : [result.data] };
+    }
+    return options.rpc ? options.rpc(fn, args) : { data: null, error: null };
+  });
   return { client: { from, storage, rpc } as unknown as SupabaseClient<Database>, from, rpc };
 }
 
@@ -117,7 +123,7 @@ const HORARIO_SEGUNDA = { estabelecimento_id: 'estab-1', dia_semana: 1, aberto: 
 
 describe('admin.supabase.ts — pendingStores (Story 3.7, AC2, AC4)', () => {
   it('mapeia as linhas retornadas para EstabelecimentoAdmin, incluindo horarios', async () => {
-    const { client } = fakeClient({
+    const { client, rpc } = fakeClient({
       estabelecimentos: [{ data: [ROW_EM_ANALISE], error: null }],
       estabelecimentosHorarios: [{ data: [HORARIO_SEGUNDA], error: null }],
     });
@@ -125,6 +131,7 @@ describe('admin.supabase.ts — pendingStores (Story 3.7, AC2, AC4)', () => {
     const port = createAdminSupabase(client);
     const pendentes = await port.pendingStores();
 
+    expect(rpc).toHaveBeenCalledWith('obter_estabelecimentos_privados', { p_id: null });
     expect(pendentes).toHaveLength(1);
     expect(pendentes[0]).toMatchObject({
       id: 'estab-1',
@@ -140,16 +147,11 @@ describe('admin.supabase.ts — pendingStores (Story 3.7, AC2, AC4)', () => {
     expect(pendentes[0].foto_fachada_url_assinada).toBeUndefined();
   });
 
-  it('filtra por status = em_analise via .eq() — não reimplementa a checagem no client', async () => {
-    const eqSpy = vi.fn(() => ({ then: (resolve: (v: QueryResult) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve) }));
-    const selectSpy = vi.fn(() => ({ eq: eqSpy }));
-    const fromSpy = vi.fn(() => ({ select: selectSpy }));
-    const spyClient = { from: fromSpy, storage: { from: vi.fn() } } as unknown as SupabaseClient<Database>;
-
-    await createAdminSupabase(spyClient).pendingStores();
-
-    expect(fromSpy).toHaveBeenCalledWith('estabelecimentos');
-    expect(eqSpy).toHaveBeenCalledWith('status', 'em_analise');
+  it('solicita dados privados pela RPC autorizada e filtra somente pendentes', async () => {
+    const { client, rpc } = fakeClient({ estabelecimentos: [{ data: [ROW_EM_ANALISE, ROW_ATIVO_APOS_APROVACAO], error: null }] });
+    const pendentes = await createAdminSupabase(client).pendingStores();
+    expect(rpc).toHaveBeenCalledWith('obter_estabelecimentos_privados', { p_id: null });
+    expect(pendentes.map((row) => row.status)).toEqual(['em_analise']);
   });
 
   it('RLS bloqueando um não-admin resolve em lista vazia — nunca um erro nem vazamento parcial (AC4)', async () => {
@@ -428,7 +430,13 @@ function fakeTableClient(options: {
     const result = queues[table]?.shift() ?? { data: [], error: null };
     return makeChainableBuilder(result);
   });
-  const rpc = vi.fn(options.rpc ?? (async () => ({ data: null, error: null })));
+  const rpc = vi.fn(async (fn: string, args: unknown) => {
+    if (fn === 'obter_estabelecimentos_privados') {
+      const result = queues.estabelecimentos?.shift() ?? { data: [], error: null };
+      return { ...result, data: result.data == null ? null : Array.isArray(result.data) ? result.data : [result.data] };
+    }
+    return options.rpc ? options.rpc(fn, args) : { data: null, error: null };
+  });
   const invoke = vi.fn(options.invoke ?? (async () => ({ data: null, error: null })));
   return { client: { from, rpc, functions: { invoke } } as unknown as SupabaseClient<Database>, from, rpc };
 }
@@ -782,7 +790,7 @@ describe('admin.supabase.ts — listAllEstabelecimentos/suspendLojista/reactivat
     const port = createAdminSupabase(client);
     const todos = await port.listAllEstabelecimentos();
 
-    expect(from).toHaveBeenCalledWith('estabelecimentos');
+    expect(from).not.toHaveBeenCalledWith('estabelecimentos');
     expect(todos.some((e) => e.status === 'suspenso')).toBe(true);
   });
 
