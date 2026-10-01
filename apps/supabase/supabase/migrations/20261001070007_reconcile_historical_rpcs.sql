@@ -8,32 +8,54 @@ DO $verify_before$
 DECLARE
   remote_mismatches integer;
   canonical_mismatches integer;
+  metadata_mismatches integer;
 BEGIN
-  WITH expected(schema_name, function_name, arguments, remote_md5, canonical_md5) AS (
+  WITH expected(schema_name, function_name, arguments, remote_md5, canonical_md5, expected_metadata) AS (
     VALUES
-    ('private','aceitar_pedido','p_pedido_id uuid, p_tempo_estimado_min integer','b4ed675b42758766b5b0e11ebdafa8b4','8c23c4cdf8243f5dba72579cb24ec826'),
-    ('private','confirmar_lancamento_admin','p_lancamento_id uuid, p_resultado text, p_detalhe text, p_asaas_id_externo text','13dec6b67bf1633c4d96c9f9e1372cca','b1827ae99c24276902f476f91b1053b9'),
-    ('private','forcar_cancelamento_pedido','p_pedido_id uuid, p_motivo text','e4cce96d0c61cc8f4b6fdd61b2a71121','ed41276b6a12fc9fb4571aef67d5ee84'),
-    ('private','recusar_pedido','p_pedido_id uuid, p_motivo text','db064e0bc55aa223946da2b4e088b432','5e5287f16151d7d6995318fabccabed9'),
-    ('public','avancar_estado_pedido','p_pedido_id uuid, p_novo_status text','3218f50055f2da6ebc4bbec2bfd3a65b','5b8465e0af168dd67a019a60a7b397ac'),
-    ('public','bloquear_cliente','p_cliente_id uuid, p_motivo text','84c051e06029b419fff0ed3c4679527e','229bc1c55970b1ea1039fd261adcabdd'),
-    ('public','clientes_bloqueia_imutaveis','','62ce697f455a977a001637fdd46c4f10','ec1a0605733227cc15fe889edd31a64d'),
-    ('public','criar_cliente_apos_signup','','dd375c388dbecc4b39fca51d3209e52c','c7a7040c331142cca67934ff204c2d97'),
-    ('public','criar_estabelecimento_completo','p_nome_fantasia text, p_cnpj text, p_responsavel_nome text, p_telefone text, p_categoria text, p_endereco text, p_lat numeric, p_lng numeric, p_raio_atendimento_km numeric, p_tempo_medio_entrega_min integer, p_taxa_deslocamento_reais numeric, p_ticket_minimo_reais numeric, p_chave_pix text, p_chave_pix_tipo text, p_foto_fachada_url text, p_descricao text, p_horarios jsonb','389b8ade25f0eec23a1d205c3ff92f75','87b5652c3229a7df992f7b500e897207'),
-    ('public','desbloquear_cliente','p_cliente_id uuid','8989cdfdf89ac5a52919eaa828999df1','c6999e361ee5aa26d9540e495d3aa837'),
-    ('public','pode_ver_pedido','pedido_row pedidos','e6a777a3452618c3084a0a8605b2e546','eb4e7f75ef8efeaeef0909fa9378f393'),
-    ('public','reativar_lojista','p_estabelecimento_id uuid','642df9a5ba14b724eaac8fde9fb4fd3b','096bb5e89ea5ad4bc86d7497dae59d35'),
-    ('public','rejeitar_lojista','p_estab_id uuid, p_motivo text','8a92d4fc941550a852920984f4059d35','0f6c46ecc425181853c5a73d6712d0cb'),
-    ('public','suspender_lojista','p_estabelecimento_id uuid, p_motivo text','078472143357eeefceb453f6492378c1','7d4ea4e92442f49cfe6d13371925ae59')
+    ('private','aceitar_pedido','p_pedido_id uuid, p_tempo_estimado_min integer','b4ed675b42758766b5b0e11ebdafa8b4','8c23c4cdf8243f5dba72579cb24ec826','{"owner":"postgres","acl":"{postgres=X/postgres,service_role=X/postgres}","security_definer":true,"volatility":"v","strict":false,"leakproof":false,"parallel":"u","config":["search_path=\"\""],"execute_public":false,"execute_anon":false,"execute_authenticated":false,"execute_service_role":true}'::jsonb),
+    ('private','confirmar_lancamento_admin','p_lancamento_id uuid, p_resultado text, p_detalhe text, p_asaas_id_externo text','13dec6b67bf1633c4d96c9f9e1372cca','b1827ae99c24276902f476f91b1053b9','{"owner":"postgres","acl":"{postgres=X/postgres,service_role=X/postgres}","security_definer":true,"volatility":"v","strict":false,"leakproof":false,"parallel":"u","config":["search_path=\"\""],"execute_public":false,"execute_anon":false,"execute_authenticated":false,"execute_service_role":true}'::jsonb),
+    ('private','forcar_cancelamento_pedido','p_pedido_id uuid, p_motivo text','e4cce96d0c61cc8f4b6fdd61b2a71121','ed41276b6a12fc9fb4571aef67d5ee84','{"owner":"postgres","acl":"{postgres=X/postgres,service_role=X/postgres}","security_definer":true,"volatility":"v","strict":false,"leakproof":false,"parallel":"u","config":["search_path=\"\""],"execute_public":false,"execute_anon":false,"execute_authenticated":false,"execute_service_role":true}'::jsonb),
+    ('private','recusar_pedido','p_pedido_id uuid, p_motivo text','db064e0bc55aa223946da2b4e088b432','5e5287f16151d7d6995318fabccabed9','{"owner":"postgres","acl":"{postgres=X/postgres,service_role=X/postgres}","security_definer":true,"volatility":"v","strict":false,"leakproof":false,"parallel":"u","config":["search_path=\"\""],"execute_public":false,"execute_anon":false,"execute_authenticated":false,"execute_service_role":true}'::jsonb),
+    ('public','avancar_estado_pedido','p_pedido_id uuid, p_novo_status text','3218f50055f2da6ebc4bbec2bfd3a65b','5b8465e0af168dd67a019a60a7b397ac','{"owner":"postgres","acl":"{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}","security_definer":true,"volatility":"v","strict":false,"leakproof":false,"parallel":"u","config":["search_path=\"\""],"execute_public":false,"execute_anon":false,"execute_authenticated":true,"execute_service_role":true}'::jsonb),
+    ('public','bloquear_cliente','p_cliente_id uuid, p_motivo text','84c051e06029b419fff0ed3c4679527e','229bc1c55970b1ea1039fd261adcabdd','{"owner":"postgres","acl":"{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}","security_definer":true,"volatility":"v","strict":false,"leakproof":false,"parallel":"u","config":["search_path=\"\""],"execute_public":false,"execute_anon":false,"execute_authenticated":true,"execute_service_role":true}'::jsonb),
+    ('public','clientes_bloqueia_imutaveis','','62ce697f455a977a001637fdd46c4f10','ec1a0605733227cc15fe889edd31a64d','{"owner":"postgres","acl":"{=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}","security_definer":false,"volatility":"v","strict":false,"leakproof":false,"parallel":"u","config":["search_path=\"\""],"execute_public":true,"execute_anon":true,"execute_authenticated":true,"execute_service_role":true}'::jsonb),
+    ('public','criar_cliente_apos_signup','','dd375c388dbecc4b39fca51d3209e52c','c7a7040c331142cca67934ff204c2d97','{"owner":"postgres","acl":"{postgres=X/postgres,service_role=X/postgres}","security_definer":true,"volatility":"v","strict":false,"leakproof":false,"parallel":"u","config":["search_path=public, pg_temp"],"execute_public":false,"execute_anon":false,"execute_authenticated":false,"execute_service_role":true}'::jsonb),
+    ('public','criar_estabelecimento_completo','p_nome_fantasia text, p_cnpj text, p_responsavel_nome text, p_telefone text, p_categoria text, p_endereco text, p_lat numeric, p_lng numeric, p_raio_atendimento_km numeric, p_tempo_medio_entrega_min integer, p_taxa_deslocamento_reais numeric, p_ticket_minimo_reais numeric, p_chave_pix text, p_chave_pix_tipo text, p_foto_fachada_url text, p_descricao text, p_horarios jsonb','389b8ade25f0eec23a1d205c3ff92f75','87b5652c3229a7df992f7b500e897207','{"owner":"postgres","acl":"{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}","security_definer":true,"volatility":"v","strict":false,"leakproof":false,"parallel":"u","config":["search_path=public, pg_temp"],"execute_public":false,"execute_anon":false,"execute_authenticated":true,"execute_service_role":true}'::jsonb),
+    ('public','desbloquear_cliente','p_cliente_id uuid','8989cdfdf89ac5a52919eaa828999df1','c6999e361ee5aa26d9540e495d3aa837','{"owner":"postgres","acl":"{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}","security_definer":true,"volatility":"v","strict":false,"leakproof":false,"parallel":"u","config":["search_path=\"\""],"execute_public":false,"execute_anon":false,"execute_authenticated":true,"execute_service_role":true}'::jsonb),
+    ('public','pode_ver_pedido','pedido_row pedidos','e6a777a3452618c3084a0a8605b2e546','eb4e7f75ef8efeaeef0909fa9378f393','{"owner":"postgres","acl":"{postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}","security_definer":true,"volatility":"s","strict":false,"leakproof":false,"parallel":"u","config":["search_path=\"\""],"execute_public":false,"execute_anon":true,"execute_authenticated":true,"execute_service_role":true}'::jsonb),
+    ('public','reativar_lojista','p_estabelecimento_id uuid','642df9a5ba14b724eaac8fde9fb4fd3b','096bb5e89ea5ad4bc86d7497dae59d35','{"owner":"postgres","acl":"{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}","security_definer":true,"volatility":"v","strict":false,"leakproof":false,"parallel":"u","config":["search_path=\"\""],"execute_public":false,"execute_anon":false,"execute_authenticated":true,"execute_service_role":true}'::jsonb),
+    ('public','rejeitar_lojista','p_estab_id uuid, p_motivo text','8a92d4fc941550a852920984f4059d35','0f6c46ecc425181853c5a73d6712d0cb','{"owner":"postgres","acl":"{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}","security_definer":true,"volatility":"v","strict":false,"leakproof":false,"parallel":"u","config":["search_path=\"\""],"execute_public":false,"execute_anon":false,"execute_authenticated":true,"execute_service_role":true}'::jsonb),
+    ('public','suspender_lojista','p_estabelecimento_id uuid, p_motivo text','078472143357eeefceb453f6492378c1','7d4ea4e92442f49cfe6d13371925ae59','{"owner":"postgres","acl":"{postgres=X/postgres,authenticated=X/postgres,service_role=X/postgres}","security_definer":true,"volatility":"v","strict":false,"leakproof":false,"parallel":"u","config":["search_path=\"\""],"execute_public":false,"execute_anon":false,"execute_authenticated":true,"execute_service_role":true}'::jsonb)
   )
   SELECT count(*) FILTER (WHERE p.oid IS NULL OR md5(pg_get_functiondef(p.oid)) <> e.remote_md5),
-         count(*) FILTER (WHERE p.oid IS NULL OR md5(pg_get_functiondef(p.oid)) <> e.canonical_md5)
-    INTO remote_mismatches, canonical_mismatches
+         count(*) FILTER (WHERE p.oid IS NULL OR md5(pg_get_functiondef(p.oid)) <> e.canonical_md5),
+         count(*) FILTER (WHERE p.oid IS NULL OR jsonb_build_object(
+           'owner', pg_get_userbyid(p.proowner),
+           'acl', p.proacl::text,
+           'security_definer', p.prosecdef,
+           'volatility', p.provolatile,
+           'strict', p.proisstrict,
+           'leakproof', p.proleakproof,
+           'parallel', p.proparallel,
+           'config', to_jsonb(p.proconfig),
+           'execute_public', has_function_privilege('public', p.oid, 'EXECUTE'),
+           'execute_anon', has_function_privilege('anon', p.oid, 'EXECUTE'),
+           'execute_authenticated', has_function_privilege('authenticated', p.oid, 'EXECUTE'),
+           'execute_service_role', has_function_privilege('service_role', p.oid, 'EXECUTE')
+         ) IS DISTINCT FROM e.expected_metadata)
+    INTO remote_mismatches, canonical_mismatches, metadata_mismatches
     FROM expected e
     LEFT JOIN pg_namespace n ON n.nspname = e.schema_name
     LEFT JOIN pg_proc p ON p.pronamespace = n.oid
       AND p.proname = e.function_name
       AND pg_get_function_identity_arguments(p.oid) = e.arguments;
+
+  -- Ownership, explicit ACL and effective EXECUTE, SECURITY DEFINER, search_path,
+  -- and execution flags matched in both the remote clone and canonical local reset.
+  -- Reject catalog drift before any CREATE OR REPLACE, including on a canonical rerun.
+  IF metadata_mismatches <> 0 THEN
+    RAISE EXCEPTION 'Task12 RPC metadata baseline mismatch (%)', metadata_mismatches;
+  END IF;
 
   -- All 14 signatures must match one complete baseline. Mixed or drifted states fail closed.
   IF remote_mismatches <> 0 AND canonical_mismatches <> 0 THEN
