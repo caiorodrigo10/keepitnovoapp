@@ -35,7 +35,7 @@ function MovimentacaoRow({ movimentacao }: { movimentacao: MovimentacaoExtrato }
       </View>
       <View style={styles.movText}>
         <Text style={[styles.movTitulo, { color: darkColors.text.primary }]}>
-          {isVenda ? `Venda #${movimentacao.numeroPedido}` : 'Saque · PIX'}
+          {isVenda ? `Venda #${movimentacao.numeroPedido}` : 'Repasse · PIX'}
         </Text>
         <Text style={[styles.movSubtitulo, { color: darkColors.text.tertiary }]}>
           {isVenda
@@ -128,14 +128,14 @@ export default function ExtratoFinanceiro({ navigation }: Props) {
         ) : (
           <>
             <View style={[styles.summaryCard, { backgroundColor: darkColors.bg.surface }]}>
-              <Text style={[styles.summaryLabel, { color: darkColors.text.tertiary }]}>Repasse líquido</Text>
+              <Text style={[styles.summaryLabel, { color: darkColors.text.tertiary }]}>Crédito por entregas</Text>
               <Text style={[styles.summaryValue, { color: darkColors.text.primary }]}>
                 {formatBRL(extrato.repasseLiquidoReais)}
               </Text>
               <View style={[styles.summaryDivider, { backgroundColor: darkColors.border.default }]} />
               <View style={styles.summaryRow}>
                 <View>
-                  <Text style={[styles.summarySubLabel, { color: darkColors.text.tertiary }]}>Recebido</Text>
+                  <Text style={[styles.summarySubLabel, { color: darkColors.text.tertiary }]}>Vendas da loja</Text>
                   <Text style={[styles.summarySubValue, { color: darkColors.accent.brand }]}>
                     {formatBRL(extrato.recebidoReais)}
                   </Text>

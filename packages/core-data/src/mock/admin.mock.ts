@@ -557,7 +557,21 @@ export function createAdminMock(db: MockDb): AdminPort {
           );
 
           const gmvReais = pedidosEntreguesNoPeriodo.reduce((sum, p) => sum + p.total_pago_reais, 0);
-          const receitaKeepitReais = pedidosEntreguesNoPeriodo.reduce((sum, p) => sum + p.taxa_keepit_reais, 0);
+          const receitaKeepitReais = pedidosEntreguesNoPeriodo.reduce((sum, p) => sum + p.taxa_keepit_reais + p.taxa_servico_comprador_reais, 0);
+          const recebidoClientesReais = db.pedidos.filter((p) =>
+            !['pendente_pagamento', 'cancelado', 'cancelado_timeout', 'recusado'].includes(p.status) &&
+            new Date(p.criado_em) >= limite)
+            .reduce((sum, p) => sum + p.total_pago_reais, 0);
+          const repassesPagosReais = db.repasses.filter((p) => p.estado === 'pago' && p.confirmadoEm && new Date(p.confirmadoEm) >= limite)
+            .reduce((sum, p) => sum + p.valorCentavos / 100, 0);
+          const creditos = db.pedidos.filter((p) => p.status === 'entregue')
+            .reduce((sum, p) => sum + p.subtotal_produtos_reais - p.taxa_keepit_reais + p.taxa_deslocamento_reais, 0);
+          const ajustes = db.ajustesReembolso.reduce((sum, item) => sum + item.valorCentavos / 100, 0);
+          const pagosTotal = db.repasses.filter((p) => p.estado === 'pago')
+            .reduce((sum, p) => sum + p.valorCentavos / 100, 0);
+          const dividaLojistasReais = Math.round((creditos + ajustes - pagosTotal) * 100) / 100;
+          const reembolsosReais = db.reembolsos.filter((item) => item.status === 'estornado' && new Date(item.criado_em) >= limite)
+            .reduce((sum, item) => sum + item.valor_a_estornar_reais, 0);
 
           const porLoja = new Map<string, { gmvReais: number; pedidosEntregues: number }>();
           for (const pedido of pedidosEntreguesNoPeriodo) {
@@ -601,7 +615,12 @@ export function createAdminMock(db: MockDb): AdminPort {
           return {
             periodoDias,
             gmvReais,
+            recebidoClientesReais,
             receitaKeepitReais,
+            despesaGatewayReais: 0,
+            dividaLojistasReais,
+            repassesPagosReais,
+            reembolsosReais,
             ranking,
             pedidosTotais: pedidosNoPeriodoPorCriacao.length,
             pedidosEntregues: pedidosEntreguesNoPeriodoPorCriacao,
@@ -617,7 +636,12 @@ export function createAdminMock(db: MockDb): AdminPort {
         {
           periodoDias,
           gmvReais: 0,
+          recebidoClientesReais: 0,
           receitaKeepitReais: 0,
+          despesaGatewayReais: 0,
+          dividaLojistasReais: 0,
+          repassesPagosReais: 0,
+          reembolsosReais: 0,
           ranking: [],
           pedidosTotais: 0,
           pedidosEntregues: 0,

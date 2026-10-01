@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createMockDb } from './db';
 import { createPayoutMock } from './payout.mock';
+import { createWalletMock } from './wallet.mock';
 
 describe('PayoutPort mock', () => {
   it('prepara uma vez o crédito de pedido entregue por PIN e confirma sem dupla baixa', async () => {
@@ -51,6 +52,28 @@ describe('PayoutPort mock', () => {
     const second = (await payout.preparar({ semanaInicio: '2026-10-05', operacaoId: 'op-3' }))[0]!;
     expect(second.valorCentavos).toBe(credit - 500);
     expect(db.repasseItens.filter((item) => item.fonteId === 'refund-1' && !item.liberado).reduce((sum, item) => sum - item.valorCentavos, 0)).toBe(credit + 500);
+  });
+
+  it('mantém reembolso de custo Keepit fora da carteira e carrega ajuste lojista posterior ao PIX', async () => {
+    const db = createMockDb();
+    const pedido = db.pedidos.find((item) => item.status === 'no_hub')!;
+    db.pedidos = [pedido]; pedido.status = 'entregue'; pedido.entregue_em = '2026-09-28T03:00:00.000Z';
+    db.saques = [];
+    const payout = createPayoutMock(db);
+    const wallet = createWalletMock(db);
+    const initial = await wallet.getBalance(pedido.estabelecimento_id);
+    db.reembolsos.push({ id: 'refund-keepit', pedido_id: pedido.id, motivo: 'cancelamento_admin',
+      valor_a_estornar_reais: 3, valor_ao_lojista_reais: 0, forma_pagamento: 'pix',
+      status: 'estornado', criado_em: '2026-09-29T00:00:00Z', responsavel: 'keepit' });
+    expect(await wallet.getBalance(pedido.estabelecimento_id)).toEqual(initial);
+    const first = (await payout.preparar({ semanaInicio: '2026-09-28', operacaoId: 'prep-refund-1' }))[0]!;
+    await payout.confirmar({ repasseId: first.id, referencia: 'pix-refund-1', operacaoId: 'pay-refund-1' });
+    db.ajustesReembolso.push({ reembolsoId: 'refund-merchant', pedidoId: pedido.id, valorCentavos: -300 });
+    expect((await wallet.getBalance(pedido.estabelecimento_id)).saldo_disponivel_reais).toBe(-3);
+    db.pedidos.push({ ...pedido, id: 'pedido-futuro', entregue_em: '2026-10-05T03:00:00.000Z' });
+    const next = (await payout.preparar({ semanaInicio: '2026-10-05', operacaoId: 'prep-refund-2' }))[0]!;
+    expect(next.valorCentavos).toBe(first.valorCentavos - 300);
+    expect((await payout.listar()).find((item) => item.id === next.id)?.itens?.some((item) => item.valorCentavos < 0)).toBe(true);
   });
 
   it('não prepara PIX sem dados bancários verificados da loja', async () => {

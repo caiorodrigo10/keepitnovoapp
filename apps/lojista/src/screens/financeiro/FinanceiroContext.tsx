@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
 
-import { getDataClient, type CarteiraLojista, type Saque } from '@keepit/core-data';
+import { getDataClient, type CarteiraLojista, type Repasse, type Saque } from '@keepit/core-data';
 
 import { useCurrentStore } from '../../context/CurrentStoreContext';
 import { paidThisMonth } from './financeiroPayoutPresentation';
@@ -23,6 +23,9 @@ interface FinanceiroContextValue {
   saquesLoading: boolean;
   /** Total de PIX confirmados no mês corrente. */
   sacadoNoMesReais: number;
+  repasses: Repasse[];
+  repassesLoading: boolean;
+  repassesError: Error | null;
 }
 
 const FinanceiroContext = createContext<FinanceiroContextValue | null>(null);
@@ -49,13 +52,27 @@ export function FinanceiroProvider({ children }: PropsWithChildren) {
 
   const [saques, setSaques] = useState<Saque[]>([]);
   const [saquesLoading, setSaquesLoading] = useState(true);
+  const [repasses, setRepasses] = useState<Repasse[]>([]);
+  const [repassesLoading, setRepassesLoading] = useState(true);
+  const [repassesError, setRepassesError] = useState<Error | null>(null);
 
 
   useEffect(() => {
-    if (!storeId) return;
+    if (!storeId) {
+      setCarteira(EMPTY_CARTEIRA);
+      setSaques([]);
+      setRepasses([]);
+      setCarteiraLoading(false);
+      setSaquesLoading(false);
+      setRepassesLoading(false);
+      return;
+    }
     let cancelled = false;
     const client = getDataClient();
 
+    setCarteira(EMPTY_CARTEIRA);
+    setSaques([]);
+    setRepasses([]);
     setCarteiraLoading(true);
     setCarteiraError(null);
     client.wallet
@@ -81,6 +98,13 @@ export function FinanceiroProvider({ children }: PropsWithChildren) {
         if (!cancelled) setSaquesLoading(false);
       });
 
+    setRepassesLoading(true);
+    setRepassesError(null);
+    client.payout.listar()
+      .then((list) => { if (!cancelled) setRepasses(list.filter((item) => item.estabelecimentoId === storeId)); })
+      .catch((error: unknown) => { if (!cancelled) setRepassesError(error instanceof Error ? error : new Error(String(error))); })
+      .finally(() => { if (!cancelled) setRepassesLoading(false); });
+
     return () => {
       cancelled = true;
     };
@@ -97,9 +121,13 @@ export function FinanceiroProvider({ children }: PropsWithChildren) {
       saquesRecentes: saques,
       saquesLoading,
       sacadoNoMesReais,
+      repasses,
+      repassesLoading,
+      repassesError,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [carteira, carteiraLoading, carteiraError, saques, saquesLoading, sacadoNoMesReais],
+    [carteira, carteiraLoading, carteiraError, saques, saquesLoading, sacadoNoMesReais,
+      repasses, repassesLoading, repassesError],
   );
 
   return <FinanceiroContext.Provider value={value}>{children}</FinanceiroContext.Provider>;

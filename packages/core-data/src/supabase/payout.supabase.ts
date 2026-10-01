@@ -29,20 +29,25 @@ export function createPayoutSupabase(client?: SupabaseClient<Database>): PayoutP
   const resolve = () => (client ??= createClient());
   return {
     async listar() {
-      const [batches, forecasts, allocations] = await Promise.all([
+      const [batches, forecasts, allocations, credits] = await Promise.all([
         resolve().from('repasses' as never).select('*').order('semana_inicio', { ascending: false }),
         resolve().from('previsoes_repasse' as never).select('*').order('semana_inicio', { ascending: false }),
-        resolve().from('repasse_itens' as never).select('repasse_id,lancamento_id,valor_centavos,lancamentos_financeiros(pedido_id)').order('criado_em', { ascending: true }),
+        resolve().from('repasse_itens' as never).select('repasse_id,lancamento_id,valor_centavos,liberado_em,lancamentos_financeiros(pedido_id,pedidos(numero,taxa_keepit_reais))').order('criado_em', { ascending: true }),
+        resolve().from('lancamentos_financeiros').select('id,estabelecimento_id,semana_inicio,valor_centavos,pedido_id,pedidos(numero,taxa_keepit_reais)').eq('tipo', 'merchant_credit').eq('status', 'concluido'),
       ]);
       if (batches.error) throw batches.error;
       if (forecasts.error) throw forecasts.error;
       if (allocations.error) throw allocations.error;
+      if (credits.error) throw credits.error;
       const itemsByBatch = new Map<string, NonNullable<Repasse['itens']>>();
       for (const value of (allocations.data ?? []) as unknown[]) {
-        const item = value as { repasse_id: string; lancamento_id: string; valor_centavos: number; lancamentos_financeiros?: { pedido_id: string | null } | null };
+        const item = value as { repasse_id: string; lancamento_id: string; valor_centavos: number; lancamentos_financeiros?: { pedido_id: string | null; pedidos?: { numero: number; taxa_keepit_reais: number } | null } | null };
         const group = itemsByBatch.get(item.repasse_id) ?? [];
         group.push({ lancamentoId: item.lancamento_id, pedidoId: item.lancamentos_financeiros?.pedido_id ?? null,
-          valorCentavos: item.valor_centavos });
+          valorCentavos: item.valor_centavos,
+          numeroPedido: item.lancamentos_financeiros?.pedidos?.numero ?? null,
+          comissaoCentavos: item.valor_centavos > 0 && item.lancamentos_financeiros?.pedidos
+            ? Math.round(item.lancamentos_financeiros.pedidos.taxa_keepit_reais * 100) : null });
         itemsByBatch.set(item.repasse_id, group);
       }
       return [ ...((batches.data ?? []) as unknown[]).map((row) => {
@@ -50,7 +55,23 @@ export function createPayoutSupabase(client?: SupabaseClient<Database>): PayoutP
         repasse.itens = itemsByBatch.get(repasse.id) ?? [];
         return repasse;
       }),
-        ...((forecasts.data ?? []) as unknown[]).map((row) => parse(row, true)) ]
+        ...((forecasts.data ?? []) as unknown[]).map((row) => {
+          const forecast = parse(row, true);
+          const allocated = new Set(((allocations.data ?? []) as Array<{ lancamento_id: string; liberado_em: string | null }>)
+            .filter((item) => !item.liberado_em).map((item) => item.lancamento_id));
+          const itemRows = ((credits.data ?? []) as unknown as Array<{ id: string; estabelecimento_id: string;
+            semana_inicio: string | null; valor_centavos: number; pedido_id: string | null;
+            pedidos?: { numero: number; taxa_keepit_reais: number } | null }>).filter((item) =>
+            item.estabelecimento_id === forecast.estabelecimentoId && item.semana_inicio === forecast.semanaInicio &&
+            item.valor_centavos > 0 && !allocated.has(item.id));
+          const gross = itemRows.reduce((sum, item) => sum + item.valor_centavos, 0);
+          forecast.itens = itemRows.map((item) => ({ lancamentoId: item.id, pedidoId: item.pedido_id,
+            valorCentavos: item.valor_centavos, numeroPedido: item.pedidos?.numero ?? null,
+            comissaoCentavos: item.pedidos ? Math.round(item.pedidos.taxa_keepit_reais * 100) : null }));
+          if (gross > forecast.valorCentavos) forecast.itens.push({ lancamentoId: `ajuste:${forecast.id}`,
+            pedidoId: null, valorCentavos: forecast.valorCentavos - gross, numeroPedido: null, comissaoCentavos: null });
+          return forecast;
+        }) ]
         .sort((a, b) => b.semanaInicio.localeCompare(a.semanaInicio));
     },
     async preparar(input) {

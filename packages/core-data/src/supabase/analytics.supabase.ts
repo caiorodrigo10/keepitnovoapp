@@ -18,12 +18,11 @@ function roundReais(value: number): number {
 /** Mesmo mapeamento de `analytics.mock.ts` (Story 1.10) — paridade obrigatória (Stories 7.9/7.10). */
 const PERIODO_DIAS: Record<PeriodoVendas, number> = { '7d': 7, '30d': 30, '90d': 90, '1a': 365 };
 
-const PEDIDO_VENDA_COLUMNS = 'id, numero, total_pago_reais, entregue_em, subtotal_produtos_reais, taxa_keepit_reais, taxa_deslocamento_reais';
+const PEDIDO_VENDA_COLUMNS = 'id, numero, entregue_em, subtotal_produtos_reais, taxa_keepit_reais, taxa_deslocamento_reais';
 
 type PedidoVendaRow = {
   id: string;
   numero: number;
-  total_pago_reais: number;
   entregue_em: string | null;
   subtotal_produtos_reais: number;
   taxa_keepit_reais: number;
@@ -90,7 +89,7 @@ export function createAnalyticsSupabase(client?: SupabaseClient<Database>): Anal
   const resolveClient = (): SupabaseClient<Database> => cachedClient ?? (cachedClient = createClient());
 
   return {
-    /** Story 7.10 (AC1, AC3, AC5). `totalVendasReais = SUM(total_pago_reais)`, `totalPedidos = COUNT(*)`. */
+    /** Vendas da loja = produtos + deslocamento. Taxa de serviço Keepit pertence à plataforma. */
     async salesSummary(
       estabelecimentoId: string,
       periodo: PeriodoVendas,
@@ -98,7 +97,8 @@ export function createAnalyticsSupabase(client?: SupabaseClient<Database>): Anal
     ): Promise<VendasPeriodoResumo> {
       const supabase = resolveClient();
       const pedidos = await fetchPedidosEntreguesNoPeriodo(supabase, estabelecimentoId, periodo);
-      const totalVendasReais = roundReais(pedidos.reduce((sum, p) => sum + Number(p.total_pago_reais), 0));
+      const totalVendasReais = roundReais(pedidos.reduce((sum, p) =>
+        sum + Number(p.subtotal_produtos_reais) + Number(p.taxa_deslocamento_reais), 0));
       return { periodo, totalVendasReais, totalPedidos: pedidos.length };
     },
 

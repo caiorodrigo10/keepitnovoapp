@@ -164,7 +164,13 @@ export interface AdminPaymentInspection {
 export interface FinancialDashboardResult {
   periodoDias: number;
   gmvReais: number;
+  /** Recebimento dos clientes não é receita da plataforma nem saldo do lojista. */
+  recebidoClientesReais: number;
   receitaKeepitReais: number;
+  despesaGatewayReais: number;
+  dividaLojistasReais: number;
+  repassesPagosReais: number;
+  reembolsosReais: number;
   ranking: FinancialRankingEntry[];
   /**
    * [AUTO-DECISION] Story 8.7 — @po marcou contagens + taxa de sucesso como

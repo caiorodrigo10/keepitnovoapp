@@ -47,7 +47,7 @@ const PEDIDO_ROW = {
 };
 
 describe('analytics.supabase.ts — salesSummary (Story 7.10, AC1, AC3, AC5, AC6)', () => {
-  it('agrega SUM(total_pago_reais)/COUNT(*) dos pedidos entregues no período, para cada período (7d/30d/90d/1a)', async () => {
+  it('agrega vendas da loja sem a taxa de serviço Keepit, para cada período', async () => {
     for (const periodo of ['7d', '30d', '90d', '1a'] as const) {
       const { client, builders } = fakeClient({ pedidos: { data: [PEDIDO_ROW], error: null } });
       const port = createAnalyticsSupabase(client);
@@ -55,7 +55,7 @@ describe('analytics.supabase.ts — salesSummary (Story 7.10, AC1, AC3, AC5, AC6
 
       expect(builders.pedidos.eq).toHaveBeenCalledWith('estabelecimento_id', 'estab-1');
       expect(builders.pedidos.eq).toHaveBeenCalledWith('status', 'entregue');
-      expect(resumo).toEqual({ periodo, totalVendasReais: 37.7, totalPedidos: 1 });
+      expect(resumo).toEqual({ periodo, totalVendasReais: 34.8, totalPedidos: 1 });
     }
   });
 

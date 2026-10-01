@@ -8,12 +8,17 @@ const row = { id: 'repasse-1', estabelecimento_id: 'loja-1', semana_inicio: '202
 
 describe('PayoutPort Supabase', () => {
   it('combina lotes materializados e previsões sem expor chave PIX na previsão', async () => {
-    const from = vi.fn((name: string) => ({ select: () => ({ order: async () => ({ data: name === 'repasses' ? [row] : name === 'repasse_itens' ? [{ repasse_id: 'repasse-1', lancamento_id: 'credito-1', valor_centavos: 1234, lancamentos_financeiros: { pedido_id: 'pedido-1' } }] : [{ id: 'prev-1', estabelecimento_id: 'loja-1', semana_inicio: '2026-10-05', previsto_para: '2026-10-16', valor_centavos: 500 }], error: null }) }) }));
+    const from = vi.fn((name: string) => ({ select: () => ({
+      eq: () => ({ eq: async () => ({ data: [{ id: 'credito-2', estabelecimento_id: 'loja-1', semana_inicio: '2026-10-05', valor_centavos: 700, pedido_id: 'pedido-2', pedidos: { numero: 43, taxa_keepit_reais: 0.7 } }], error: null }) }),
+      order: async () => ({ data: name === 'repasses' ? [row] : name === 'repasse_itens' ? [{ repasse_id: 'repasse-1', lancamento_id: 'credito-1', valor_centavos: 1234, liberado_em: null, lancamentos_financeiros: { pedido_id: 'pedido-1', pedidos: { numero: 42, taxa_keepit_reais: 1.4 } } }] : [{ id: 'prev-1', estabelecimento_id: 'loja-1', semana_inicio: '2026-10-05', previsto_para: '2026-10-16', valor_centavos: 500 }], error: null }),
+    }) }));
     const payout = createPayoutSupabase({ from } as never);
     const result = await payout.listar();
     expect(result).toHaveLength(2);
-    expect(result[0]).toMatchObject({ estado: 'previsto', valorCentavos: 500, chavePix: null });
-    expect(result[1]).toMatchObject({ estado: 'pendente', chavePix: 'pix', itens: [{ lancamentoId: 'credito-1', pedidoId: 'pedido-1', valorCentavos: 1234 }] });
+    expect(result[0]).toMatchObject({ estado: 'previsto', valorCentavos: 500, chavePix: null,
+      itens: [{ pedidoId: 'pedido-2', numeroPedido: 43, comissaoCentavos: 70, valorCentavos: 700 },
+        { valorCentavos: -200, pedidoId: null }] });
+    expect(result[1]).toMatchObject({ estado: 'pendente', chavePix: 'pix', itens: [{ lancamentoId: 'credito-1', pedidoId: 'pedido-1', valorCentavos: 1234, numeroPedido: 42, comissaoCentavos: 140 }] });
   });
 
   it('encaminha chave de idempotência em preparação e confirmação', async () => {

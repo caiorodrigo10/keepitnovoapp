@@ -121,7 +121,12 @@ export function useLojistaOrderCounts(
 const EMPTY_FINANCIAL_DASHBOARD: FinancialDashboardResult = {
   periodoDias: 0,
   gmvReais: 0,
+  recebidoClientesReais: 0,
   receitaKeepitReais: 0,
+  despesaGatewayReais: 0,
+  dividaLojistasReais: 0,
+  repassesPagosReais: 0,
+  reembolsosReais: 0,
   ranking: [],
   pedidosTotais: 0,
   pedidosEntregues: 0,

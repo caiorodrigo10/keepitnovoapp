@@ -893,7 +893,9 @@ describe('admin.supabase.ts — financialDashboard (Story 8.7)', () => {
         pedidos: [
           {
             data: [
-              { estabelecimento_id: 'estab-1', total_pago_reais: 100, taxa_keepit_reais: 10, entregue_em: '2026-08-05T00:00:00.000Z' },
+              { estabelecimento_id: 'estab-1', total_pago_reais: 107.9, subtotal_produtos_reais: 100,
+                taxa_deslocamento_reais: 5, taxa_keepit_reais: 10, taxa_servico_comprador_reais: 2.9,
+                entregue_em: '2026-08-05T00:00:00.000Z' },
             ],
             error: null,
           },
@@ -901,17 +903,25 @@ describe('admin.supabase.ts — financialDashboard (Story 8.7)', () => {
             data: [{ status: 'entregue' }, { status: 'cancelado' }, { status: 'nao_retirado' }],
             error: null,
           },
+          { data: [{ total_pago_reais: 107.9 }], error: null },
         ],
         estabelecimentos: [{ data: [{ id: 'estab-1', nome_fantasia: 'Padoca' }], error: null }],
+        lancamentos_financeiros: [{ data: [
+          { tipo: 'charge', valor_centavos: 10790, status: 'concluido', criado_em: '2026-08-05', concluido_em: null },
+          { tipo: 'merchant_credit', valor_centavos: 9500, status: 'concluido', criado_em: '2026-08-05', concluido_em: null },
+          { tipo: 'payout', valor_centavos: -3000, status: 'concluido', criado_em: '2026-08-06', concluido_em: '2026-08-06' },
+        ], error: null }],
       },
     });
 
     const port = createAdminSupabase(client);
     const dashboard = await port.financialDashboard(30);
 
-    expect(dashboard.gmvReais).toBe(100);
-    expect(dashboard.receitaKeepitReais).toBe(10);
-    expect(dashboard.ranking).toEqual([{ estabelecimento_id: 'estab-1', nome_fantasia: 'Padoca', gmvReais: 100, pedidosEntregues: 1 }]);
+    expect(dashboard.gmvReais).toBe(107.9);
+    expect(dashboard.recebidoClientesReais).toBe(107.9);
+    expect(dashboard.receitaKeepitReais).toBe(12.9);
+    expect(dashboard.dividaLojistasReais).toBe(65);
+    expect(dashboard.ranking).toEqual([{ estabelecimento_id: 'estab-1', nome_fantasia: 'Padoca', gmvReais: 107.9, pedidosEntregues: 1 }]);
     expect(dashboard.pedidosTotais).toBe(3);
     expect(dashboard.pedidosEntregues).toBe(1);
     expect(dashboard.pedidosCancelados).toBe(1);

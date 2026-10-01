@@ -28,6 +28,7 @@ export default function RepassesPage() {
   const [preparing, setPreparing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const operation = useRef<string | null>(null);
+  const preparingNow = useRef(false);
 
   useEffect(() => {
     setWeek(previousClosedWeek(new Date()));
@@ -39,7 +40,8 @@ export default function RepassesPage() {
   }, []);
 
   async function preparar() {
-    if (!week) return;
+    if (!week || preparingNow.current) return;
+    preparingNow.current = true;
     setPreparing(true); setActionError(null);
     operation.current ??= crypto.randomUUID();
     try {
@@ -49,6 +51,7 @@ export default function RepassesPage() {
     } catch (cause) {
       setActionError(cause instanceof Error ? cause.message : String(cause));
     } finally {
+      preparingNow.current = false;
       setPreparing(false);
     }
   }

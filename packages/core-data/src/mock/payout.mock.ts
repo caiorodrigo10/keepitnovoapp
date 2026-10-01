@@ -54,7 +54,12 @@ export function createPayoutMock(db: MockDb): PayoutPort {
       const materialized = db.repasses.filter((item) => !ownStoreIds || ownStoreIds.has(item.estabelecimentoId));
       materialized.forEach((repasse) => {
         repasse.itens = db.repasseItens.filter((item) => item.repasseId === repasse.id)
-          .map((item) => ({ lancamentoId: item.fonteId, pedidoId: item.pedidoId, valorCentavos: item.valorCentavos }));
+          .map((item) => {
+            const pedido = db.pedidos.find((row) => row.id === item.pedidoId);
+            return { lancamentoId: item.fonteId, pedidoId: item.pedidoId, valorCentavos: item.valorCentavos,
+              numeroPedido: pedido?.numero ?? null,
+              comissaoCentavos: item.valorCentavos > 0 && pedido ? Math.round(pedido.taxa_keepit_reais * 100) : null };
+          });
       });
       const weeks = new Map<string, { store: string; week: string; gross: number }>();
       for (const pedido of db.pedidos) {
@@ -70,11 +75,17 @@ export function createPayoutMock(db: MockDb): PayoutPort {
         const debt = adjustments(store).reduce((sum, item) => sum + item.restante, 0);
         const prior = debtUsed.get(store) ?? 0;
         debtUsed.set(store, prior + gross);
+        const orderItems = credits(store, week).filter((pedido) => repasseWeek(pedido.entregue_em!) === week)
+          .map((pedido) => ({ lancamentoId: pedido.id, pedidoId: pedido.id, valorCentavos: amount(pedido),
+            numeroPedido: pedido.numero, comissaoCentavos: Math.round(pedido.taxa_keepit_reais * 100) }));
+        const discount = Math.max(0, gross - Math.max(0, gross - Math.max(0, debt - prior)));
         return {
           id: `previsto:${store}:${week}`, estabelecimentoId: store, semanaInicio: week, previstoPara: dueDate(week),
           valorCentavos: Math.max(0, gross - Math.max(0, debt - prior)), estado: 'previsto',
           destinatarioNome: null, destinatarioResponsavel: null, chavePix: null, chavePixTipo: null,
           referencia: null, preparadoEm: null, confirmadoEm: null,
+          itens: discount > 0 ? [...orderItems, { lancamentoId: `ajuste:${store}:${week}`, pedidoId: null,
+            valorCentavos: -discount, numeroPedido: null, comissaoCentavos: null }] : orderItems,
         };
       });
       return [...materialized, ...forecasts].sort((a, b) => b.semanaInicio.localeCompare(a.semanaInicio));

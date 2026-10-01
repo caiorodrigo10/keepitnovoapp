@@ -13,7 +13,8 @@ export interface Repasse {
   referencia: string | null;
   preparadoEm: string | null;
   confirmadoEm: string | null;
-  itens?: { lancamentoId: string; pedidoId: string | null; valorCentavos: number }[];
+  itens?: { lancamentoId: string; pedidoId: string | null; valorCentavos: number;
+    numeroPedido?: number | null; comissaoCentavos?: number | null }[];
 }
 
 export interface PayoutPort {

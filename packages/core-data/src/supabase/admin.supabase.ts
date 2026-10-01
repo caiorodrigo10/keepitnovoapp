@@ -31,6 +31,7 @@ import type { Estabelecimento, EstabelecimentoHorario, EstabelecimentoStatus } f
 import type { Saque } from '../ports/wallet.port';
 import type { AsyncCallOptions } from '../types';
 import { createSupportOperationId } from '../support-operation-id';
+import { calculateFinancialOverview } from './financialOverview';
 import {
   AcessoNegadoError,
   AutenticacaoNecessariaError,
@@ -1307,7 +1308,7 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
 
       const { data: entreguesData, error: entreguesError } = await supabase
         .from('pedidos')
-        .select('estabelecimento_id, total_pago_reais, taxa_keepit_reais, entregue_em')
+        .select('estabelecimento_id, total_pago_reais, subtotal_produtos_reais, taxa_deslocamento_reais, taxa_keepit_reais, taxa_servico_comprador_reais, entregue_em')
         .eq('status', 'entregue')
         .gte('entregue_em', limiteIso);
       if (entreguesError) {
@@ -1318,11 +1319,13 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
         estabelecimento_id: string;
         total_pago_reais: number;
         taxa_keepit_reais: number;
+        subtotal_produtos_reais: number;
+        taxa_deslocamento_reais: number;
+        taxa_servico_comprador_reais: number;
         entregue_em: string | null;
       }[];
 
       const gmvReais = entreguesRows.reduce((sum, p) => sum + p.total_pago_reais, 0);
-      const receitaKeepitReais = entreguesRows.reduce((sum, p) => sum + p.taxa_keepit_reais, 0);
 
       const porLoja = new Map<string, { gmvReais: number; pedidosEntregues: number }>();
       for (const pedido of entreguesRows) {
@@ -1487,10 +1490,31 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
         criadoEm: row.criado_em,
       }));
 
+      const [receivedResult, ledgerResult] = await Promise.all([
+        supabase.from('pedidos').select('total_pago_reais').not('pago_em', 'is', null).gte('pago_em', limiteIso),
+        supabase.from('lancamentos_financeiros').select('tipo,valor_centavos,status,criado_em,concluido_em'),
+      ]);
+      if (receivedResult.error) throw receivedResult.error;
+      if (ledgerResult.error) throw ledgerResult.error;
+      const ledgerRows = ((ledgerResult.data ?? []) as unknown as Array<{
+        tipo: string; valor_centavos: number; status: string; criado_em: string; concluido_em: string | null;
+      }>);
+      const overview = calculateFinancialOverview({
+        receipts: ((receivedResult.data ?? []) as unknown as Array<{ total_pago_reais: number }>),
+        delivered: entreguesRows,
+        ledger: ledgerRows.filter((row) => row.tipo !== 'refund' || (row.concluido_em != null && row.concluido_em >= limiteIso)),
+        gatewayFees: antecipacoes.filter((row) => row.dataCredito && row.dataCredito >= limiteIso)
+          .map((row) => ({ tarifa_centavos: row.tarifaCentavos, estado: row.estado })),
+      });
+      const repassesPagosReais = ledgerRows.filter((row) => row.tipo === 'payout' &&
+        row.status === 'concluido' && row.concluido_em && row.concluido_em >= limiteIso)
+        .reduce((sum, row) => sum + Math.abs(row.valor_centavos), 0) / 100;
+
       return {
         periodoDias,
         gmvReais,
-        receitaKeepitReais,
+        ...overview,
+        repassesPagosReais,
         ranking,
         pedidosTotais: statusesNoPeriodo.length,
         pedidosEntregues,

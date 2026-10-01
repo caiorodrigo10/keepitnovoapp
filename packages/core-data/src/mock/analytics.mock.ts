@@ -38,7 +38,8 @@ export function createAnalyticsMock(db: MockDb): AnalyticsPort {
       return simulateAsync(
         () => {
           const pedidos = pedidosEntreguesNoPeriodo(db, estabelecimentoId, periodo);
-          const totalVendasReais = roundReais(pedidos.reduce((sum, p) => sum + p.total_pago_reais, 0));
+          const totalVendasReais = roundReais(pedidos.reduce((sum, p) =>
+            sum + p.subtotal_produtos_reais + p.taxa_deslocamento_reais, 0));
           return { periodo, totalVendasReais, totalPedidos: pedidos.length };
         },
         { periodo, totalVendasReais: 0, totalPedidos: 0 },

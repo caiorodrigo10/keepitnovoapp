@@ -89,7 +89,7 @@ export default function Vendas({ navigation }: Props) {
         ) : (
           <>
             <View>
-              <Text style={[styles.totalLabel, { color: darkColors.text.tertiary }]}>Total no período</Text>
+              <Text style={[styles.totalLabel, { color: darkColors.text.tertiary }]}>Vendas da loja no período</Text>
               <Text style={[styles.total, { color: darkColors.text.primary }]}>{formatBRL(detalhe.totalReais)}</Text>
               <View style={styles.variacaoRow}>
                 <Ionicons name="trending-up" size={16} color={darkColors.accent.brand} />

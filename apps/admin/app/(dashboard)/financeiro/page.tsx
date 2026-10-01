@@ -12,19 +12,7 @@ import { anticipationIdentityLabel } from '../../../src/lib/financialLabels';
 
 const PERIODO_OPTIONS = [7, 30, 90] as const;
 
-/**
- * Dashboard financeiro geral — Épico 0, Story 0.13 (Task 8, AC1-3). GMV e
- * Receita Keepit calculados 100% a partir de `pedidos.total_pago_reais` /
- * `pedidos.taxa_keepit_reais` de pedidos `entregue` no período selecionado
- * (mesmo padrão de seletor de período do Dashboard do Lojista, Story 0.11).
- * Ranking de lojas por GMV. Nenhum valor hardcoded — tudo vem do dado real.
- *
- * Story 8.7: contagens (pedidos/entregues/cancelados/no-show) + taxa de
- * sucesso adicionadas (SHOULD, decisão de @po — agregação barata sobre a
- * MESMA leitura de `pedidos`). Ranking de hubs por nº de pedidos e o
- * gráfico de linha (Recharts) ficam como DÉBITO NÃO-BLOQUEANTE (decisão de
- * @po registrada na Story 8.7) — não implementados nesta tela.
- */
+/** Visão financeira: vendas, receita bruta, taxas e obrigações são métricas distintas. */
 export default function FinanceiroPage() {
   const searchParams = useSearchParams();
   const forceEmpty = searchParams.get('vazio') === '1';
@@ -55,7 +43,8 @@ export default function FinanceiroPage() {
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-2xl font-bold text-text-primary">Financeiro</h1>
-        <p className="text-sm text-text-secondary">GMV, receita Keepit e ranking de lojas por período.</p>
+        <p className="text-sm text-text-secondary">Recebimentos, receita, custos e obrigações separados por fonte financeira.</p>
+        <p className="text-xs text-text-tertiary">Caixa efetivo da Keepit exige conciliação com o extrato bancário; pagamentos confirmados e receita bruta não representam saldo disponível.</p>
       </div>
 
       <div className="flex gap-2">
@@ -83,15 +72,23 @@ export default function FinanceiroPage() {
 
       {!loading && !error && (
         <>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
             <Card>
-              <p className="text-xs font-semibold uppercase tracking-section text-text-tertiary">GMV</p>
+              <p className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Recebido dos clientes no período</p>
+              <p className="mt-2 text-2xl font-bold text-text-primary">{formatReais(dashboard.recebidoClientesReais)}</p>
+            </Card>
+            <Card>
+              <p className="text-xs font-semibold uppercase tracking-section text-text-tertiary">GMV entregue no período</p>
               <p className="mt-2 text-2xl font-bold text-text-primary">{formatReais(dashboard.gmvReais)}</p>
             </Card>
             <Card>
-              <p className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Receita Keepit</p>
+              <p className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Receita bruta Keepit · comissão + serviço</p>
               <p className="mt-2 text-2xl font-bold text-accent-brand">{formatReais(dashboard.receitaKeepitReais)}</p>
             </Card>
+            <Card><p className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Tarifas de antecipação registradas no gateway</p><p className="mt-2 text-2xl font-bold text-text-primary">{formatReais(dashboard.despesaGatewayReais)}</p></Card>
+            <Card><p className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Dívida líquida com lojistas · posição atual</p><p className="mt-2 text-2xl font-bold text-text-primary">{formatReais(dashboard.dividaLojistasReais)}</p><p className="mt-1 text-xs text-text-tertiary">Saldo negativo representa ajuste a compensar.</p></Card>
+            <Card><p className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Repasses pagos no período</p><p className="mt-2 text-2xl font-bold text-text-primary">{formatReais(dashboard.repassesPagosReais)}</p></Card>
+            <Card><p className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Reembolsos executados no período</p><p className="mt-2 text-2xl font-bold text-text-primary">{formatReais(dashboard.reembolsosReais)}</p></Card>
           </div>
 
           {/* Story 8.7 (SHOULD) — contagens/taxa de sucesso, derivadas 100% de `pedidos` do período, nunca hardcoded. */}

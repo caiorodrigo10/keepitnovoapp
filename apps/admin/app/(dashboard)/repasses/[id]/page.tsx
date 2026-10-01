@@ -28,6 +28,7 @@ export default function RepasseDetailPage() {
   const [motivo, setMotivo] = useState('');
   const [evidencia, setEvidencia] = useState('');
   const operations = useRef<Partial<Record<Action, string>>>({});
+  const running = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -41,6 +42,8 @@ export default function RepasseDetailPage() {
   }, [id]);
 
   async function run(action: Action) {
+    if (running.current) return;
+    running.current = true;
     setPending(action); setActionError(null);
     const operationId = operations.current[action] ?? crypto.randomUUID();
     operations.current[action] = operationId;
@@ -61,6 +64,7 @@ export default function RepasseDetailPage() {
     } catch (cause) {
       setActionError(cause instanceof Error ? cause.message : String(cause));
     } finally {
+      running.current = false;
       setPending(null);
     }
   }

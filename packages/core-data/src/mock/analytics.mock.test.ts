@@ -13,7 +13,7 @@ describe('analytics.mock (contract) — Story 1.10, Task 7', () => {
     port = createAnalyticsMock(db);
   });
 
-  it('salesSummary aggregates total_pago_reais from real pedidos entregues in the period', async () => {
+  it('salesSummary agrega vendas da loja sem a taxa de serviço Keepit', async () => {
     const resumo7d = await port.salesSummary('estab-farmacia-vida', '7d', { delayMs: 1 });
     expect(resumo7d.periodo).toBe('7d');
     expect(resumo7d.totalVendasReais).toBeGreaterThanOrEqual(0);
@@ -23,6 +23,15 @@ describe('analytics.mock (contract) — Story 1.10, Task 7', () => {
     expect(resumo1a.totalPedidos).toBeGreaterThan(0);
     // Um período maior nunca soma menos que um período menor.
     expect(resumo1a.totalVendasReais).toBeGreaterThanOrEqual(resumo7d.totalVendasReais);
+  });
+
+  it('não atribui cobrança de serviço da plataforma às vendas do lojista', async () => {
+    const pedido = db.pedidos[0]!;
+    db.pedidos = [{ ...pedido, estabelecimento_id: 'loja-teste', status: 'entregue',
+      entregue_em: new Date().toISOString(), subtotal_produtos_reais: 100,
+      taxa_deslocamento_reais: 5, taxa_keepit_reais: 10,
+      taxa_servico_comprador_reais: 2.9, total_pago_reais: 107.9 }];
+    expect((await port.salesSummary('loja-teste', '7d')).totalVendasReais).toBe(105);
   });
 
   it('topProducts aggregates pedidos_itens by nome_snapshot across the period', async () => {

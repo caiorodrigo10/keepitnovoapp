@@ -15,6 +15,7 @@ import { useCurrentStore } from '../../context/CurrentStoreContext';
 import { useFinanceiro } from './FinanceiroContext';
 import { formatBRL, formatPercent } from './format';
 import { getVendasResumo, PERIODOS, type Periodo, type VendasResumo } from './financeiroPresentation';
+import { dateLabel, nextRepasse, repasseLabel } from './repassePresentation';
 
 type Props = NativeStackScreenProps<FinanceiroStackParamList, 'Dashboard'>;
 
@@ -34,7 +35,8 @@ const EMPTY_VENDAS: VendasResumo = { totalReais: 0, variacaoPercent: 0, variacao
  */
 export default function Dashboard({ navigation }: Props) {
   const { id: storeId } = useCurrentStore();
-  const { carteira, carteiraLoading, carteiraError, reload } = useFinanceiro();
+  const { carteira, carteiraLoading, carteiraError, reload, repasses } = useFinanceiro();
+  const proximoRepasse = nextRepasse(repasses, storeId ?? '');
   const [periodo, setPeriodo] = useState<Periodo>('7d');
   const [vendas, setVendas] = useState<VendasResumo>(EMPTY_VENDAS);
   const [vendasLoading, setVendasLoading] = useState(true);
@@ -96,7 +98,7 @@ export default function Dashboard({ navigation }: Props) {
         ) : (
           <View style={[styles.card, { backgroundColor: darkColors.bg.surface }]}>
             <Text style={[styles.cardLabel, { color: darkColors.text.tertiary }]}>Saldo disponível</Text>
-            {carteiraLoading ? (
+            {carteiraLoading || carteira.estabelecimento_id !== storeId ? (
               <ActivityIndicator color={darkColors.accent.brand} style={styles.balanceLoader} />
             ) : (
               <>
@@ -106,6 +108,9 @@ export default function Dashboard({ navigation }: Props) {
                 <Text style={[styles.aReceber, { color: darkColors.text.tertiary }]}>
                   {formatBRL(carteira.saldo_bloqueado_reais)} reservado para repasses semanais
                 </Text>
+                {proximoRepasse && <Text style={[styles.aReceber, { color: darkColors.text.tertiary }]}>
+                  Próximo repasse: {formatBRL(proximoRepasse.valorCentavos / 100)} · {repasseLabel(proximoRepasse.estado)} · sexta {dateLabel(proximoRepasse.previstoPara)}
+                </Text>}
               </>
             )}
             <View style={styles.ctaSpacer}>
