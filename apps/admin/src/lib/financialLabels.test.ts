@@ -43,4 +43,15 @@ describe('presentFinancialPending', () => {
       ultimoResultado: null, ultimoErro: null, referenciaExterna: null, acaoPermitida,
     }, new Date('2026-10-01T12:00:00.000Z'))).toMatchObject({ acaoLabel, acaoHref });
   });
+
+  it('expõe escalonamento seguro para divergência ainda sem pedido vinculado', () => {
+    expect(presentFinancialPending({
+      id: 'evento:evento-sem-pedido', tipo: 'evento_divergente', pedidoId: null,
+      operacaoId: 'evento-sem-pedido', abertoEm: '2026-10-01T10:00:00.000Z',
+      ultimoResultado: 'vinculo_nao_encontrado', ultimoErro: 'COBRANCA_DESCONHECIDA',
+      referenciaExterna: 'pay-sem-pedido', acaoPermitida: 'consultar_divergencia',
+    }, new Date('2026-10-01T12:00:00.000Z'))).toMatchObject({
+      acaoLabel: 'Escalar sem vínculo', acaoHref: '#escalonamento-sem-vinculo',
+    });
+  });
 });

@@ -211,6 +211,11 @@ export default function FinanceiroPage() {
                         <p className="break-all text-text-secondary">
                           Referência externa: {item.referenciaExterna ?? 'não vinculada'}
                         </p>
+                        {item.tipo === 'evento_divergente' && !item.pedidoId && (
+                          <p className="text-xs text-accent-warning">
+                            Escalone ao responsável financeiro com a operação e a referência; mantenha o caso aberto até persistir o vínculo ou um resultado sem erro.
+                          </p>
+                        )}
                       </div>
                       {item.acaoPermitida === 'reconciliar_pagamento' ? (
                         <Button
@@ -229,6 +234,14 @@ export default function FinanceiroPage() {
                   );
                 })}
               </ul>
+            )}
+            {dashboard.pendenciasFinanceiras.some((item) => item.tipo === 'evento_divergente' && !item.pedidoId) && (
+              <div id="escalonamento-sem-vinculo" className="border-t border-border-subtle pt-3">
+                <h3 className="text-sm font-semibold text-text-primary">Escalonamento sem vínculo</h3>
+                <p className="mt-1 text-sm text-text-secondary">
+                  Registre a operação e a referência no controle operacional privado, consulte o Asaas sem criar cobrança e encaminhe ao responsável financeiro. O item permanece aberto até um vínculo ou resultado sem erro ser persistido.
+                </p>
+              </div>
             )}
           </Card>
 

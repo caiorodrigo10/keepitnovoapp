@@ -51,11 +51,11 @@ export type LancamentoConfirmResultado = 'concluido' | 'erro';
  */
 export interface ReembolsoPendente {
   id: string;
-  pedido_id: string;
+  pedido_id: string | null;
   motivo: ReembolsoMotivo;
   valor_a_estornar_reais: number;
   valor_ao_lojista_reais: number;
-  forma_pagamento: FormaPagamento;
+  forma_pagamento: FormaPagamento | null;
   status: ReembolsoStatus;
   criado_em: string;
   caso_id?: string | null;

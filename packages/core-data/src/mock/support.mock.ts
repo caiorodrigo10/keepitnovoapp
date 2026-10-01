@@ -150,7 +150,7 @@ export function createSupportMock(db: MockDb): SupportPort {
         refund.status = 'estornado';
         refund.referencia_externa = input.referencia.trim();
         if (refund.responsavel === 'lojista' && !db.ajustesReembolso.some((item) => item.reembolsoId === refund.id)) {
-          db.ajustesReembolso.push({ reembolsoId: refund.id, pedidoId: refund.pedido_id, valorCentavos: -Math.round(refund.valor_a_estornar_reais * 100) });
+          db.ajustesReembolso.push({ reembolsoId: refund.id, pedidoId: caso.pedidoId, valorCentavos: -Math.round(refund.valor_a_estornar_reais * 100) });
         }
         await persist();
       });

@@ -436,11 +436,11 @@ type LancamentoAdminRow = {
  * cancelamento administrativo; `valor_ao_lojista_reais` permanece zero pois
  * o ajuste de responsabilidade é lançado separadamente na confirmação.
  */
-function mapLancamentoRowToReembolsoPendente(row: LancamentoAdminRow, formaPagamento: FormaPagamento): ReembolsoPendente {
+function mapLancamentoRowToReembolsoPendente(row: LancamentoAdminRow, formaPagamento: FormaPagamento | null): ReembolsoPendente {
   const motivo = (row.motivo_reembolso ?? 'cancelamento_admin') as ReembolsoMotivo;
   return {
     id: row.id,
-    pedido_id: row.pedido_id ?? '',
+    pedido_id: row.pedido_id,
     motivo,
     valor_a_estornar_reais: Math.abs(row.valor_centavos) / 100,
     valor_ao_lojista_reais: 0,
@@ -935,11 +935,8 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
        * (`is_admin() OR estabelecimento_id = meu_estabelecimento_id()`) já
        * cobre a leitura administrativa (nenhuma policy nova) — um
        * autenticado sem `admin_users` só veria os do próprio
-       * estabelecimento, nunca um erro. Linhas sem `pedido_id` (não deveria
-       * ocorrer — `forcar_cancelamento_pedido` sempre grava — mas o schema
-       * permite `NULL`) são excluídas: `ReembolsoPendente.pedido_id` é
-       * `string` não-nulo no contrato de UI, e inventar um id vazio
-       * violaria a regra "nunca sucesso/dado fictício".
+       * estabelecimento, nunca um erro. O schema permite `pedido_id NULL`;
+       * essas linhas permanecem visíveis e tratáveis sem inventar vínculo.
        */
       async list(_options?: AsyncCallOptions): Promise<ReembolsoPendente[]> {
         const supabase = resolveClient();
@@ -953,18 +950,18 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
           throw error;
         }
 
-        const rows = ((data ?? []) as unknown as LancamentoAdminRow[]).filter((r) => r.pedido_id !== null && r.estado_reserva !== 'liberada');
+        const rows = ((data ?? []) as unknown as LancamentoAdminRow[]).filter((r) => r.estado_reserva !== 'liberada');
         if (rows.length === 0) {
           return [];
         }
 
         const formaPagamentoPorPedido = await fetchFormaPagamentoPorPedidoIds(
           supabase,
-          rows.map((r) => r.pedido_id as string),
+          rows.map((r) => r.pedido_id).filter((pedidoId): pedidoId is string => pedidoId !== null),
         );
 
         return rows.map((row) =>
-          mapLancamentoRowToReembolsoPendente(row, formaPagamentoPorPedido.get(row.pedido_id as string) ?? 'pix'),
+          mapLancamentoRowToReembolsoPendente(row, formaPagamentoPorPedido.get(row.pedido_id ?? '') ?? null),
         );
       },
 
@@ -994,7 +991,7 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
           supabase,
           row.pedido_id ? [row.pedido_id] : [],
         );
-        return mapLancamentoRowToReembolsoPendente(row, formaPagamentoPorPedido.get(row.pedido_id ?? '') ?? 'pix');
+        return mapLancamentoRowToReembolsoPendente(row, formaPagamentoPorPedido.get(row.pedido_id ?? '') ?? null);
       },
       async reopen(id: string, comprovacao: string): Promise<void> {
         const { error } = await resolveClient().rpc('reabrir_execucao_reembolso' as never, {
@@ -1512,7 +1509,6 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
       const divergenciasAbertas = divergenciasRows.filter((event) => {
         const chaves = chavesCorrelacaoEvento(event);
         return event.erro_codigo !== null
-          && event.pedido_id !== null
           && chaves.length > 0
           && chaves.every((chave) => ultimoEventoPorCorrelacao.get(chave)?.evento_externo_id === event.evento_externo_id)
           && (!event.tentativa_id || !tentativasEmReconciliacao.has(event.tentativa_id));

@@ -457,7 +457,7 @@ describe('admin.supabase.ts — refundQueue (Story 8.1, 8.2)', () => {
     });
   });
 
-  it('list mapeia lançamentos refund reais para ReembolsoPendente, excluindo pedido_id null (AC1, AC2, AC4, AC5)', async () => {
+  it('list mantém lançamentos refund sem pedido para o fluxo administrativo seguro (AC1, AC2, AC4, AC5)', async () => {
     const { client } = fakeTableClient({
       tables: {
         lancamentos_financeiros: [
@@ -498,7 +498,7 @@ describe('admin.supabase.ts — refundQueue (Story 8.1, 8.2)', () => {
     const port = createAdminSupabase(client);
     const fila = await port.refundQueue.list();
 
-    expect(fila).toHaveLength(1);
+    expect(fila).toHaveLength(2);
     expect(fila[0]).toMatchObject({
       id: 'lanc-1',
       pedido_id: 'pedido-1',
@@ -507,6 +507,10 @@ describe('admin.supabase.ts — refundQueue (Story 8.1, 8.2)', () => {
       valor_ao_lojista_reais: 0,
       forma_pagamento: 'pix',
       status: 'pendente_admin',
+    });
+    expect(fila[1]).toMatchObject({
+      id: 'lanc-2', pedido_id: null, valor_a_estornar_reais: 10,
+      forma_pagamento: null, status: 'pendente_admin',
     });
   });
 
@@ -1115,7 +1119,7 @@ describe('admin.supabase.ts — financialDashboard (Story 8.7)', () => {
     ]));
   });
 
-  it('mantém na fila somente a divergência mais recente ainda aberta e vinculada a pedido', async () => {
+  it('mantém na fila somente a divergência mais recente ainda aberta, inclusive sem pedido', async () => {
     const { client } = fakeTableClient({
       tables: {
         pedidos: [{ data: [], error: null }, { data: [], error: null }],
@@ -1141,12 +1145,20 @@ describe('admin.supabase.ts — financialDashboard (Story 8.7)', () => {
 
     const dashboard = await createAdminSupabase(client).financialDashboard(30);
 
-    expect(dashboard.pendenciasFinanceiras.filter((item) => item.tipo === 'evento_divergente')).toEqual([{
-      id: 'evento:evt-aberto', tipo: 'evento_divergente', pedidoId: 'pedido-aberto',
-      operacaoId: 'evt-aberto', abertoEm: '2026-09-30T09:00:00.000Z',
-      ultimoResultado: 'conciliacao_necessaria', ultimoErro: 'STATUS_INESPERADO',
-      referenciaExterna: 'pay-aberto', acaoPermitida: 'consultar_divergencia',
-    }]);
+    expect(dashboard.pendenciasFinanceiras.filter((item) => item.tipo === 'evento_divergente')).toEqual([
+      {
+        id: 'evento:evt-sem-pedido', tipo: 'evento_divergente', pedidoId: null,
+        operacaoId: 'evt-sem-pedido', abertoEm: '2026-09-30T08:00:00.000Z',
+        ultimoResultado: 'vinculo_nao_encontrado', ultimoErro: 'COBRANCA_DESCONHECIDA',
+        referenciaExterna: 'pay-sem-pedido', acaoPermitida: 'consultar_divergencia',
+      },
+      {
+        id: 'evento:evt-aberto', tipo: 'evento_divergente', pedidoId: 'pedido-aberto',
+        operacaoId: 'evt-aberto', abertoEm: '2026-09-30T09:00:00.000Z',
+        ultimoResultado: 'conciliacao_necessaria', ultimoErro: 'STATUS_INESPERADO',
+        referenciaExterna: 'pay-aberto', acaoPermitida: 'consultar_divergencia',
+      },
+    ]);
   });
 
   it('pagina a fila até o fim para nenhuma pendência desaparecer no limite do servidor', async () => {

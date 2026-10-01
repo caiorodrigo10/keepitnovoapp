@@ -37,7 +37,8 @@ export default function ReembolsosPage() {
   useEffect(() => {
     let cancelled = false;
     const client = getAdminDataClient();
-    Promise.all(reembolsos.map((r) => client.order.getById(r.pedido_id))).then((pedidos) => {
+    const pedidoIds = reembolsos.map((r) => r.pedido_id).filter((id): id is string => id !== null);
+    Promise.all(pedidoIds.map((id) => client.order.getById(id))).then((pedidos) => {
       if (cancelled) return;
       const map: Record<string, Pedido> = {};
       pedidos.forEach((pedido) => {
@@ -77,13 +78,13 @@ export default function ReembolsosPage() {
       {!loading && !error && reembolsos.length > 0 && (
         <div className="flex flex-col gap-3">
           {reembolsos.map((reembolso) => {
-            const pedido = pedidosPorId[reembolso.pedido_id];
+            const pedido = reembolso.pedido_id ? pedidosPorId[reembolso.pedido_id] : undefined;
             return (
               <Card key={reembolso.id} className="flex items-center justify-between gap-4">
                 <div>
                   <div className="mb-1 flex items-center gap-2">
                     <span className="text-base font-semibold text-text-primary">
-                      Pedido #{pedido?.numero ?? '—'}
+                      {reembolso.pedido_id ? `Pedido #${pedido?.numero ?? '—'}` : 'Sem pedido vinculado'}
                     </span>
                     <Badge variant="warning">{REEMBOLSO_MOTIVO_LABEL[reembolso.motivo]}</Badge>
                     <Badge variant={reembolso.status === 'erro' ? 'warning' : 'neutral'}>
@@ -91,7 +92,7 @@ export default function ReembolsosPage() {
                     </Badge>
                   </div>
                   <p className="text-sm text-text-secondary">
-                    {formatReais(reembolso.valor_a_estornar_reais)} · {reembolso.forma_pagamento.toUpperCase()}
+                    {formatReais(reembolso.valor_a_estornar_reais)} · {reembolso.forma_pagamento?.toUpperCase() ?? 'FORMA NÃO IDENTIFICADA'}
                     {reembolso.responsavel ? ` · Responsável: ${reembolso.responsavel === 'lojista' ? 'lojista' : 'Keepit'}` : ''}
                   </p>
                 </div>

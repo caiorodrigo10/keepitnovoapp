@@ -3,7 +3,7 @@
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-import { remainingRefund, type AdminPaymentInspection, type Pedido, type ReembolsoPendente } from '@keepit/core-data';
+import type { AdminPaymentInspection, Pedido, ReembolsoPendente } from '@keepit/core-data';
 
 import { Badge } from '../../../../src/components/Badge';
 import { Button } from '../../../../src/components/Button';
@@ -11,6 +11,7 @@ import { Card } from '../../../../src/components/Card';
 import { getAdminDataClient } from '../../../../src/lib/adminClient';
 import { formatReais, REEMBOLSO_MOTIVO_LABEL } from '../../../../src/lib/adminLabels';
 import { presentPaymentInspection } from '../../../../src/lib/paymentInspection';
+import { loadRefundDetail } from '../../../../src/lib/refundDetail';
 
 /**
  * Executar reembolso — Épico 0, Story 0.13 (Task 3, AC1-3), religado para
@@ -48,30 +49,13 @@ export default function ExecutarReembolsoPage() {
     setLoadError(null);
 
     const client = getAdminDataClient();
-    client.admin.refundQueue
-      .list()
-      .then(async (reembolsos) => {
+    loadRefundDetail(client, params.id)
+      .then(({ reembolso: encontrado, pedido: pedidoEncontrado, payment: pagamentoEncontrado, restanteCentavos: restante }) => {
         if (cancelled) return;
-        const encontrado = reembolsos.find((r) => r.id === params.id) ?? null;
         setReembolso(encontrado);
-        if (encontrado) {
-          const [p, paymentResult] = await Promise.all([
-            client.order.getById(encontrado.pedido_id),
-            client.admin.inspectPayment(encontrado.pedido_id),
-          ]);
-          if (!cancelled) {
-            setPedido(p);
-            setPayment(paymentResult);
-            if (p) {
-              const relacionados = reembolsos.filter((item) => item.pedido_id === p.id);
-              const concluido = relacionados.filter((item) => item.status === 'estornado')
-                .reduce((sum, item) => sum + Math.round(item.valor_a_estornar_reais * 100), 0);
-              const reservado = relacionados.filter((item) => item.status !== 'estornado')
-                .reduce((sum, item) => sum + Math.round(item.valor_a_estornar_reais * 100), 0);
-              setRestanteCentavos(remainingRefund(Math.round(p.total_pago_reais * 100), concluido, reservado));
-            }
-          }
-        }
+        setPedido(pedidoEncontrado);
+        setPayment(pagamentoEncontrado);
+        setRestanteCentavos(restante);
         setLoading(false);
       })
       .catch((error: unknown) => {
@@ -178,7 +162,7 @@ export default function ExecutarReembolsoPage() {
 
       <Card className="flex flex-col gap-3">
         <h2 className="text-xs font-semibold uppercase tracking-section text-text-tertiary">
-          Pedido vinculado
+          {reembolso.pedido_id ? 'Pedido vinculado' : 'Lançamento sem pedido vinculado'}
         </h2>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
           <dt className="text-text-tertiary">Número</dt>
@@ -188,7 +172,7 @@ export default function ExecutarReembolsoPage() {
           <dt className="text-text-tertiary">Status do pedido</dt>
           <dd className="text-text-primary">{pedido?.status ?? '—'}</dd>
           <dt className="text-text-tertiary">Forma de pagamento</dt>
-          <dd className="text-text-primary">{payment?.forma.toUpperCase() ?? reembolso.forma_pagamento.toUpperCase()}</dd>
+          <dd className="text-text-primary">{payment?.forma.toUpperCase() ?? reembolso.forma_pagamento?.toUpperCase() ?? 'Não identificada'}</dd>
           <dt className="text-text-tertiary">Estado da tentativa</dt>
           <dd className="text-text-primary">{paymentPresentation?.estadoLabel ?? 'Sem tentativa registrada'}</dd>
           {paymentPresentation?.pendencia && (

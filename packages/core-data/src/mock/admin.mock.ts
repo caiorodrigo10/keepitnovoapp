@@ -370,7 +370,7 @@ export function createAdminMock(db: MockDb): AdminPort {
             if (reembolso.referencia_externa && resultado === 'concluido' && reembolso.referencia_externa !== _detalhe!.trim()) throw new Error('REFERENCIA_DIVERGENTE');
             reembolso.status = resultado === 'erro' ? 'erro' : 'estornado';
             if (resultado === 'concluido') reembolso.referencia_externa = _detalhe!.trim();
-            if (resultado === 'concluido' && reembolso.responsavel === 'lojista' &&
+            if (resultado === 'concluido' && reembolso.responsavel === 'lojista' && reembolso.pedido_id &&
               !db.ajustesReembolso.some((item) => item.reembolsoId === id)) {
               db.ajustesReembolso.push({ reembolsoId: id, pedidoId: reembolso.pedido_id,
                 valorCentavos: -Math.round(reembolso.valor_a_estornar_reais * 100) });

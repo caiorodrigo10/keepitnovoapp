@@ -27,8 +27,8 @@ export function presentFinancialPending(item: FinancialPendingAdmin, now = new D
   const action = {
     reconciliar_pagamento: { acaoLabel: 'Reconciliar pagamento', acaoHref: null },
     consultar_divergencia: {
-      acaoLabel: 'Inspecionar pedido',
-      acaoHref: item.pedidoId ? `/pedidos/${encodeURIComponent(item.pedidoId)}` : null,
+      acaoLabel: item.pedidoId ? 'Inspecionar pedido' : 'Escalar sem vínculo',
+      acaoHref: item.pedidoId ? `/pedidos/${encodeURIComponent(item.pedidoId)}` : '#escalonamento-sem-vinculo',
     },
     tratar_reembolso: { acaoLabel: 'Tratar reembolso', acaoHref: `/reembolsos/${entityId}` },
     revisar_repasse: { acaoLabel: 'Revisar repasse', acaoHref: `/repasses/${entityId}` },

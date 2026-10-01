@@ -25,6 +25,10 @@ vi.mock('../../../src/hooks/useAdminOps', () => ({ useFinancialDashboard: () => 
       id: 'repasse:repasse-1', tipo: 'repasse_em_analise', pedidoId: null,
       operacaoId: 'op-repasse-1', abertoEm: '2026-09-29T10:00:00.000Z', ultimoResultado: 'análise mantida', ultimoErro: 'PIX incerto',
       referenciaExterna: null, acaoPermitida: 'revisar_repasse',
+    }, {
+      id: 'evento:evt-sem-pedido', tipo: 'evento_divergente', pedidoId: null,
+      operacaoId: 'evt-sem-pedido', abertoEm: '2026-09-30T11:00:00.000Z', ultimoResultado: 'vinculo_nao_encontrado',
+      ultimoErro: 'COBRANCA_DESCONHECIDA', referenciaExterna: 'pay-sem-pedido', acaoPermitida: 'consultar_divergencia',
     }] },
   loading: false, error: null, refresh: vi.fn(),
 }) }));
@@ -65,6 +69,10 @@ describe('dashboard financeiro Admin', () => {
     expect(html).toContain('Reconciliar pagamento');
     expect(html).toContain('Inspecionar pedido');
     expect(html).toContain('href="/pedidos/pedido-3"');
+    expect(html).toContain('Escalar sem vínculo');
+    expect(html).toContain('href="#escalonamento-sem-vinculo"');
+    expect(html).toContain('mantenha o caso aberto até persistir o vínculo ou um resultado sem erro');
+    expect(html).toContain('Registre a operação e a referência no controle operacional privado');
     expect(html).toContain('Tratar reembolso');
     expect(html).toContain('Revisar repasse');
     expect(html).not.toContain('Criar cobrança');
