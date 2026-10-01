@@ -546,6 +546,65 @@ describe('admin.supabase.ts — refundQueue (Story 8.1, 8.2)', () => {
     expect(queries[1]?.range).toHaveBeenCalledWith(1_000, 1_999);
   });
 
+  it('list deduplica e divide mais de 1.000 pedido_id em blocos, mesclando todas as formas de pagamento', async () => {
+    const primeiraPagina = Array.from({ length: 1_000 }, (_, index) => ({
+      id: `refund-${String(index).padStart(4, '0')}`,
+      estabelecimento_id: 'estab-1', pedido_id: `pedido-${String(index).padStart(4, '0')}`,
+      tipo: 'refund', valor_centavos: -100, status: 'pendente',
+      criado_em: '2026-08-01T10:00:00.000Z', concluido_em: null,
+      detalhe: null, estado_reserva: 'ativa',
+    }));
+    const ultimaPagina = [
+      {
+        id: 'refund-1000', estabelecimento_id: 'estab-1', pedido_id: 'pedido-1000',
+        tipo: 'refund', valor_centavos: -200, status: 'pendente',
+        criado_em: '2026-08-02T10:00:00.000Z', concluido_em: null,
+        detalhe: null, estado_reserva: 'ativa',
+      },
+      {
+        id: 'refund-1001', estabelecimento_id: 'estab-1', pedido_id: 'pedido-0000',
+        tipo: 'refund', valor_centavos: -300, status: 'pendente',
+        criado_em: '2026-08-03T10:00:00.000Z', concluido_em: null,
+        detalhe: null, estado_reserva: 'ativa',
+      },
+    ];
+    const pedidos = Array.from({ length: 1_001 }, (_, index) => ({
+      id: `pedido-${String(index).padStart(4, '0')}`,
+      forma_pagamento: index % 2 === 0 ? 'pix' : 'cartao',
+    }));
+    const { client, from } = fakeTableClient({
+      tables: {
+        lancamentos_financeiros: [
+          { data: primeiraPagina, error: null },
+          { data: ultimaPagina, error: null },
+        ],
+        pedidos: Array.from({ length: 11 }, (_, index) => ({
+          data: pedidos.slice(index * 100, (index + 1) * 100), error: null,
+        })),
+      },
+    });
+
+    const fila = await createAdminSupabase(client).refundQueue.list();
+
+    expect(fila).toHaveLength(1_002);
+    expect(fila.find((item) => item.id === 'refund-0000')?.forma_pagamento).toBe('pix');
+    expect(fila.find((item) => item.id === 'refund-0101')?.forma_pagamento).toBe('cartao');
+    expect(fila.find((item) => item.id === 'refund-1000')?.forma_pagamento).toBe('pix');
+    expect(fila.find((item) => item.id === 'refund-1001')?.forma_pagamento).toBe('pix');
+
+    const queries = from.mock.results
+      .filter((_, index) => from.mock.calls[index]?.[0] === 'pedidos')
+      .map((result) => result.value as { in: ReturnType<typeof vi.fn> });
+    const blocos = queries.map((query) => query.in.mock.calls[0]?.[1] as string[]);
+    expect(blocos).toHaveLength(11);
+    expect(blocos.every((bloco) => bloco.length <= 100)).toBe(true);
+    expect(blocos[0]?.[0]).toBe('pedido-0000');
+    expect(blocos[0]?.[99]).toBe('pedido-0099');
+    expect(blocos[10]).toEqual(['pedido-1000']);
+    expect(blocos.flat()).toHaveLength(1_001);
+    expect(new Set(blocos.flat()).size).toBe(1_001);
+  });
+
   it('list mapeia status ledger -> UI (pendente->pendente_admin, concluido->estornado, erro->erro)', async () => {
     const { client } = fakeTableClient({
       tables: {

@@ -455,9 +455,9 @@ function mapLancamentoRowToReembolsoPendente(row: LancamentoAdminRow, formaPagam
 }
 
 /**
- * Busca `pedidos.forma_pagamento` em lote (`.in('id', ...)`) para os
- * `pedido_id` de uma leva de lançamentos `refund` — mesmo padrão de
- * `fetchHorariosByEstabelecimentoIds` (query em lote, evita N+1).
+ * Busca `pedidos.forma_pagamento` em lotes de IDs deduplicados para os
+ * `pedido_id` de lançamentos `refund`, evitando N+1 e URLs excessivas no
+ * PostgREST.
  */
 async function fetchFormaPagamentoPorPedidoIds(
   supabase: SupabaseClient<Database>,
@@ -467,12 +467,14 @@ async function fetchFormaPagamentoPorPedidoIds(
   if (pedidoIds.length === 0) {
     return mapa;
   }
-  const { data, error } = await supabase.from('pedidos').select('id, forma_pagamento').in('id', pedidoIds);
-  if (error) {
-    throw error;
-  }
-  for (const row of (data ?? []) as unknown as { id: string; forma_pagamento: string }[]) {
-    mapa.set(row.id, row.forma_pagamento as FormaPagamento);
+  for (const pedidoIdChunk of chunks([...new Set(pedidoIds)], 100)) {
+    const { data, error } = await supabase.from('pedidos').select('id, forma_pagamento').in('id', pedidoIdChunk);
+    if (error) {
+      throw error;
+    }
+    for (const row of (data ?? []) as unknown as { id: string; forma_pagamento: string }[]) {
+      mapa.set(row.id, row.forma_pagamento as FormaPagamento);
+    }
   }
   return mapa;
 }
