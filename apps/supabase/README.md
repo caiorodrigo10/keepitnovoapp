@@ -68,3 +68,31 @@ Depois de regenerar, rodar `pnpm turbo run typecheck` na raiz do monorepo para c
 
 - `SUPABASE_SERVICE_ROLE_KEY` **nunca** deve ser usada por este workspace nem por nenhum dos apps `cliente`/`lojista`/`admin`. Ela existe só para uso futuro em Edge Functions/scripts server-side, via `createServiceRoleClient()` de `packages/supabase-client`.
 - Nenhum segredo é versionado neste workspace — `config.toml` não contém chaves (usa `env(...)` como referência), e o `.env` real fica só na raiz do monorepo (gitignored).
+
+## Verificação local de concorrência de chargeback
+
+As duas corridas reais de chargeback usam fixtures destrutivas com limpeza ao final e só devem apontar para uma instância PostgreSQL local descartável já migrada. O comando não integra `test` nem `qa` e recusa a execução sem nome de container, banco e confirmação explícitos:
+
+```bash
+KEEPIT_DISPOSABLE_DB=1 \
+SUPABASE_DB_CONTAINER=supabase_db_keepit-descartavel \
+SUPABASE_DB_NAME=postgres \
+pnpm --filter @keepit/supabase verify:chargeback-concurrency
+```
+
+O comando executa, em sequência, `chargebacks_concurrency.py` e `chargeback_refund_concurrency.py`. Use um container criado exclusivamente para essa validação; não aponte para `keepit-dev`, produção ou outro banco compartilhado.
+
+## Verificação REST da projeção pública de estabelecimentos
+
+Com PostgreSQL e PostgREST locais, descartáveis e já migrados, a verificação REST cobre anônimo, cliente, outro dono, dono e Admin. Ela confirma a mesma projeção pública para todos, a ausência de campos privados e o escopo da RPC privada:
+
+```bash
+KEEPIT_DISPOSABLE_DB=1 \
+SUPABASE_DB_CONTAINER=supabase_db_keepit-descartavel \
+SUPABASE_DB_NAME=postgres \
+SUPABASE_REST_URL=http://127.0.0.1:54321/rest/v1 \
+SUPABASE_JWT_SECRET=segredo-local-da-pilha-descartavel \
+pnpm --filter @keepit/supabase verify:estabelecimentos-rest
+```
+
+O script não possui valores padrão e recusa a execução sem todos os parâmetros. O segredo deve ser o valor de teste configurado no PostgREST descartável, nunca uma chave de ambiente remoto.

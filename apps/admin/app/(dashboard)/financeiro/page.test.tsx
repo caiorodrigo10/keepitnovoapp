@@ -1,8 +1,15 @@
-import { createElement } from 'react';
+import { act, createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const hookState = vi.hoisted(() => ({
+  refresh: vi.fn(),
+  resolveChargebackAndRefresh: vi.fn(),
+}));
+
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams() }));
+vi.mock('next/link', () => ({ default: 'a' }));
 vi.mock('../../../src/hooks/useAdminOps', () => ({ useFinancialDashboard: () => ({
   data: { periodoDias: 30, gmvReais: 107.9, recebidoClientesReais: 107.9,
     receitaKeepitReais: 12.9, despesaGatewayReais: 3.5, dividaLojistasReais: 95,
@@ -43,15 +50,22 @@ vi.mock('../../../src/hooks/useAdminOps', () => ({ useFinancialDashboard: () => 
       operacaoId: 'evt-sem-pedido', abertoEm: '2026-09-30T11:00:00.000Z', ultimoResultado: 'vinculo_nao_encontrado',
       ultimoErro: 'COBRANCA_DESCONHECIDA', referenciaExterna: 'pay-sem-pedido', acaoPermitida: 'consultar_divergencia',
     }] },
-  loading: false, error: null, refresh: vi.fn(),
-}), resolveChargebackAndRefresh: vi.fn() }));
+  loading: false, error: null, refresh: hookState.refresh, refreshAndWait: hookState.refresh,
+}), resolveChargebackAndRefresh: hookState.resolveChargebackAndRefresh }));
 vi.mock('../../../src/lib/adminClient', () => ({ getAdminDataClient: vi.fn() }));
 
 import FinanceiroPage, { createChargebackDraftOperationTracker } from './page';
 
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+let renderer: ReactTestRenderer | undefined;
+
 describe('dashboard financeiro Admin', () => {
-  afterEach(() => {
+  afterEach(async () => {
+    if (renderer) await act(async () => renderer?.unmount());
+    renderer = undefined;
     vi.useRealTimers();
+    vi.clearAllMocks();
   });
 
   it('separa cobranças, receita, gateway, dívida, repasses e reembolsos', () => {
@@ -124,5 +138,29 @@ describe('dashboard financeiro Admin', () => {
     expect(tracker.operationIdFor({ ...draft, referencia: 'protocolo-124' })).toBe('operacao-2');
     tracker.resetAfterPersistence();
     expect(tracker.operationIdFor({ ...draft, referencia: 'protocolo-124' })).toBe('operacao-3');
+  });
+
+  it('avisa que a decisão persistiu com dados possivelmente desatualizados e permite tentar a releitura', async () => {
+    const retry = vi.fn(async () => undefined);
+    hookState.resolveChargebackAndRefresh.mockResolvedValue({
+      decision: { id: 'decisao-1' },
+      refreshWarning: { message: 'falha ao reler dashboard', retry },
+    });
+    await act(async () => { renderer = create(createElement(FinanceiroPage)); });
+    const page = renderer!;
+
+    const form = page.root.findByType('form');
+    await act(async () => { await form.props.onSubmit({ preventDefault: vi.fn() }); });
+
+    expect(JSON.stringify(page.toJSON())).toContain(
+      'A decisão foi registrada, mas os dados exibidos podem estar desatualizados',
+    );
+    expect(JSON.stringify(page.toJSON())).toContain('falha ao reler dashboard');
+    const retryButton = page.root.findAllByType('button').find((button) => button.children.includes('Tentar atualizar dados'));
+    expect(retryButton).toBeDefined();
+
+    await act(async () => { await retryButton?.props.onClick(); });
+    expect(retry).toHaveBeenCalledOnce();
+    expect(page.root.findAllByProps({ role: 'alert' })).toHaveLength(0);
   });
 });

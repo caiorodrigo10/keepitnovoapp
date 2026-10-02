@@ -31,17 +31,37 @@ import { getAdminDataClient } from '../lib/adminClient';
 
 export interface RefreshableAsyncResource<T> extends AsyncResourceState<T> {
   refresh: () => void;
+  refreshAndWait: () => Promise<void>;
 }
+
+type RefreshRequest = {
+  resolve: () => void;
+  reject: (cause: unknown) => void;
+};
 
 function useRefreshable<T>(
   fetcher: () => Promise<T>,
   initialValue: T,
   extraDeps: ReadonlyArray<unknown>,
 ): RefreshableAsyncResource<T> {
-  const [refreshToken, setRefreshToken] = useState(0);
-  const state = useAsyncResource<T>(fetcher, initialValue, [refreshToken, ...extraDeps]);
-  const refresh = useCallback(() => setRefreshToken((token) => token + 1), []);
-  return { ...state, refresh };
+  const [refreshRequest, setRefreshRequest] = useState<RefreshRequest | null>(null);
+  const state = useAsyncResource<T>(async () => {
+    try {
+      const data = await fetcher();
+      refreshRequest?.resolve();
+      return data;
+    } catch (cause) {
+      refreshRequest?.reject(cause);
+      throw cause;
+    }
+  }, initialValue, [refreshRequest, ...extraDeps]);
+  const refreshAndWait = useCallback(() => new Promise<void>((resolve, reject) => {
+    setRefreshRequest({ resolve, reject });
+  }), []);
+  const refresh = useCallback(() => {
+    void refreshAndWait().catch(() => undefined);
+  }, [refreshAndWait]);
+  return { ...state, refresh, refreshAndWait };
 }
 
 export function useRefundQueue(options?: AsyncCallOptions): RefreshableAsyncResource<ReembolsoPendente[]> {
@@ -182,9 +202,15 @@ export async function resolveChargebackAndRefresh(
   }
   try {
     await refresh();
-  } catch {
-    // A RPC já confirmou persistência. Uma falha de releitura não transforma
-    // a decisão commitada em falha e o mesmo operacaoId pode ser reenviado.
+    return { decision: result, refreshWarning: null };
+  } catch (refreshError) {
+    const error = refreshError instanceof Error ? refreshError : new Error(String(refreshError));
+    return {
+      decision: result,
+      refreshWarning: {
+        message: error.message,
+        retry: async () => { await refresh(); },
+      },
+    };
   }
-  return result;
 }

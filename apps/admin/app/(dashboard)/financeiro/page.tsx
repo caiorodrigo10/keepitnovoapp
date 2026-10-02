@@ -61,6 +61,11 @@ function ChargebackOccurrenceItem({
   const [referencia, setReferencia] = useState('');
   const [resolvendo, setResolvendo] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [refreshWarning, setRefreshWarning] = useState<{
+    message: string;
+    retry: () => Promise<void>;
+  } | null>(null);
+  const [tentandoAtualizar, setTentandoAtualizar] = useState(false);
   const operationTrackerRef = useRef<ReturnType<typeof createChargebackDraftOperationTracker> | null>(null);
   const operationTracker = operationTrackerRef.current ?? createChargebackDraftOperationTracker();
   operationTrackerRef.current = operationTracker;
@@ -85,15 +90,30 @@ function ChargebackOccurrenceItem({
         motivo,
         referencia,
       };
-      await resolveChargebackAndRefresh({
+      const outcome = await resolveChargebackAndRefresh({
         ocorrenciaId: item.id,
         ...draft,
         operacaoId: operationTracker.operationIdFor(draft),
       }, refresh);
+      setRefreshWarning(outcome.refreshWarning);
     } catch (cause) {
       setErro(cause instanceof Error ? cause.message : 'Não foi possível registrar a decisão.');
     } finally {
       setResolvendo(false);
+    }
+  }
+
+  async function tentarAtualizarDados() {
+    if (!refreshWarning) return;
+    setTentandoAtualizar(true);
+    try {
+      await refreshWarning.retry();
+      setRefreshWarning(null);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'Falha ao atualizar os dados.';
+      setRefreshWarning((warning) => warning ? { ...warning, message } : warning);
+    } finally {
+      setTentandoAtualizar(false);
     }
   }
 
@@ -149,6 +169,16 @@ function ChargebackOccurrenceItem({
           </label>
           <p className="text-xs text-text-tertiary">A taxa histórica de chargeback é aplicada na resolução e registrada separadamente do principal.</p>
           {erro && <p className="text-sm text-accent-warning">{erro}</p>}
+          {refreshWarning && (
+            <div role="alert" className="grid gap-2 rounded-md border border-accent-warning/40 p-3 text-sm text-accent-warning">
+              <p>
+                A decisão foi registrada, mas os dados exibidos podem estar desatualizados: {refreshWarning.message}
+              </p>
+              <Button type="button" variant="secondary" disabled={tentandoAtualizar} onClick={() => void tentarAtualizarDados()}>
+                {tentandoAtualizar ? 'Atualizando…' : 'Tentar atualizar dados'}
+              </Button>
+            </div>
+          )}
           <Button type="submit" variant="secondary" disabled={resolvendo}>
             {resolvendo ? 'Registrando…' : 'Registrar decisão'}
           </Button>
@@ -197,7 +227,7 @@ export default function FinanceiroPage() {
   const [periodoDias, setPeriodoDias] = useState<(typeof PERIODO_OPTIONS)[number]>(30);
   const [reconciliando, setReconciliando] = useState<string | null>(null);
   const [erroReconciliacao, setErroReconciliacao] = useState<string | null>(null);
-  const { data: dashboard, loading, error, refresh } = useFinancialDashboard(periodoDias, {
+  const { data: dashboard, loading, error, refresh, refreshAndWait } = useFinancialDashboard(periodoDias, {
     forceEmpty,
     forceError,
   });
@@ -206,7 +236,7 @@ export default function FinanceiroPage() {
     setReconciliando(tentativaId);
     setErroReconciliacao(null);
     try {
-      await reconcilePaymentAndRefresh(tentativaId, refresh);
+      await reconcilePaymentAndRefresh(tentativaId, refreshAndWait);
     } catch (cause) {
       setErroReconciliacao(cause instanceof Error ? cause.message : 'Não foi possível reconciliar a tentativa.');
     } finally {
@@ -340,7 +370,7 @@ export default function FinanceiroPage() {
               ) : (
                 <ul className="flex flex-col gap-3 text-sm">
                   {dashboard.ocorrenciasPagamento.map((item) => (
-                    <ChargebackOccurrenceItem key={item.id} item={item} refresh={refresh} />
+                    <ChargebackOccurrenceItem key={item.id} item={item} refresh={refreshAndWait} />
                   ))}
                 </ul>
               )}

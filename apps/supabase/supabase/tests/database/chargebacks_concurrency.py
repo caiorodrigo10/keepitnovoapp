@@ -10,8 +10,10 @@ import subprocess
 import time
 
 
-CONTAINER = os.environ.get('SUPABASE_DB_CONTAINER', 'supabase_db_jhhbewnmnorhmsdvfppo')
-DATABASE = os.environ.get('SUPABASE_DB_NAME', 'postgres')
+CONTAINER = os.environ.get('SUPABASE_DB_CONTAINER')
+DATABASE = os.environ.get('SUPABASE_DB_NAME')
+if not CONTAINER or not DATABASE:
+    raise SystemExit('Informe SUPABASE_DB_CONTAINER e SUPABASE_DB_NAME de um banco local descartável.')
 P = '76666666-0000-4000-8000-000000000'
 CLIENT, MERCHANT, ADMIN = P + '001', P + '002', P + '003'
 HUB, STORE, ORDER, ATTEMPT = P + '010', P + '020', P + '101', P + '201'

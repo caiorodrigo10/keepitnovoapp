@@ -51,12 +51,18 @@ importers:
       '@types/react-dom':
         specifier: ^19
         version: 19.2.3(@types/react@19.2.17)
+      '@types/react-test-renderer':
+        specifier: 19.1.0
+        version: 19.1.0
       autoprefixer:
         specifier: 10.5.4
         version: 10.5.4(postcss@8.5.23)
       postcss:
         specifier: 8.5.23
         version: 8.5.23
+      react-test-renderer:
+        specifier: 19.2.3
+        version: 19.2.3(react@19.2.8)
       tailwindcss:
         specifier: 3.4.19
         version: 3.4.19(yaml@2.9.0)
@@ -6826,6 +6832,12 @@ snapshots:
   react-test-renderer@19.2.3(react@19.2.3):
     dependencies:
       react: 19.2.3
+      react-is: 19.2.8
+      scheduler: 0.27.0
+
+  react-test-renderer@19.2.3(react@19.2.8):
+    dependencies:
+      react: 19.2.8
       react-is: 19.2.8
       scheduler: 0.27.0
 

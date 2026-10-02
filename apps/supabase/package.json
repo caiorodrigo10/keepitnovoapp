@@ -7,7 +7,9 @@
     "build": "echo skipped",
     "lint": "echo skipped",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "verify:chargeback-concurrency": "node scripts/verify-chargeback-concurrency.mjs",
+    "verify:estabelecimentos-rest": "python3 supabase/tests/database/estabelecimentos_projecao_publica_rest.py"
   },
   "dependencies": {
     "@keepit/shared-types": "workspace:*",
