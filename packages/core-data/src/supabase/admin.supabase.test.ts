@@ -1375,6 +1375,68 @@ describe('admin.supabase.ts — financialDashboard (Story 8.7)', () => {
     ]));
   });
 
+  it('pagina ocorrências e decisões para correlacionar um chargeback além do limite do servidor', async () => {
+    const ocorrenciasPrimeiraPagina = Array.from({ length: 1_000 }, (_, index) => ({
+      id: `oc-${String(index).padStart(4, '0')}`, pedido_id: `pedido-${index}`,
+      tipo: 'pagamento_adicional', estado: 'pendente', referencia_externa: `pay-${index}`,
+      detalhe: 'Revisão necessária', criado_em: '2026-09-30T10:00:00.000Z',
+    }));
+    const decisoesPrimeiraPagina = Array.from({ length: 1_000 }, (_, index) => ({
+      id: `decisao-${String(index).padStart(4, '0')}`, ocorrencia_id: `outra-oc-${index}`,
+      responsavel_principal: 'keepit', motivo: 'Histórico', referencia: `ref-${index}`,
+      principal_informado_centavos: 100, principal_debitado_centavos: 0,
+      taxa_centavos: 4_000, lancamento_id: `ajuste-${index}`,
+      criado_em: '2026-09-30T10:00:00.000Z',
+    }));
+    const { client, from } = fakeTableClient({
+      tables: {
+        pedidos: [{ data: [], error: null }, { data: [], error: null }],
+        ocorrencias_pagamento: [
+          { data: ocorrenciasPrimeiraPagina, error: null },
+          { data: [{
+            id: 'oc-1000', pedido_id: 'pedido-1000', tipo: 'chargeback', estado: 'encerrada',
+            referencia_externa: 'pay-1000', detalhe: 'Responsabilidade decidida',
+            criado_em: '2026-09-30T09:00:00.000Z',
+          }], error: null },
+        ],
+        decisoes_chargeback: [
+          { data: decisoesPrimeiraPagina, error: null },
+          { data: [{
+            id: 'decisao-1000', ocorrencia_id: 'oc-1000', responsavel_principal: 'lojista',
+            motivo: 'Entrega não comprovada', referencia: 'protocolo-1000',
+            principal_informado_centavos: 10_790, principal_debitado_centavos: 9_500,
+            taxa_centavos: 4_000, lancamento_id: 'ajuste-1000', criado_em: '2026-09-30T09:10:00.000Z',
+          }], error: null },
+        ],
+        lancamentos_financeiros: [{ data: [{
+          id: 'ajuste-1000', estabelecimento_id: 'loja-1', pedido_id: 'pedido-1000',
+          tipo: 'merchant_credit', valor_centavos: -13_500, status: 'concluido',
+          criado_em: '2026-09-30T09:10:00.000Z', concluido_em: null,
+          detalhe: 'Ajuste administrativo de chargeback', estado_reserva: 'ativa',
+        }], error: null }],
+      },
+    });
+
+    const dashboard = await createAdminSupabase(client).financialDashboard(30);
+
+    expect(dashboard.ocorrenciasPagamento).toHaveLength(1_001);
+    expect(dashboard.ocorrenciasPagamento.find((item) => item.id === 'oc-1000')).toMatchObject({
+      estado: 'encerrada',
+      decisao: { id: 'decisao-1000', principalDebitadoCentavos: 9_500 },
+      lancamentos: [{ id: 'ajuste-1000', valorCentavos: -13_500 }],
+    });
+    for (const table of ['ocorrencias_pagamento', 'decisoes_chargeback']) {
+      const queries = from.mock.results
+        .filter((_, index) => from.mock.calls[index]?.[0] === table)
+        .map((result) => result.value as { order: ReturnType<typeof vi.fn>; range: ReturnType<typeof vi.fn> });
+      expect(queries).toHaveLength(2);
+      expect(queries[0]?.order).toHaveBeenCalledWith('criado_em', { ascending: false });
+      expect(queries[0]?.order).toHaveBeenCalledWith('id', { ascending: true });
+      expect(queries[0]?.range).toHaveBeenCalledWith(0, 999);
+      expect(queries[1]?.range).toHaveBeenCalledWith(1_000, 1_999);
+    }
+  });
+
   it('pagina todo o histórico necessário para fechar divergências e busca eventos das tentativas exibidas', async () => {
     const { client, from } = fakeTableClient({
       tables: {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useSearchParams } from 'next/navigation';
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 
 import { createSupportOperationId, type PaymentOccurrenceAdmin } from '@keepit/core-data';
 
@@ -17,6 +17,32 @@ import { formatReais } from '../../../src/lib/adminLabels';
 import { anticipationIdentityLabel, presentFinancialPending } from '../../../src/lib/financialLabels';
 
 const PERIODO_OPTIONS = [7, 30, 90] as const;
+
+type ChargebackDraft = {
+  responsavelPrincipal: 'keepit' | 'lojista';
+  principalCentavos: number;
+  motivo: string;
+  referencia: string;
+};
+
+export function createChargebackDraftOperationTracker(
+  createOperationId: () => string = createSupportOperationId,
+) {
+  let operationId = createOperationId();
+  let previousDraft: string | null = null;
+  return {
+    operationIdFor(draft: ChargebackDraft) {
+      const nextDraft = JSON.stringify(draft);
+      if (previousDraft !== null && previousDraft !== nextDraft) operationId = createOperationId();
+      previousDraft = nextDraft;
+      return operationId;
+    },
+    resetAfterPersistence() {
+      operationId = createOperationId();
+      previousDraft = null;
+    },
+  };
+}
 
 function formatSignedCentavos(value: number): string {
   return value < 0 ? `-${formatReais(Math.abs(value) / 100)}` : formatReais(value / 100);
@@ -35,6 +61,13 @@ function ChargebackOccurrenceItem({
   const [referencia, setReferencia] = useState('');
   const [resolvendo, setResolvendo] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const operationTrackerRef = useRef<ReturnType<typeof createChargebackDraftOperationTracker> | null>(null);
+  const operationTracker = operationTrackerRef.current ?? createChargebackDraftOperationTracker();
+  operationTrackerRef.current = operationTracker;
+  const decisionPersisted = item.decisao !== null;
+  useEffect(() => {
+    if (decisionPersisted) operationTracker.resetAfterPersistence();
+  }, [decisionPersisted, operationTracker]);
 
   async function decidir(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -46,13 +79,16 @@ function ChargebackOccurrenceItem({
     setResolvendo(true);
     setErro(null);
     try {
-      await resolveChargebackAndRefresh({
-        ocorrenciaId: item.id,
+      const draft = {
         responsavelPrincipal: responsavel,
+        principalCentavos,
         motivo,
         referencia,
-        principalCentavos,
-        operacaoId: createSupportOperationId(),
+      };
+      await resolveChargebackAndRefresh({
+        ocorrenciaId: item.id,
+        ...draft,
+        operacaoId: operationTracker.operationIdFor(draft),
       }, refresh);
     } catch (cause) {
       setErro(cause instanceof Error ? cause.message : 'Não foi possível registrar a decisão.');

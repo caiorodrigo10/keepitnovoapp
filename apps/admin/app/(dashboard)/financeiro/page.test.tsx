@@ -47,7 +47,7 @@ vi.mock('../../../src/hooks/useAdminOps', () => ({ useFinancialDashboard: () => 
 }), resolveChargebackAndRefresh: vi.fn() }));
 vi.mock('../../../src/lib/adminClient', () => ({ getAdminDataClient: vi.fn() }));
 
-import FinanceiroPage from './page';
+import FinanceiroPage, { createChargebackDraftOperationTracker } from './page';
 
 describe('dashboard financeiro Admin', () => {
   afterEach(() => {
@@ -107,5 +107,22 @@ describe('dashboard financeiro Admin', () => {
     expect(html).toContain('R$ 40,00');
     expect(html).toContain('Lançamentos no ledger');
     expect(html).toContain('-R$ 135,00');
+  });
+
+  it('reusa a operação no retry do mesmo rascunho e troca ao editar os dados', () => {
+    const ids = ['operacao-1', 'operacao-2', 'operacao-3'];
+    const tracker = createChargebackDraftOperationTracker(() => ids.shift()!);
+    const draft = {
+      responsavelPrincipal: 'lojista' as const,
+      principalCentavos: 10_790,
+      motivo: 'Entrega não comprovada',
+      referencia: 'protocolo-123',
+    };
+
+    expect(tracker.operationIdFor(draft)).toBe('operacao-1');
+    expect(tracker.operationIdFor({ ...draft })).toBe('operacao-1');
+    expect(tracker.operationIdFor({ ...draft, referencia: 'protocolo-124' })).toBe('operacao-2');
+    tracker.resetAfterPersistence();
+    expect(tracker.operationIdFor({ ...draft, referencia: 'protocolo-124' })).toBe('operacao-3');
   });
 });

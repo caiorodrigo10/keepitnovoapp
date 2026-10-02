@@ -52,7 +52,9 @@ INSERT INTO public.pedidos (
   ('66666666-0000-4000-8000-000000000105','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','aguardando_pagamento',100,5,10,2.90,107.90,'cartao',NULL,NULL),
   ('66666666-0000-4000-8000-000000000106','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','aguardando_pagamento',100,5,10,2.90,107.90,'cartao',NULL,NULL),
   ('66666666-0000-4000-8000-000000000107','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','entregue',100,5,10,2.90,107.90,'cartao',now(),'2026-09-29T12:00:00Z'),
-  ('66666666-0000-4000-8000-000000000108','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','entregue',100,5,10,2.90,107.90,'cartao',now(),'2026-09-29T13:00:00Z');
+  ('66666666-0000-4000-8000-000000000108','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','entregue',100,5,10,2.90,107.90,'cartao',now(),'2026-09-29T13:00:00Z'),
+  ('66666666-0000-4000-8000-000000000109','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','entregue',100,5,10,2.90,107.90,'cartao',now(),'2026-09-29T14:00:00Z'),
+  ('66666666-0000-4000-8000-000000000110','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','entregue',100,5,10,2.90,107.90,'cartao',now(),'2026-09-29T15:00:00Z');
 
 INSERT INTO public.tentativas_pagamento (id,pedido_id,cliente_id,operacao_id,forma,estado,asaas_payment_id,encerrada_em) VALUES
   ('66666666-0000-4000-8000-000000000201','66666666-0000-4000-8000-000000000101','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000301','cartao','pendente','pay-main',NULL),
@@ -63,7 +65,9 @@ INSERT INTO public.tentativas_pagamento (id,pedido_id,cliente_id,operacao_id,for
   ('66666666-0000-4000-8000-000000000206','66666666-0000-4000-8000-000000000105','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000306','cartao','criando',NULL,NULL),
   ('66666666-0000-4000-8000-000000000207','66666666-0000-4000-8000-000000000106','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000307','cartao','reconciliacao',NULL,NULL),
   ('66666666-0000-4000-8000-000000000208','66666666-0000-4000-8000-000000000107','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000308','cartao','recebido','pay-estornado',NULL),
-  ('66666666-0000-4000-8000-000000000209','66666666-0000-4000-8000-000000000108','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000309','cartao','recebido','pay-keepit',NULL);
+  ('66666666-0000-4000-8000-000000000209','66666666-0000-4000-8000-000000000108','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000309','cartao','recebido','pay-keepit',NULL),
+  ('66666666-0000-4000-8000-000000000210','66666666-0000-4000-8000-000000000109','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000310','cartao','recebido','pay-refund-pendente',NULL),
+  ('66666666-0000-4000-8000-000000000211','66666666-0000-4000-8000-000000000110','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000311','cartao','recebido','pay-refund-erro',NULL);
 
 -- Crédito do pedido 103 já saiu em lote pago; qualquer ajuste posterior deve
 -- permanecer no ledger para compensação futura, sem reescrever o snapshot.
@@ -73,6 +77,17 @@ INSERT INTO public.lancamentos_financeiros(
   '66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000103',
   'merchant_credit',9500,'concluido','Crédito líquido do pedido entregue'
 );
+
+INSERT INTO public.lancamentos_financeiros(
+  estabelecimento_id,pedido_id,tipo,valor_centavos,status,detalhe
+) VALUES
+  ('66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000109','merchant_credit',9500,'concluido','Crédito antes do reembolso pendente'),
+  ('66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000110','merchant_credit',9500,'concluido','Crédito antes do reembolso com erro');
+INSERT INTO public.lancamentos_financeiros(
+  estabelecimento_id,pedido_id,tipo,valor_centavos,status,detalhe,motivo_reembolso,responsavel_reembolso
+) VALUES
+  ('66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000109','refund',-9500,'pendente','Estorno aguardando confirmação','pos_entrega','lojista'),
+  ('66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000110','refund',-9500,'erro','Resposta perdida após envio','pos_entrega','lojista');
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','66666666-0000-4000-8000-000000000003',true);
 SELECT is(
@@ -173,9 +188,37 @@ SELECT public.processar_evento_pagamento('evt-chargeback','PAYMENT_CHARGEBACK_RE
 SELECT public.processar_evento_pagamento('evt-chargeback','PAYMENT_CHARGEBACK_REQUESTED','pay-entregue','66666666-0000-4000-8000-000000000203',10790,'cartao');
 SELECT is((SELECT count(*)::int FROM public.ocorrencias_pagamento WHERE pedido_id='66666666-0000-4000-8000-000000000103' AND tipo='chargeback'),1,'chargeback cria ocorrência');
 SELECT is((SELECT count(*)::int FROM public.lancamentos_financeiros WHERE pedido_id='66666666-0000-4000-8000-000000000103' AND tipo='merchant_credit' AND valor_centavos<0),0,'chargeback não presume débito do lojista');
+SELECT public.processar_evento_pagamento('evt-chargeback-refund-pendente','PAYMENT_CHARGEBACK_REQUESTED','pay-refund-pendente','66666666-0000-4000-8000-000000000210',10790,'cartao');
+SELECT public.processar_evento_pagamento('evt-chargeback-refund-erro','PAYMENT_CHARGEBACK_REQUESTED','pay-refund-erro','66666666-0000-4000-8000-000000000211',10790,'cartao');
 RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','66666666-0000-4000-8000-000000000003',true);
+SELECT throws_ok(
+  format($sql$SELECT public.resolver_chargeback_admin(
+    %L::uuid,'lojista','Chargeback com reembolso pendente','protocolo-cb-pendente',10790,
+    '66666666-0000-4000-8000-000000000408'
+  )$sql$,(SELECT id FROM public.ocorrencias_pagamento WHERE pedido_id='66666666-0000-4000-8000-000000000109' AND tipo='chargeback')),
+  'P0001','REEMBOLSO_LOJISTA_REQUER_CONCILIACAO',
+  'reembolso pendente do lojista bloqueia decisão até reconciliação'
+);
+SELECT throws_ok(
+  format($sql$SELECT public.resolver_chargeback_admin(
+    %L::uuid,'lojista','Chargeback com resposta perdida','protocolo-cb-erro',10790,
+    '66666666-0000-4000-8000-000000000409'
+  )$sql$,(SELECT id FROM public.ocorrencias_pagamento WHERE pedido_id='66666666-0000-4000-8000-000000000110' AND tipo='chargeback')),
+  'P0001','REEMBOLSO_LOJISTA_REQUER_CONCILIACAO',
+  'reembolso com erro do lojista bloqueia decisão até reconciliação'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.decisoes_chargeback WHERE pedido_id IN (
+    '66666666-0000-4000-8000-000000000109','66666666-0000-4000-8000-000000000110'
+  )),0,'bloqueio não persiste decisão parcial'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.lancamentos_financeiros WHERE pedido_id IN (
+    '66666666-0000-4000-8000-000000000109','66666666-0000-4000-8000-000000000110'
+  ) AND tipo='merchant_credit' AND valor_centavos<0),0,'bloqueio não debita o principal antes da reconciliação'
+);
 SELECT set_config('test.ocorrencia_chargeback',(
   SELECT id::text FROM public.ocorrencias_pagamento
   WHERE pedido_id='66666666-0000-4000-8000-000000000103' AND tipo='chargeback'
@@ -473,7 +516,7 @@ SELECT is((SELECT count(*)::int FROM public.eventos_pagamento),0,'policy filtra 
 SELECT is((SELECT count(*)::int FROM public.decisoes_chargeback),0,'policy não expõe decisões de chargeback ao cliente');
 SELECT throws_ok($$SELECT * FROM public.processar_evento_pagamento('x','PAYMENT_RECEIVED','pay-main',NULL,10790,'cartao')$$,'42501',NULL,'cliente não processa webhook');
 SELECT set_config('request.jwt.claim.sub','66666666-0000-4000-8000-000000000003',true);
-SELECT is((SELECT count(*)::int FROM public.tentativas_pagamento WHERE estado IN ('reconciliacao','recebido','confirmado')),9,'Admin lê tentativas para reconciliação');
+SELECT is((SELECT count(*)::int FROM public.tentativas_pagamento WHERE estado IN ('reconciliacao','recebido','confirmado')),11,'Admin lê tentativas para reconciliação');
 SELECT is((SELECT count(*)::int FROM public.antecipacoes_recebiveis),3,'Admin lê custos e estados de antecipação');
 RESET ROLE;
 

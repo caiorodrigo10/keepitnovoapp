@@ -1495,20 +1495,21 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
         atualizadoEm: row.atualizado_em,
       }));
 
-      const ocorrenciasResult = await operational.from('ocorrencias_pagamento')
-        .select('id, pedido_id, tipo, estado, referencia_externa, detalhe, criado_em')
-        .order('criado_em', { ascending: false });
-      if (ocorrenciasResult.error) throw ocorrenciasResult.error;
-      const ocorrenciasRows = (ocorrenciasResult.data ?? []) as Array<{
+      const ocorrenciasRows = await fetchAllOperationalRows<{
         id: string; pedido_id: string; tipo: PaymentOccurrenceAdmin['tipo']; estado: string;
         referencia_externa: string | null; detalhe: string; criado_em: string;
-      }>;
+      }>((from, to) => operational.from('ocorrencias_pagamento')
+        .select('id, pedido_id, tipo, estado, referencia_externa, detalhe, criado_em')
+        .order('criado_em', { ascending: false })
+        .order('id', { ascending: true })
+        .range(from, to));
 
-      const decisoesResult = await operational.from('decisoes_chargeback')
-        .select('id, ocorrencia_id, responsavel_principal, motivo, referencia, principal_informado_centavos, principal_debitado_centavos, taxa_centavos, lancamento_id, criado_em')
-        .order('criado_em', { ascending: false });
-      if (decisoesResult.error) throw decisoesResult.error;
-      const decisoes = ((decisoesResult.data ?? []) as ChargebackDecisionRow[]).map(mapChargebackDecision);
+      const decisoes = (await fetchAllOperationalRows<ChargebackDecisionRow>((from, to) =>
+        operational.from('decisoes_chargeback')
+          .select('id, ocorrencia_id, responsavel_principal, motivo, referencia, principal_informado_centavos, principal_debitado_centavos, taxa_centavos, lancamento_id, criado_em')
+          .order('criado_em', { ascending: false })
+          .order('id', { ascending: true })
+          .range(from, to))).map(mapChargebackDecision);
       const decisaoPorOcorrencia = new Map(decisoes.map((item) => [item.ocorrenciaId, item]));
 
       const ledgerRows = await fetchAllOperationalRows<LancamentoAdminRow>((from, to) =>

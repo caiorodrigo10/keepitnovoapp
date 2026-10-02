@@ -169,9 +169,22 @@ export async function resolveChargebackAndRefresh(
   refresh: () => void | Promise<void>,
   resolveChargeback = (value: DecideChargebackInput) => getAdminDataClient().admin.decideChargeback(value),
 ) {
+  let result: Awaited<ReturnType<typeof resolveChargeback>>;
   try {
-    return await resolveChargeback(input);
-  } finally {
-    await refresh();
+    result = await resolveChargeback(input);
+  } catch (mutationError) {
+    try {
+      await refresh();
+    } catch {
+      // A falha original da mutação é a informação operacional relevante.
+    }
+    throw mutationError;
   }
+  try {
+    await refresh();
+  } catch {
+    // A RPC já confirmou persistência. Uma falha de releitura não transforma
+    // a decisão commitada em falha e o mesmo operacaoId pode ser reenviado.
+  }
+  return result;
 }

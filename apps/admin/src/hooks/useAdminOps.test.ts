@@ -47,4 +47,25 @@ describe('resolveChargebackAndRefresh', () => {
       .resolves.toMatchObject({ id: 'decisao-1' });
     expect(refresh).toHaveBeenCalledOnce();
   });
+
+  it('preserva o sucesso confirmado quando a releitura posterior falha', async () => {
+    const committed = {
+      id: 'decisao-1', ocorrenciaId: 'ocorrencia-1', responsavelPrincipal: 'lojista' as const,
+      motivo: 'Entrega não comprovada', referencia: 'protocolo-123',
+      principalInformadoCentavos: 10_790, principalDebitadoCentavos: 9_500,
+      taxaCentavos: 4_000, lancamentoId: 'ajuste-1', criadoEm: '2026-10-01T12:00:00Z',
+    };
+    const resolveChargeback = vi.fn(async () => committed);
+    const refresh = vi.fn(async () => {
+      throw new Error('falha ao reler dashboard');
+    });
+    const input = {
+      ocorrenciaId: 'ocorrencia-1', responsavelPrincipal: 'lojista' as const,
+      motivo: 'Entrega não comprovada', referencia: 'protocolo-123',
+      principalCentavos: 10_790, operacaoId: 'operacao-estavel',
+    };
+
+    await expect(resolveChargebackAndRefresh(input, refresh, resolveChargeback)).resolves.toEqual(committed);
+    expect(refresh).toHaveBeenCalledOnce();
+  });
 });
