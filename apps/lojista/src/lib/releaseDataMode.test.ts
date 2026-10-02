@@ -10,9 +10,12 @@ interface ReleaseEnvironment {
 }
 
 describe('configuração de release do Lojista', () => {
-  it('mantém os identificadores nativos alinhados ao scheme', () => {
-    expect(app.expo.ios.bundleIdentifier).toBe(app.expo.scheme);
-    expect(app.expo.android.package).toBe(app.expo.scheme);
+  it('preserva a identidade canônica do app nas configurações Expo e EAS', () => {
+    expect(app.expo.slug).toBe('keepit-lojista');
+    expect(app.expo.scheme).toBe('com.keepithub.lojista');
+    expect(app.expo.ios.bundleIdentifier).toBe('com.keepithub.lojista');
+    expect(app.expo.android.package).toBe('com.keepithub.lojista');
+    expect(app.expo.extra.eas.projectId).toBe('e6fd72af-f4f1-4f53-801d-0baabd792f8f');
   });
 
   it('versiona builds localmente com incremento automático', () => {
@@ -38,6 +41,7 @@ describe('configuração de release do Lojista', () => {
 
     for (const profile of [eas.build.demo, eas.build['demo-apk']]) {
       const environment = profile.env as ReleaseEnvironment;
+      expect(environment.EXPO_PUBLIC_APP_ENV).toBe('qa');
       expect(resolveDataMode(environment.EXPO_PUBLIC_DATA_SOURCE, environment.EXPO_PUBLIC_APP_ENV))
         .toBe('mock');
     }

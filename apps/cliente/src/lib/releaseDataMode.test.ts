@@ -10,9 +10,12 @@ interface ReleaseEnvironment {
 }
 
 describe('configuração de release do Cliente', () => {
-  it('mantém os identificadores nativos alinhados ao scheme', () => {
-    expect(app.expo.ios.bundleIdentifier).toBe(app.expo.scheme);
-    expect(app.expo.android.package).toBe(app.expo.scheme);
+  it('preserva a identidade canônica do app nas configurações Expo e EAS', () => {
+    expect(app.expo.slug).toBe('keepit-cliente');
+    expect(app.expo.scheme).toBe('com.keepithub.cliente');
+    expect(app.expo.ios.bundleIdentifier).toBe('com.keepithub.cliente');
+    expect(app.expo.android.package).toBe('com.keepithub.cliente');
+    expect(app.expo.extra.eas.projectId).toBe('4335faeb-fcfb-46cd-bd96-41b4c7440bd1');
   });
 
   it('versiona builds localmente com incremento automático', () => {
@@ -36,6 +39,7 @@ describe('configuração de release do Cliente', () => {
     for (const profile of [eas.build.demo, eas.build['demo-apk']]) {
       const environment = profile.env as ReleaseEnvironment;
       expect(profile.environment).toBe('preview');
+      expect(environment.EXPO_PUBLIC_APP_ENV).toBe('qa');
       expect(resolveDataMode(environment.EXPO_PUBLIC_DATA_SOURCE, environment.EXPO_PUBLIC_APP_ENV))
         .toBe('mock');
     }
