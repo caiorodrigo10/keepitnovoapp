@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import app from '../../app.json';
 import eas from '../../eas.json';
 import { resolveDataMode } from '@keepit/core-data';
 
@@ -8,7 +9,17 @@ interface ReleaseEnvironment {
   EXPO_PUBLIC_APP_ENV?: string;
 }
 
-describe('perfis EAS do Lojista', () => {
+describe('configuração de release do Lojista', () => {
+  it('mantém os identificadores nativos alinhados ao scheme', () => {
+    expect(app.expo.ios.bundleIdentifier).toBe(app.expo.scheme);
+    expect(app.expo.android.package).toBe(app.expo.scheme);
+  });
+
+  it('versiona builds localmente com incremento automático', () => {
+    expect(eas.cli.appVersionSource).toBe('local');
+    expect(eas.build.production.autoIncrement).toBe(true);
+  });
+
   it('mapeia perfis demo para preview e produção para production', () => {
     expect(eas.build.demo.environment).toBe('preview');
     expect(eas.build['demo-apk'].environment).toBe('preview');
@@ -18,6 +29,8 @@ describe('perfis EAS do Lojista', () => {
   it('marca produção para bloquear mock e preserva os perfis demo', () => {
     const production = eas.build.production.env as ReleaseEnvironment;
 
+    expect(eas.build.production.distribution).toBe('store');
+    expect(eas.build.production.android.buildType).toBe('app-bundle');
     expect(resolveDataMode(production.EXPO_PUBLIC_DATA_SOURCE, production.EXPO_PUBLIC_APP_ENV))
       .toBe('supabase');
     expect(() => resolveDataMode('mock', production.EXPO_PUBLIC_APP_ENV))
