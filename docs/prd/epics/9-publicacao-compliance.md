@@ -587,6 +587,37 @@ ser escrito antes).
 4: Data de última atualização visível.
 5: Links dos apps mobile apontam para essas URLs.
 
+#### Evidência local para o gate de privacidade e exclusão — 02/10/2026
+
+Esta lista registra somente o estado do código e dos testes locais. Ela não
+comprova deploy, conteúdo jurídico aprovado, configuração nas lojas ou exclusão
+executada em ambiente hospedado.
+
+- [x] A Edge Function `account-deletion` deriva a identidade de um JWT validado,
+  rejeita identificadores de conta no body e exige senha atual antes de agendar.
+  O handler focado cobre consulta, reautenticação, divergência de identidade,
+  idempotência e falha de persistência.
+- [x] As migrations mantêm uma solicitação ativa por usuário, prazo exato de sete
+  dias, leitura RLS somente pelo titular, cancelamento atômico antes do prazo e
+  histórico preservado por FK restritiva. O teste SQL local executa em transação
+  com `ROLLBACK`.
+- [x] Cliente e Lojista restringem o acesso enquanto o estado está pendente ou
+  falhou, agendam antes de encerrar a sessão e oferecem recuperação somente para
+  solicitação ainda `scheduled`. A página pública `/conta/exclusao` oferece o
+  mesmo fluxo para ambos os tipos de conta sem exigir o aplicativo.
+- [ ] A exclusão definitiva continua bloqueada: não há processador destrutivo nem
+  política aprovada de retenção, anonimização e auditoria. O vencimento do prazo
+  não comprova apagamento da conta.
+- [ ] As rotas públicas `/termos` e `/privacidade` ainda não existem no Admin; o
+  texto jurídico final, o contato do controlador/DPO e a data oficial de
+  atualização continuam pendentes. A página `/conta/exclusao` não substitui a
+  Política de Privacidade.
+- [ ] Os itens de Termos e Política nos aplicativos ainda exibem estado de
+  indisponibilidade e precisam apontar para as URLs públicas aprovadas.
+- [ ] Deploy da Edge Function e das páginas, aplicação das migrations, smoke em
+  ambiente hospedado e preenchimento das URLs nas lojas exigem evidência externa
+  antes do gate de submissão.
+
 ---
 
 ### Story 9.2 — Ícones e splash screens dos apps mobile

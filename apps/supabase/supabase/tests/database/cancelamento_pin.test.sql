@@ -82,7 +82,7 @@ SELECT set_config('request.jwt.claim.sub','89999999-0000-4000-8000-000000000003'
 SELECT lives_ok($$SELECT public.forcar_cancelamento_pedido('89999999-0000-4000-8000-000000000105','Pedido não pago')$$,'Admin pode encerrar pedido sem pagamento');
 SELECT set_config('request.jwt.claim.sub','89999999-0000-4000-8000-000000000002',true);
 SELECT throws_ok($$SELECT public.avancar_estado_pedido('89999999-0000-4000-8000-000000000102','entregue')$$,'P0001','TRANSICAO_INVALIDA','avanço genérico não entrega sem PIN');
-SELECT lives_ok($$UPDATE public.pedidos SET status='entregue' WHERE id='89999999-0000-4000-8000-000000000107'$$,'update direto não pode entregar pedido');
+SELECT lives_ok($$UPDATE public.pedidos SET status='entregue' WHERE id='89999999-0000-4000-8000-000000000107'$$,'RLS filtra update direto sem expor erro');
 RESET ROLE;
 SELECT is((SELECT status FROM public.pedidos WHERE id='89999999-0000-4000-8000-000000000101'),'cancelado','pré-aceite termina cancelado');
 SELECT is((SELECT count(*)::integer FROM public.lancamentos_financeiros WHERE pedido_id='89999999-0000-4000-8000-000000000101' AND tipo='refund' AND valor_centavos=-1790),1,'cancelamento pago reserva reembolso integral');

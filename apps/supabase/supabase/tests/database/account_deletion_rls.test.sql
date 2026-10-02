@@ -39,6 +39,15 @@ BEGIN
 END;
 $$;
 
+DO $$
+BEGIN
+  DELETE FROM auth.users
+  WHERE id = '13131313-1111-4111-8111-111111111111';
+  RAISE EXCEPTION 'usuario com historico de exclusao nao deveria ser removido';
+EXCEPTION WHEN foreign_key_violation THEN NULL;
+END;
+$$;
+
 INSERT INTO public.account_deletion_requests (user_id, requested_at, delete_at)
 VALUES (
   '13131313-3333-4333-8333-333333333333',
