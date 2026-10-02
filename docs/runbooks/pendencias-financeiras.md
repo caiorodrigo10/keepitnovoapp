@@ -48,3 +48,18 @@ Escalone ao responsável financeiro e ao responsável técnico quando ocorrer qu
 - pendência aberta por mais de um dia útil sem evidência suficiente.
 
 A nova API do Asaas e testes de rede/sandbox pertencem ao gate posterior. Até esse gate, este runbook usa somente a fila local, consultas humanas autorizadas e registros persistidos existentes.
+
+## Evidência local do ciclo de cancelamento e ausência — 02/10/2026
+
+Validação executada em uma pilha Supabase local descartável, identificada como `keepit-task8-validation`, com todas as migrations versionadas aplicadas. O pgTAP `cancelamento_pin.test.sql` passou com 51 testes:
+
+- cancelamento antes do aceite encerra o pedido como `cancelado`; quando já pago, reserva um único reembolso integral;
+- cancelamento depois do aceite abre solicitação e mantém o pedido em curso até decisão Admin;
+- ausência do cliente abre solicitação `cliente_ausente`, mantém o pedido em `no_hub` e não reserva reembolso enquanto aberta;
+- ausência do lojista abre atendimento, mantém o pedido em `no_hub` e não reserva reembolso enquanto aberta;
+- atraso abre atendimento, mantém o pedido em `em_preparo` e não reserva reembolso enquanto aberto;
+- aprovação Admin torna o pedido `cancelado_admin` e reserva um único reembolso; PIN confirmado encerra solicitações relacionadas e gera um único crédito ao lojista.
+
+No adapter real, `cancel` e `markCustomerNoShow` chamam `abrir_solicitacao_pedido`; `reportLojistaNaoVeio` chama `reportar_lojista_nao_veio`. Os testes unitários focados confirmaram as RPCs, a releitura do pedido e o mapeamento dos erros nomeados de autenticação, motivo, pedido, acesso e estado.
+
+Esta evidência é exclusivamente local. Não comprova migration remota, publicação de app, smoke em dispositivo, integração com Asaas ou disponibilidade em ambiente de homologação/produção. `advanceStatus` continua restrito ao painel de QA/demo e não possui operação real no adapter Supabase.

@@ -208,6 +208,17 @@ export async function fetchPedidoPorId(supabase: SupabaseClient<Database>, pedid
   return mapRowToPedido(row, itensPorPedido[pedidoId] ?? []);
 }
 
+function throwMappedSupportOrderError(error: unknown): never {
+  const message =
+    error && typeof error === 'object' && 'message' in error && typeof error.message === 'string' ? error.message : '';
+  if (message.includes('AUTENTICACAO_NECESSARIA')) throw new AutenticacaoNecessariaError();
+  if (message.includes('MOTIVO_OBRIGATORIO')) throw new MotivoObrigatorioError();
+  if (message.includes('PEDIDO_NAO_ENCONTRADO')) throw new PedidoNaoEncontradoError();
+  if (message.includes('ACESSO_NEGADO')) throw new AcessoNegadoError();
+  if (message.includes('ESTADO_INVALIDO')) throw new EstadoInvalidoError();
+  throw error;
+}
+
 /** Ciclo de vida do pedido sob RLS; criação financeira pertence a CheckoutPort. */
 export function createOrderSupabase(client?: SupabaseClient<Database>): OrderPort {
   let cachedClient: SupabaseClient<Database> | null = client ?? null;
@@ -427,7 +438,16 @@ export function createOrderSupabase(client?: SupabaseClient<Database>): OrderPor
 
     async cancel(pedidoId: string, motivo: string, _options?: AsyncCallOptions): Promise<Pedido> {
       const supabase = resolveClient();
-      await createSupportSupabase(supabase).abrir({ pedidoId, tipo: 'cancelamento', motivo, operacaoId: createSupportOperationId() });
+      try {
+        await createSupportSupabase(supabase).abrir({
+          pedidoId,
+          tipo: 'cancelamento',
+          motivo,
+          operacaoId: createSupportOperationId(),
+        });
+      } catch (error) {
+        throwMappedSupportOrderError(error);
+      }
       const pedido = await fetchPedidoPorId(supabase, pedidoId);
       if (!pedido) throw new Error('PEDIDO_NAO_ENCONTRADO');
       return pedido;
@@ -564,7 +584,16 @@ export function createOrderSupabase(client?: SupabaseClient<Database>): OrderPor
 
     async markCustomerNoShow(pedidoId: string, motivo: string, _options?: AsyncCallOptions): Promise<Pedido> {
       const supabase = resolveClient();
-      await createSupportSupabase(supabase).abrir({ pedidoId, tipo: 'cliente_ausente', motivo, operacaoId: createSupportOperationId() });
+      try {
+        await createSupportSupabase(supabase).abrir({
+          pedidoId,
+          tipo: 'cliente_ausente',
+          motivo,
+          operacaoId: createSupportOperationId(),
+        });
+      } catch (error) {
+        throwMappedSupportOrderError(error);
+      }
       const pedido = await fetchPedidoPorId(supabase, pedidoId);
       if (!pedido) throw new Error('PEDIDO_NAO_ENCONTRADO');
       return pedido;
@@ -625,8 +654,9 @@ export function createOrderSupabase(client?: SupabaseClient<Database>): OrderPor
      * (`pedidos.cliente_id = auth.uid()`); exige `status = 'no_hub'` E
      * `cliente_chegou_em` preenchido; a RPC reforça SERVER-SIDE a condição de
      * tempo do AC1 (`TEMPO_MINIMO_NAO_ATINGIDO`) — nunca confia só na UI. Em
-     * sucesso, na MESMA transação da RPC: transição + refund 100% pendente +
-     * falha de qualidade do lojista — este adapter só chama a RPC e relê.
+     * sucesso, abre uma solicitação `lojista_ausente` e mantém o pedido
+     * operacionalmente em `no_hub`; decisão e eventual reembolso ficam para
+     * o atendimento. Este adapter só chama a RPC e relê o estado vigente.
      *
      * Mapeia os 5 erros NOMEADOS (`RAISE EXCEPTION`) para classes dedicadas
      * (`order-errors.ts`) — nunca engole o erro, nunca simula sucesso.
@@ -668,9 +698,9 @@ export function createOrderSupabase(client?: SupabaseClient<Database>): OrderPor
      * 'em_preparo')`; a RPC reforça SERVER-SIDE a condição de atraso do AC1
      * (`ATRASO_NAO_CONFIRMADO` se chamada antes de `aceito_em + 2 *
      * tempo_estimado_min`) — nunca confia só no client ter mostrado o
-     * prompt. Em sucesso, na MESMA transação da RPC: transição + refund 100%
-     * pendente + falha de qualidade do lojista — este adapter só chama a RPC
-     * e relê.
+     * prompt. Em sucesso, abre uma solicitação `atraso` e mantém o pedido em
+     * curso; decisão e eventual reembolso ficam para o atendimento. Este
+     * adapter só chama a RPC e relê o estado vigente.
      *
      * Mapeia os 5 erros NOMEADOS (`RAISE EXCEPTION`) para classes dedicadas
      * (`order-errors.ts`) — nunca engole o erro, nunca simula sucesso.

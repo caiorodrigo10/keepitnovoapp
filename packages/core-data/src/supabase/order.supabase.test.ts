@@ -116,12 +116,45 @@ describe('OrderPort compatível com atendimento', () => {
     expect(pedido.status).toBe('em_preparo');
     expect(rpc).toHaveBeenCalledWith('abrir_solicitacao_pedido', expect.objectContaining({ p_pedido_id: 'pedido-1', p_tipo: 'cancelamento', p_motivo: 'Desisti', p_operacao_id: expect.stringMatching(/^[0-9a-f-]{36}$/) }));
   });
+
+  it('cancel mapeia os erros de negócio da RPC de solicitação', async () => {
+    const cases = [
+      ['AUTENTICACAO_NECESSARIA', AutenticacaoNecessariaError],
+      ['MOTIVO_OBRIGATORIO', MotivoObrigatorioError],
+      ['PEDIDO_NAO_ENCONTRADO', PedidoNaoEncontradoError],
+      ['ACESSO_NEGADO', AcessoNegadoError],
+      ['ESTADO_INVALIDO', EstadoInvalidoError],
+    ] as const;
+
+    for (const [code, ErrorType] of cases) {
+      const { client } = fakeClient({ rpc: { data: null, error: new Error(code) } });
+      await expect(createOrderSupabase(client).cancel('pedido-1', 'Desisti')).rejects.toBeInstanceOf(ErrorType);
+    }
+  });
+
   it('ausência do cliente abre atendimento sem marcar pedido como não retirado', async () => {
     const row = { ...PEDIDO_ROW, status: 'no_hub' };
     const { client, rpc } = fakeClient({ rpc: { data: { id: 'caso-2', pedido_id: 'pedido-1', operacao_id: 'op-2', tipo: 'cliente_ausente', estado: 'aberta', motivo: 'Cliente não veio', motivo_decisao: null, criado_em: '2026-10-01T00:00:00Z', encerrada_em: null }, error: null }, pedidos: { data: row, error: null } });
     const pedido = await createOrderSupabase(client).markCustomerNoShow('pedido-1', 'Cliente não veio');
     expect(pedido.status).toBe('no_hub');
     expect(rpc).toHaveBeenCalledWith('abrir_solicitacao_pedido', expect.objectContaining({ p_pedido_id: 'pedido-1', p_tipo: 'cliente_ausente', p_motivo: 'Cliente não veio' }));
+  });
+
+  it('markCustomerNoShow mapeia os erros de negócio da RPC de solicitação', async () => {
+    const cases = [
+      ['AUTENTICACAO_NECESSARIA', AutenticacaoNecessariaError],
+      ['MOTIVO_OBRIGATORIO', MotivoObrigatorioError],
+      ['PEDIDO_NAO_ENCONTRADO', PedidoNaoEncontradoError],
+      ['ACESSO_NEGADO', AcessoNegadoError],
+      ['ESTADO_INVALIDO', EstadoInvalidoError],
+    ] as const;
+
+    for (const [code, ErrorType] of cases) {
+      const { client } = fakeClient({ rpc: { data: null, error: new Error(code) } });
+      await expect(
+        createOrderSupabase(client).markCustomerNoShow('pedido-1', 'Cliente não veio'),
+      ).rejects.toBeInstanceOf(ErrorType);
+    }
   });
 });
 
@@ -574,12 +607,12 @@ describe('order.supabase.ts — markClienteChegou (Story 6.20, pré-requisito �
 });
 
 describe('order.supabase.ts — reportLojistaNaoVeio (Story 6.20, AC2, AC4)', () => {
-  const NAO_ENTREGUE_LOJISTA_ROW = { ...PEDIDO_ROW, status: 'nao_entregue_lojista' };
+  const LOJISTA_AUSENTE_EM_ANALISE_ROW = { ...PEDIDO_ROW, status: 'no_hub' };
 
-  it('chama a RPC reportar_lojista_nao_veio e monta o Pedido a partir da releitura real (RPC retorna só o uuid)', async () => {
+  it('chama a RPC reportar_lojista_nao_veio e mantém o pedido no hub durante a análise', async () => {
     const { client, rpc } = fakeClient({
       rpc: { data: 'pedido-1', error: null },
-      pedidos: { data: NAO_ENTREGUE_LOJISTA_ROW, error: null },
+      pedidos: { data: LOJISTA_AUSENTE_EM_ANALISE_ROW, error: null },
       pedidosItens: { data: [PEDIDO_ITEM_ROW], error: null },
     });
 
@@ -587,7 +620,7 @@ describe('order.supabase.ts — reportLojistaNaoVeio (Story 6.20, AC2, AC4)', ()
     const pedido = await port.reportLojistaNaoVeio('pedido-1');
 
     expect(rpc).toHaveBeenCalledWith('reportar_lojista_nao_veio', { p_pedido_id: 'pedido-1' });
-    expect(pedido.status).toBe('nao_entregue_lojista');
+    expect(pedido.status).toBe('no_hub');
   });
 
   it('mapeia AUTENTICACAO_NECESSARIA para AutenticacaoNecessariaError', async () => {
@@ -632,12 +665,12 @@ describe('order.supabase.ts — reportLojistaNaoVeio (Story 6.20, AC2, AC4)', ()
 });
 
 describe('order.supabase.ts — cancelPedidoAtraso (Story 6.21, AC2, AC3)', () => {
-  const CANCELADO_ATRASO_ROW = { ...PEDIDO_ROW, status: 'cancelado_atraso', cancelado_em: '2026-08-13T12:00:00.000Z' };
+  const ATRASO_EM_ANALISE_ROW = { ...PEDIDO_ROW, status: 'em_preparo' };
 
-  it('chama a RPC cancelar_pedido_atraso e monta o Pedido a partir da releitura real (RPC retorna só o uuid)', async () => {
+  it('chama a RPC cancelar_pedido_atraso e mantém o pedido em preparo durante a análise', async () => {
     const { client, rpc } = fakeClient({
       rpc: { data: 'pedido-1', error: null },
-      pedidos: { data: CANCELADO_ATRASO_ROW, error: null },
+      pedidos: { data: ATRASO_EM_ANALISE_ROW, error: null },
       pedidosItens: { data: [PEDIDO_ITEM_ROW], error: null },
     });
 
@@ -645,8 +678,8 @@ describe('order.supabase.ts — cancelPedidoAtraso (Story 6.21, AC2, AC3)', () =
     const pedido = await port.cancelPedidoAtraso('pedido-1');
 
     expect(rpc).toHaveBeenCalledWith('cancelar_pedido_atraso', { p_pedido_id: 'pedido-1' });
-    expect(pedido.status).toBe('cancelado_atraso');
-    expect(pedido.cancelado_em).toBe('2026-08-13T12:00:00.000Z');
+    expect(pedido.status).toBe('em_preparo');
+    expect(pedido.cancelado_em).toBeNull();
   });
 
   it('mapeia AUTENTICACAO_NECESSARIA para AutenticacaoNecessariaError', async () => {

@@ -19,6 +19,7 @@ VALUES
  ('89999999-0000-4000-8000-000000000102','89999999-0000-4000-8000-000000000001','89999999-0000-4000-8000-000000000020','89999999-0000-4000-8000-000000000010','em_preparo',10,5,1,2.9,17.9,'pix',now()),
  ('89999999-0000-4000-8000-000000000103','89999999-0000-4000-8000-000000000001','89999999-0000-4000-8000-000000000020','89999999-0000-4000-8000-000000000010','no_hub',10,5,1,2.9,17.9,'pix',now()),
  ('89999999-0000-4000-8000-000000000105','89999999-0000-4000-8000-000000000001','89999999-0000-4000-8000-000000000020','89999999-0000-4000-8000-000000000010','aguardando_pagamento',10,5,1,2.9,17.9,'pix',NULL),
+ ('89999999-0000-4000-8000-000000000106','89999999-0000-4000-8000-000000000001','89999999-0000-4000-8000-000000000020','89999999-0000-4000-8000-000000000010','no_hub',10,5,1,2.9,17.9,'pix',now()),
  ('89999999-0000-4000-8000-000000000107','89999999-0000-4000-8000-000000000001','89999999-0000-4000-8000-000000000020','89999999-0000-4000-8000-000000000010','no_hub',10,5,1,2.9,17.9,'pix',now()),
  ('89999999-0000-4000-8000-000000000108','89999999-0000-4000-8000-000000000001','89999999-0000-4000-8000-000000000020','89999999-0000-4000-8000-000000000010','em_preparo',10,5,1,2.9,17.9,'pix',now()),
  ('89999999-0000-4000-8000-000000000109','89999999-0000-4000-8000-000000000001','89999999-0000-4000-8000-000000000020','89999999-0000-4000-8000-000000000010','aguardando_aceite',10,5,1,2.9,17.9,'pix',now());
@@ -44,6 +45,7 @@ SELECT set_config('request.jwt.claim.sub','89999999-0000-4000-8000-000000000004'
 SELECT throws_ok($$SELECT public.abrir_solicitacao_pedido('89999999-0000-4000-8000-000000000102','cancelamento','Outro','89999999-0000-4000-8000-000000000203')$$,'P0001','ACESSO_NEGADO','cliente B não abre caso A');
 SELECT set_config('request.jwt.claim.sub','89999999-0000-4000-8000-000000000002',true);
 SELECT throws_ok($$SELECT public.decidir_solicitacao_pedido((SELECT id FROM public.solicitacoes_pedido WHERE operacao_id='89999999-0000-4000-8000-000000000202'),true,'Aceito',NULL,NULL,'89999999-0000-4000-8000-000000000204')$$,'P0001','ACESSO_NEGADO','lojista não decide');
+SELECT is((public.abrir_solicitacao_pedido('89999999-0000-4000-8000-000000000106','cliente_ausente','Cliente não compareceu','89999999-0000-4000-8000-000000000220')).estado,'aberta','ausência do cliente abre atendimento');
 SELECT lives_ok($$SELECT public.aceitar_pedido('89999999-0000-4000-8000-000000000109',20)$$,'lojista aceita pedido de fluxo completo');
 SELECT is(public.avancar_estado_pedido('89999999-0000-4000-8000-000000000109','em_preparo'),'em_preparo','lojista inicia preparo');
 SELECT set_config('request.jwt.claim.sub','89999999-0000-4000-8000-000000000001',true);
@@ -91,6 +93,8 @@ SELECT is((SELECT count(*)::integer FROM public.lancamentos_financeiros WHERE pe
 SELECT is((SELECT status FROM public.pedidos WHERE id='89999999-0000-4000-8000-000000000102'),'cancelado_admin','decisão vencedora torna pedido terminal');
 SELECT is((SELECT count(*)::integer FROM public.lancamentos_financeiros WHERE pedido_id='89999999-0000-4000-8000-000000000102' AND tipo='refund' AND valor_centavos=-1790),1,'decisão reserva reembolso integral uma vez');
 SELECT is((SELECT count(*)::integer FROM public.lancamentos_financeiros WHERE pedido_id='89999999-0000-4000-8000-000000000105' AND tipo='refund'),0,'forçar cancelamento sem pagamento não reserva dinheiro');
+SELECT is((SELECT status FROM public.pedidos WHERE id='89999999-0000-4000-8000-000000000106'),'no_hub','ausência do cliente não conclui o pedido durante análise');
+SELECT is((SELECT count(*)::integer FROM public.lancamentos_financeiros WHERE pedido_id='89999999-0000-4000-8000-000000000106' AND tipo='refund'),0,'ausência do cliente aberta não reserva reembolso');
 SELECT is((SELECT status FROM public.pedidos WHERE id='89999999-0000-4000-8000-000000000107'),'no_hub','ausência reportada não muda estado operacional');
 SELECT is((SELECT status FROM public.pedidos WHERE id='89999999-0000-4000-8000-000000000108'),'em_preparo','atraso reportado não muda estado operacional');
 SELECT is((SELECT count(*)::integer FROM public.lancamentos_financeiros WHERE pedido_id IN ('89999999-0000-4000-8000-000000000107','89999999-0000-4000-8000-000000000108') AND tipo='refund'),0,'ocorrências abertas não reservam reembolso');
