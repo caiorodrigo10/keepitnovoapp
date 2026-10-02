@@ -7,6 +7,10 @@ SELECT has_table('public', 'ocorrencias_pagamento', 'chargeback/estorno usam oco
 SELECT has_table('public', 'decisoes_chargeback', 'resoluções administrativas de chargeback são auditáveis');
 SELECT has_table('public', 'antecipacoes_recebiveis', 'antecipações têm registro administrativo próprio');
 SELECT index_is_unique('public','eventos_pagamento','eventos_pagamento_evento_externo_id_key','unicidade serializa entregas concorrentes do mesmo evento');
+SELECT index_is_unique(
+  'public','ocorrencias_pagamento','ocorrencia_chargeback_unica_por_tentativa',
+  'unicidade financeira serializa as fases do chargeback pela cobrança'
+);
 SELECT has_function(
   'public', 'processar_evento_pagamento',
   ARRAY['text','text','text','text','bigint','text'],
@@ -234,6 +238,68 @@ SELECT is(
 RESET ROLE;
 SET LOCAL ROLE service_role;
 SELECT public.processar_evento_pagamento(
+  'evt-chargeback-dispute','PAYMENT_CHARGEBACK_DISPUTE','pay-entregue',
+  '66666666-0000-4000-8000-000000000203',10790,'cartao'
+);
+SELECT public.processar_evento_pagamento(
+  'evt-chargeback-awaiting-reversal','PAYMENT_AWAITING_CHARGEBACK_REVERSAL','pay-entregue',
+  '66666666-0000-4000-8000-000000000203',10790,'cartao'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.eventos_pagamento
+   WHERE cobranca_id='pay-entregue' AND tipo IN (
+     'PAYMENT_CHARGEBACK_REQUESTED','PAYMENT_CHARGEBACK_DISPUTE','PAYMENT_AWAITING_CHARGEBACK_REVERSAL'
+   )),
+  3,'fases distintas do chargeback permanecem como recibos auditáveis'
+);
+RESET ROLE;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub','66666666-0000-4000-8000-000000000003',true);
+DO $do$
+DECLARE v_duplicada uuid;
+BEGIN
+  SELECT id INTO v_duplicada
+  FROM public.ocorrencias_pagamento
+  WHERE tentativa_id='66666666-0000-4000-8000-000000000203'
+    AND tipo='chargeback'
+    AND id<>current_setting('test.ocorrencia_chargeback')::uuid
+  ORDER BY criado_em,id
+  LIMIT 1;
+  IF v_duplicada IS NOT NULL THEN
+    PERFORM public.resolver_chargeback_admin(
+      v_duplicada,'lojista','Fase posterior do mesmo chargeback',
+      'protocolo-cb-fase-duplicada',10790,'66666666-0000-4000-8000-000000000407'
+    );
+  END IF;
+END
+$do$;
+SELECT is(
+  (SELECT count(*)::int FROM public.ocorrencias_pagamento
+   WHERE tentativa_id='66666666-0000-4000-8000-000000000203' AND tipo='chargeback'),
+  1,'fases distintas da mesma cobrança compartilham uma ocorrência de chargeback'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.decisoes_chargeback dc
+   JOIN public.ocorrencias_pagamento op ON op.id=dc.ocorrencia_id
+   WHERE op.tentativa_id='66666666-0000-4000-8000-000000000203'),
+  1,'uma cobrança admite uma única decisão de chargeback'
+);
+SELECT is(
+  (SELECT sum(dc.taxa_centavos)::bigint FROM public.decisoes_chargeback dc
+   JOIN public.ocorrencias_pagamento op ON op.id=dc.ocorrencia_id
+   WHERE op.tentativa_id='66666666-0000-4000-8000-000000000203'),
+  4000::bigint,'ciclo de chargeback da cobrança aplica R$ 40 somente uma vez'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.lancamentos_financeiros
+   WHERE pedido_id='66666666-0000-4000-8000-000000000103'
+     AND tipo='merchant_credit' AND valor_centavos<0),
+  1,'fases do mesmo chargeback não criam segundo ajuste negativo'
+);
+
+RESET ROLE;
+SET LOCAL ROLE service_role;
+SELECT public.processar_evento_pagamento(
   'evt-chargeback-estornado','PAYMENT_CHARGEBACK_REQUESTED','pay-estornado',
   '66666666-0000-4000-8000-000000000208',10790,'cartao'
 );
@@ -258,6 +324,14 @@ SELECT is(
    WHERE id=(SELECT lancamento_id FROM public.decisoes_chargeback
      WHERE ocorrencia_id=current_setting('test.ocorrencia_chargeback_estornado')::uuid)),
   (-4000)::bigint,'após principal já revertido somente a taxa histórica é aplicada'
+);
+SELECT is(
+  (SELECT count(DISTINCT op.tentativa_id)::int FROM public.decisoes_chargeback dc
+   JOIN public.ocorrencias_pagamento op ON op.id=dc.ocorrencia_id
+   WHERE op.tentativa_id IN (
+     '66666666-0000-4000-8000-000000000203','66666666-0000-4000-8000-000000000208'
+   )),
+  2,'pagamentos distintos preservam decisões de chargeback independentes'
 );
 RESET ROLE;
 SET LOCAL ROLE service_role;
