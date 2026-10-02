@@ -128,6 +128,35 @@ export interface PaymentEventAdmin {
   recebidoEm: string;
 }
 
+export interface ChargebackDecisionAdmin {
+  id: string;
+  ocorrenciaId: string;
+  responsavelPrincipal: 'keepit' | 'lojista';
+  motivo: string;
+  referencia: string;
+  principalInformadoCentavos: number;
+  principalDebitadoCentavos: number;
+  taxaCentavos: number;
+  lancamentoId: string;
+  criadoEm: string;
+}
+
+export interface ChargebackLedgerEntryAdmin {
+  id: string;
+  valorCentavos: number;
+  detalhe: string | null;
+  criadoEm: string;
+}
+
+export interface DecideChargebackInput {
+  ocorrenciaId: string;
+  responsavelPrincipal: ChargebackDecisionAdmin['responsavelPrincipal'];
+  motivo: string;
+  referencia: string;
+  principalCentavos: number;
+  operacaoId: string;
+}
+
 export interface PaymentOccurrenceAdmin {
   id: string;
   pedidoId: string;
@@ -136,6 +165,8 @@ export interface PaymentOccurrenceAdmin {
   referenciaExterna: string | null;
   detalhe: string;
   criadoEm: string;
+  decisao: ChargebackDecisionAdmin | null;
+  lancamentos: ChargebackLedgerEntryAdmin[];
 }
 
 export type FinancialPendingAction =
@@ -443,6 +474,8 @@ export interface AdminPort {
    * nunca hardcoded.
    */
   financialDashboard(periodoDias: number, options?: AsyncCallOptions): Promise<FinancialDashboardResult>;
+  /** Decide a responsabilidade do principal; a taxa histórica é aplicada pela RPC. */
+  decideChargeback(input: DecideChargebackInput): Promise<ChargebackDecisionAdmin>;
   /** Lê a tentativa mais recente por RPC admin; nunca expõe a tabela financeira ao cliente. */
   inspectPayment(pedidoId: string, options?: AsyncCallOptions): Promise<AdminPaymentInspection | null>;
   reconcilePayment(tentativaId: string, options?: AsyncCallOptions): Promise<{ resultado: string; pedidoId: string | null }>;

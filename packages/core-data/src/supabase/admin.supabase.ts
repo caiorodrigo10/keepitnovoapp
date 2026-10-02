@@ -5,6 +5,7 @@ import { createClient } from '@keepit/supabase-client';
 import type {
   AdminPort,
   AdminPaymentInspection,
+  ChargebackDecisionAdmin,
   CreateHubInput,
   EstabelecimentoAdmin,
   EstabelecimentoFalha,
@@ -423,6 +424,34 @@ type LancamentoAdminRow = {
   asaas_id_externo?: string | null;
   estado_reserva?: 'ativa' | 'liberada';
 };
+
+type ChargebackDecisionRow = {
+  id: string;
+  ocorrencia_id: string;
+  responsavel_principal: ChargebackDecisionAdmin['responsavelPrincipal'];
+  motivo: string;
+  referencia: string;
+  principal_informado_centavos: number;
+  principal_debitado_centavos: number;
+  taxa_centavos: number;
+  lancamento_id: string;
+  criado_em: string;
+};
+
+function mapChargebackDecision(row: ChargebackDecisionRow): ChargebackDecisionAdmin {
+  return {
+    id: row.id,
+    ocorrenciaId: row.ocorrencia_id,
+    responsavelPrincipal: row.responsavel_principal,
+    motivo: row.motivo,
+    referencia: row.referencia,
+    principalInformadoCentavos: row.principal_informado_centavos,
+    principalDebitadoCentavos: row.principal_debitado_centavos,
+    taxaCentavos: row.taxa_centavos,
+    lancamentoId: row.lancamento_id,
+    criadoEm: row.criado_em,
+  };
+}
 
 /**
  * Story 8.1 (AC2, AC4, AC6) — reconcilia um lançamento `tipo='refund'` real
@@ -1470,18 +1499,17 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
         .select('id, pedido_id, tipo, estado, referencia_externa, detalhe, criado_em')
         .order('criado_em', { ascending: false });
       if (ocorrenciasResult.error) throw ocorrenciasResult.error;
-      const ocorrenciasPagamento: PaymentOccurrenceAdmin[] = ((ocorrenciasResult.data ?? []) as Array<{
+      const ocorrenciasRows = (ocorrenciasResult.data ?? []) as Array<{
         id: string; pedido_id: string; tipo: PaymentOccurrenceAdmin['tipo']; estado: string;
         referencia_externa: string | null; detalhe: string; criado_em: string;
-      }>).map((row) => ({
-        id: row.id,
-        pedidoId: row.pedido_id,
-        tipo: row.tipo,
-        estado: row.estado,
-        referenciaExterna: row.referencia_externa,
-        detalhe: row.detalhe,
-        criadoEm: row.criado_em,
-      }));
+      }>;
+
+      const decisoesResult = await operational.from('decisoes_chargeback')
+        .select('id, ocorrencia_id, responsavel_principal, motivo, referencia, principal_informado_centavos, principal_debitado_centavos, taxa_centavos, lancamento_id, criado_em')
+        .order('criado_em', { ascending: false });
+      if (decisoesResult.error) throw decisoesResult.error;
+      const decisoes = ((decisoesResult.data ?? []) as ChargebackDecisionRow[]).map(mapChargebackDecision);
+      const decisaoPorOcorrencia = new Map(decisoes.map((item) => [item.ocorrenciaId, item]));
 
       const ledgerRows = await fetchAllOperationalRows<LancamentoAdminRow>((from, to) =>
         operational.from('lancamentos_financeiros')
@@ -1491,6 +1519,27 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
           .range(from, to));
       const reembolsosPendentes = ledgerRows.filter((row) => row.tipo === 'refund'
         && (row.status === 'pendente' || row.status === 'erro') && row.estado_reserva !== 'liberada');
+      const lancamentoPorId = new Map(ledgerRows.map((row) => [row.id, row]));
+      const ocorrenciasPagamento: PaymentOccurrenceAdmin[] = ocorrenciasRows.map((row) => {
+        const decisao = decisaoPorOcorrencia.get(row.id) ?? null;
+        const lancamento = decisao ? lancamentoPorId.get(decisao.lancamentoId) : undefined;
+        return {
+          id: row.id,
+          pedidoId: row.pedido_id,
+          tipo: row.tipo,
+          estado: row.estado,
+          referenciaExterna: row.referencia_externa,
+          detalhe: row.detalhe,
+          criadoEm: row.criado_em,
+          decisao,
+          lancamentos: lancamento ? [{
+            id: lancamento.id,
+            valorCentavos: lancamento.valor_centavos,
+            detalhe: lancamento.detalhe,
+            criadoEm: lancamento.criado_em,
+          }] : [],
+        };
+      });
 
       const chavesCorrelacaoEvento = (event: (typeof divergenciasRows)[number]) => {
         const chaves = [
@@ -1627,6 +1676,22 @@ export function createAdminSupabase(client?: SupabaseClient<Database>): AdminPor
         ocorrenciasPagamento,
         pendenciasFinanceiras,
       };
+    },
+
+    async decideChargeback(input) {
+      const { data, error } = await resolveClient().rpc('resolver_chargeback_admin', {
+        p_ocorrencia_id: input.ocorrenciaId,
+        p_responsavel_principal: input.responsavelPrincipal,
+        p_motivo: input.motivo,
+        p_referencia: input.referencia,
+        p_principal_centavos: input.principalCentavos,
+        p_operacao_id: input.operacaoId,
+      });
+      if (error) throw error;
+      if (data === null || typeof data !== 'object' || Array.isArray(data)) {
+        throw new Error('[core-data] resolver_chargeback_admin — resposta inválida.');
+      }
+      return data as unknown as ChargebackDecisionAdmin;
     },
 
     async inspectPayment(pedidoId: string, _options?: AsyncCallOptions): Promise<AdminPaymentInspection | null> {

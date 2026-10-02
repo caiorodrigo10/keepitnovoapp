@@ -1126,6 +1126,17 @@ export type Database = {
         Args: { p_pedido_id: string }
         Returns: Json
       }
+      resolver_chargeback_admin: {
+        Args: {
+          p_ocorrencia_id: string
+          p_responsavel_principal: string
+          p_motivo: string
+          p_referencia: string
+          p_principal_centavos: number
+          p_operacao_id: string
+        }
+        Returns: Json
+      }
       // Bloco 12 — `p_lat`/`p_lng`/`p_raio_atendimento_km`/`p_ticket_minimo_reais`/
       // `p_foto_fachada_url`/`p_descricao` ampliados para `| null`. A migration
       // `20260812123048_rpc_criar_estabelecimento_completo.sql` os declara

@@ -4,6 +4,7 @@ SELECT no_plan();
 
 SELECT has_table('public', 'eventos_pagamento', 'recibos duráveis de webhook existem');
 SELECT has_table('public', 'ocorrencias_pagamento', 'chargeback/estorno usam ocorrências auditáveis');
+SELECT has_table('public', 'decisoes_chargeback', 'resoluções administrativas de chargeback são auditáveis');
 SELECT has_table('public', 'antecipacoes_recebiveis', 'antecipações têm registro administrativo próprio');
 SELECT index_is_unique('public','eventos_pagamento','eventos_pagamento_evento_externo_id_key','unicidade serializa entregas concorrentes do mesmo evento');
 SELECT has_function(
@@ -14,6 +15,10 @@ SELECT has_function(
 SELECT has_function(
   'public', 'vincular_cobranca_reconciliacao', ARRAY['uuid','text'],
   'reconciliação possui vínculo explícito e transacional da cobrança'
+);
+SELECT has_function(
+  'public', 'resolver_chargeback_admin', ARRAY['uuid','text','text','text','bigint','uuid'],
+  'Admin resolve chargeback em uma única transação idempotente'
 );
 
 INSERT INTO auth.users (id,aud,role,email,raw_app_meta_data,raw_user_meta_data) VALUES
@@ -34,14 +39,16 @@ INSERT INTO public.estabelecimentos (
 
 INSERT INTO public.pedidos (
   id,cliente_id,estabelecimento_id,hub_id,status,subtotal_produtos_reais,
-  taxa_deslocamento_reais,taxa_keepit_reais,taxa_servico_comprador_reais,total_pago_reais,forma_pagamento,pago_em
+  taxa_deslocamento_reais,taxa_keepit_reais,taxa_servico_comprador_reais,total_pago_reais,forma_pagamento,pago_em,entregue_em
 ) VALUES
-  ('66666666-0000-4000-8000-000000000101','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','aguardando_pagamento',100,5,10,2.90,107.90,'cartao',NULL),
-  ('66666666-0000-4000-8000-000000000102','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','cancelado',100,5,10,2.90,107.90,'pix',NULL),
-  ('66666666-0000-4000-8000-000000000103','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','entregue',100,5,10,2.90,107.90,'cartao',now()),
-  ('66666666-0000-4000-8000-000000000104','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','aguardando_pagamento',100,5,10,2.90,107.90,'pix',NULL),
-  ('66666666-0000-4000-8000-000000000105','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','aguardando_pagamento',100,5,10,2.90,107.90,'cartao',NULL),
-  ('66666666-0000-4000-8000-000000000106','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','aguardando_pagamento',100,5,10,2.90,107.90,'cartao',NULL);
+  ('66666666-0000-4000-8000-000000000101','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','aguardando_pagamento',100,5,10,2.90,107.90,'cartao',NULL,NULL),
+  ('66666666-0000-4000-8000-000000000102','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','cancelado',100,5,10,2.90,107.90,'pix',NULL,NULL),
+  ('66666666-0000-4000-8000-000000000103','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','entregue',100,5,10,2.90,107.90,'cartao',now(),'2026-09-22T12:00:00Z'),
+  ('66666666-0000-4000-8000-000000000104','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','aguardando_pagamento',100,5,10,2.90,107.90,'pix',NULL,NULL),
+  ('66666666-0000-4000-8000-000000000105','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','aguardando_pagamento',100,5,10,2.90,107.90,'cartao',NULL,NULL),
+  ('66666666-0000-4000-8000-000000000106','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','aguardando_pagamento',100,5,10,2.90,107.90,'cartao',NULL,NULL),
+  ('66666666-0000-4000-8000-000000000107','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','entregue',100,5,10,2.90,107.90,'cartao',now(),'2026-09-29T12:00:00Z'),
+  ('66666666-0000-4000-8000-000000000108','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000010','entregue',100,5,10,2.90,107.90,'cartao',now(),'2026-09-29T13:00:00Z');
 
 INSERT INTO public.tentativas_pagamento (id,pedido_id,cliente_id,operacao_id,forma,estado,asaas_payment_id,encerrada_em) VALUES
   ('66666666-0000-4000-8000-000000000201','66666666-0000-4000-8000-000000000101','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000301','cartao','pendente','pay-main',NULL),
@@ -50,7 +57,65 @@ INSERT INTO public.tentativas_pagamento (id,pedido_id,cliente_id,operacao_id,for
   ('66666666-0000-4000-8000-000000000204','66666666-0000-4000-8000-000000000104','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000304','pix','reconciliacao','pay-overdue',NULL),
   ('66666666-0000-4000-8000-000000000205','66666666-0000-4000-8000-000000000105','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000305','cartao','expirado','pay-old-late',now()),
   ('66666666-0000-4000-8000-000000000206','66666666-0000-4000-8000-000000000105','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000306','cartao','criando',NULL,NULL),
-  ('66666666-0000-4000-8000-000000000207','66666666-0000-4000-8000-000000000106','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000307','cartao','reconciliacao',NULL,NULL);
+  ('66666666-0000-4000-8000-000000000207','66666666-0000-4000-8000-000000000106','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000307','cartao','reconciliacao',NULL,NULL),
+  ('66666666-0000-4000-8000-000000000208','66666666-0000-4000-8000-000000000107','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000308','cartao','recebido','pay-estornado',NULL),
+  ('66666666-0000-4000-8000-000000000209','66666666-0000-4000-8000-000000000108','66666666-0000-4000-8000-000000000001','66666666-0000-4000-8000-000000000309','cartao','recebido','pay-keepit',NULL);
+
+-- Crédito do pedido 103 já saiu em lote pago; qualquer ajuste posterior deve
+-- permanecer no ledger para compensação futura, sem reescrever o snapshot.
+INSERT INTO public.lancamentos_financeiros(
+  estabelecimento_id,pedido_id,tipo,valor_centavos,status,detalhe
+) VALUES (
+  '66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000103',
+  'merchant_credit',9500,'concluido','Crédito líquido do pedido entregue'
+);
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub','66666666-0000-4000-8000-000000000003',true);
+SELECT is(
+  (SELECT count(*)::int FROM public.preparar_repasses_semanais('2026-09-21','66666666-0000-4000-8000-000000000401')),
+  1,'crédito é materializado em lote antes do chargeback'
+);
+SELECT set_config('test.repasse_chargeback',(
+  SELECT id::text FROM public.repasses
+  WHERE estabelecimento_id='66666666-0000-4000-8000-000000000020' AND semana_inicio='2026-09-21'
+),true);
+SELECT is(
+  (public.confirmar_repasse(
+    current_setting('test.repasse_chargeback')::uuid,'pix-chargeback-001','banco:chargeback-001',
+    '66666666-0000-4000-8000-000000000402'
+  )).estado,
+  'pago','repasse anterior é concluído antes da resolução'
+);
+RESET ROLE;
+
+-- Pedido 107 já teve todo o crédito efetivo revertido por um estorno anterior.
+INSERT INTO public.lancamentos_financeiros(
+  estabelecimento_id,pedido_id,tipo,valor_centavos,status,detalhe
+) VALUES (
+  '66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000107',
+  'merchant_credit',9500,'concluido','Crédito líquido do pedido entregue'
+);
+WITH reembolso AS (
+  INSERT INTO public.lancamentos_financeiros(
+    estabelecimento_id,pedido_id,tipo,valor_centavos,status,detalhe,motivo_reembolso,responsavel_reembolso
+  ) VALUES (
+    '66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000107',
+    'refund',-9500,'concluido','Estorno anterior confirmado','pos_entrega','lojista'
+  ) RETURNING id
+)
+INSERT INTO public.lancamentos_financeiros(
+  estabelecimento_id,pedido_id,tipo,valor_centavos,status,detalhe,reembolso_origem_id
+)
+SELECT
+  '66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000107',
+  'merchant_credit',-9500,'concluido','Responsabilidade por devolução confirmada',id
+FROM reembolso;
+INSERT INTO public.lancamentos_financeiros(
+  estabelecimento_id,pedido_id,tipo,valor_centavos,status,detalhe
+) VALUES (
+  '66666666-0000-4000-8000-000000000020','66666666-0000-4000-8000-000000000108',
+  'merchant_credit',9500,'concluido','Crédito líquido do pedido entregue'
+);
 
 SET LOCAL ROLE service_role;
 SELECT is(
@@ -101,8 +166,137 @@ SELECT is(
 );
 SELECT is((SELECT status FROM public.pedidos WHERE id='66666666-0000-4000-8000-000000000103'),'entregue','webhook nunca reabre pedido entregue');
 SELECT public.processar_evento_pagamento('evt-chargeback','PAYMENT_CHARGEBACK_REQUESTED','pay-entregue','66666666-0000-4000-8000-000000000203',10790,'cartao');
+SELECT public.processar_evento_pagamento('evt-chargeback','PAYMENT_CHARGEBACK_REQUESTED','pay-entregue','66666666-0000-4000-8000-000000000203',10790,'cartao');
 SELECT is((SELECT count(*)::int FROM public.ocorrencias_pagamento WHERE pedido_id='66666666-0000-4000-8000-000000000103' AND tipo='chargeback'),1,'chargeback cria ocorrência');
 SELECT is((SELECT count(*)::int FROM public.lancamentos_financeiros WHERE pedido_id='66666666-0000-4000-8000-000000000103' AND tipo='merchant_credit' AND valor_centavos<0),0,'chargeback não presume débito do lojista');
+RESET ROLE;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub','66666666-0000-4000-8000-000000000003',true);
+SELECT set_config('test.ocorrencia_chargeback',(
+  SELECT id::text FROM public.ocorrencias_pagamento
+  WHERE pedido_id='66666666-0000-4000-8000-000000000103' AND tipo='chargeback'
+),true);
+SELECT is(
+  (public.resolver_chargeback_admin(
+    current_setting('test.ocorrencia_chargeback')::uuid,'lojista','Mercadoria não entregue',
+    'protocolo-cb-001',10790,'66666666-0000-4000-8000-000000000403'
+  )->>'principalDebitadoCentavos')::bigint,
+  9500::bigint,'principal debitado é limitado ao crédito efetivo do lojista'
+);
+SELECT is(
+  (SELECT taxa_centavos FROM public.decisoes_chargeback
+   WHERE ocorrencia_id=current_setting('test.ocorrencia_chargeback')::uuid),
+  4000::bigint,'taxa histórica de R$ 40 fica separada do principal'
+);
+SELECT is(
+  (SELECT valor_centavos FROM public.lancamentos_financeiros
+   WHERE id=(SELECT lancamento_id FROM public.decisoes_chargeback
+     WHERE ocorrencia_id=current_setting('test.ocorrencia_chargeback')::uuid)),
+  (-13500)::bigint,'resolução cria um único ajuste negativo pelo valor devido'
+);
+SELECT is(
+  (SELECT estado FROM public.ocorrencias_pagamento
+   WHERE id=current_setting('test.ocorrencia_chargeback')::uuid),
+  'encerrada','ocorrência recebe desfecho administrativo explícito'
+);
+SELECT is(
+  (SELECT estado FROM public.repasses WHERE id=current_setting('test.repasse_chargeback')::uuid),
+  'pago','repasse concluído permanece imutável'
+);
+SELECT is(
+  (SELECT valor_centavos FROM public.repasses WHERE id=current_setting('test.repasse_chargeback')::uuid),
+  9500::bigint,'snapshot do repasse pago não é recalculado'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.repasse_itens
+   WHERE lancamento_id=(SELECT lancamento_id FROM public.decisoes_chargeback
+     WHERE ocorrencia_id=current_setting('test.ocorrencia_chargeback')::uuid)),
+  0,'ajuste posterior ao pagamento segue como saldo devedor para lote futuro'
+);
+SELECT lives_ok(
+  $$SELECT public.resolver_chargeback_admin(
+    current_setting('test.ocorrencia_chargeback')::uuid,'lojista','Mercadoria não entregue',
+    'protocolo-cb-001',10790,'66666666-0000-4000-8000-000000000403'
+  )$$,
+  'retry da mesma operação administrativa é idempotente'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.decisoes_chargeback
+   WHERE ocorrencia_id=current_setting('test.ocorrencia_chargeback')::uuid),
+  1,'retry não duplica decisão'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.lancamentos_financeiros
+   WHERE pedido_id='66666666-0000-4000-8000-000000000103' AND tipo='merchant_credit' AND valor_centavos<0),
+  1,'retry não duplica débito'
+);
+
+RESET ROLE;
+SET LOCAL ROLE service_role;
+SELECT public.processar_evento_pagamento(
+  'evt-chargeback-estornado','PAYMENT_CHARGEBACK_REQUESTED','pay-estornado',
+  '66666666-0000-4000-8000-000000000208',10790,'cartao'
+);
+RESET ROLE;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub','66666666-0000-4000-8000-000000000003',true);
+SELECT set_config('test.ocorrencia_chargeback_estornado',(
+  SELECT id::text FROM public.ocorrencias_pagamento
+  WHERE pedido_id='66666666-0000-4000-8000-000000000107' AND tipo='chargeback'
+),true);
+SELECT public.resolver_chargeback_admin(
+  current_setting('test.ocorrencia_chargeback_estornado')::uuid,'lojista','Chargeback após estorno',
+  'protocolo-cb-002',10790,'66666666-0000-4000-8000-000000000404'
+);
+SELECT is(
+  (SELECT principal_debitado_centavos FROM public.decisoes_chargeback
+   WHERE ocorrencia_id=current_setting('test.ocorrencia_chargeback_estornado')::uuid),
+  0::bigint,'estorno anterior impede débito repetido do principal'
+);
+SELECT is(
+  (SELECT valor_centavos FROM public.lancamentos_financeiros
+   WHERE id=(SELECT lancamento_id FROM public.decisoes_chargeback
+     WHERE ocorrencia_id=current_setting('test.ocorrencia_chargeback_estornado')::uuid)),
+  (-4000)::bigint,'após principal já revertido somente a taxa histórica é aplicada'
+);
+RESET ROLE;
+SET LOCAL ROLE service_role;
+SELECT public.processar_evento_pagamento(
+  'evt-chargeback-keepit','PAYMENT_CHARGEBACK_REQUESTED','pay-keepit',
+  '66666666-0000-4000-8000-000000000209',10790,'cartao'
+);
+RESET ROLE;
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub','66666666-0000-4000-8000-000000000003',true);
+SELECT set_config('test.ocorrencia_chargeback_keepit',(
+  SELECT id::text FROM public.ocorrencias_pagamento
+  WHERE pedido_id='66666666-0000-4000-8000-000000000108' AND tipo='chargeback'
+),true);
+SELECT public.resolver_chargeback_admin(
+  current_setting('test.ocorrencia_chargeback_keepit')::uuid,'keepit','Responsabilidade da plataforma',
+  'protocolo-cb-003',10790,'66666666-0000-4000-8000-000000000406'
+);
+SELECT is(
+  (SELECT principal_debitado_centavos FROM public.decisoes_chargeback
+   WHERE ocorrencia_id=current_setting('test.ocorrencia_chargeback_keepit')::uuid),
+  0::bigint,'principal não é debitado quando a responsabilidade é da Keepit'
+);
+SELECT is(
+  (SELECT valor_centavos FROM public.lancamentos_financeiros
+   WHERE id=(SELECT lancamento_id FROM public.decisoes_chargeback
+     WHERE ocorrencia_id=current_setting('test.ocorrencia_chargeback_keepit')::uuid)),
+  (-4000)::bigint,'taxa histórica também é aplicada quando a Keepit assume o principal'
+);
+SELECT set_config('request.jwt.claim.sub','66666666-0000-4000-8000-000000000001',true);
+SELECT throws_ok(
+  format($sql$SELECT public.resolver_chargeback_admin(
+    %L::uuid,'lojista','Tentativa indevida','protocolo-invalido',100,
+    '66666666-0000-4000-8000-000000000405'
+  )$sql$,current_setting('test.ocorrencia_chargeback')),
+  'P0001','ACESSO_NEGADO','cliente não pode decidir chargeback'
+);
+RESET ROLE;
+SET LOCAL ROLE service_role;
 SELECT public.processar_evento_pagamento('evt-refund','PAYMENT_REFUNDED','pay-entregue','66666666-0000-4000-8000-000000000203',10790,'cartao');
 SELECT is((SELECT count(*)::int FROM public.ocorrencias_pagamento WHERE pedido_id='66666666-0000-4000-8000-000000000103' AND tipo='estorno'),1,'estorno fica correlacionável sem segundo débito');
 SELECT is((SELECT status FROM public.pedidos WHERE id='66666666-0000-4000-8000-000000000103'),'entregue','chargeback/estorno não alteram entrega');
@@ -202,9 +396,10 @@ RESET ROLE;
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','66666666-0000-4000-8000-000000000001',true);
 SELECT is((SELECT count(*)::int FROM public.eventos_pagamento),0,'policy filtra todos os recibos para cliente');
+SELECT is((SELECT count(*)::int FROM public.decisoes_chargeback),0,'policy não expõe decisões de chargeback ao cliente');
 SELECT throws_ok($$SELECT * FROM public.processar_evento_pagamento('x','PAYMENT_RECEIVED','pay-main',NULL,10790,'cartao')$$,'42501',NULL,'cliente não processa webhook');
 SELECT set_config('request.jwt.claim.sub','66666666-0000-4000-8000-000000000003',true);
-SELECT is((SELECT count(*)::int FROM public.tentativas_pagamento WHERE estado IN ('reconciliacao','recebido','confirmado')),7,'Admin lê tentativas para reconciliação');
+SELECT is((SELECT count(*)::int FROM public.tentativas_pagamento WHERE estado IN ('reconciliacao','recebido','confirmado')),9,'Admin lê tentativas para reconciliação');
 SELECT is((SELECT count(*)::int FROM public.antecipacoes_recebiveis),3,'Admin lê custos e estados de antecipação');
 RESET ROLE;
 

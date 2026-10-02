@@ -1,16 +1,156 @@
 'use client';
 
 import { useSearchParams } from 'next/navigation';
-import { useState } from 'react';
+import { type FormEvent, useState } from 'react';
+
+import { createSupportOperationId, type PaymentOccurrenceAdmin } from '@keepit/core-data';
 
 import { Button } from '../../../src/components/Button';
 import { Card } from '../../../src/components/Card';
 import { LinkButton } from '../../../src/components/LinkButton';
-import { reconcilePaymentAndRefresh, useFinancialDashboard } from '../../../src/hooks/useAdminOps';
+import {
+  reconcilePaymentAndRefresh,
+  resolveChargebackAndRefresh,
+  useFinancialDashboard,
+} from '../../../src/hooks/useAdminOps';
 import { formatReais } from '../../../src/lib/adminLabels';
 import { anticipationIdentityLabel, presentFinancialPending } from '../../../src/lib/financialLabels';
 
 const PERIODO_OPTIONS = [7, 30, 90] as const;
+
+function formatSignedCentavos(value: number): string {
+  return value < 0 ? `-${formatReais(Math.abs(value) / 100)}` : formatReais(value / 100);
+}
+
+function ChargebackOccurrenceItem({
+  item,
+  refresh,
+}: {
+  item: PaymentOccurrenceAdmin;
+  refresh: () => void | Promise<void>;
+}) {
+  const [responsavel, setResponsavel] = useState<'keepit' | 'lojista'>('keepit');
+  const [principalReais, setPrincipalReais] = useState('0,00');
+  const [motivo, setMotivo] = useState('');
+  const [referencia, setReferencia] = useState('');
+  const [resolvendo, setResolvendo] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  async function decidir(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const principalCentavos = Math.round(Number(principalReais.replace(',', '.')) * 100);
+    if (!Number.isFinite(principalCentavos) || principalCentavos < 0) {
+      setErro('Informe um principal válido.');
+      return;
+    }
+    setResolvendo(true);
+    setErro(null);
+    try {
+      await resolveChargebackAndRefresh({
+        ocorrenciaId: item.id,
+        responsavelPrincipal: responsavel,
+        motivo,
+        referencia,
+        principalCentavos,
+        operacaoId: createSupportOperationId(),
+      }, refresh);
+    } catch (cause) {
+      setErro(cause instanceof Error ? cause.message : 'Não foi possível registrar a decisão.');
+    } finally {
+      setResolvendo(false);
+    }
+  }
+
+  return (
+    <li className="flex flex-col gap-3 border-t border-border-subtle pt-3 first:border-t-0 first:pt-0">
+      <div>
+        <p className="font-medium text-text-primary">{item.tipo} · {item.estado}</p>
+        <p className="text-text-secondary">Pedido {item.pedidoId} · {item.detalhe}</p>
+        <p className="text-xs text-text-tertiary">Referência externa: {item.referenciaExterna ?? 'não vinculada'}</p>
+      </div>
+
+      {item.tipo === 'chargeback' && !item.decisao && (
+        <form className="grid gap-3 rounded-md border border-border-subtle p-3" onSubmit={(event) => void decidir(event)}>
+          <h3 className="font-semibold text-text-primary">Decidir responsabilidade</h3>
+          <label className="grid gap-1 text-xs text-text-secondary">
+            Responsabilidade pelo principal
+            <select
+              className="min-h-11 rounded-md border border-border-subtle bg-bg-elevated px-3 text-sm text-text-primary"
+              value={responsavel}
+              onChange={(event) => setResponsavel(event.target.value as 'keepit' | 'lojista')}
+            >
+              <option value="keepit">Keepit</option>
+              <option value="lojista">Lojista</option>
+            </select>
+          </label>
+          <label className="grid gap-1 text-xs text-text-secondary">
+            Principal do chargeback (R$)
+            <input
+              className="min-h-11 rounded-md border border-border-subtle bg-bg-elevated px-3 text-sm text-text-primary"
+              inputMode="decimal"
+              value={principalReais}
+              onChange={(event) => setPrincipalReais(event.target.value)}
+              required
+            />
+          </label>
+          <label className="grid gap-1 text-xs text-text-secondary">
+            Motivo da decisão
+            <textarea
+              className="min-h-20 rounded-md border border-border-subtle bg-bg-elevated p-3 text-sm text-text-primary"
+              value={motivo}
+              onChange={(event) => setMotivo(event.target.value)}
+              required
+            />
+          </label>
+          <label className="grid gap-1 text-xs text-text-secondary">
+            Referência administrativa
+            <input
+              className="min-h-11 rounded-md border border-border-subtle bg-bg-elevated px-3 text-sm text-text-primary"
+              value={referencia}
+              onChange={(event) => setReferencia(event.target.value)}
+              required
+            />
+          </label>
+          <p className="text-xs text-text-tertiary">A taxa histórica de chargeback é aplicada na resolução e registrada separadamente do principal.</p>
+          {erro && <p className="text-sm text-accent-warning">{erro}</p>}
+          <Button type="submit" variant="secondary" disabled={resolvendo}>
+            {resolvendo ? 'Registrando…' : 'Registrar decisão'}
+          </Button>
+        </form>
+      )}
+
+      {item.decisao && (
+        <div className="grid gap-3 rounded-md border border-border-subtle p-3">
+          <div>
+            <h3 className="font-semibold text-text-primary">Decisão administrativa</h3>
+            <p className="text-text-secondary">Responsável pelo principal: {item.decisao.responsavelPrincipal}</p>
+            <p className="text-text-secondary">Motivo: {item.decisao.motivo}</p>
+            <p className="text-text-secondary">Referência: {item.decisao.referencia}</p>
+          </div>
+          <dl className="grid grid-cols-3 gap-3 text-xs">
+            <div><dt className="text-text-tertiary">Principal informado</dt><dd className="text-text-primary">{formatReais(item.decisao.principalInformadoCentavos / 100)}</dd></div>
+            <div><dt className="text-text-tertiary">Principal debitado</dt><dd className="text-text-primary">{formatReais(item.decisao.principalDebitadoCentavos / 100)}</dd></div>
+            <div><dt className="text-text-tertiary">Taxa de chargeback</dt><dd className="text-text-primary">{formatReais(item.decisao.taxaCentavos / 100)}</dd></div>
+          </dl>
+          <div>
+            <h4 className="text-xs font-semibold uppercase tracking-section text-text-tertiary">Lançamentos no ledger</h4>
+            {item.lancamentos.length === 0 ? (
+              <p className="text-sm text-text-secondary">Nenhum lançamento vinculado.</p>
+            ) : (
+              <ul className="mt-1 grid gap-1">
+                {item.lancamentos.map((lancamento) => (
+                  <li key={lancamento.id} className="text-sm text-text-secondary">
+                    {formatSignedCentavos(lancamento.valorCentavos)} · {lancamento.detalhe ?? 'Ajuste administrativo'}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+    </li>
+  );
+}
 
 /** Visão financeira: vendas, receita bruta, taxas e obrigações são métricas distintas. */
 export default function FinanceiroPage() {
@@ -162,12 +302,9 @@ export default function FinanceiroPage() {
               {dashboard.ocorrenciasPagamento.length === 0 ? (
                 <p className="text-sm text-text-secondary">Nenhum chargeback, estorno ou pagamento tardio pendente.</p>
               ) : (
-                <ul className="flex flex-col gap-2 text-sm">
+                <ul className="flex flex-col gap-3 text-sm">
                   {dashboard.ocorrenciasPagamento.map((item) => (
-                    <li key={item.id}>
-                      <p className="font-medium text-text-primary">{item.tipo} · {item.estado}</p>
-                      <p className="text-text-secondary">Pedido {item.pedidoId} · {item.detalhe}</p>
-                    </li>
+                    <ChargebackOccurrenceItem key={item.id} item={item} refresh={refresh} />
                   ))}
                 </ul>
               )}

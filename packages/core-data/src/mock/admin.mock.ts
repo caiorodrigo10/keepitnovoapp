@@ -659,6 +659,21 @@ export function createAdminMock(db: MockDb): AdminPort {
       );
     },
 
+    decideChargeback(input) {
+      return Promise.resolve({
+        id: `decisao:${input.operacaoId}`,
+        ocorrenciaId: input.ocorrenciaId,
+        responsavelPrincipal: input.responsavelPrincipal,
+        motivo: input.motivo.trim(),
+        referencia: input.referencia.trim(),
+        principalInformadoCentavos: input.principalCentavos,
+        principalDebitadoCentavos: input.responsavelPrincipal === 'lojista' ? input.principalCentavos : 0,
+        taxaCentavos: 4_000,
+        lancamentoId: `ajuste:${input.operacaoId}`,
+        criadoEm: new Date().toISOString(),
+      });
+    },
+
     inspectPayment(pedidoId: string, options?: AsyncCallOptions) {
       return simulateAsync(
         () => {

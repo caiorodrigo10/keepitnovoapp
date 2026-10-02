@@ -8,7 +8,20 @@ vi.mock('../../../src/hooks/useAdminOps', () => ({ useFinancialDashboard: () => 
     receitaKeepitReais: 12.9, despesaGatewayReais: 3.5, dividaLojistasReais: 95,
     repassesPagosReais: 0, reembolsosReais: 0, ranking: [], pedidosTotais: 1,
     pedidosEntregues: 1, pedidosCancelados: 0, pedidosNoShow: 0, taxaSucessoPercent: 100,
-    reconciliacoes: [], antecipacoes: [], eventosComErro: [], ocorrenciasPagamento: [],
+    reconciliacoes: [], antecipacoes: [], eventosComErro: [], ocorrenciasPagamento: [{
+      id: 'ocorrencia-aberta', pedidoId: 'pedido-10', tipo: 'chargeback', estado: 'pendente',
+      referenciaExterna: 'pay-10', detalhe: 'Responsabilidade aguarda decisão administrativa.',
+      criadoEm: '2026-09-30T10:00:00.000Z', decisao: null, lancamentos: [],
+    }, {
+      id: 'ocorrencia-decidida', pedidoId: 'pedido-11', tipo: 'chargeback', estado: 'encerrada',
+      referenciaExterna: 'pay-11', detalhe: 'Responsabilidade decidida.', criadoEm: '2026-09-29T10:00:00.000Z',
+      decisao: { id: 'decisao-11', ocorrenciaId: 'ocorrencia-decidida', responsavelPrincipal: 'lojista',
+        motivo: 'Entrega não comprovada', referencia: 'protocolo-11', principalInformadoCentavos: 10_790,
+        principalDebitadoCentavos: 9_500, taxaCentavos: 4_000, lancamentoId: 'ajuste-11',
+        criadoEm: '2026-10-01T10:00:00.000Z' },
+      lancamentos: [{ id: 'ajuste-11', valorCentavos: -13_500, detalhe: 'Ajuste administrativo de chargeback',
+        criadoEm: '2026-10-01T10:00:00.000Z' }],
+    }],
     pendenciasFinanceiras: [{
       id: 'tentativa:tentativa-1', tipo: 'reconciliacao_pagamento', pedidoId: 'pedido-1',
       operacaoId: 'operacao-tentativa-1', abertoEm: '2026-09-28T10:00:00.000Z', ultimoResultado: 'aguardando_consulta', ultimoErro: null,
@@ -31,7 +44,7 @@ vi.mock('../../../src/hooks/useAdminOps', () => ({ useFinancialDashboard: () => 
       ultimoErro: 'COBRANCA_DESCONHECIDA', referenciaExterna: 'pay-sem-pedido', acaoPermitida: 'consultar_divergencia',
     }] },
   loading: false, error: null, refresh: vi.fn(),
-}) }));
+}), resolveChargebackAndRefresh: vi.fn() }));
 vi.mock('../../../src/lib/adminClient', () => ({ getAdminDataClient: vi.fn() }));
 
 import FinanceiroPage from './page';
@@ -77,5 +90,22 @@ describe('dashboard financeiro Admin', () => {
     expect(html).toContain('Revisar repasse');
     expect(html).not.toContain('Criar cobrança');
     expect(html).not.toContain('Executar repasse');
+  });
+
+  it('separa ocorrência aberta, decisão, principal, taxa e lançamento do chargeback', () => {
+    const html = renderToStaticMarkup(createElement(FinanceiroPage));
+
+    expect(html).toContain('Decidir responsabilidade');
+    expect(html).toContain('Responsabilidade pelo principal');
+    expect(html).toContain('Decisão administrativa');
+    expect(html).toContain('Entrega não comprovada');
+    expect(html).toContain('Principal informado');
+    expect(html).toContain('R$ 107,90');
+    expect(html).toContain('Principal debitado');
+    expect(html).toContain('R$ 95,00');
+    expect(html).toContain('Taxa de chargeback');
+    expect(html).toContain('R$ 40,00');
+    expect(html).toContain('Lançamentos no ledger');
+    expect(html).toContain('-R$ 135,00');
   });
 });

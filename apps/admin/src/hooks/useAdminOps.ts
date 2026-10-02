@@ -5,6 +5,7 @@ import { useCallback, useState } from 'react';
 import type {
   AsyncCallOptions,
   Cliente,
+  DecideChargebackInput,
   Estabelecimento,
   EstabelecimentoFalha,
   FinancialDashboardResult,
@@ -158,6 +159,18 @@ export async function reconcilePaymentAndRefresh(
 ) {
   try {
     return await reconcilePayment(tentativaId);
+  } finally {
+    await refresh();
+  }
+}
+
+export async function resolveChargebackAndRefresh(
+  input: DecideChargebackInput,
+  refresh: () => void | Promise<void>,
+  resolveChargeback = (value: DecideChargebackInput) => getAdminDataClient().admin.decideChargeback(value),
+) {
+  try {
+    return await resolveChargeback(input);
   } finally {
     await refresh();
   }

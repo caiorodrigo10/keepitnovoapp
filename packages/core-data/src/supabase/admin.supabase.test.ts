@@ -265,6 +265,43 @@ describe('admin.supabase.ts — pendingStoreDetail (Story 3.7, AC3)', () => {
   });
 });
 
+describe('admin.supabase.ts — resolução administrativa de chargeback', () => {
+  it('envia responsabilidade, motivo, referência, principal e operação à RPC transacional', async () => {
+    const { client, rpc } = fakeClient({
+      rpc: async (fn, args) => {
+        if (fn !== 'resolver_chargeback_admin') return { data: null, error: null };
+        expect(args).toEqual({
+          p_ocorrencia_id: 'ocorrencia-1',
+          p_responsavel_principal: 'lojista',
+          p_motivo: 'Entrega não comprovada',
+          p_referencia: 'protocolo-123',
+          p_principal_centavos: 10_790,
+          p_operacao_id: 'operacao-1',
+        });
+        return {
+          data: {
+            id: 'decisao-1', ocorrenciaId: 'ocorrencia-1', responsavelPrincipal: 'lojista',
+            motivo: 'Entrega não comprovada', referencia: 'protocolo-123',
+            principalInformadoCentavos: 10_790, principalDebitadoCentavos: 9_500,
+            taxaCentavos: 4_000, lancamentoId: 'lancamento-1', criadoEm: '2026-10-01T12:00:00Z',
+          },
+          error: null,
+        };
+      },
+    });
+
+    await expect(createAdminSupabase(client).decideChargeback({
+      ocorrenciaId: 'ocorrencia-1', responsavelPrincipal: 'lojista',
+      motivo: 'Entrega não comprovada', referencia: 'protocolo-123',
+      principalCentavos: 10_790, operacaoId: 'operacao-1',
+    })).resolves.toMatchObject({
+      id: 'decisao-1', principalDebitadoCentavos: 9_500, taxaCentavos: 4_000,
+      lancamentoId: 'lancamento-1',
+    });
+    expect(rpc).toHaveBeenCalledWith('resolver_chargeback_admin', expect.any(Object));
+  });
+});
+
 describe('admin.supabase.ts — approve (Story 3.8, AC1-AC4)', () => {
   it('sucesso: chama a RPC aprovar_lojista com p_estab_id e devolve o estabelecimento relido (status ativo, aprovado_em/aprovado_por)', async () => {
     const { client, rpc } = fakeClient({
@@ -1086,6 +1123,18 @@ describe('admin.supabase.ts — financialDashboard (Story 8.7)', () => {
           referencia_externa: 'pay-3', detalhe: 'Segunda cobrança requer devolução administrativa.',
           criado_em: '2026-09-30T10:08:00.000Z',
         }], error: null }],
+        decisoes_chargeback: [{ data: [{
+          id: 'decisao-1', ocorrencia_id: 'oc-1', responsavel_principal: 'lojista',
+          motivo: 'Entrega não comprovada', referencia: 'protocolo-1',
+          principal_informado_centavos: 10_790, principal_debitado_centavos: 9_500,
+          taxa_centavos: 4_000, lancamento_id: 'ajuste-chargeback-1', criado_em: '2026-09-30T10:10:00.000Z',
+        }], error: null }],
+        lancamentos_financeiros: [{ data: [{
+          id: 'ajuste-chargeback-1', estabelecimento_id: 'loja-1', pedido_id: 'pedido-2',
+          tipo: 'merchant_credit', valor_centavos: -13_500, status: 'concluido',
+          criado_em: '2026-09-30T10:10:00.000Z', concluido_em: null,
+          detalhe: 'Ajuste administrativo de chargeback', estado_reserva: 'ativa',
+        }], error: null }],
         antecipacoes_recebiveis: [{ data: [{
           id: 'ant-local-1', antecipacao_externa_id: 'ant-asaas-1', pedido_id: 'pedido-2',
           cobranca_id: 'pay-2', estado: 'PENDING', valor_centavos: 10_000,
@@ -1112,7 +1161,13 @@ describe('admin.supabase.ts — financialDashboard (Story 8.7)', () => {
       expect.objectContaining({ eventoExternoId: 'evt-1', tentativaId: 'tentativa-1' }),
     ]);
     expect((dashboard as unknown as { ocorrenciasPagamento: unknown }).ocorrenciasPagamento).toEqual([
-      expect.objectContaining({ id: 'oc-1', tipo: 'chargeback', estado: 'pendente' }),
+      expect.objectContaining({
+        id: 'oc-1', tipo: 'chargeback', estado: 'pendente',
+        decisao: expect.objectContaining({
+          id: 'decisao-1', principalDebitadoCentavos: 9_500, taxaCentavos: 4_000,
+        }),
+        lancamentos: [expect.objectContaining({ id: 'ajuste-chargeback-1', valorCentavos: -13_500 })],
+      }),
       expect.objectContaining({ id: 'oc-2', tipo: 'pagamento_adicional', estado: 'pendente' }),
     ]);
   });
