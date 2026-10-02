@@ -9,6 +9,12 @@ interface ReleaseEnvironment {
 }
 
 describe('perfis EAS do Lojista', () => {
+  it('mapeia perfis demo para preview e produção para production', () => {
+    expect(eas.build.demo.environment).toBe('preview');
+    expect(eas.build['demo-apk'].environment).toBe('preview');
+    expect(eas.build.production.environment).toBe('production');
+  });
+
   it('marca produção para bloquear mock e preserva os perfis demo', () => {
     const production = eas.build.production.env as ReleaseEnvironment;
 

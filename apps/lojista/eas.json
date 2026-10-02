@@ -5,6 +5,7 @@
   "build": {
     "demo": {
       "distribution": "store",
+      "environment": "preview",
       "autoIncrement": true,
       "ios": {
         "credentialsSource": "local"
@@ -19,6 +20,7 @@
     },
     "demo-apk": {
       "distribution": "internal",
+      "environment": "preview",
       "autoIncrement": true,
       "android": {
         "buildType": "apk"
@@ -30,6 +32,7 @@
     },
     "production": {
       "distribution": "store",
+      "environment": "production",
       "autoIncrement": true,
       "ios": {
         "credentialsSource": "local"
