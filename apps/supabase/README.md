@@ -80,7 +80,7 @@ SUPABASE_DB_NAME=postgres \
 pnpm --filter @keepit/supabase verify:chargeback-concurrency
 ```
 
-O comando executa, em sequência, `chargebacks_concurrency.py` e `chargeback_refund_concurrency.py`. Use um container criado exclusivamente para essa validação; não aponte para `keepit-dev`, produção ou outro banco compartilhado.
+O comando executa, em sequência, `chargebacks_concurrency.py` e `chargeback_refund_concurrency.py`. Os dois scripts também exigem `KEEPIT_DISPOSABLE_DB=1` quando executados diretamente. Use um container criado exclusivamente para essa validação; não aponte para `keepit-dev`, produção ou outro banco compartilhado.
 
 ## Verificação REST da projeção pública de estabelecimentos
 

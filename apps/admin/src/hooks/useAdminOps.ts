@@ -177,10 +177,29 @@ export async function reconcilePaymentAndRefresh(
   refresh: () => void | Promise<void>,
   reconcilePayment = (id: string) => getAdminDataClient().admin.reconcilePayment(id),
 ) {
+  let result: Awaited<ReturnType<typeof reconcilePayment>>;
   try {
-    return await reconcilePayment(tentativaId);
-  } finally {
+    result = await reconcilePayment(tentativaId);
+  } catch (mutationError) {
+    try {
+      await refresh();
+    } catch {
+      // A falha original da mutação é a informação operacional relevante.
+    }
+    throw mutationError;
+  }
+  try {
     await refresh();
+    return { reconciliation: result, refreshWarning: null };
+  } catch (refreshError) {
+    const error = refreshError instanceof Error ? refreshError : new Error(String(refreshError));
+    return {
+      reconciliation: result,
+      refreshWarning: {
+        message: error.message,
+        retry: async () => { await refresh(); },
+      },
+    };
   }
 }
 

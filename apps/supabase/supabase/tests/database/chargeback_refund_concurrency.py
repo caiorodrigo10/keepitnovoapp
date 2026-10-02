@@ -1,7 +1,7 @@
 """Chargeback e reconciliação de refund disputam a mesma trava de pedido.
 
 Uso:
-  SUPABASE_DB_CONTAINER=<container> SUPABASE_DB_NAME=<database> \
+  KEEPIT_DISPOSABLE_DB=1 SUPABASE_DB_CONTAINER=<container> SUPABASE_DB_NAME=<database> \
     python3 supabase/tests/database/chargeback_refund_concurrency.py
 """
 
@@ -12,8 +12,11 @@ import time
 
 CONTAINER = os.environ.get('SUPABASE_DB_CONTAINER')
 DATABASE = os.environ.get('SUPABASE_DB_NAME')
-if not CONTAINER or not DATABASE:
-    raise SystemExit('Informe SUPABASE_DB_CONTAINER e SUPABASE_DB_NAME de um banco local descartável.')
+if os.environ.get('KEEPIT_DISPOSABLE_DB') != '1' or not CONTAINER or not DATABASE:
+    raise SystemExit(
+        'Informe KEEPIT_DISPOSABLE_DB=1, SUPABASE_DB_CONTAINER e SUPABASE_DB_NAME '
+        'de um banco local descartável.'
+    )
 P = '78888888-0000-4000-8000-000000000'
 CLIENT, MERCHANT, ADMIN = P + '001', P + '002', P + '003'
 HUB, STORE = P + '010', P + '020'

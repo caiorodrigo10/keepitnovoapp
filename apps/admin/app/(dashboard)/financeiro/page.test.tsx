@@ -5,7 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const hookState = vi.hoisted(() => ({
   refresh: vi.fn(),
+  reconcilePaymentAndRefresh: vi.fn(),
   resolveChargebackAndRefresh: vi.fn(),
+  loading: false,
+  error: null as Error | null,
 }));
 
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams() }));
@@ -50,8 +53,11 @@ vi.mock('../../../src/hooks/useAdminOps', () => ({ useFinancialDashboard: () => 
       operacaoId: 'evt-sem-pedido', abertoEm: '2026-09-30T11:00:00.000Z', ultimoResultado: 'vinculo_nao_encontrado',
       ultimoErro: 'COBRANCA_DESCONHECIDA', referenciaExterna: 'pay-sem-pedido', acaoPermitida: 'consultar_divergencia',
     }] },
-  loading: false, error: null, refresh: hookState.refresh, refreshAndWait: hookState.refresh,
-}), resolveChargebackAndRefresh: hookState.resolveChargebackAndRefresh }));
+  loading: hookState.loading, error: hookState.error, refresh: hookState.refresh, refreshAndWait: hookState.refresh,
+}),
+  reconcilePaymentAndRefresh: hookState.reconcilePaymentAndRefresh,
+  resolveChargebackAndRefresh: hookState.resolveChargebackAndRefresh,
+}));
 vi.mock('../../../src/lib/adminClient', () => ({ getAdminDataClient: vi.fn() }));
 
 import FinanceiroPage, { createChargebackDraftOperationTracker } from './page';
@@ -64,6 +70,8 @@ describe('dashboard financeiro Admin', () => {
   afterEach(async () => {
     if (renderer) await act(async () => renderer?.unmount());
     renderer = undefined;
+    hookState.loading = false;
+    hookState.error = null;
     vi.useRealTimers();
     vi.clearAllMocks();
   });
@@ -160,6 +168,83 @@ describe('dashboard financeiro Admin', () => {
     expect(retryButton).toBeDefined();
 
     await act(async () => { await retryButton?.props.onClick(); });
+    expect(retry).toHaveBeenCalledOnce();
+    expect(page.root.findAllByProps({ role: 'alert' })).toHaveLength(0);
+  });
+
+  it('mantém a ocorrência e a operação estável durante uma releitura rejeitada após decidir o chargeback', async () => {
+    const operationIds: string[] = [];
+    let finishRefresh!: (outcome: {
+      decision: { id: string };
+      refreshWarning: { message: string; retry: () => Promise<void> };
+    }) => void;
+    hookState.resolveChargebackAndRefresh.mockImplementation(async (input: { operacaoId: string }) => {
+      operationIds.push(input.operacaoId);
+      return new Promise((resolve) => { finishRefresh = resolve; });
+    });
+    await act(async () => { renderer = create(createElement(FinanceiroPage)); });
+    const page = renderer!;
+    const originalForm = page.root.findByType('form');
+
+    await act(async () => {
+      originalForm.props.onSubmit({ preventDefault: vi.fn() });
+      await Promise.resolve();
+    });
+
+    hookState.loading = true;
+    await act(async () => { page.update(createElement(FinanceiroPage)); });
+    expect(page.root.findByType('form')).toBe(originalForm);
+
+    hookState.loading = false;
+    hookState.error = new Error('falha ao reler dashboard');
+    await act(async () => {
+      page.update(createElement(FinanceiroPage));
+      finishRefresh({
+        decision: { id: 'decisao-1' },
+        refreshWarning: { message: 'falha ao reler dashboard', retry: async () => undefined },
+      });
+      await Promise.resolve();
+    });
+
+    expect(JSON.stringify(page.toJSON())).toContain(
+      'A decisão foi registrada, mas os dados exibidos podem estar desatualizados',
+    );
+    const retryForm = page.root.findByType('form');
+    hookState.resolveChargebackAndRefresh.mockImplementationOnce(async (input: { operacaoId: string }) => {
+      operationIds.push(input.operacaoId);
+      return { decision: { id: 'decisao-1' }, refreshWarning: null };
+    });
+    await act(async () => {
+      retryForm.props.onSubmit({ preventDefault: vi.fn() });
+      await Promise.resolve();
+    });
+
+    expect(operationIds).toHaveLength(2);
+    expect(operationIds[1]).toBe(operationIds[0]);
+  });
+
+  it('avisa quando a reconciliação persistiu mas a releitura falhou e permite tentar novamente', async () => {
+    const retry = vi.fn(async () => undefined);
+    hookState.reconcilePaymentAndRefresh.mockResolvedValue({
+      reconciliation: { resultado: 'recebido', pedidoId: 'pedido-1' },
+      refreshWarning: { message: 'falha ao reler dashboard', retry },
+    });
+    await act(async () => { renderer = create(createElement(FinanceiroPage)); });
+    const page = renderer!;
+    const reconcileButton = page.root.findAllByType('button')
+      .find((button) => button.children.includes('Reconciliar pagamento'));
+
+    await act(async () => {
+      reconcileButton?.props.onClick();
+      await Promise.resolve();
+    });
+
+    const alert = page.root.findByProps({ role: 'alert' });
+    expect(JSON.stringify(page.toJSON())).toContain('A reconciliação foi registrada');
+    expect(JSON.stringify(page.toJSON())).toContain('falha ao reler dashboard');
+    const retryButton = alert.findByType('button');
+
+    await act(async () => { await retryButton.props.onClick(); });
     expect(retry).toHaveBeenCalledOnce();
     expect(page.root.findAllByProps({ role: 'alert' })).toHaveLength(0);
   });

@@ -1,7 +1,7 @@
 """Duas decisões Admin disputam a mesma ocorrência em conexões PostgreSQL reais.
 
 Uso:
-  SUPABASE_DB_CONTAINER=<container> SUPABASE_DB_NAME=<database> \
+  KEEPIT_DISPOSABLE_DB=1 SUPABASE_DB_CONTAINER=<container> SUPABASE_DB_NAME=<database> \
     python3 supabase/tests/database/chargebacks_concurrency.py
 """
 
@@ -12,8 +12,11 @@ import time
 
 CONTAINER = os.environ.get('SUPABASE_DB_CONTAINER')
 DATABASE = os.environ.get('SUPABASE_DB_NAME')
-if not CONTAINER or not DATABASE:
-    raise SystemExit('Informe SUPABASE_DB_CONTAINER e SUPABASE_DB_NAME de um banco local descartável.')
+if os.environ.get('KEEPIT_DISPOSABLE_DB') != '1' or not CONTAINER or not DATABASE:
+    raise SystemExit(
+        'Informe KEEPIT_DISPOSABLE_DB=1, SUPABASE_DB_CONTAINER e SUPABASE_DB_NAME '
+        'de um banco local descartável.'
+    )
 P = '76666666-0000-4000-8000-000000000'
 CLIENT, MERCHANT, ADMIN = P + '001', P + '002', P + '003'
 HUB, STORE, ORDER, ATTEMPT = P + '010', P + '020', P + '101', P + '201'

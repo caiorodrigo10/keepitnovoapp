@@ -34,7 +34,10 @@ describe('reconcilePaymentAndRefresh', () => {
     const reconcilePayment = vi.fn(async () => ({ resultado: 'recebido', pedidoId: 'pedido-1' }));
     const refresh = vi.fn();
 
-    await expect(reconcilePaymentAndRefresh('tentativa-1', refresh, reconcilePayment)).resolves.toMatchObject({ resultado: 'recebido' });
+    await expect(reconcilePaymentAndRefresh('tentativa-1', refresh, reconcilePayment)).resolves.toMatchObject({
+      reconciliation: { resultado: 'recebido' },
+      refreshWarning: null,
+    });
     expect(refresh).toHaveBeenCalledOnce();
   });
 
@@ -51,6 +54,33 @@ describe('reconcilePaymentAndRefresh', () => {
       rejected = true;
     }
     expect(rejected).toBe(true);
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it('preserva a reconciliação concluída quando a releitura posterior falha', async () => {
+    const committed = { resultado: 'recebido', pedidoId: 'pedido-1' };
+    const reconcilePayment = vi.fn(async () => committed);
+    let refreshFails = true;
+    const refresh = vi.fn(async () => {
+      if (refreshFails) throw new Error('falha ao reler dashboard');
+    });
+
+    const outcome = await reconcilePaymentAndRefresh('tentativa-1', refresh, reconcilePayment);
+
+    expect(outcome.reconciliation).toEqual(committed);
+    expect(outcome.refreshWarning?.message).toBe('falha ao reler dashboard');
+    refreshFails = false;
+    await expect(outcome.refreshWarning?.retry()).resolves.toBeUndefined();
+    expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserva o erro da mutação quando a releitura também falha', async () => {
+    const mutationError = new Error('COBRANCA_AMBIGUA');
+    const reconcilePayment = vi.fn(async () => { throw mutationError; });
+    const refresh = vi.fn(async () => { throw new Error('falha ao reler dashboard'); });
+
+    await expect(reconcilePaymentAndRefresh('tentativa-1', refresh, reconcilePayment))
+      .rejects.toBe(mutationError);
     expect(refresh).toHaveBeenCalledOnce();
   });
 });
@@ -104,10 +134,11 @@ describe('resolveChargebackAndRefresh', () => {
 });
 
 describe('useFinancialDashboard', () => {
-  it('faz refresh aguardar a releitura real e rejeitar com a falha apresentada no recurso', async () => {
+  it('mantém os dados durante a releitura e rejeita com a falha apresentada no recurso', async () => {
+    let rejectRefresh!: (cause: Error) => void;
     adminClient.financialDashboard
       .mockResolvedValueOnce({ periodoDias: 30 })
-      .mockRejectedValueOnce(new Error('falha ao reler dashboard'));
+      .mockImplementationOnce(() => new Promise((_, reject) => { rejectRefresh = reject; }));
     await act(async () => { renderer = create(React.createElement(DashboardHarness)); });
 
     let refreshPromise!: Promise<void>;
@@ -115,9 +146,14 @@ describe('useFinancialDashboard', () => {
       refreshPromise = dashboardResource.refreshAndWait();
       void refreshPromise.catch(() => undefined);
     });
+    expect(dashboardResource.loading).toBe(true);
+    expect(dashboardResource.data.periodoDias).toBe(30);
+
+    await act(async () => { rejectRefresh(new Error('falha ao reler dashboard')); });
 
     await expect(refreshPromise).rejects.toThrow('falha ao reler dashboard');
     expect(dashboardResource.error?.message).toBe('falha ao reler dashboard');
+    expect(dashboardResource.data.periodoDias).toBe(30);
     expect(adminClient.financialDashboard).toHaveBeenCalledTimes(2);
   });
 });

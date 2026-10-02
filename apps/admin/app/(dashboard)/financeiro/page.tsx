@@ -227,20 +227,41 @@ export default function FinanceiroPage() {
   const [periodoDias, setPeriodoDias] = useState<(typeof PERIODO_OPTIONS)[number]>(30);
   const [reconciliando, setReconciliando] = useState<string | null>(null);
   const [erroReconciliacao, setErroReconciliacao] = useState<string | null>(null);
+  const [refreshWarningReconciliacao, setRefreshWarningReconciliacao] = useState<{
+    message: string;
+    retry: () => Promise<void>;
+  } | null>(null);
+  const [tentandoAtualizarReconciliacao, setTentandoAtualizarReconciliacao] = useState(false);
   const { data: dashboard, loading, error, refresh, refreshAndWait } = useFinancialDashboard(periodoDias, {
     forceEmpty,
     forceError,
   });
+  const hasDashboardData = dashboard.periodoDias > 0;
 
   async function reconciliar(tentativaId: string) {
     setReconciliando(tentativaId);
     setErroReconciliacao(null);
     try {
-      await reconcilePaymentAndRefresh(tentativaId, refreshAndWait);
+      const outcome = await reconcilePaymentAndRefresh(tentativaId, refreshAndWait);
+      setRefreshWarningReconciliacao(outcome.refreshWarning);
     } catch (cause) {
       setErroReconciliacao(cause instanceof Error ? cause.message : 'Não foi possível reconciliar a tentativa.');
     } finally {
       setReconciliando(null);
+    }
+  }
+
+  async function tentarAtualizarReconciliacao() {
+    if (!refreshWarningReconciliacao) return;
+    setTentandoAtualizarReconciliacao(true);
+    try {
+      await refreshWarningReconciliacao.retry();
+      setRefreshWarningReconciliacao(null);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'Falha ao atualizar os dados.';
+      setRefreshWarningReconciliacao((warning) => warning ? { ...warning, message } : warning);
+    } finally {
+      setTentandoAtualizarReconciliacao(false);
     }
   }
 
@@ -266,7 +287,7 @@ export default function FinanceiroPage() {
 
       {loading && <p className="text-sm text-text-tertiary">Carregando dashboard…</p>}
 
-      {!loading && error && (
+      {error && (
         <Card className="border-accent-warning/40">
           <p className="mb-3 text-sm text-accent-warning">Erro ao carregar dashboard: {error.message}</p>
           <Button variant="secondary" onClick={refresh}>
@@ -275,7 +296,7 @@ export default function FinanceiroPage() {
         </Card>
       )}
 
-      {!loading && !error && (
+      {hasDashboardData && (
         <>
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
             <Card>
@@ -458,6 +479,21 @@ export default function FinanceiroPage() {
               </p>
             </div>
             {erroReconciliacao && <p className="text-sm text-accent-warning">{erroReconciliacao}</p>}
+            {refreshWarningReconciliacao && (
+              <div role="alert" className="grid gap-2 rounded-md border border-accent-warning/40 p-3 text-sm text-accent-warning">
+                <p>
+                  A reconciliação foi registrada, mas os dados exibidos podem estar desatualizados: {refreshWarningReconciliacao.message}
+                </p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={tentandoAtualizarReconciliacao}
+                  onClick={() => void tentarAtualizarReconciliacao()}
+                >
+                  {tentandoAtualizarReconciliacao ? 'Atualizando…' : 'Tentar atualizar dados'}
+                </Button>
+              </div>
+            )}
             {dashboard.reconciliacoes.length === 0 ? (
               <p className="text-sm text-text-secondary">Nenhuma tentativa aguardando reconciliação.</p>
             ) : (
