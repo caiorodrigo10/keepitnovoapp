@@ -87,6 +87,23 @@ describe('dashboard financeiro Admin', () => {
     expect(html).toContain('R$ 12,90');
   });
 
+  it('oculta os dados de 30 dias quando a busca de 7 dias falha e mantém o retry claro', async () => {
+    await act(async () => { renderer = create(createElement(FinanceiroPage)); });
+    const page = renderer!;
+    const sevenDaysButton = page.root.findAllByType('button')
+      .find((button) => button.children.join('') === '7 dias');
+
+    hookState.error = new Error('falha ao carregar 7 dias');
+    await act(async () => { sevenDaysButton?.props.onClick(); });
+
+    const output = JSON.stringify(page.toJSON());
+    expect(output).toContain('Erro ao carregar dashboard: ');
+    expect(output).toContain('falha ao carregar 7 dias');
+    expect(output).toContain('Tentar novamente');
+    expect(output).not.toContain('Recebido dos clientes no período');
+    expect(output).not.toContain('R$ 107,90');
+  });
+
   it('mostra a fila completa com idade, correlação, erro, referência e somente ações seguras', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-10-01T12:00:00.000Z'));

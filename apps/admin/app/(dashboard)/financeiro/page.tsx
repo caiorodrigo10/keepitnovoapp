@@ -236,7 +236,7 @@ export default function FinanceiroPage() {
     forceEmpty,
     forceError,
   });
-  const hasDashboardData = dashboard.periodoDias > 0;
+  const hasDashboardData = dashboard.periodoDias === periodoDias;
 
   async function reconciliar(tentativaId: string) {
     setReconciliando(tentativaId);
