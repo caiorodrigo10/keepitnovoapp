@@ -23,8 +23,11 @@ const recoverDataClientMock = vi.fn();
 vi.mock('@keepit/core-data', () => ({
   initializeDataClient: (...args: unknown[]) => initializeDataClientMock(...args),
   recoverDataClient: (...args: unknown[]) => recoverDataClientMock(...args),
-  resolveDataMode: (value: string | undefined) => {
+  resolveDataMode: (value: string | undefined, environment?: string) => {
     const normalized = value?.trim();
+    if (environment?.trim() === 'production' && normalized === 'mock') {
+      throw new Error('DATA_SOURCE_MOCK_EM_PRODUCAO');
+    }
     if (normalized === 'mock' || normalized === 'supabase') return normalized;
     throw new Error('DATA_SOURCE_INVALIDO');
   },
@@ -32,6 +35,7 @@ vi.mock('@keepit/core-data', () => ({
 
 describe('dataClientBootstrap (Lojista)', () => {
   const originalDataSource = process.env.EXPO_PUBLIC_DATA_SOURCE;
+  const originalAppEnv = process.env.EXPO_PUBLIC_APP_ENV;
 
   beforeEach(() => {
     vi.resetModules();
@@ -51,9 +55,15 @@ describe('dataClientBootstrap (Lojista)', () => {
     } else {
       process.env.EXPO_PUBLIC_DATA_SOURCE = originalDataSource;
     }
+    if (originalAppEnv === undefined) {
+      delete process.env.EXPO_PUBLIC_APP_ENV;
+    } else {
+      process.env.EXPO_PUBLIC_APP_ENV = originalAppEnv;
+    }
   });
 
   it('modo mock precisa ser explícito e inicializa o DataClient', async () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'qa';
     process.env.EXPO_PUBLIC_DATA_SOURCE = 'mock';
 
     const module = await import('./dataClientBootstrap');
@@ -61,6 +71,17 @@ describe('dataClientBootstrap (Lojista)', () => {
     await expect(module.dataClientReady).resolves.toBe('data-client');
     expect(createClientMock).not.toHaveBeenCalled();
     expect(initializeDataClientMock).toHaveBeenCalledWith({ source: 'mock' });
+  });
+
+  it('rejeita modo mock em ambiente de produção sem inicializar demo', async () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'production';
+    process.env.EXPO_PUBLIC_DATA_SOURCE = 'mock';
+
+    const module = await import('./dataClientBootstrap');
+
+    await expect(module.dataClientReady).rejects.toThrow('DATA_SOURCE_MOCK_EM_PRODUCAO');
+    expect(createClientMock).not.toHaveBeenCalled();
+    expect(initializeDataClientMock).not.toHaveBeenCalled();
   });
 
   it('ausência de modo rejeita sem autorizar demo', async () => {
@@ -75,6 +96,7 @@ describe('dataClientBootstrap (Lojista)', () => {
   });
 
   it('EXPO_PUBLIC_DATA_SOURCE=supabase: cria o client com AsyncStorage/persistSession/autoRefreshToken e injeta em getDataClient, sem passwordRecoveryState (exclusivo do Cliente)', async () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'production';
     process.env.EXPO_PUBLIC_DATA_SOURCE = 'supabase';
     createClientMock.mockReturnValue('fake-supabase-client');
 

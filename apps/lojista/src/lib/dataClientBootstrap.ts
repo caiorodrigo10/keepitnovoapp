@@ -12,7 +12,10 @@ let sharedSupabaseClient: ReturnType<typeof createClient> | undefined;
 
 /** Auth e adapters precisam da mesma instância e do mesmo storage no nativo. */
 export function getLojistaSupabaseClient(): ReturnType<typeof createClient> {
-  if (resolveDataMode(process.env.EXPO_PUBLIC_DATA_SOURCE) !== 'supabase') {
+  if (resolveDataMode(
+    process.env.EXPO_PUBLIC_DATA_SOURCE,
+    process.env.EXPO_PUBLIC_APP_ENV,
+  ) !== 'supabase') {
     throw new Error('SUPABASE_NAO_CONFIGURADO');
   }
   return sharedSupabaseClient ??= createClient({
@@ -59,7 +62,10 @@ export async function bootstrapDataClient(
   options: BootstrapDataClientOptions = {},
 ): Promise<DataClient> {
   const timeoutMs = options.timeoutMs ?? DATA_CLIENT_BOOTSTRAP_TIMEOUT_MS;
-  const dataSource = resolveDataMode(process.env.EXPO_PUBLIC_DATA_SOURCE);
+  const dataSource = resolveDataMode(
+    process.env.EXPO_PUBLIC_DATA_SOURCE,
+    process.env.EXPO_PUBLIC_APP_ENV,
+  );
   const initialize = options.recover ? recoverDataClient : initializeDataClient;
 
   if (dataSource === 'mock') {

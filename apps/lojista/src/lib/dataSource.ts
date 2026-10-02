@@ -1,3 +1,5 @@
+import { resolveDataMode } from '@keepit/core-data';
+
 /**
  * Story 3.11/3.12 (Data Mode) — [IDS] ADAPT do gate `EXPO_PUBLIC_DATA_SOURCE`
  * já usado por `dataClientBootstrap.ts` (Story 3.2), extraído para um helper
@@ -19,5 +21,8 @@
  * `estabelecimentoCadastro.getMeuPerfil()`/`atualizarMeuPerfil()`.
  */
 export function isSupabaseDataSource(): boolean {
-  return process.env.EXPO_PUBLIC_DATA_SOURCE?.trim() === 'supabase';
+  return resolveDataMode(
+    process.env.EXPO_PUBLIC_DATA_SOURCE,
+    process.env.EXPO_PUBLIC_APP_ENV,
+  ) === 'supabase';
 }

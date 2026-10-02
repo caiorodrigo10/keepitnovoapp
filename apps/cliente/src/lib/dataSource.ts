@@ -1,3 +1,5 @@
+import { resolveDataMode } from '@keepit/core-data';
+
 /**
  * Story 6.6 (Bloco 06) — [IDS] ADAPT do mesmo padrão já validado em
  * `apps/lojista/src/lib/dataSource.ts` (Stories 3.11/3.12): helper
@@ -14,7 +16,15 @@
  * de `apps/cliente`, em vez de importar de `apps/lojista`.
  */
 export function isSupabaseDataSource(): boolean {
-  return process.env.EXPO_PUBLIC_DATA_SOURCE?.trim() === 'supabase';
+  return resolveDataMode(
+    process.env.EXPO_PUBLIC_DATA_SOURCE,
+    process.env.EXPO_PUBLIC_APP_ENV,
+  ) === 'supabase';
 }
 
-export function isMockDataSource(): boolean { return process.env.EXPO_PUBLIC_DATA_SOURCE?.trim() === 'mock'; }
+export function isMockDataSource(): boolean {
+  return resolveDataMode(
+    process.env.EXPO_PUBLIC_DATA_SOURCE,
+    process.env.EXPO_PUBLIC_APP_ENV,
+  ) === 'mock';
+}

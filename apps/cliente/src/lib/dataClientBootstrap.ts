@@ -60,7 +60,10 @@ export async function bootstrapDataClient(
   options: BootstrapDataClientOptions = {},
 ): Promise<DataClient> {
   const timeoutMs = options.timeoutMs ?? DATA_CLIENT_BOOTSTRAP_TIMEOUT_MS;
-  const dataSource = resolveDataMode(process.env.EXPO_PUBLIC_DATA_SOURCE);
+  const dataSource = resolveDataMode(
+    process.env.EXPO_PUBLIC_DATA_SOURCE,
+    process.env.EXPO_PUBLIC_APP_ENV,
+  );
   const initialize = options.recover ? recoverDataClient : initializeDataClient;
 
   if (dataSource === 'mock') {

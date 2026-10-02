@@ -9,6 +9,7 @@ import { isSupabaseDataSource } from './dataSource';
  */
 describe('isSupabaseDataSource', () => {
   const originalDataSource = process.env.EXPO_PUBLIC_DATA_SOURCE;
+  const originalAppEnv = process.env.EXPO_PUBLIC_APP_ENV;
 
   afterEach(() => {
     if (originalDataSource === undefined) {
@@ -16,19 +17,27 @@ describe('isSupabaseDataSource', () => {
     } else {
       process.env.EXPO_PUBLIC_DATA_SOURCE = originalDataSource;
     }
+    if (originalAppEnv === undefined) {
+      delete process.env.EXPO_PUBLIC_APP_ENV;
+    } else {
+      process.env.EXPO_PUBLIC_APP_ENV = originalAppEnv;
+    }
   });
 
-  it('false quando a env var está ausente (default seguro: mock)', () => {
+  it('rejeita fonte ausente em ambiente de produção', () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'production';
     delete process.env.EXPO_PUBLIC_DATA_SOURCE;
-    expect(isSupabaseDataSource()).toBe(false);
+    expect(() => isSupabaseDataSource()).toThrow('DATA_SOURCE_INVALIDO');
   });
 
   it('false para qualquer valor diferente de "supabase"', () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'qa';
     process.env.EXPO_PUBLIC_DATA_SOURCE = 'mock';
     expect(isSupabaseDataSource()).toBe(false);
   });
 
   it('true só quando EXPO_PUBLIC_DATA_SOURCE=supabase', () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'production';
     process.env.EXPO_PUBLIC_DATA_SOURCE = 'supabase';
     expect(isSupabaseDataSource()).toBe(true);
   });
@@ -36,5 +45,12 @@ describe('isSupabaseDataSource', () => {
   it('tolera espaços em branco ao redor do valor', () => {
     process.env.EXPO_PUBLIC_DATA_SOURCE = '  supabase  ';
     expect(isSupabaseDataSource()).toBe(true);
+  });
+
+  it('rejeita mock em ambiente de produção', () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'production';
+    process.env.EXPO_PUBLIC_DATA_SOURCE = 'mock';
+
+    expect(() => isSupabaseDataSource()).toThrow('DATA_SOURCE_MOCK_EM_PRODUCAO');
   });
 });
