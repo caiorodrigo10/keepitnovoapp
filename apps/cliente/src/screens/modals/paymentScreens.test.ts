@@ -3,7 +3,7 @@ import { create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, expect, it, vi } from 'vitest';
 import ModalPagamentoPix from './ModalPagamentoPix';
 import ModalProcessandoPagamento from './ModalProcessandoPagamento';
-const state = vi.hoisted(() => ({ real: true, attempt: { id: 'a', pedidoId: 'p', estado: 'pendente', pix: { imagemBase64: 'REAL-IMAGE', copiaCola: 'REAL-PIX', expiraEm: '2026-10-01T18:00:00Z' } } as any, simulated: vi.fn(() => ({ status: 'aguardando', retry() {} })), copy: vi.fn(), refresh: vi.fn(), start: vi.fn(), pay: vi.fn() }));
+const state = vi.hoisted(() => ({ real: true, attempt: { id: 'a', pedidoId: 'p', estado: 'pendente', pix: { imagemBase64: 'REAL-IMAGE', copiaCola: 'REAL-PIX', expiraEm: new Date(Date.now() + 60_000).toISOString() } } as any, simulated: vi.fn(() => ({ status: 'aguardando', retry() {} })), copy: vi.fn(), refresh: vi.fn(), start: vi.fn(), pay: vi.fn() }));
 vi.mock('react-native', () => ({ View: 'View', Text: 'Text', Image: 'Image', Pressable: 'Pressable', ActivityIndicator: 'ActivityIndicator', StyleSheet: { create: (v: unknown) => v } }));
 vi.mock('@keepit/ui-tokens', async () => { const { default: t } = await import('../../../../../packages/ui-tokens/src/tokens.json'); return { lightColors: t.colors.light, radii: t.radii, spacing: t.spacing, typography: t.typography }; });
 vi.mock('expo-clipboard', () => ({ setStringAsync: state.copy }));
