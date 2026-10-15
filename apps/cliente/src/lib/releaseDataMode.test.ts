@@ -44,4 +44,18 @@ describe('configuração de release do Cliente', () => {
         .toBe('mock');
     }
   });
+
+  it('define homologação com Supabase e credenciais remotas de build', () => {
+    const homolog = eas.build.homolog as typeof eas.build.production;
+    const environment = homolog.env as ReleaseEnvironment;
+
+    expect(homolog.distribution).toBe('store');
+    expect(homolog.environment).toBe('preview');
+    expect(homolog.autoIncrement).toBe(true);
+    expect(homolog.ios?.credentialsSource).toBe('remote');
+    expect(homolog.android?.buildType).toBe('app-bundle');
+    expect(resolveDataMode(environment.EXPO_PUBLIC_DATA_SOURCE, environment.EXPO_PUBLIC_APP_ENV))
+      .toBe('supabase');
+    expect(environment.EXPO_PUBLIC_APP_ENV).toBe('homologacao');
+  });
 });

@@ -32,6 +32,22 @@
         "EXPO_PUBLIC_QA_ENABLED": "true"
       }
     },
+    "homolog": {
+      "distribution": "store",
+      "autoIncrement": true,
+      "environment": "preview",
+      "ios": {
+        "credentialsSource": "remote"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_DATA_SOURCE": "supabase",
+        "EXPO_PUBLIC_APP_ENV": "homologacao",
+        "EXPO_PUBLIC_QA_ENABLED": "false"
+      }
+    },
     "production": {
       "distribution": "store",
       "autoIncrement": true,
