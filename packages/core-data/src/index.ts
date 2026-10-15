@@ -320,6 +320,8 @@ export * from './ports/payout.port';
 export * from './ports/product.port';
 export * from './ports/store.port';
 export * from './ports/wallet.port';
+export * from './ports/sms.port';
+export { createSmsMock } from './mock/sms.mock';
 export * from './data-mode';
 export * from './types';
 export type { ClienteMockStorage } from './mock/cliente-state';
