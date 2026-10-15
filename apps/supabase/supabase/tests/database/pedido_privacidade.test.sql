@@ -97,7 +97,7 @@ SELECT ok(NOT has_table_privilege('authenticated','private.pedido_segredos','SEL
 SELECT ok(NOT has_function_privilege('anon','public.obter_pin_cliente(uuid)','EXECUTE'),'anon sem grant EXECUTE');
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub','22222222-0000-4000-8000-000000000006',true);
-SELECT ok(EXISTS(SELECT FROM public.clientes WHERE id=auth.uid()) AND EXISTS(SELECT FROM public.estabelecimentos WHERE dono_user_id=auth.uid()),'identidade dual possui cliente e estabelecimento autoritativos');
+SELECT ok(EXISTS(SELECT FROM public.clientes WHERE id=auth.uid()) AND EXISTS(SELECT FROM public.obter_meu_estabelecimento_privado()),'identidade dual possui cliente e estabelecimento autoritativos');
 CREATE TEMP TABLE teste_pedido_dual AS SELECT pg_temp.criar_cotado() AS pedido_id;
 RESET ROLE;
 UPDATE public.pedidos SET pago_em=now(),status='aguardando_aceite' WHERE id=(SELECT pedido_id FROM teste_pedido_dual);
