@@ -21,6 +21,7 @@ let renderer: ReactTestRenderer | undefined;
 afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; vi.clearAllMocks(); });
 const props = { route: { params: { pedidoId: 'p' } }, navigation: { replace: vi.fn(), navigate: vi.fn() } } as any;
 it('Supabase PIX mostra artefatos e vencimento reais sem invocar simulação', async () => {
+  state.attempt = { ...state.attempt, pix: { ...state.attempt.pix, expiraEm: new Date(Date.now() + 86_400_000).toISOString() } };
   await act(async () => { renderer = create(React.createElement(ModalPagamentoPix, props)); });
   expect(state.simulated).not.toHaveBeenCalled();
   expect(renderer!.root.findByType('Image' as never).props.source).toEqual({ uri: 'data:image/png;base64,REAL-IMAGE' });
