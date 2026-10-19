@@ -1,0 +1,212 @@
+schema: 1
+story: "0.8"
+storyId: "0.8"
+storyName: "Lojista: Onboarding, Cadastro & Auth (visual)"
+gate: CONCERNS
+verdict: CONCERNS
+status_reason: >-
+  As 8 telas do AC1 existem, substituem os stubs da 0.3 sem renomear rotas, seguem
+  o tema dark de @keepit/ui-tokens e são fiéis às 2 referências literais (P6/P11);
+  typecheck do lojista PASS. Aprovado com débito: 3 valores hex `#1B1E1C` ainda
+  hardcoded (violam a regra de ouro e contradizem a afirmação da Task 11), além do
+  débito de validação visual empírica deferido (sandbox sem simulador) — mesmo
+  padrão do gate 0.1.
+reviewer: Quinn
+reviewedBy: "@qa (Quinn)"
+reviewedAt: "2026-07-28"
+updated: "2026-07-28T00:00:00Z"
+model: opus (claude-opus-4-8)
+
+sandbox_limitations:
+  - >-
+    Ambiente SEM simulador iOS / emulador Android / browser interativo. A validação
+    VISUAL EMPÍRICA em runtime nativo (render de fonte no device, fidelidade de
+    paleta por captura, percorrer o fluxo completo) NÃO foi possível. AC4 fica
+    verificado por comparação código × imagens de referência + typecheck, não por
+    render pixel-a-pixel — mesmo débito deferido aceito no gate 0.1 (REQ-002).
+  - >-
+    NÃO é repositório git — impossível diffar autoria por commit. A confirmação de
+    que o @dev da 0.8 ficou restrito a `apps/lojista/` baseia-se em: File List
+    autoconsistente, imports do lojista apenas de `@keepit/ui-tokens` (nenhum
+    core-data adicionado como dep), e ausência de qualquer chamada de rede. Arquivos
+    fora de `apps/lojista/` com mtime recente (`apps/cliente`, `packages/*`,
+    `apps/admin`) são atribuíveis ao trabalho paralelo da Story 0.4 (outro @dev),
+    não a esta story.
+  - >-
+    CodeRabbit CLI ausente neste ambiente Linux (sem WSL) — self-healing pré-review
+    pulado por graceful degradation (core-config: skip_if_not_installed). Substituído
+    por revisão manual de código + typecheck + grep de hex + comparação com as
+    imagens de referência.
+
+acceptance_criteria:
+  - id: AC1
+    description: "8 telas (Onboarding, Cadastro 1/2/3, Em análise, Login, Perfil público, Configurações + Excluir conta) substituindo os stubs da 0.3; submit só navega."
+    status: PASS
+    evidence: |
+      Todas as 8 telas do AC1 implementadas com conteúdo real:
+      auth/{OnboardingLojista, CadastroPasso1, CadastroPasso2, CadastroPasso3,
+      EmAnalise, Login} + perfil/{PerfilPublico, Configuracoes, ExcluirConta}.
+      Substituem os stubs `createScreenStub` da 0.3 SEM renomear rotas nem alterar
+      `navigation/types.ts` — AuthStack/PerfilStack apenas trocaram os componentes
+      e envolveram o navigator com os Providers de rascunho. Nenhum submit persiste:
+      "Continuar"/"Enviar cadastro"/"Entendi" só chamam `navigation.navigate`,
+      "Entrar" e "excluir" usam `popToTop()`, "Salvar" grava em Context local e
+      volta. Nenhuma chamada de rede/fetch/supabase (grep = 0).
+  - id: AC2
+    description: "Tema dark fiel (#1B1E1C e paleta colors.dark) exclusivamente via @keepit/ui-tokens."
+    status: CONCERNS
+    evidence: |
+      Fundo `darkColors.bg.primary` (#1B1E1C) e paleta consumidos de @keepit/ui-tokens
+      em todas as telas; tipografia via `typography` tokens + famílias HankenGrotesk.
+      RESSALVA: 3 ocorrências de hex `#1B1E1C` HARDCODED — PrimaryButton.tsx:49,
+      Configuracoes.tsx:102 (label do badge Admin) e :167 (letra do avatar). O valor
+      coincide com `darkColors.bg.primary`, então não é cor inventada, mas viola a
+      regra de ouro "nenhuma cor hardcoded — sempre importar de @keepit/ui-tokens"
+      e contradiz a afirmação da Task 11 ("nenhuma cor hardcoded em nenhum arquivo
+      novo"). Usado como texto escuro sobre o verde de marca; não existe token
+      `text.onAccent`/inverse no design system. Ver MNT-001.
+  - id: AC3
+    description: "Sem validação de CNPJ real; campos renderizados, submit apenas navega."
+    status: PASS
+    evidence: |
+      CNPJ usa apenas máscara visual `maskCnpj()` (`00.000.000/0001-00`), sem
+      validação/BrasilAPI. Categoria/Hub/Chave Pix são dropdowns sem checagem;
+      horários são texto livre `HH:mm` (sem picker). Nenhum submit dispara rede —
+      todo o estado vive em Contexts em memória (`CadastroDraftContext`,
+      `LojaPerfilContext`), perdido ao desmontar o navigator. Respeita a Regra de
+      Ouro do Épico 0.
+  - id: AC4
+    description: "Fidelidade visual verificada contra o protótipo."
+    status: CONCERNS
+    evidence: |
+      Comparadas as 2 telas com frame literal:
+      - CadastroPasso1 × lojista-06-cadastro-passo1.png (P6): logo KEEPIT, "Passo 1
+        de 3", progress bar de 3 segmentos (1º em accent.brand), título "Cadastre
+        seu estabelecimento", subtítulo idêntico, upload de logo (📷 + "Adicionar
+        imagem"), Nome da loja, Categoria, CNPJ mascarado, Hub de operação, botão
+        "Continuar" verde com texto escuro — FIEL.
+      - Configuracoes × lojista-11-configuracoes.png (P11): título, card-resumo
+        (avatar inicial verde, "Farmácia Vida", "Farmácia · Hub Centro", "Editar"),
+        seção LOJA (Perfil público/Horários/Formas de recebimento), seção EQUIPE
+        (Ana Martins/Admin, João Pereira/Equipe), "+ Convidar membro" — FIEL.
+      Demais telas (sem frame literal) seguem tokens e os padrões estruturais de
+      P6/P11 — sem cores fora do design system (exceto o hex de MNT-001).
+      Validação empírica em device deferida (sandbox) — débito REQ-002.
+
+quality_checks:
+  code_review: CONCERNS
+  unit_tests: N/A
+  acceptance_criteria: CONCERNS
+  regressions: PASS
+  performance: PASS
+  security: PASS
+  documentation: CONCERNS
+
+regressions_check:
+  status: PASS
+  evidence: |
+    `pnpm --filter @keepit/lojista typecheck` → EXIT 0 (tsc --noEmit, 0 erros),
+    executado por mim. Falhas de typecheck em @keepit/cliente são pré-existentes e
+    atribuíveis ao trabalho paralelo da Story 0.4 (outro @dev) — fora do escopo/
+    permissão desta story, NÃO regressão da 0.8. lojista/package.json NÃO declara
+    @keepit/core-data (confirma a decisão de recorte local); nenhuma rota nova em
+    navigation/types.ts; nenhuma dependência nova instalada.
+
+security_check:
+  status: PASS
+  evidence: >-
+    Render 100% estático/local: sem rede/backend/auth/segredos (grep fetch/axios/
+    supabase/http = 0). CNPJ é máscara visual, não validação. Nenhuma credencial
+    hardcoded. OWASP básico N/A para casca visual.
+
+issues:
+  - id: MNT-001
+    severity: medium
+    category: code
+    status: OPEN
+    finding: >-
+      3 valores hex `#1B1E1C` hardcoded (PrimaryButton.tsx:49, Configuracoes.tsx:102
+      e :167) violam a regra de ouro "nenhuma cor hardcoded — sempre importar de
+      @keepit/ui-tokens" e contradizem a afirmação da Task 11 ("nenhuma cor
+      hardcoded em nenhum arquivo novo"). O valor coincide com darkColors.bg.primary
+      (não é cor inventada), usado como texto escuro sobre o verde de marca.
+    suggested_action: >-
+      Substituir os literais por `darkColors.bg.primary` OU (melhor) introduzir um
+      token semântico `text.onAccent`/`text.inverse` em tokens.json e consumi-lo —
+      fecha a lacuna de "texto sobre accent" no design system. Não bloqueante para
+      o Épico 0, mas deve ser saneado antes de o padrão se replicar em novas telas.
+  - id: ARCH-001
+    severity: low
+    category: architecture
+    status: OPEN
+    finding: >-
+      O cadastro/perfil do lojista usa Contexts locais (CadastroDraftContext,
+      LojaPerfilContext) e cópias de CATEGORIA_OPTIONS/HUB_OPTIONS em vez das ports
+      mock de packages/core-data. Decisão defensável e correta para o Épico 0 (casca
+      visual): AuthPort é cliente-only, StorePort não tem `create`, e adicionar
+      core-data + inventar uma "port de cadastro de lojista" anteciparia decisão de
+      arquitetura de uma story futura de auth real ("No Invention"). Porém cria um
+      débito de fronteira mock/real: o estado de cadastro do lojista vive fora do
+      core-data e há valores de fixture duplicados.
+    suggested_action: >-
+      Follow-up (não bloqueante): ao implementar a auth/onboarding real do lojista,
+      reconciliar via um `StorePort.create`/port de onboarding de lojista em
+      packages/core-data e consumir CATEGORIA/HUB via HubPort/fixture importada,
+      eliminando a duplicação.
+  - id: REQ-002
+    severity: medium
+    category: requirements
+    status: DEFERRED
+    finding: >-
+      AC4 (fidelidade) e a parcela mobile de AC2 não foram validados empiricamente
+      em simulador iOS/emulador Android — sandbox sem targets nativos. Verificado
+      por código × imagens de referência + typecheck, não por render de device.
+    suggested_action: >-
+      Follow-up mandatório antes de o Épico 0 reivindicar fidelidade visual em
+      device: percorrer Onboarding → Cadastro 1/2/3 → Em análise → Login → Perfil
+      público → Configurações → Excluir conta em simulador/emulador, confirmando
+      paleta, tipografia Hanken e textos. Mesmo débito deferido aceito no gate 0.1.
+  - id: DOC-001
+    severity: low
+    category: docs
+    status: OPEN
+    finding: >-
+      A Task 11 afirma "nenhuma cor hardcoded em nenhum arquivo novo (todas via
+      darkColors.*/tokens)", o que é factualmente incorreto (ver MNT-001).
+    suggested_action: >-
+      Ao aplicar o fix de MNT-001, a afirmação passa a ser verdadeira — não requer
+      ação separada além de sanear os 3 hex.
+
+code_intel_advisory: "N/A (provider indisponível — graceful degradation)"
+
+notes: |
+  Revisão independente (sem confiar no relato do @dev):
+    - Li as 9 telas + 2 Contexts + 2 shapes de draft + PrimaryButton + navegação
+      (AuthStack/PerfilStack/authGuard) e comparei CadastroPasso1/Configuracoes com
+      lojista-06/lojista-11 (as 2 únicas referências com frame literal) — fidelidade
+      forte em ambas.
+    - Rodei `pnpm --filter @keepit/lojista typecheck` → PASS (EXIT 0).
+    - Grep de hex hardcoded nos arquivos novos/modificados: 3 ocorrências de
+      #1B1E1C (MNT-001). Grep de rede (fetch/axios/supabase/http): 0.
+    - Confirmei que apps/lojista/package.json NÃO adiciona @keepit/core-data —
+      valida a decisão de Contexts locais (ARCH-001), correta sob "No Invention".
+
+  As 3 decisões do @dev a avaliar:
+    1. Contexts locais vs ports mock → DEFENSÁVEL para o Épico 0; registrado como
+       débito ARCH-001 (reconciliar em port real de onboarding do lojista no futuro).
+    2. Categoria/Hub espelhando fixtures reais, hubPreferencialId comentado como
+       não-coluna → CORRETO (sem invenção, honra o "Conflito schema vs. protótipo").
+    3. Login/Excluir com popToTop() sem tocar o authGuard estático → CORRETO
+       (alterar o guard pertence à story de auth real, fora de escopo).
+
+  Verdict CONCERNS (não FAIL): nenhum problema high/bloqueante; ACs 1 e 3 PASS, ACs
+  2 e 4 com ressalvas não-bloqueantes (hex hardcoded saneável + débito visual de
+  ambiente). Story pode avançar para Done com MNT-001/ARCH-001/REQ-002 como
+  follow-ups.
+
+next_action:
+  - "MNT-001 (recomendado, curto prazo): trocar os 3 hex #1B1E1C por token (darkColors.bg.primary ou novo text.onAccent) — fecha também DOC-001."
+  - "ARCH-001 (follow-up): reconciliar os Contexts locais com uma port real de onboarding de lojista em packages/core-data na story de auth real."
+  - "REQ-002 (mandatório em ambiente real): validar o fluxo completo em simulador/emulador antes de reivindicar fidelidade visual em device."
+
+waiver: { active: false }

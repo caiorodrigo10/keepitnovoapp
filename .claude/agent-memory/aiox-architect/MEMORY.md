@@ -1,0 +1,1 @@
+- [Piloto Android — Fase 0-Android](project_android_pilot.md) — stories 9.0.9–9.0.13; gated em conta Google Play (US$25) não aprovada

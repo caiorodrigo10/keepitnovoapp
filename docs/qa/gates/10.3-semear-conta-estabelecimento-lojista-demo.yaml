@@ -1,0 +1,64 @@
+schema: 1
+story: '10.3'
+gate: PASS
+status_reason: 'Seed mock-only da credencial de demo do Lojista (1 conta + 1 estabelecimento `ativo`) destrava o gate de login em modo mock com zero mudança de UI/lógica/contrato. Todas as 10 ACs verificadas empiricamente: invariantes de `getMeuEstabelecimento` batem (`conta.id === cadastro.donoUserId`, `status === ativo`, `motivoRejeicao === null`, `id === estab-farmacia-vida`, CNPJ idêntico), CNPJ `11.222.333/0001-81` confirmado válido por `isCnpjValido` (DV 81 recalculado), `sessionLojistaUserId` nasce `null`, isolamento de produção intacto (seed vive só em `createMockDb()`, inalcançável por `source: supabase`), e `signUp` de outro e-mail continua nascendo `em_analise`. Gates verdes: 483/483 testes, 2 typechecks limpos. Nenhuma issue de severidade high/critical.'
+reviewer: 'Quinn'
+updated: '2026-08-19T22:05:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static+trace
+    evidence: 'Trace completo confirmado por leitura: `Login.tsx#handleEntrar` → `lojistaAuth.signIn(''lojista@keepit.com.br'', *)` resolve a conta semeada (`lojista-auth.mock.ts:71`, senha nunca validada) → `getMeuEstabelecimento()` acha o cadastro por `donoUserId === sessionLojistaUserId` (`estabelecimento-cadastro.mock.ts:149`) e devolve `{ status: ''ativo'', motivo_rejeicao: null }` → `resolveRotaPosLogin` devolve `{ tipo: ''ativo'' }` (`loginRouting.ts:35`) → único ramo que chama `signInLojista()` (`Login.tsx:140`) → `RootNavigator` troca para `Main`. Nenhum ramo Onboarding/EmAnalise/Rejeitado é atingido para o e-mail semeado.'
+  AC2:
+    status: MET
+    method: static+trace
+    evidence: 'Após `signInLojista()`, `lojistaSession.ts:52` fixa `estabelecimentoId = CURRENT_ESTABELECIMENTO_ID = ''estab-farmacia-vida''` (`currentStore.ts:9`) — todas as 4 abas de `MainTabs` leem esse id fixo de `db.estabelecimentos` (domínio de Descoberta, rico e ativo desde antes desta story: 21 pedidos, produtos, extrato). O seed desta story não toca esse array; apenas destrava o gate. Verificação visual em device/Metro não executada neste ambiente headless (ver TEST-001) — porém o caminho é determinístico e sem mudança de UI.'
+  AC3:
+    status: MET
+    method: static+test
+    evidence: '`db.ts:167,169` troca `[]` por `structuredClone(lojistaContasFixture)`/`structuredClone(estabelecimentosCadastradosFixture)`; cada fixture tem exatamente 1 entrada (`lojista-contas.ts:91-101,103-116`). Nenhum dos dois nasce mais vazio. Suíte 483/483 verde confirma que nenhum teste dependia dos arrays vazios.'
+  AC4:
+    status: MET
+    method: static
+    evidence: '`db.ts:168` mantém `sessionLojistaUserId: null` — seed não auto-loga. Sessão só é criada pelo `signIn` real (`lojista-auth.mock.ts:75`), mesmo padrão de `sessionClienteId`.'
+  AC5:
+    status: MET
+    method: static
+    evidence: 'Invariantes conferidas na fixture: `donoUserId === ''lojista-demo-farmacia-vida''` === `conta.id` (`lojista-contas.ts:93,106`); `status: ''ativo''` (:108); `motivoRejeicao: null` (:109); `cadastro.id === ''estab-farmacia-vida''` (:105); CNPJ `CNPJ_DEMO` idêntico entre conta (:97) e cadastro (:107). Sem essas invariantes `getMeuEstabelecimento` devolveria `null`/retomada, nunca `ativo`.'
+  AC6:
+    status: MET
+    method: test+recompute
+    evidence: 'CNPJ `11.222.333/0001-81` validado recalculando o algoritmo de `apps/lojista/src/lib/cnpj.ts#isCnpjValido`: base12 → DV1=8, DV2=1 → confere com os dígitos 12/13. Mesmo valor já usado como válido conhecido em `cnpj.test.ts`.'
+  AC7:
+    status: MET
+    method: static+test
+    evidence: '`signUp` de e-mail != semeado: `lojista-auth.mock.ts:45` não colide (o único e-mail pré-existente é `lojista@keepit.com.br`), cria conta nova com `generateMockId(''lojista'')`, e `criarCadastro` cria cadastro `status: ''em_analise''` com `donoUserId` distinto (`estabelecimento-cadastro.mock.ts:118`). `estabelecimento-cadastro.mock.test.ts` (31 casos, todos com e-mails novos) e `lojista-auth.mock.test.ts` (10 casos) seguem verdes com o seed em vigor — nenhuma colisão com a entrada demo.'
+  AC8:
+    status: MET
+    method: static
+    evidence: 'Confirmado em `src/index.ts#createDataClient`: `createMockDb()` só é chamado no ramo `source !== ''supabase''` (linha 149); o ramo `supabase` (linha 125-147) usa os adapters `lojista-auth.supabase.ts`/`estabelecimento-cadastro.supabase.ts`. O seed é estruturalmente inalcançável por `source: ''supabase''`. Nenhum outro caminho semeia esses arrays (Grep confirmado pelo @dev + suíte de adapters supabase intacta).'
+  AC9:
+    status: MET
+    method: test
+    evidence: '`pnpm --filter @keepit/core-data test` reexecutado por @qa: 25 arquivos, 483/483 PASS. Nenhum ajuste de assert foi necessário — nenhum teste dependia de contagem absoluta dos dois arrays.'
+  AC10:
+    status: MET
+    method: static
+    evidence: 'JSDoc no topo de `lojista-contas.ts:35-72` documenta a credencial de demo (`lojista@keepit.com.br` + senha qualquer), as 4 invariantes, e a razão de `id === estab-farmacia-vida`. JSDoc dos 2 campos em `MockDb` (`db.ts:61-67,96-104`) atualizado citando a Story 10.3.'
+
+evidence:
+  tests_reviewed: 'core-data 483/483 PASS (reexecutado por @qa). Typechecks: @keepit/core-data (exit 0) e @keepit/lojista (exit 0) limpos. Trace de login lido ponta a ponta: Login.tsx → lojista-auth.mock.ts → estabelecimento-cadastro.mock.ts → loginRouting.ts → lojistaSession.ts → currentStore.ts. Isolamento production confirmado em src/index.ts.'
+  risk_summary: 'Muito baixo. Mudança puramente aditiva a dados mock (2 arrays `[] → structuredClone(fixture)`), sem tocar nenhuma port, adapter Supabase, lógica de negócio ou UI. Zero impacto em Cliente/Admin. Seed inalcançável em produção.'
+
+top_issues:
+  - id: 'MNT-001'
+    severity: low
+    finding: 'Desvio documentado pelo @dev: `fixtures/lojista-contas.ts` tipa as fixtures com interfaces locais (`LojistaContaFixture`/`EstabelecimentoCadastradoFixture`) em vez de `MockDb[''lojistaContas'']`/`MockDb[''estabelecimentosCadastrados'']`, para evitar um import type-only ciclico com `../db` (que importa o barrel `./fixtures`). As interfaces locais são shape-idênticas (status usa `EstabelecimentoStatus` de store.port, cujo union é idêntico ao inline de MockDb). Risco residual: se o shape de `MockDb` mudar no futuro, a fixture não acusa drift automaticamente na definição.'
+    suggested_action: 'Aceitável como está — o site de atribuição `structuredClone(fixture)` em `db.ts` é typechecado estruturalmente por `tsc` (exit 0), então qualquer drift de shape É capturado na fronteira. Nenhuma ação obrigatória; se quiser eliminar o risco, extrair o shape para um tipo compartilhado em `mock/` (fora de `db.ts`) numa story futura de manutenção.'
+  - id: 'TEST-001'
+    severity: low
+    finding: 'Verificação visual em device/Metro (Login demo → 4 abas cheias; signUp de outro e-mail → EmAnalise) não foi executada — ambiente headless. Coberta por trace de código determinístico e pela suíte automatizada, mas não por uma passagem manual real.'
+    suggested_action: 'Antes do piloto de demo, rodar o app Lojista em modo mock (`EXPO_PUBLIC_DATA_SOURCE` != supabase) e confirmar visualmente: `lojista@keepit.com.br` + senha qualquer entra nas 4 abas cheias; um e-mail diferente cai em EmAnalise após o wizard.'
+
+waiver: { active: false }

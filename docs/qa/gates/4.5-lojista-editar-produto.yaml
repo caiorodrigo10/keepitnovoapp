@@ -1,0 +1,59 @@
+schema: 1
+story: '4.5'
+gate: CONCERNS
+status_reason: 'Adapter Supabase real de `ProductPort.getById`/`update` — patch parcial whitelisted (só campos presentes no input; `estabelecimento_id` NUNCA no patch → produto não pode ser movido de loja), sempre relê o produto pós-escrita via `fetchProdutoById` (nunca ecoa o input), e RLS `lojista_gerencia_produtos` (0 linhas → releitura null → throw explícito, sem sucesso fictício). `EditarProduto.tsx#handleSubmit` corrigido para `await` + navegar só em sucesso, falha honesta preservando o formulário. Nenhuma condição de FAIL. CONCERNS por débitos honestos: edição de foto desligada em `DATA_SOURCE=supabase` (seam da 4.4, sem picker no workspace), RLS cross-tenant não verificada end-to-end contra Postgres real (só unit via 0-rows), e cast manual de `shared-types`.'
+reviewer: 'Quinn'
+updated: '2026-08-12T00:00:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static
+    evidence: '`EditarProduto.tsx#initialValues` pré-preenche `ProductForm` (modo edição) a partir de `getById(produtoId)` do `ProductCatalogContext` — intacto desde a Story 0.9, verificado sem regressão. Ressalva: edição de FOTO desligada em `DATA_SOURCE=supabase` (`fotoUploadEnabled={!isSupabaseDataSource()}`, mesmo seam da 4.4) — CRUD de texto (nome/descrição/preço/categoria) 100% funcional; foto é débito (ver MNT-001).'
+  AC2:
+    status: MET
+    method: static+test
+    evidence: '`product.supabase.ts#update` monta o patch só com os campos presentes em `UpdateProdutoInput` (whitelist nome/descricao/preco_reais/categoria_produto/foto_url/ativo — `estabelecimento_id` deliberadamente ausente) e relê via `applyProdutoPatch`→`fetchProdutoById` (`.maybeSingle()`), NUNCA ecoando o input. `EditarProduto.tsx#handleSubmit` agora `await`s `updateProduto` e só `navigation.goBack()` em sucesso; falha (rede/RLS/`CHECK preco_reais > 0`) seta `submitError`, não navega, preserva o formulário. Testes: "aplica patch parcial e relê o produto REAL (nunca ecoa o input)", "patch só inclui os campos presentes no input", "propaga erro de CHECK preco_reais > 0 sem sucesso fictício".'
+  AC3:
+    status: MET
+    method: static+test
+    evidence: 'RLS `lojista_gerencia_produtos` FOR ALL com `USING`+`WITH CHECK (EXISTS ... dono_user_id = auth.uid())` e `FORCE ROW LEVEL SECURITY` (migration `20260812190000`). Um `UPDATE` sobre `id` de outro dono afeta 0 linhas (USING), a releitura devolve `null` e `applyProdutoPatch` lança erro explícito em vez de sucesso fictício. O `WITH CHECK` também impede mover produto para outra loja (defesa redundante à whitelist do adapter). Teste: "RLS bloqueando UPDATE de produto de outro dono — 0 linhas afetadas, releitura rejeita". Verificação end-to-end contra Postgres real é débito (ver TEST-001).'
+
+top_issues:
+  - id: 'MNT-001'
+    severity: low
+    finding: 'Edição de foto do produto desligada em `DATA_SOURCE=supabase` (`fotoUploadEnabled` falso) por ausência de `expo-image-picker` no workspace — mesmo seam honesto da Story 4.4. CRUD de texto funciona integralmente; nenhuma simulação de upload.'
+    suggested_action: 'Cabear a edição de foto ao picker/`uploadFoto` (já real na 4.4) quando a dependência nativa for instalada. Débito recorrente compartilhado com 4.4 (REQ-001/MNT-001).'
+  - id: 'TEST-001'
+    severity: low
+    finding: 'RLS cross-tenant de `UPDATE` validada por mock do SDK (0-rows → releitura null → throw); E2E/device contra Postgres real pendente (lacuna recorrente das Stories 4.3/4.4).'
+    suggested_action: 'Verificação manual/integração em ambiente com sessão real de dois lojistas distintos.'
+  - id: 'MNT-002'
+    severity: low
+    finding: 'Adapter usa cast `data as unknown as Produto` — `shared-types` mantido manualmente (sem `supabase gen types`), mesma dívida da 4.4 (MNT-002).'
+    suggested_action: 'Regenerar tipos com a tooling quando disponível; hoje o cast espelha o DDL da migration.'
+
+evidence:
+  tests_reviewed: 'product.supabase.test.ts (22 testes, todos verdes) — cobre getById (sucesso/null/erro), update (patch parcial, patch mínimo, CHECK preco, RLS 0-rows→throw). core-data 312/312, lojista 70/70, typecheck limpo.'
+  risks_identified: 'Nenhum risco de dado. Edição de foto ausente em supabase (funcional-parcial, honesto).'
+
+nfr_validation:
+  security:
+    status: PASS
+    notes: 'RLS real (USING+WITH CHECK por dono, FORCE RLS); adapter não permite trocar `estabelecimento_id` (whitelist); sem hard delete nesta Story; sem `service_role` no bundle (anon key). Falha de RLS → throw, nunca sucesso fictício.'
+  reliability:
+    status: PASS
+    notes: 'Falha honesta na UI (await + navegação só em sucesso, formulário preservado). Releitura pós-escrita evita eco de input.'
+  maintainability:
+    status: CONCERNS
+    notes: 'Cast manual de shared-types; foto desligada em supabase — débitos documentados.'
+
+recommendations:
+  immediate: []
+  future:
+    - action: 'Verificação E2E de RLS cross-tenant com dois lojistas reais.'
+      refs: ['packages/core-data/src/supabase/product.supabase.ts']
+    - action: 'Cabear edição de foto ao picker quando `expo-image-picker` existir.'
+      refs: ['apps/lojista/src/screens/catalogo/EditarProduto.tsx']
+
+waiver: { active: false }

@@ -1,0 +1,242 @@
+schema: 1
+story: "1.10"
+storyId: "1.10"
+storyName: "Reconciliação — promover adaptadores locais para as ports de packages/core-data"
+gate: CONCERNS
+verdict: CONCERNS
+status_reason: >-
+  Reconciliação sólida e honesta: os 8 adaptadores/contexts locais dos 3 apps foram
+  promovidos para as ports de packages/core-data e removidos (zero *.mock.ts local
+  restante), as ports estendidas espelham 1:1 os enums do schema (pedidos.status 15/15,
+  reembolsos.motivo 9/9, estabelecimentos_falhas.tipo 4/4, produtos.excluido_em),
+  o contrato assíncrono foi preservado (simulateAsync real + OrderTransitionError +
+  AsyncCallOptions unificado), refundQueue passou a ser populada organicamente por
+  todos os caminhos de cancelamento via helper central, os 6 percentuais migraram
+  para businessConfig, e o gap 10.4 (auth email/senha) segue intocado. typecheck/lint/
+  test 27/27, core-data 82/82 + config 3/3 verdes, verificados por mim. CONCERNS apenas
+  por débitos LOW não-bloqueantes (CodeRabbit deferido, campos de apresentação estáticos
+  sem port, db.reembolsos seedado, 2 % de reembolso default inline, TECH DEBT residual
+  fora-de-escopo). Nenhum AC ficou em aberto.
+reviewer: Quinn
+reviewedBy: "@qa (Quinn)"
+reviewedAt: "2026-07-29"
+updated: "2026-07-29T00:00:00Z"
+model: opus (claude-opus-4-8)
+
+verification_method: >-
+  Verificação INDEPENDENTE (não confiando no relato do @dev): `find apps -iname "*.mock.ts"`
+  (vazio) + grep dos mocks/contexts nominais removidos; leitura direta das 6 ports promovidas
+  (order/auth/admin/product/store) + analytics.port novo vs. docs/architecture/03-data-models.md
+  campo a campo e enum a enum; grep dos enums no schema (estabelecimentos_falhas.tipo,
+  reembolsos.motivo, excluido_em); leitura de refund-helpers.ts, cancelamentoPolicy.ts e
+  businessConfig confirmando derivação de config (sem hard-code); grep confirmando ausência
+  de email/senha em auth.port/auth.mock e pendência 10.4 ainda 🔴; execução própria de
+  `pnpm turbo run typecheck lint test` (27/27), `@keepit/core-data test` (82/82) e
+  `@keepit/config test` (3/3); inspeção do religamento dos apps (OrdersContext/FinanceiroContext
+  consomem getDataClient(), não fixtures).
+
+acceptance_criteria:
+  - id: AC1
+    description: "OrderPort lado lojista (listByEstabelecimento/markReadyForHub/markArrivedAtHub/markCustomerNoShow) + OrdersContext religado + lojistaOrders.mock.ts removido"
+    status: PASS
+    evidence: |
+      4 métodos presentes em order.port.ts com transições documentadas (aceito/em_preparo→
+      saindo_hub; saindo_hub→no_hub+lojista_chegou_em; no_hub→nao_retirado+motivo). order.mock
+      usa OrderTransitionError promovido de lojistaOrders.mock.ts (Story 0.10). OrdersContext.tsx
+      consome getDataClient().order (verificado grep — createLojistaOrdersMock ausente).
+      lojistaOrders.mock.ts removido (find vazio). markCustomerNoShow chama registrarReembolso.
+  - id: AC2
+    description: "OrderPort lado cliente (getById + advance dos 3 estados + cliente_chegou_em) + OrderStatusOverrideContext removido"
+    status: PASS
+    evidence: |
+      getById + advanceStatus(nextStatus: AdvanceableStatus) [AUTO-DECISION genérico p/ o
+      dev-advancer, justificado no header] + markClienteChegou (exige no_hub). AdvanceableStatus
+      = Extract<em_preparo|saindo_hub|no_hub>. OrderStatusOverrideContext.tsx removido (grep vazio
+      em apps/cliente). Consumidores (OrderStatusDevAdvancer/ModalConfirmarPin/ChegueiAoHub) religados.
+  - id: AC3
+    description: "AuthPort.getById + updateCpf; sem email/senha; gap 10.4 preservado"
+    status: PASS
+    evidence: |
+      getById + updateCpf presentes; Cliente modela apenas nome+telefone+cpf (grep de
+      email/senha/password em auth.port/auth.mock retorna só comentários referenciando a
+      pendência). docs/PERGUNTAS_REGRAS_NEGOCIO.md 10.4 segue 🔴 (linha 322). CLIENTE_NOME_POR_ID
+      removido com lojistaOrders.mock.ts; nome do cliente agora via client.auth.getById.
+  - id: AC4
+    description: "AdminPort admin-ops (8 métodos) + refundQueue populada organicamente + 4 arquivos adminOps* removidos"
+    status: PASS
+    evidence: |
+      listClientes/blockCliente/unblockCliente/suspendLojista/financialDashboard/
+      lojistaQualityView/listAllOrders/forceCancelOrder + listAllEstabelecimentos [AUTO-DECISION
+      justificado]. EstabelecimentoFalha/FinancialDashboardResult/FinancialRankingEntry promovidos;
+      MockDb ganhou falhas. registrarReembolso (refund-helpers.ts) centraliza a criação e é
+      reutilizado por order.refuse/cancel/markCustomerNoShow + admin.forceCancelOrder, cada um com
+      ReembolsoMotivo correto (enum 9/9 confere com schema). 4 arquivos apps/admin/src/mock/* removidos.
+  - id: AC5
+    description: "ProductPort.delete (soft delete excluido_em) + ativo no update + list incluirInativos"
+    status: PASS
+    evidence: |
+      excluido_em adicionado a Produto (schema #3.1 confirma soft delete). delete() nunca remove
+      linha; UpdateProdutoInput ganhou ativo?; list(..., { incluirInativos }) filtra ativo/excluido_em
+      por padrão. ProductCatalogContext.tsx religado (toggleAtivo/deleteProduto refletem retorno real).
+  - id: AC6
+    description: "StorePort.setPausadoManualmente + LojaDisponibilidadeContext persiste"
+    status: PASS
+    evidence: |
+      setPausadoManualmente(estabelecimentoId, pausado) presente em store.port; pausado_manualmente
+      persiste no db.estabelecimentos (sobrevive a getById). Comentário TECH DEBT local-only removido.
+  - id: AC7
+    description: "Analytics do lojista promovido — decisão REUSE/ADAPT/CREATE documentada"
+    status: PASS
+    evidence: |
+      [AUTO-DECISION CREATE] analytics.port.ts novo com justificativa REUSE>ADAPT>CREATE completa
+      no header (WalletPort = dinheiro liquidado/saque; analytics = read-model de agregação sobre
+      pedidos/pedidos_itens — fronteiras distintas). salesSummary/topProducts/monthlyStatement
+      derivam de total_pago_reais/nome_snapshot reais. financeiro.mock.ts removido; fixtures de
+      pedidos estendidas (20/45/75/200/330 dias) p/ períodos 30d/90d/1a. Crescimento 7→8 ports
+      aceito como custo de reconciliar gap real, não conveniência. Ver PERF-001 (campos estáticos).
+  - id: AC8
+    description: "Carrinho/cartão — decisão explícita local-only vs cart.port"
+    status: PASS
+    evidence: |
+      [AUTO-DECISION FINAL: manter local] registrado em CartContext.tsx (linha 81, [IDS] Decisão
+      FINAL): carrinho é rascunho client-side efêmero, sem sync entre dispositivos no MVP; cart.port
+      avaliado e rejeitado. Comentário de pendência substituído por decisão definitiva. Ver MNT-002
+      (TECH DEBT residual do cartão mock).
+  - id: AC9
+    description: "businessConfig ganha os 6 percentuais; cancelamentoPolicy deriva de config"
+    status: PASS
+    evidence: |
+      6 chaves presentes em packages/config/src/index.ts (cancelamentoAntesAceitePercent:100,
+      AposAceiteCliente:90/Lojista:10, clienteNaoApareceuCliente:20/Lojista:80, lojistaNaoVeio:100)
+      — batem com a matriz da Rodada 2. cancelamentoPolicy.ts reexporta de businessConfig (sem
+      hard-code); cancelamentoFaseFromStatus permanece local (lógica de UI). Teste novo em config valida.
+  - id: AC10
+    description: "Sem mudança visual + typecheck/lint/test verdes + grep zero mock/TECH DEBT dos gaps"
+    status: CONCERNS
+    evidence: |
+      turbo typecheck/lint/test 27/27; core-data 82/82 + config 3/3 (executados por mim). Religamento
+      é troca de origem do dado (imports getDataClient), não alteração de JSX — confirmado por
+      inspeção. find apps -iname *.mock.ts VAZIO. Ressalva: 4 comentários [TECH DEBT] permanecem em
+      apps/* (CartContext cartão mock, LojistaNaoVeio order.cancel motivo, WalletPort PIX/agregação
+      mensal) — todos FORA do mapeamento de gaps desta story e documentados no Completion Notes; o
+      do cartão mock é adjacente ao escopo do AC8. Não-bloqueante (ver MNT-002).
+
+quality_checks:
+  code_review: PASS
+  unit_tests: PASS
+  acceptance_criteria: PASS
+  regressions: PASS
+  performance: N/A
+  security: PASS
+  documentation: PASS
+
+issues:
+  - id: DOC-001
+    severity: low
+    category: docs
+    status: DEFERRED
+    description: >-
+      CodeRabbit CLI indisponível neste ambiente (sandbox Linux sem WSL/CLI) — self-healing
+      pré-review pulado por graceful degradation, mesmo padrão dos gates 0.1/0.2. Substituído
+      por revisão manual + execução própria de typecheck/lint/test. Para uma story de fundação
+      que destrava o Supabase (Story 1.6) e 11 telas, o scan automatizado é desejável antes do push.
+    recommendation: >-
+      @devops rodar `coderabbit --prompt-only -t committed --base main` antes do push.
+  - id: PERF-001
+    severity: low
+    category: code
+    status: OPEN
+    description: >-
+      financeiroPresentation.ts expõe variacaoPercent/retiradasOkPercent como valores estáticos/
+      neutros — não modelados por nenhuma port (analytics.port não os cobre). São campos puramente
+      ilustrativos das telas de Financeiro; a decisão foi mantê-los neutros em vez de inventar
+      dado. Aceitável, mas a tela mostra um número que não deriva de dado real.
+    recommendation: >-
+      Se essas métricas virarem requisito de produto, estender analytics.port (variação período-a-
+      período; % de retiradas OK) em story futura, em vez de valor estático de apresentação.
+  - id: MNT-001
+    severity: low
+    category: code
+    status: OPEN
+    description: >-
+      db.reembolsos passou a nascer SEEDADO (3 fixtures promovidas de adminOpsFixtures.ts) em vez
+      de vazio, para a tela "Fila de reembolsos" do Admin ter conteúdo de demo. É uma escolha de
+      dado de demo (documentada em db.ts); o teste admin.mock foi ajustado p/ refletir a fila não-
+      vazia. Legítimo para demo, mas mistura seed de demo com dados gerados organicamente pelas
+      transições — em teste, é preciso distinguir os 3 seeds dos reembolsos criados no fluxo.
+    recommendation: >-
+      Aceitável no MVP. Ao plugar Supabase (Story 1.6), garantir que o seed de demo não vá para
+      produção (fica só na fixture mock).
+  - id: MNT-002
+    severity: low
+    category: code
+    status: OPEN
+    description: >-
+      4 comentários [TECH DEBT] permanecem em apps/*: CartContext (cartão mock inicial efêmero),
+      LojistaNaoVeio (order.cancel só grava status genérico, sem nao_entregue_lojista nomeado),
+      FinanceiroContext (WalletPort sem agregação mensal), FormasRecebimento (WalletPort sem chave
+      PIX). Todos são gaps FORA do mapeamento desta story e honestamente documentados no Completion
+      Notes. O do cartão mock (clientes_cartoes) é adjacente ao domínio avaliado no AC8 (mantido local).
+    recommendation: >-
+      Registrar os 4 como gaps de reconciliação futura no backlog (Épico 0 residual). O de
+      LojistaNaoVeio (motivo nao_entregue_lojista nomeado) e o de PIX/agregação de WalletPort são
+      candidatos naturais a uma próxima story de extensão de ports.
+  - id: REL-001
+    severity: low
+    category: code
+    status: OPEN
+    description: >-
+      registrarReembolso#percentClientePorMotivo resolve 2 motivos SEM percentual fechado na matriz
+      por defaults inline: cancelamento_atraso→lojistaNaoVeioPercent(100%) e chargeback→0%. São
+      inferências razoáveis e documentadas inline, mas não confirmadas pelo stakeholder.
+    recommendation: >-
+      Registrar em docs/PERGUNTAS_REGRAS_NEGOCIO.md a % de reembolso para cancelamento_atraso e
+      chargeback como pendência do stakeholder; hoje os defaults são do @dev, não decisão fechada.
+
+regressions_check:
+  status: PASS
+  evidence: |
+    turbo typecheck/lint/test 27/27 (9 workspaces × 3 tasks). core-data 82/82 (56 pré-existentes +
+    26 novos) e config 3/3 executados diretamente por mim. Nenhuma tela alterada visualmente —
+    religamento é troca de import/origem de dado, JSX intacto. Nenhum projeto/migration Supabase criado.
+
+security_check:
+  status: PASS
+  evidence: >-
+    Story 100% in-memory local — sem rede/backend/segredos. auth.port NÃO introduziu email/senha
+    (grep confirma apenas comentários referenciando a pendência 10.4). Nenhum valor de regra
+    hard-coded fora de @keepit/config (percentuais migrados p/ businessConfig; refund-helpers deriva
+    de config). pin_hash segue não-exposto (herdado da Story 0.2). OWASP básico N/A.
+
+contract_fidelity:
+  status: PASS
+  evidence: |
+    Ponto mais crítico: fundação de 11 telas + swap Supabase (Story 1.6). Conferido enum a enum
+    contra 03-data-models.md — divergência ZERO: pedidos.status 15/15, reembolsos.motivo 9/9,
+    estabelecimentos_falhas.tipo 4/4 (lojista_nao_apareceu/atraso_grave/chargeback/reclamacao_admin),
+    produtos.excluido_em (soft delete #3.1). Campos de coluna real em snake_case; camelCase apenas
+    em read-models derivados de agregação (analytics/financialDashboard), que não são colunas.
+    AsyncCallOptions unificado (eliminou LojistaAsyncOptions paralelo dos adaptadores locais).
+
+notes: |
+  Reconciliação executada com fidelidade ao spec do docs/EPICO_0_RECONCILIACAO.md e honestidade
+  incomum: cada [AUTO-DECISION] (advanceStatus genérico, listAllEstabelecimentos, analytics.port
+  CREATE, cart local) veio justificada com REUSE>ADAPT>CREATE, e os gaps deixados de fora foram
+  explicitamente nomeados em vez de escondidos. A verificação independente de contrato — o risco
+  central que o épico sinaliza como caro de corrigir depois — passou 1:1 em todos os enums.
+
+  Verdict CONCERNS (não PASS) para RASTREAR 5 débitos LOW que uma fundação reusada por 11 telas +
+  Supabase merece ter visíveis, nenhum tocando um AC nem bloqueando avanço: DOC-001 (CodeRabbit
+  deferido), PERF-001 (campos de apresentação estáticos), MNT-001 (reembolsos seedado), MNT-002
+  (4 TECH DEBT residuais fora-de-escopo), REL-001 (2 % de reembolso default inline sem stakeholder).
+  Consistente com os gates CONCERNS das stories-origem (0.7/0.9/0.10/0.11/0.13). Story vai para Done
+  com follow-ups registrados; o gap 10.4 permanece pendência explícita do stakeholder.
+
+next_action:
+  - "DOC-001: @devops rodar CodeRabbit (--prompt-only -t committed --base main) antes do push."
+  - "REL-001 (low): registrar em PERGUNTAS_REGRAS_NEGOCIO.md a % de reembolso p/ cancelamento_atraso e chargeback (hoje default do @dev, não decisão fechada)."
+  - "MNT-002 (low): backlogar os 4 TECH DEBT residuais (order.cancel motivo nomeado, WalletPort PIX/agregação mensal, cartão mock) como reconciliação Épico 0 residual."
+  - "PERF-001 (low): se variação%/retiradas-OK% virarem requisito, estender analytics.port em vez de valor estático."
+  - "MNT-001: ao plugar Supabase (Story 1.6), garantir que o seed de demo de reembolsos não vá para produção."
+
+waiver: { active: false }

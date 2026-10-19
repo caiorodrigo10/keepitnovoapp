@@ -1,0 +1,518 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@keepit/shared-types';
+
+import { createStoreSupabase } from './store.supabase';
+
+/**
+ * Story 3.3 (AC2, AC4) — `checkCnpjDisponivel` é o ÚNICO método de
+ * `store.supabase.ts` que não lança `NotImplementedError` (coberto
+ * separadamente de `supabase-adapters.test.ts`, que só testa o padrão
+ * genérico de stub). Ver JSDoc do método em `store.supabase.ts` para o
+ * porquê do seam honesto.
+ */
+describe('store.supabase.ts — checkCnpjDisponivel (Story 3.3, AC2, AC4)', () => {
+  it('resolve sempre true — SEAM HONESTO até estabelecimentos existir (Stories 3.4/3.5)', async () => {
+    const port = createStoreSupabase();
+    await expect(port.checkCnpjDisponivel('11.222.333/0001-81')).resolves.toBe(true);
+  });
+
+  it('resolve true independente do CNPJ informado (nenhuma lógica de duplicidade real ainda)', async () => {
+    const port = createStoreSupabase();
+    await expect(port.checkCnpjDisponivel('45.234.567/0001-60')).resolves.toBe(true);
+    await expect(port.checkCnpjDisponivel('00000000000000')).resolves.toBe(true);
+  });
+
+  it('NÃO toca o SupabaseClient — nenhuma tentativa de consultar a tabela estabelecimentos inexistente', async () => {
+    const from = vi.fn();
+    const fakeClient = { from } as unknown as SupabaseClient<Database>;
+
+    const port = createStoreSupabase(fakeClient);
+    await port.checkCnpjDisponivel('11.222.333/0001-81');
+
+    expect(from).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Stories 4.7/4.8 — [IDS] REUSE do padrão de query builder encadeável já
+ * estabelecido em `product.supabase.test.ts` (Stories 4.3-4.6), estendido
+ * para suportar 2 tabelas por chamada (`estabelecimentos` +
+ * `estabelecimentos_horarios`, como `getById`/`setPausadoManualmente` já
+ * fazem).
+ */
+type QueryResult = { data: unknown; error: unknown };
+type SignedUrlResult = { data: { signedUrl?: string } | null; error: unknown };
+type StorageFakeOptions = {
+  result?: SignedUrlResult;
+  exception?: Error;
+};
+
+function makeQueryBuilder(result: QueryResult) {
+  const builder: Record<string, unknown> = {};
+  builder.select = vi.fn(() => builder);
+  builder.eq = vi.fn(() => builder);
+  builder.in = vi.fn(() => builder);
+  builder.is = vi.fn(() => builder);
+  builder.update = vi.fn(() => builder);
+  builder.upsert = vi.fn(async () => result);
+  builder.maybeSingle = vi.fn(async () => result);
+  builder.then = (onFulfilled: (value: QueryResult) => unknown, onRejected?: (reason: unknown) => unknown) =>
+    Promise.resolve(result).then(onFulfilled, onRejected);
+  return builder;
+}
+
+function fakeClient(results: {
+  estabelecimentos?: QueryResult;
+  estabelecimentos_horarios?: QueryResult;
+  estabelecimentos_hubs?: QueryResult;
+  privateRows?: QueryResult;
+  storage?: StorageFakeOptions;
+}): {
+  client: SupabaseClient<Database>;
+  from: (table: string) => unknown;
+  storage?: {
+    from: unknown;
+    createSignedUrl: unknown;
+  };
+  builders: {
+    estabelecimentos: Record<string, unknown>;
+    estabelecimentos_horarios: Record<string, unknown>;
+    estabelecimentos_hubs: Record<string, unknown>;
+  };
+} {
+  const builders = {
+    estabelecimentos: makeQueryBuilder(results.estabelecimentos ?? { data: null, error: null }),
+    estabelecimentos_horarios: makeQueryBuilder(results.estabelecimentos_horarios ?? { data: [], error: null }),
+    estabelecimentos_hubs: makeQueryBuilder(results.estabelecimentos_hubs ?? { data: [], error: null }),
+  };
+  const from = vi.fn(
+    (table: string) => table === 'estabelecimentos_publicos' ? builders.estabelecimentos : builders[table as 'estabelecimentos' | 'estabelecimentos_horarios' | 'estabelecimentos_hubs'],
+  );
+  const rpc = vi.fn(async () => results.privateRows ?? { data: results.estabelecimentos?.data ? [results.estabelecimentos.data] : [], error: null });
+  const createSignedUrl = vi.fn(async () => {
+    if (results.storage?.exception) {
+      throw results.storage.exception;
+    }
+    return results.storage?.result ?? { data: { signedUrl: 'https://assinada.test/fachada.jpg' }, error: null };
+  });
+  const storage = results.storage
+    ? { from: vi.fn(() => ({ createSignedUrl })), createSignedUrl }
+    : undefined;
+  const client = { from, rpc, storage } as unknown as SupabaseClient<Database>;
+  return { client, from, storage, builders };
+}
+
+const ESTABELECIMENTO_ROW = {
+  id: 'estab-1',
+  nome_fantasia: 'Farmácia Vida',
+  categoria: 'farmacia',
+  descricao: null,
+  foto_fachada_url: null,
+  endereco: 'Rua X, 100',
+  lat: -23.5,
+  lng: -46.6,
+  raio_atendimento_km: 3,
+  tempo_medio_entrega_min: 30,
+  taxa_deslocamento_reais: 5,
+  ticket_minimo_reais: null,
+  status: 'ativo',
+  motivo_rejeicao: null,
+  motivo_suspensao: null,
+  pausado_manualmente: false,
+  excluido_em: null,
+};
+
+const HORARIOS_ROWS = [
+  { dia_semana: 0, aberto: false, hora_abre: null, hora_fecha: null },
+  { dia_semana: 1, aberto: true, hora_abre: '09:00', hora_fecha: '18:00' },
+];
+
+describe('store.supabase.ts — getById (Stories 4.7/4.8, AUTO-DECISION escopo estreito)', () => {
+  it('devolve o Estabelecimento real com horarios ordenados por dia_semana', async () => {
+    const { client, builders, from } = fakeClient({
+      estabelecimentos: { data: ESTABELECIMENTO_ROW, error: null },
+      estabelecimentos_horarios: { data: [HORARIOS_ROWS[1], HORARIOS_ROWS[0]], error: null },
+    });
+    const port = createStoreSupabase(client);
+
+    const estabelecimento = await port.getById('estab-1');
+
+    expect(from).toHaveBeenCalledWith('estabelecimentos_publicos');
+    expect(builders.estabelecimentos.eq).toHaveBeenCalledWith('id', 'estab-1');
+    expect(builders.estabelecimentos_horarios.eq).toHaveBeenCalledWith('estabelecimento_id', 'estab-1');
+    expect(estabelecimento?.id).toBe('estab-1');
+    expect(estabelecimento?.pausado_manualmente).toBe(false);
+    expect(estabelecimento?.excluido_em).toBeNull();
+    expect(estabelecimento?.horarios).toEqual([HORARIOS_ROWS[0], HORARIOS_ROWS[1]]);
+  });
+
+  it('dono ainda lê loja suspensa pela RPC privada quando a projeção pública a oculta', async () => {
+    const { client } = fakeClient({
+      estabelecimentos: { data: null, error: null },
+      privateRows: { data: [{ ...ESTABELECIMENTO_ROW, status: 'suspenso', motivo_suspensao: 'Manutenção' }], error: null },
+    });
+    const loja = await createStoreSupabase(client).getById('estab-1');
+    expect(loja).toMatchObject({ id: 'estab-1', status: 'suspenso', motivo_suspensao: 'Manutenção' });
+  });
+
+  it('anon recebe null quando a loja não é pública e a RPC privada nega acesso', async () => {
+    const { client } = fakeClient({ estabelecimentos: { data: null, error: null }, privateRows: { data: null, error: { code: '42501' } } });
+    await expect(createStoreSupabase(client).getById('estab-suspenso')).resolves.toBeNull();
+  });
+
+  it('devolve null quando o id não existe / RLS bloqueia (sem lançar)', async () => {
+    const { client } = fakeClient({ estabelecimentos: { data: null, error: null } });
+    const port = createStoreSupabase(client);
+
+    await expect(port.getById('estab-de-outro-dono')).resolves.toBeNull();
+  });
+
+  it('propaga o erro do SDK sem sucesso fictício', async () => {
+    const { client } = fakeClient({ estabelecimentos: { data: null, error: new Error('network error') } });
+    const port = createStoreSupabase(client);
+
+    await expect(port.getById('estab-1')).rejects.toThrow(/network error/);
+  });
+});
+
+describe('store.supabase.ts — foto de fachada para leitura do cliente (Bug I)', () => {
+  it('assina o path privado ao buscar loja por id', async () => {
+    const { client, storage } = fakeClient({
+      estabelecimentos: { data: { ...ESTABELECIMENTO_ROW, foto_fachada_url: 'uid/fachada.jpg' }, error: null },
+      storage: {},
+    });
+
+    const loja = await createStoreSupabase(client).getById('estab-1');
+
+    expect(loja?.foto_fachada_url).toBe('https://assinada.test/fachada.jpg');
+    expect(storage?.from).toHaveBeenCalledWith('fachadas');
+    expect(storage?.createSignedUrl).toHaveBeenCalledWith('uid/fachada.jpg', 300);
+  });
+
+  it('assina o path privado ao listar lojas por hub', async () => {
+    const { client, storage } = fakeClient({
+      estabelecimentos_hubs: { data: [{ estabelecimento_id: 'estab-1' }], error: null },
+      estabelecimentos: { data: [{ ...ESTABELECIMENTO_ROW, foto_fachada_url: 'uid/fachada.jpg' }], error: null },
+      storage: {},
+    });
+
+    const [loja] = await createStoreSupabase(client).listByHub('hub-1');
+
+    expect(loja.foto_fachada_url).toBe('https://assinada.test/fachada.jpg');
+    expect(storage?.createSignedUrl).toHaveBeenCalledWith('uid/fachada.jpg', 300);
+  });
+
+  it('mantém null sem consultar o Storage', async () => {
+    const { client, storage } = fakeClient({
+      estabelecimentos: { data: ESTABELECIMENTO_ROW, error: null },
+      storage: {},
+    });
+
+    const loja = await createStoreSupabase(client).getById('estab-1');
+
+    expect(loja?.foto_fachada_url).toBeNull();
+    expect(storage?.from).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { descricao: 'o Storage retorna erro', storage: { result: { data: null, error: new Error('RLS negada') } } },
+    { descricao: 'o Storage lança exceção', storage: { exception: new Error('falha de rede') } },
+  ])('degrada para null sem vazar o path quando $descricao', async ({ storage: storageOptions }) => {
+    const { client } = fakeClient({
+      estabelecimentos: { data: { ...ESTABELECIMENTO_ROW, foto_fachada_url: 'uid/fachada.jpg' }, error: null },
+      storage: storageOptions,
+    });
+
+    await expect(createStoreSupabase(client).getById('estab-1')).resolves.toMatchObject({ foto_fachada_url: null });
+  });
+
+  it('preserva URL https completa sem consultar o Storage', async () => {
+    const urlCompleta = 'https://imagens.test/uid/fachada.jpg';
+    const { client, storage } = fakeClient({
+      estabelecimentos: { data: { ...ESTABELECIMENTO_ROW, foto_fachada_url: urlCompleta }, error: null },
+      storage: {},
+    });
+
+    const loja = await createStoreSupabase(client).getById('estab-1');
+
+    expect(loja?.foto_fachada_url).toBe(urlCompleta);
+    expect(storage?.from).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Story 5.3 (AC1, AC3, AC4) — `getState` reaproveita `fetchEstabelecimentoPorId`
+ * (mesmo fixture/builder de `getById` acima) + `deriveLojaEstado` (fonte
+ * única compartilhada com o mock, `store.port.ts`). Casos de borda exata
+ * (hora_abre/hora_fecha) já cobertos isoladamente em `store.port.test.ts` —
+ * aqui o foco é a integração ponta-a-ponta do adapter (releitura real +
+ * derivação), com o relógio controlado por `vi.setSystemTime`.
+ */
+describe('store.supabase.ts — getState (Story 5.3, AC1, AC3, AC4)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const HORARIO_QUARTA = [{ dia_semana: 3, aberto: true, hora_abre: '09:00', hora_fecha: '18:00' }];
+
+  it('retorna "pausada" quando pausado_manualmente=true, mesmo dentro do horário (AC3)', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-29T12:00:00')); // quarta-feira, dentro do horário
+    const { client } = fakeClient({
+      estabelecimentos: { data: { ...ESTABELECIMENTO_ROW, pausado_manualmente: true }, error: null },
+      estabelecimentos_horarios: { data: HORARIO_QUARTA, error: null },
+    });
+    const port = createStoreSupabase(client);
+
+    await expect(port.getState('estab-1')).resolves.toBe('pausada');
+  });
+
+  it('retorna "aberta" dentro do horário do dia corrente (AC1, AC4)', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-29T12:00:00'));
+    const { client } = fakeClient({
+      estabelecimentos: { data: ESTABELECIMENTO_ROW, error: null },
+      estabelecimentos_horarios: { data: HORARIO_QUARTA, error: null },
+    });
+    const port = createStoreSupabase(client);
+
+    await expect(port.getState('estab-1')).resolves.toBe('aberta');
+  });
+
+  it('retorna "fechada" fora do horário do dia corrente (AC1, AC4)', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-29T22:00:00'));
+    const { client } = fakeClient({
+      estabelecimentos: { data: ESTABELECIMENTO_ROW, error: null },
+      estabelecimentos_horarios: { data: HORARIO_QUARTA, error: null },
+    });
+    const port = createStoreSupabase(client);
+
+    await expect(port.getState('estab-1')).resolves.toBe('fechada');
+  });
+
+  it('lança quando o estabelecimento não existe / RLS bloqueia — nunca simula um estado (AC1)', async () => {
+    const { client } = fakeClient({ estabelecimentos: { data: null, error: null } });
+    const port = createStoreSupabase(client);
+
+    await expect(port.getState('estab-inexistente')).rejects.toThrow(/não encontrado/);
+  });
+
+  it('propaga o erro do SDK sem sucesso fictício', async () => {
+    const { client } = fakeClient({ estabelecimentos: { data: null, error: new Error('network error') } });
+    const port = createStoreSupabase(client);
+
+    await expect(port.getState('estab-1')).rejects.toThrow(/network error/);
+  });
+});
+
+describe('store.supabase.ts — setPausadoManualmente (Story 4.8, AC1, AC2, AC4)', () => {
+  it('faz UPDATE pausado_manualmente=true e relê o Estabelecimento real (nunca ecoa o input)', async () => {
+    const { client, builders } = fakeClient({
+      estabelecimentos: { data: { ...ESTABELECIMENTO_ROW, pausado_manualmente: true }, error: null },
+    });
+    const port = createStoreSupabase(client);
+
+    const atualizado = await port.setPausadoManualmente('estab-1', true);
+
+    expect(builders.estabelecimentos.update).toHaveBeenCalledWith({ pausado_manualmente: true });
+    expect(builders.estabelecimentos.eq).toHaveBeenCalledWith('id', 'estab-1');
+    expect(atualizado.pausado_manualmente).toBe(true);
+  });
+
+  it('reverte pausado_manualmente=false com o mesmo mecanismo (AC4)', async () => {
+    const { client, builders } = fakeClient({
+      estabelecimentos: { data: { ...ESTABELECIMENTO_ROW, pausado_manualmente: false }, error: null },
+    });
+    const port = createStoreSupabase(client);
+
+    const atualizado = await port.setPausadoManualmente('estab-1', false);
+
+    expect(builders.estabelecimentos.update).toHaveBeenCalledWith({ pausado_manualmente: false });
+    expect(atualizado.pausado_manualmente).toBe(false);
+  });
+
+  it('não confirma UPDATE sem efeito quando a loja de outro dono é pública', async () => {
+    const { client } = fakeClient({ estabelecimentos: { data: ESTABELECIMENTO_ROW, error: null }, privateRows: { data: [], error: null } });
+    await expect(createStoreSupabase(client).setPausadoManualmente('estab-1', true)).rejects.toThrow(/não encontrou a linha/);
+  });
+
+  it('RLS bloqueando UPDATE de estabelecimento de outro dono — 0 linhas afetadas, releitura rejeita (AC2)', async () => {
+    const { client } = fakeClient({ estabelecimentos: { data: null, error: null } });
+    const port = createStoreSupabase(client);
+
+    await expect(port.setPausadoManualmente('estab-de-outro-dono', true)).rejects.toThrow(/não encontrou a linha/);
+  });
+
+  it('propaga erro do SDK no UPDATE sem sucesso fictício', async () => {
+    const { client } = fakeClient({ estabelecimentos: { data: null, error: { message: 'connection refused' } } });
+    const port = createStoreSupabase(client);
+
+    await expect(port.setPausadoManualmente('estab-1', true)).rejects.toMatchObject({
+      message: 'connection refused',
+    });
+  });
+});
+
+describe('store.supabase.ts — updateHorarios (Story 4.7, AC1, AC3)', () => {
+  const HORARIOS_VALIDOS = [
+    { dia_semana: 0, aberto: false, hora_abre: null, hora_fecha: null },
+    { dia_semana: 1, aberto: true, hora_abre: '08:00', hora_fecha: '18:00' },
+  ];
+
+  it('faz UPSERT das linhas (onConflict estabelecimento_id,dia_semana) e relê os horarios reais', async () => {
+    const { client, builders } = fakeClient({
+      estabelecimentos_horarios: { data: HORARIOS_VALIDOS, error: null },
+    });
+    const port = createStoreSupabase(client);
+
+    const resultado = await port.updateHorarios('estab-1', HORARIOS_VALIDOS);
+
+    expect(builders.estabelecimentos_horarios.upsert).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ estabelecimento_id: 'estab-1', dia_semana: 1, hora_abre: '08:00', hora_fecha: '18:00' }),
+        expect.objectContaining({ estabelecimento_id: 'estab-1', dia_semana: 0, hora_abre: null, hora_fecha: null }),
+      ]),
+      { onConflict: 'estabelecimento_id,dia_semana' },
+    );
+    expect(resultado).toEqual(HORARIOS_VALIDOS);
+  });
+
+  it('rejeita ANTES de tocar a rede quando aberto=true e hora_abre >= hora_fecha (defesa em profundidade, AC1)', async () => {
+    const { client, builders } = fakeClient({});
+    const port = createStoreSupabase(client);
+
+    await expect(
+      port.updateHorarios('estab-1', [{ dia_semana: 1, aberto: true, hora_abre: '18:00', hora_fecha: '08:00' }]),
+    ).rejects.toThrow(/hora_abre/);
+    expect(builders.estabelecimentos_horarios.upsert).not.toHaveBeenCalled();
+  });
+
+  it('propaga violação do CHECK do banco sem sucesso fictício', async () => {
+    const { client } = fakeClient({
+      estabelecimentos_horarios: {
+        data: null,
+        error: { message: 'new row for relation "estabelecimentos_horarios" violates check constraint' },
+      },
+    });
+    const port = createStoreSupabase(client);
+
+    await expect(
+      port.updateHorarios('estab-1', [{ dia_semana: 1, aberto: true, hora_abre: '08:00', hora_fecha: '18:00' }]),
+    ).rejects.toMatchObject({ message: expect.stringMatching(/check constraint/) });
+  });
+});
+
+const LIST_BY_HUB_ROWS = {
+  open: { ...ESTABELECIMENTO_ROW, id: 'open' },
+  closed: { ...ESTABELECIMENTO_ROW, id: 'closed' },
+  paused: { ...ESTABELECIMENTO_ROW, id: 'paused', pausado_manualmente: true },
+  suspended: { ...ESTABELECIMENTO_ROW, id: 'suspended', status: 'suspenso' },
+  deleted: { ...ESTABELECIMENTO_ROW, id: 'deleted', excluido_em: '2026-09-05T09:00:00.000Z' },
+};
+
+/**
+ * Story 5.2 (AC2, AC3, AC6) — RECORTE HONESTO: a LEITURA (junção
+ * `estabelecimentos_hubs` × `estabelecimentos`) é testável agora; a
+ * POPULAÇÃO da associação (BR-HUB, pendente do Caio) não é desta Story —
+ * ver `docs/stories/5.2.story.md` Dependencies.
+ */
+describe('store.supabase.ts — listByHub (Stories 5.2/12.10)', () => {
+  it('não consulta estabelecimentos_hubs quando o hub não foi escolhido', async () => {
+    const { client, from } = fakeClient({});
+
+    await expect(createStoreSupabase(client).listByHub('')).resolves.toEqual([]);
+
+    expect(from).not.toHaveBeenCalled();
+  });
+
+  it('devolve abertas, fechadas e pausadas, consultando somente lojas públicas', async () => {
+    const { client, builders } = fakeClient({
+      estabelecimentos_hubs: {
+        data: Object.values(LIST_BY_HUB_ROWS).map(({ id }) => ({ estabelecimento_id: id })),
+        error: null,
+      },
+      estabelecimentos: {
+        data: [LIST_BY_HUB_ROWS.open, LIST_BY_HUB_ROWS.closed, LIST_BY_HUB_ROWS.paused],
+        error: null,
+      },
+      estabelecimentos_horarios: { data: HORARIOS_ROWS, error: null },
+    });
+    const port = createStoreSupabase(client);
+
+    const lojas = await port.listByHub('hub-centro');
+    const ids = lojas.map(({ id }) => id);
+
+    expect(builders.estabelecimentos_hubs.eq).toHaveBeenCalledWith('hub_id', 'hub-centro');
+    expect(builders.estabelecimentos.in).toHaveBeenCalledWith('id', ['open', 'closed', 'paused', 'suspended', 'deleted']);
+    expect(builders.estabelecimentos.eq).toHaveBeenCalledWith('status', 'ativo');
+    expect(builders.estabelecimentos.is).not.toHaveBeenCalled();
+    expect(builders.estabelecimentos.eq).not.toHaveBeenCalledWith('pausado_manualmente', false);
+    expect(ids).toEqual(expect.arrayContaining(['open', 'closed', 'paused']));
+    expect(ids).not.toContain('suspended');
+    expect(ids).not.toContain('deleted');
+    expect(lojas[0].horarios).toEqual(HORARIOS_ROWS);
+  });
+
+  it('hub sem nenhuma associação em estabelecimentos_hubs resolve [] sem consultar estabelecimentos (AC6)', async () => {
+    const { client, from } = fakeClient({ estabelecimentos_hubs: { data: [], error: null } });
+    const port = createStoreSupabase(client);
+
+    const lojas = await port.listByHub('hub-sem-lojas');
+
+    expect(lojas).toEqual([]);
+    expect(from).not.toHaveBeenCalledWith('estabelecimentos');
+  });
+
+  it('loja administrativa associada ao hub não aparece no retorno já filtrado pelo Postgres', async () => {
+    const { client, builders } = fakeClient({
+      estabelecimentos_hubs: {
+        data: [{ estabelecimento_id: 'estab-1' }, { estabelecimento_id: 'estab-suspenso' }],
+        error: null,
+      },
+      // Simula o Postgres aplicando `status = 'ativo'` antes de devolver as linhas.
+      estabelecimentos: { data: [ESTABELECIMENTO_ROW], error: null },
+    });
+    const port = createStoreSupabase(client);
+
+    const lojas = await port.listByHub('hub-1');
+
+    expect(builders.estabelecimentos.in).toHaveBeenCalledWith('id', ['estab-1', 'estab-suspenso']);
+    expect(lojas.map((l) => l.id)).toEqual(['estab-1']);
+  });
+
+  it('loja de outro hub NÃO aparece — só ids retornados pela junção deste hub_id chegam ao SELECT em estabelecimentos', async () => {
+    const { client, builders } = fakeClient({
+      // A RLS/query já filtra por `hub_id = :hubId` — uma loja associada a
+      // OUTRO hub simplesmente não aparece na resposta da junção, então
+      // nunca entra no `.in('id', ...)` da query seguinte.
+      estabelecimentos_hubs: { data: [{ estabelecimento_id: 'estab-1' }], error: null },
+      estabelecimentos: { data: [ESTABELECIMENTO_ROW], error: null },
+    });
+    const port = createStoreSupabase(client);
+
+    const lojas = await port.listByHub('hub-1');
+
+    expect(builders.estabelecimentos.in).toHaveBeenCalledWith('id', ['estab-1']);
+    expect(builders.estabelecimentos.in).not.toHaveBeenCalledWith('id', expect.arrayContaining(['estab-de-outro-hub']));
+    expect(lojas.map((l) => l.id)).toEqual(['estab-1']);
+  });
+
+  it('propaga erro do SDK na leitura da junção sem sucesso fictício', async () => {
+    const { client } = fakeClient({ estabelecimentos_hubs: { data: null, error: new Error('network error') } });
+    const port = createStoreSupabase(client);
+
+    await expect(port.listByHub('hub-1')).rejects.toThrow(/network error/);
+  });
+
+  it('propaga erro do SDK na leitura de estabelecimentos sem sucesso fictício', async () => {
+    const { client } = fakeClient({
+      estabelecimentos_hubs: { data: [{ estabelecimento_id: 'estab-1' }], error: null },
+      estabelecimentos: { data: null, error: new Error('network error') },
+    });
+    const port = createStoreSupabase(client);
+
+    await expect(port.listByHub('hub-1')).rejects.toThrow(/network error/);
+  });
+});

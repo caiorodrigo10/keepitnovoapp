@@ -1,0 +1,12 @@
+schema: 1
+story: '3.12'
+gate: CONCERNS
+status_reason: 'Todos os 7 ACs atendidos. Excluir conta deixou de simular sucesso (sem mutação, canal WhatsApp honesto desabilitado "(em breve)"); Termos/Política/Ajuda navegam honestamente; card-resumo real com fallback; nenhum campo editável novo; sem toggle fictício. Único débito: verificação device/E2E manual pendente.'
+reviewer: 'Quinn'
+updated: '2026-08-12T16:30:00Z'
+top_issues:
+  - id: 'TEST-001'
+    severity: low
+    finding: 'Sem harness de teste de componente RN no monorepo (nenhum .test.tsx de tela em apps/*); o render honesto do card-resumo/ExcluirConta e a navegação Termos/Política/Ajuda ficam como verificação manual/device pendente. A leitura subjacente (getMeuPerfil) já é coberta por testes unitários em core-data.'
+    suggested_action: 'Smoke de dispositivo contra keepit-dev antes do release do piloto; considerar adicionar harness de teste de tela no futuro.'
+waiver: { active: false }

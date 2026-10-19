@@ -1,0 +1,53 @@
+schema: 1
+story: '10.4'
+gate: PASS
+status_reason: 'Dica de PIP gated por `!isSupabaseDataSource()` torna o PIN de retirada descobrível numa demo só-Lojista, com zero mudança de contrato/lógica: `confirmPin`/`OrdersContext`/`order.port` intactos (fora do diff), a dica apenas lê `pedido.pin_texto` já disponível via `getById`. Todas as 6 ACs verificadas empiricamente; o default não-determinístico (`Math.random()`) do `montarPedido` virou `pinDeterministico(id)` (hash polinomial estável, sempre 4 dígitos), com os 9 PINs explícitos das fixtures intactos. Gating por short-circuit `&&` remove o bloco JSX inteiro da árvore em build supabase (não é `display:none`). Gates verdes: core-data 483/483, lojista 86/86, 2 typechecks limpos. Nenhuma issue high/critical.'
+reviewer: 'Quinn'
+updated: '2026-08-19T22:10:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static+trace
+    evidence: '`DigitarPin.tsx:100` mantém a instrução original ("Peça o código de 4 dígitos ao cliente") sem alterar texto/estilo; logo abaixo, `:102-106` insere `{!isSupabaseDataSource() && (<Text style=[dicaDemo,...]>Demo — PIN esperado: {pedido.pin_texto}</Text>)}`. Estilo `dicaDemo` (`:189-193`) reaproveita `typography.sizes.sm` e `darkColors.text.tertiary` (mesmo tom da instrução) — nenhum token novo. `pedido.pin_texto` vem de `getById(pedidoId)` (`:44-45`), já no escopo.'
+  AC2:
+    status: MET
+    method: static+trace
+    evidence: 'Fluxo ponta a ponta inalterado: digitar o PIN → `onConfirmarEntrega` (`DigitarPin.tsx:62-91`) → `confirmPin(pedidoId, digitos)` (`OrdersContext.tsx:222-244`) → `order.mock.ts:207` compara `pin !== pedido.pin_texto`; digitar o valor exibido pela dica satisfaz a igualdade → `{ correto: true }` → `navigation.replace(''ConfirmarRetirada'')` (`:66-67`). Nenhum handler foi tocado.'
+  AC3:
+    status: MET
+    method: static
+    evidence: '`isSupabaseDataSource()` (`dataSource.ts:21-23`) retorna `true` só quando `EXPO_PUBLIC_DATA_SOURCE?.trim() === ''supabase''`. Com `true`, o operador `&&` faz curto-circuito e devolve `false` — React não monta nada, o bloco `<Text>` fica AUSENTE da árvore de componentes (não é opacidade/`display:none`). Coberto também por `dataSource.test.ts` (4 testes verdes).'
+  AC4:
+    status: MET
+    method: static+grep
+    evidence: 'Grep por `Math.random` em `packages/core-data/src/mock/fixtures/` retorna apenas 1 ocorrência — dentro de um comentário JSDoc que documenta o valor substituído (`pedidos.ts:19`). O default de `montarPedido` agora é `pin_texto: pinDeterministico(input.id)` (`:57`); `pinDeterministico` (`:26-32`) é hash polinomial puro (`hash = (hash*31 + charCode) % 9000`), retornando `String(1000 + hash)` ∈ [1000,9999] — sempre 4 dígitos, estável por id. Os 9 PINs explícitos (`4821`,`7734`,`4567`,`1123`,`2244`,`3355`,`4466`,`5577`,`9182`) permanecem intactos (grep confirma 9 ocorrências de `pin_texto: ''` literais), sobrescrevendo o default via `...input`.'
+  AC5:
+    status: MET
+    method: static+diff
+    evidence: '`git diff HEAD` não lista `OrdersContext.tsx` nem `order.port.ts`/`order.mock.ts` — a lógica de `confirmPin` (tentativas, bloqueio, mensagens) está byte-a-byte inalterada. O único arquivo de UI tocado é `DigitarPin.tsx` (+12 linhas: 1 import, 1 bloco JSX condicional, 1 objeto de estilo).'
+  AC6:
+    status: MET
+    method: test
+    evidence: '`pnpm --filter @keepit/core-data test` reexecutado por @qa: 25 arquivos, 483/483 PASS. Nenhum teste dependia do `pin_texto` não-determinístico; nenhum ajuste de assert necessário.'
+
+evidence:
+  tests_reviewed: 'core-data test 483/483 PASS; lojista test 86/86 PASS (inclui dataSource.test.ts 4/4); typechecks @keepit/core-data (exit 0) e @keepit/lojista (exit 0) limpos. Trace lido ponta a ponta: DigitarPin.tsx → OrdersContext.tsx → order.mock.ts (confirmPin compara pin_texto). Escopo do diff 10.4 confirmado por git diff: DigitarPin.tsx (+12) e fixtures/pedidos.ts (+19); demais arquivos do diff (db.ts, fixtures/index.ts, lojista-contas.ts) pertencem à Story 10.3 já Done.'
+  risk_summary: 'Muito baixo. Mudança puramente aditiva: 1 bloco de UI gated (afford só do modo demo) + troca de um default de fixture por valor determinístico. Sem tocar port/adapter/contrato/lógica de negócio. Produção (build supabase) não renderiza a dica. Determinismo verificado (função pura de id, 4 dígitos garantidos).'
+
+auto_decision_review:
+  decision: 'hash polinomial de pedidoId em vez da constante ''0000'' para o default de pin_texto'
+  verdict: ACEITÁVEL
+  rationale: 'A escolha é superior à constante fixa: pedidos sem pin_texto explícito exibem dicas visualmente distintas (mais fiel ao comportamento anterior), sem reintroduzir aleatoriedade. Função pura e determinística (mesmo id → mesmo PIN). Faixa de saída [1000,9999] garante sempre 4 dígitos. Colisões de hash entre pedidos são possíveis mas inofensivas na demo (cada pedido é confirmado contra o próprio pin_texto, independentemente). Nenhum risco funcional.'
+
+top_issues:
+  - id: 'SEC-001'
+    severity: low
+    finding: 'Carry-forward de segurança já documentado no Dev Notes da própria story (fora de escopo): em produção, o app do Lojista NÃO deveria receber `pin_texto` no SELECT do adapter Supabase de pedidos (é o segredo que o app Cliente exibe para retirada). A dica gated não expõe nada em produção (AC3), mas o dado subjacente chegar ao Lojista em prod é uma frente separada (Épico 6+/segurança). Não introduzido por esta story.'
+    suggested_action: 'Manter rastreado como auditoria de segurança do `SELECT` de pedidos do app Lojista numa story futura (Épico 6+). Não bloqueia o modo demo.'
+  - id: 'MNT-001'
+    severity: low
+    finding: 'O caminho de criação de pedido em runtime `order.mock.create` (`order.mock.ts:115`) ainda usa `generatePin()` (aleatório, de `async-helpers`) para pedidos criados ao vivo no checkout — fora do escopo desta story (AC4 restringe-se a fixtures). Pedidos criados ao vivo na demo continuam com PIN aleatório, mas a dica lê `pedido.pin_texto` de qualquer pedido existente, então o fluxo funciona de qualquer forma.'
+    suggested_action: 'Nenhuma ação obrigatória. Se a demo passar a criar pedidos ao vivo e exigir PIN estável, considerar fixar `generatePin` numa story futura de polish do modo demo.'
+
+waiver: { active: false }

@@ -1,0 +1,342 @@
+import type { SettingsPort } from './ports/settings.port';
+import type { CheckoutPort } from './ports/checkout.port';
+import { createSettingsSupabase } from './supabase/settings.supabase';
+import { createCheckoutSupabase } from './supabase/checkout.supabase';
+import { createSettingsMock } from './mock/settings.mock';
+import { createCheckoutMock } from './mock/checkout.mock';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@keepit/shared-types';
+
+import type { AdminPort } from './ports/admin.port';
+import type { AccountDeletionPort } from './ports/account-deletion.port';
+import type { AnalyticsPort } from './ports/analytics.port';
+import type { AuthPort, PasswordRecoveryState } from './ports/auth.port';
+import type { DemoScenarioPort } from './ports/demo-scenario.port';
+import type { EstabelecimentoCadastroPort } from './ports/estabelecimento-cadastro.port';
+import type { HubFavoritesPort, StoreFavoritesPort } from './ports/favorites.port';
+import type { HubPort } from './ports/hub.port';
+import type { LojistaAuthPort } from './ports/lojista-auth.port';
+import type { OrderPort } from './ports/order.port';
+import type { SupportPort } from './ports/support.port';
+import type { PaymentPort } from './ports/payment.port';
+import type { SavedCardsPort } from './ports/saved-cards.port';
+import type { PayoutPort } from './ports/payout.port';
+import type { ProductPort } from './ports/product.port';
+import type { StorePort } from './ports/store.port';
+import type { WalletPort } from './ports/wallet.port';
+
+import { createAdminMock } from './mock/admin.mock';
+import { createAccountDeletionMock } from './mock/account-deletion.mock';
+import { createAnalyticsMock } from './mock/analytics.mock';
+import { createAuthMock } from './mock/auth.mock';
+import type { ClienteMockStorage } from './mock/cliente-state';
+import { ClienteMockStateStore } from './mock/cliente-state-store';
+import { createMockDb } from './mock/db';
+import { createEstabelecimentoCadastroMock } from './mock/estabelecimento-cadastro.mock';
+import { createFavoritesMock } from './mock/favorites.mock';
+import { createHubMock } from './mock/hub.mock';
+import { createLojistaAuthMock } from './mock/lojista-auth.mock';
+import { createOrderMock } from './mock/order.mock';
+import { createSupportMock } from './mock/support.mock';
+import { createPaymentMock } from './mock/payment.mock';
+import { createSavedCardsMock } from './mock/saved-cards.mock';
+import { createPayoutMock } from './mock/payout.mock';
+import { createProductMock } from './mock/product.mock';
+import { createStoreMock } from './mock/store.mock';
+import { createWalletMock } from './mock/wallet.mock';
+
+import { createAdminSupabase } from './supabase/admin.supabase';
+import { createAccountDeletionSupabase } from './supabase/account-deletion.supabase';
+import { createAnalyticsSupabase } from './supabase/analytics.supabase';
+import { createAuthSupabase } from './supabase/auth.supabase';
+import { createEstabelecimentoCadastroSupabase } from './supabase/estabelecimento-cadastro.supabase';
+import { createFavoritesSupabase } from './supabase/favorites.supabase';
+import { createHubSupabase } from './supabase/hub.supabase';
+import { createLojistaAuthSupabase } from './supabase/lojista-auth.supabase';
+import { createOrderSupabase } from './supabase/order.supabase';
+import { createSupportSupabase } from './supabase/support.supabase';
+import { createPaymentSupabase } from './supabase/payment.supabase';
+import { createSavedCardsSupabase } from './supabase/saved-cards.supabase';
+import { createPayoutSupabase } from './supabase/payout.supabase';
+import { createProductSupabase } from './supabase/product.supabase';
+import { createStoreSupabase } from './supabase/store.supabase';
+import { createWalletSupabase } from './supabase/wallet.supabase';
+
+export type DataSource = 'mock' | 'supabase';
+
+export interface CreateDataClientOptions {
+  /** Default: `'mock'`. `DATA_SOURCE` de cada app (env var) pode alimentar este parâmetro no bootstrap. */
+  source?: DataSource;
+  /**
+   * Story 2.5.1 (AC3). Só tem efeito com `source: 'supabase'` — instância
+   * única de `SupabaseClient` repassada aos oito adapters Supabase, em vez
+   * de cada um criar a sua própria via `createClient()` sem argumento.
+   * Omitido: cada adapter mantém o comportamento anterior a esta story
+   * (cria/memoiza seu próprio client internamente). Ver
+   * `docs/architecture/06-session-persistence.md` §3.2.
+   */
+  supabaseClient?: SupabaseClient<Database>;
+  /**
+   * Story 2.7 (AC5). Só tem efeito com `source: 'supabase'` — repassado ao
+   * adapter Supabase de `auth` para impedir que uma sessão de recuperação
+   * de senha promova o usuário à área logada (ver `PasswordRecoveryState`).
+   * Omitido: o adapter usa um marcador em memória local (suficiente para
+   * testes; apps reais devem injetar um baseado em storage persistente,
+   * ver `apps/cliente/src/lib/dataClientBootstrap.ts`).
+   */
+  passwordRecoveryState?: PasswordRecoveryState;
+  /** Storage persistente exclusivo do cenário mock do app Cliente. */
+  clienteMockStorage?: ClienteMockStorage;
+}
+
+/**
+ * Client de dados — expõe as 8 ports do Épico 0/1.10 (auth, hub, store,
+ * product, order, wallet, admin, analytics). As telas (Story 0.4+) consomem
+ * SÓ a port, nunca a implementação mock/Supabase diretamente.
+ */
+export interface DataClient {
+  settings: SettingsPort;
+  checkout: CheckoutPort;
+  accountDeletion: AccountDeletionPort;
+  auth: AuthPort;
+  hub: HubPort;
+  store: StorePort;
+  product: ProductPort;
+  order: OrderPort;
+  support: SupportPort;
+  /**
+   * Story 7.2 (AC3) — CREATE justificado no JSDoc de `PaymentPort`
+   * (`ports/payment.port.ts`). Cobrança PIX real via Asaas, deliberadamente
+   * separada de `order` (ciclo de vida do pedido em si).
+   */
+  payment: PaymentPort;
+  savedCards: SavedCardsPort;
+  payout: PayoutPort;
+  wallet: WalletPort;
+  admin: AdminPort;
+  /** Vendas/top produtos/extrato do Lojista (Story 1.10, Task 7) — CREATE justificado nas Dev Notes da story. */
+  analytics: AnalyticsPort;
+  /**
+   * Story 3.2 (AC4, AC7) — CREATE justificado no JSDoc de `LojistaAuthPort`
+   * (`ports/lojista-auth.port.ts`). Port dedicada e mínima (só `signUp`
+   * nesta fatia) para a identidade de auth do lojista, deliberadamente
+   * separada de `auth` (que é tipada em `Cliente`).
+   */
+  lojistaAuth: LojistaAuthPort;
+  /**
+   * Story 3.5 (AC2, AC3, AC4) — CREATE justificado no JSDoc de
+   * `EstabelecimentoCadastroPort` (`ports/estabelecimento-cadastro.port.ts`).
+   * Upload da fachada + criação atômica de `estabelecimentos`/
+   * `estabelecimentos_horarios` via a RPC `criar_estabelecimento_completo`
+   * (Passo 3 do cadastro do lojista) — deliberadamente separada de `store`
+   * (tipado no domínio público de Descoberta do Cliente).
+   */
+  estabelecimentoCadastro: EstabelecimentoCadastroPort;
+  favoriteHubs: HubFavoritesPort;
+  favoriteStores: StoreFavoritesPort;
+  /** Disponível somente no datasource mock. */
+  demoScenario?: DemoScenarioPort;
+}
+
+const mockStateStores = new WeakMap<DataClient, ClienteMockStateStore>();
+
+function createVolatileClienteMockStorage(): ClienteMockStorage {
+  const values = new Map<string, string>();
+  return {
+    getItem: async (key) => values.get(key) ?? null,
+    setItem: async (key, value) => {
+      values.set(key, value);
+    },
+    removeItem: async (key) => {
+      values.delete(key);
+    },
+  };
+}
+
+function mockStateStoreFor(client: DataClient): ClienteMockStateStore | undefined {
+  return mockStateStores.get(client);
+}
+
+/**
+ * Lê `DATA_SOURCE` de `process.env` como fallback quando `options.source` não
+ * é passado explicitamente (Story 1.9, AC4). Nenhum app hoje passa
+ * `{ source }` para `getDataClient()` — todas as chamadas em
+ * `apps/cliente|lojista|admin/src/hooks` usam `getDataClient()` sem
+ * argumento, então este é o único ponto em que a env var tem efeito prático
+ * até uma story futura tocar o bootstrap dos apps. Default: `'mock'` quando
+ * a env var está ausente, vazia, ou contém qualquer valor que não seja
+ * exatamente `'supabase'`.
+ */
+function resolveDataSource(explicit?: DataSource): DataSource {
+  if (explicit) {
+    return explicit;
+  }
+  const envValue = process.env.DATA_SOURCE?.trim();
+  return envValue === 'supabase' ? 'supabase' : 'mock';
+}
+
+/**
+ * Cria um novo `DataClient` isolado — nova instância do "banco" mock
+ * (`source: 'mock'`) ou novas instâncias dos 8 adaptadores Supabase
+ * (`source: 'supabase'`, cada um criando seu próprio `SupabaseClient` via
+ * `createClient()` de `@keepit/supabase-client` — nunca um singleton global
+ * dentro de `src/supabase/`). Use `getDataClient()` para o singleton
+ * compartilhado consumido pelos hooks.
+ */
+export function createDataClient(options: CreateDataClientOptions = {}): DataClient {
+  const source = resolveDataSource(options.source);
+
+  if (source === 'supabase') {
+    // Story 2.5.1 (AC3): `options.supabaseClient`, quando informado, é a
+    // ÚNICA instância de `SupabaseClient` repassada aos oito factories —
+    // fecha o bloqueador "8 SupabaseClient distintos por DataClient"
+    // registrado em `docs/architecture/06-session-persistence.md` §1.4(b).
+    // Quando omitido, cada factory mantém seu comportamento anterior
+    // (`client?` undefined → cria/memoiza o próprio client).
+    const client = options.supabaseClient;
+    const favorites = createFavoritesSupabase(client);
+    return {
+      settings: createSettingsSupabase(client),
+      checkout: createCheckoutSupabase(client),
+      accountDeletion: createAccountDeletionSupabase(client),
+      auth: options.passwordRecoveryState
+        ? createAuthSupabase(client, options.passwordRecoveryState)
+        : createAuthSupabase(client),
+      hub: createHubSupabase(client),
+      store: createStoreSupabase(client),
+      product: createProductSupabase(client),
+      order: createOrderSupabase(client),
+      support: createSupportSupabase(client),
+      payment: createPaymentSupabase(client),
+      savedCards: createSavedCardsSupabase(client),
+      payout: createPayoutSupabase(client),
+      wallet: createWalletSupabase(client),
+      admin: createAdminSupabase(client),
+      analytics: createAnalyticsSupabase(client),
+      lojistaAuth: createLojistaAuthSupabase(client),
+      estabelecimentoCadastro: createEstabelecimentoCadastroSupabase(client),
+      ...favorites,
+    };
+  }
+
+  const db = createMockDb();
+  const favorites = createFavoritesMock(db);
+
+  const settings = createSettingsMock();
+  const client: DataClient = {
+    settings,
+    checkout: createCheckoutMock(db, settings),
+    accountDeletion: createAccountDeletionMock(db),
+    auth: createAuthMock(db),
+    hub: createHubMock(db),
+    store: createStoreMock(db),
+    product: createProductMock(db),
+    order: createOrderMock(db),
+    support: createSupportMock(db),
+    payment: createPaymentMock(db),
+    savedCards: createSavedCardsMock(db),
+    payout: createPayoutMock(db),
+    wallet: createWalletMock(db),
+    admin: createAdminMock(db),
+    analytics: createAnalyticsMock(db),
+    lojistaAuth: createLojistaAuthMock(db),
+    estabelecimentoCadastro: createEstabelecimentoCadastroMock(db),
+    ...favorites,
+  };
+
+  const stateStore = new ClienteMockStateStore(db, options.clienteMockStorage ?? createVolatileClienteMockStorage());
+  mockStateStores.set(client, stateStore);
+  client.demoScenario = {
+    reset: () => stateStore.reset(),
+    flush: () => stateStore.flush(),
+    getStatus: () => stateStore.getStatus(),
+    getQaState: () => stateStore.getQaState(),
+    setQaState: (next) => stateStore.setQaState(next),
+    advanceClock: (ms) => stateStore.advanceClock(ms),
+    expirePasswordRecovery: () => stateStore.expirePasswordRecovery(),
+  };
+  return client;
+}
+
+let sharedClient: DataClient | null = null;
+let sharedInitialization: Promise<DataClient> | null = null;
+
+/**
+ * Singleton do `DataClient` para o processo/sessão atual — usado pelos hooks
+ * (`@keepit/core-data/hooks`) para que múltiplos componentes compartilhem o
+ * mesmo "banco" mock em memória.
+ */
+export function getDataClient(options?: CreateDataClientOptions): DataClient {
+  if (!sharedClient) {
+    sharedClient = createDataClient(options);
+  }
+  return sharedClient;
+}
+
+/** Devolve o singleton somente depois que o cenário mock foi hidratado. */
+export function initializeDataClient(options: CreateDataClientOptions = {}): Promise<DataClient> {
+  if (!sharedInitialization) {
+    const client = getDataClient(options);
+    const hydration = (async () => {
+      await mockStateStoreFor(client)?.hydrate();
+      return client;
+    })();
+    const guardedInitialization = hydration.catch((error: unknown) => {
+      if (sharedInitialization === guardedInitialization) {
+        sharedInitialization = null;
+        if (sharedClient === client) {
+          sharedClient = null;
+        }
+      }
+      throw error;
+    });
+    sharedInitialization = guardedInitialization;
+  }
+  return sharedInitialization;
+}
+
+/** Descarta uma inicialização incompleta e tenta novamente com um singleton novo. */
+export function recoverDataClient(options: CreateDataClientOptions = {}): Promise<DataClient> {
+  sharedClient = null;
+  sharedInitialization = null;
+  return initializeDataClient(options);
+}
+
+/** Reseta o singleton — uso exclusivo de testes. */
+export function __resetDataClientForTests(): void {
+  sharedClient = null;
+  sharedInitialization = null;
+}
+
+export * from './ports/admin.port';
+export * from './ports/account-deletion.port';
+export * from './ports/analytics.port';
+export * from './ports/auth.port';
+export * from './ports/demo-scenario.port';
+export * from './ports/estabelecimento-cadastro.port';
+export * from './ports/favorites.port';
+export * from './ports/hub.port';
+export * from './ports/lojista-auth.port';
+export * from './ports/order.port';
+export * from './ports/support.port';
+export * from './support-operation-id';
+export * from './refund-limits';
+export * from './ports/payment.port';
+export * from './ports/saved-cards.port';
+export * from './payment-errors';
+export * from './ports/payout.port';
+export * from './ports/product.port';
+export * from './ports/store.port';
+export * from './ports/wallet.port';
+export * from './ports/sms.port';
+export { createSmsMock } from './mock/sms.mock';
+export * from './data-mode';
+export * from './types';
+export type { ClienteMockStorage } from './mock/cliente-state';
+/** Story 2.3 (Task 6/7) — `EmailJaExisteError`, consumido por `CriarConta.tsx` (AC4). */
+export * from './supabase/auth-errors';
+/** Story 3.5 (AC3, AC4) — 4 erros nomeados da RPC, consumidos por `CadastroPasso3.tsx`. */
+export * from './supabase/estabelecimento-cadastro-errors';
+
+export * from './ports/settings.port';
+export * from './ports/checkout.port';

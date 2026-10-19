@@ -1,0 +1,32 @@
+schema: 1
+story: '4.1'
+gate: CONCERNS
+status_reason: 'CRUD real de hubs (list/getById/create/update/delete/uploadFoto) contra hubs/hubs_horarios sob RLS is_admin() (FORCE RLS), com leitura administrativa dedicada que enxerga inativos sem tocar o HubPort público (Épico 5 intocado), reativação funcional, foto no bucket PÚBLICO hubs (URL pública direta, nunca assinada) e validação MIME/tamanho client-side; erros propagam sem sucesso fictício, update sempre relê o estado real. CONCERNS apenas por débitos não-bloqueantes: create não-atômico (2 INSERTs), E2E/RLS-write-block manual pendente, lat/lng rotulados "opcional" mas NOT NULL, shared-types reconciliado à mão, revisão formal de @architect da AUTO-DECISION.'
+reviewer: 'Quinn'
+updated: '2026-08-12T17:10:00Z'
+top_issues:
+  - id: 'REL-001'
+    severity: medium
+    finding: 'hubsCrud.create faz 2 INSERTs sequenciais NÃO atômicos (hubs + hubs_horarios, sem RPC dedicada). Se o INSERT de hubs suceder e o de hubs_horarios falhar, o hub fica persistido sem horários. Documentado no JSDoc; não há teste do cenário de falha parcial específico. Falha é honesta (Promise rejeita, sem sucesso fictício) e recuperável via edição (update substitui horarios). Aceitável na classificação SIMPLE (4-5 hubs, uso exclusivo do admin).'
+    suggested_action: 'Aceitar como débito conhecido para o piloto. Se o volume/criticidade de hubs crescer, provisionar uma RPC atômica (padrão criar_estabelecimento_completo, Story 3.5) que envolva os 2 INSERTs em uma transação. Registrar como pendência.'
+  - id: 'TEST-001'
+    severity: medium
+    finding: 'RLS bloqueando ESCRITA de usuário não-admin contra o banco real não foi exercitada em teste automatizado (exige 2 sessões reais). A revisão manual contra o keepit-dev (criar → lista → editar → desativar → reativar → RLS bloqueia não-admin → foto pública por URL direta) NÃO foi executada nesta sessão — sem MCP Supabase no ambiente autônomo. Device/E2E permanece pendente. Cobertura unitária (16 testes) prova a propagação honesta de erro de RLS/FK e a URL pública (não assinada), mas não a barreira real do Postgres. Mesma lacuna já aceita nas Stories 2.5.1/2.6/3.2/3.5/3.7/3.8/3.9.'
+    suggested_action: 'Executar verificação manual contra keepit-dev: sessão admin (CRUD completo + reativação + foto pública acessível sem sessão) e sessão authenticated não-admin (INSERT/UPDATE/DELETE bloqueado pela RLS, não só escondido na UI). Fechar quando admin provisionado.'
+  - id: 'MNT-001'
+    severity: low
+    finding: 'HubForm rotula latitude/longitude como "(opcional)" e usa default 0 (Number(...) || 0), mas o schema é lat/lng numeric(9,6) NOT NULL. Um hub salvo sem coordenadas informadas persistiria em (0,0) silenciosamente — dado geo inválido para o mapa de retirada do cliente (Épico 5). AC2 descreve lat/lng como "input manual", não opcional.'
+    suggested_action: 'Trocar o rótulo para não-opcional e/ou validar lat/lng != 0 (ou dentro de faixa plausível) antes de create/update, exibindo erro na UI — evita (0,0) silencioso. Recuperável via edição no piloto, mas vale corrigir o rótulo.'
+  - id: 'MNT-002'
+    severity: low
+    finding: 'packages/shared-types/src/supabase.ts (hubs + hubs_horarios) reconciliado manualmente em vez de regenerado via supabase gen types (sem SUPABASE_ACCESS_TOKEN no ambiente). Verificado campo a campo contra as migrations 20260812164000/164100 — confere exatamente (id, nome, endereco, lat, lng, ponto_referencia, foto_url, ativo, criado_em, atualizado_em; hub_id, dia_semana, aberto, hora_abre, hora_fecha).'
+    suggested_action: 'Regenerar shared-types via supabase gen types quando o token estiver disponível.'
+  - id: 'ARCH-001'
+    severity: low
+    finding: 'A decisão de escopo de leitura (método administrativo dedicado AdminPort.hubsCrud.list/getById vs. reuso de HubPort.listNearby) foi resolvida por [AUTO-DECISION] do @dev na ausência de sessão dedicada de @architect (Sol), conforme quality_gate_tools da Story. A decisão é tecnicamente sólida (evita acoplar preocupação administrativa à port de Descoberta; HubPort permanece stub Épico 5 intocado) e bem documentada em JSDoc, mas não teve revisão formal de @architect.'
+    suggested_action: 'Revisão formal de @architect (Sol) da AUTO-DECISION antes de considerar o Bloco 02 encerrado. Baixo risco de reversão.'
+  - id: 'REL-002'
+    severity: low
+    finding: 'BUILD-001 (débito pré-existente herdado da Story 3.7): next build com DATA_SOURCE=supabase no ambiente falha por bug de bundler não relacionado à lógica desta Story. O gate desta Story rodou em modo mock/default (next build verde, 13 rotas). Não reintroduzido nem verificado aqui.'
+    suggested_action: 'Rastrear BUILD-001 separadamente (não é regressão desta Story). Confirmar o caminho de deploy real do Admin com DATA_SOURCE=supabase quando o bug de bundler for endereçado.'
+waiver: { active: false }

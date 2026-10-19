@@ -1,0 +1,389 @@
+import { useEffect, useRef, useState } from 'react';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+
+import { SUPORTE_WHATSAPP_DISPONIVEL, SUPORTE_WHATSAPP_NUMERO } from '@keepit/config';
+import { createSupportOperationId, getDataClient } from '@keepit/core-data';
+import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
+
+import { AsyncStateBlock } from '../../components/discovery';
+import { PedidoTimeline } from '../../components/pedidos';
+import { useCurrentCliente } from '../../hooks/useCurrentCliente';
+import { useHubDetail } from '../../hooks/useHubDetail';
+import { usePedidoDetail } from '../../hooks/usePedidoDetail';
+import { AppHeader, Button, Screen } from '../../components/ui';
+import { isPedidoAtrasado } from '../../lib/atrasoPedido';
+import { comoChegarLabel, comoChegarUrl } from '../../lib/comoChegar';
+import { formatReais } from '../../lib/format';
+import { podeReportarLojistaNaoVeio } from '../../lib/lojistaNaoVeio';
+import { timelineStepIndex } from '../../lib/pedidoStatus';
+import type { RootStackParamList } from '../../navigation/types';
+
+/**
+ * Story 6.7 (AC2) — seam WA-001 (`@keepit/config`), mesmo padrão já
+ * validado em `apps/lojista/src/screens/perfil/ExcluirConta.tsx`/
+ * `Configuracoes.tsx`. Sem mapa integrado no MVP — o destino, quando
+ * disponível, é abrir uma conversa de WhatsApp perguntando a localização.
+ */
+function handleComoChegar(): void {
+  const url = comoChegarUrl(SUPORTE_WHATSAPP_DISPONIVEL, SUPORTE_WHATSAPP_NUMERO);
+  if (url) {
+    void Linking.openURL(url);
+  }
+}
+
+type Props = NativeStackScreenProps<RootStackParamList, 'ModalConfirmarPin'>;
+
+/**
+ * "Seu pedido" (Task 2, AC1/AC2/AC3/AC4) — fiel a
+ * `cliente-06-seu-pedido-pin.png`: header "Seu pedido", timeline de 4
+ * passos, cartão escuro "SEU CÓDIGO DE RETIRADA" com os 4 dígitos do PIN
+ * separados e o copy "Mostre este código ao lojista no hub para confirmar
+ * a retirada.", card do hub com link "Como chegar", e o rodapé
+ * "Pedido #{numero} · {loja} · {total}".
+ *
+ * Rota `ModalConfirmarPin` (decisão da Story 0.3): é o destino real do item
+ * de inventário "Confirmar retirada / PIN" da Story 0.7 — o cliente só
+ * EXIBE o PIN aqui, nunca digita (quem digita é o lojista, Story 0.10).
+ *
+ * **Story 6.7.** Em `DATA_SOURCE=supabase`, `usePedidoDetail`/
+ * `usePedidosMine` passam a resolver `OrderPort.listMine` real (adapter
+ * Supabase, Story 6.7) — nenhuma mudança nesta tela além do link "Como
+ * chegar" (ver `handleComoChegar` acima), que antes era um `<Text>` sem
+ * `onPress` (link morto).
+ *
+ * **Story 6.16 (AC5).** Quando o polling da Story 6.13 (herdado via
+ * `usePedidoDetail` → `usePedidosMine`) detecta que o pedido em foco mudou
+ * para `entregue`, esta tela navega automaticamente para `Recibo` — sem
+ * exigir pull-to-refresh manual nem toque do cliente (nenhum push é
+ * disparado, Épico 2.11 `LATER`).
+ *
+ * **Story 6.21 (AC1, AC2).** O MESMO polling reavalia, a cada ciclo, se o
+ * pedido está atrasado (`isPedidoAtrasado`, `NOW() > aceito_em + 2 *
+ * tempo_estimado_min`) e mostra um banner com "Aguardar mais" (dispensa
+ * local, sem chamada de backend — pode reaparecer no próximo poll enquanto a
+ * condição continuar verdadeira) / "Solicitar análise". A solicitação de
+ * atraso mantém o pedido em curso enquanto o atendimento decide.
+ */
+export default function ModalConfirmarPin({ route, navigation }: Props) {
+  const { data: cliente } = useCurrentCliente();
+  const { data: pedido, loading, error, refresh } = usePedidoDetail(cliente?.id ?? null, route.params?.pedidoId);
+  const { data: hub } = useHubDetail(pedido?.hub_id ?? '', { forceEmpty: !pedido });
+  const [atrasoDispensado, setAtrasoDispensado] = useState(false);
+  const [cancelandoAtraso, setCancelandoAtraso] = useState(false);
+  const [erroAtraso, setErroAtraso] = useState<string | null>(null);
+  const [casoAtrasoAberto, setCasoAtrasoAberto] = useState(false);
+  const atrasoOperacaoId = useRef(createSupportOperationId());
+
+  const [pinState, setPinState] = useState<{ key: string; pin: string | null; error: boolean } | null>(null);
+  const pinKey = `${cliente?.id ?? ''}:${pedido?.id ?? ''}:${pedido?.status ?? ''}`;
+  const pin = pinState?.key === pinKey ? pinState.pin : null;
+  useEffect(() => {
+    let cancelled = false;
+    setPinState(null);
+    if (!cliente || !pedido || pedido.cliente_id !== cliente.id || pedido.status === 'aguardando_pagamento') return;
+    void getDataClient().order.obterPinCliente(pedido.id).then(
+      value => { if (!cancelled) setPinState({ key: pinKey, pin: value, error: false }); },
+      () => { if (!cancelled) setPinState({ key: pinKey, pin: null, error: true }); },
+    );
+    return () => { cancelled = true; };
+  }, [cliente?.id, pedido?.id, pedido?.status, pinKey]);
+
+  const status = pedido?.status;
+
+  // Story 6.16 (AC5) + Story 6.21 (efeito colateral do cancelamento por
+  // atraso) — dependência é o valor PRIMITIVO `status` (não o objeto
+  // `pedido`) — o efeito só reexecuta quando o status realmente muda,
+  // evitando navegações repetidas a cada releitura do polling.
+  useEffect(() => {
+    if ((status === 'entregue' || status === 'cancelado_atraso') && pedido) {
+      navigation.navigate('Main', {
+        screen: 'PedidosTab',
+        params: { screen: 'Recibo', params: { pedidoId: pedido.id } },
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
+
+  const atrasado = pedido ? isPedidoAtrasado(pedido) : false;
+  const mostrarBannerAtraso = atrasado && !atrasoDispensado && !casoAtrasoAberto;
+
+  const handleCancelarPorAtraso = async () => {
+    if (!pedido) return;
+    setCancelandoAtraso(true);
+    setErroAtraso(null);
+    try {
+      await getDataClient().support.abrir({ pedidoId: pedido.id, tipo: 'atraso', motivo: 'Pedido atrasado além de duas vezes o tempo estimado', operacaoId: atrasoOperacaoId.current });
+      setCasoAtrasoAberto(true);
+      refresh();
+    } catch (e) {
+      setErroAtraso(e instanceof Error ? e.message : 'Não foi possível cancelar. Tente novamente.');
+    } finally {
+      setCancelandoAtraso(false);
+    }
+  };
+
+  return (
+    <Screen>
+      <AppHeader
+        title="Seu pedido"
+        back={{
+          navigation,
+          fallback: () =>
+            navigation.navigate('Main', { screen: 'PedidosTab', params: { screen: 'MeusPedidos' } }),
+        }}
+      />
+
+      {loading && <AsyncStateBlock kind="loading" />}
+      {!loading && !!error && <AsyncStateBlock kind="error" />}
+      {!loading && !error && !pedido && (
+        <AsyncStateBlock kind="empty" emptyLabel="Nenhum pedido em andamento para mostrar." />
+      )}
+
+      {!loading && !error && pedido && status && (
+        <>
+          <PedidoTimeline currentStep={timelineStepIndex(status)} />
+
+          <View style={styles.pinCard}>
+            <Text style={styles.pinCardLabel}>SEU CÓDIGO DE RETIRADA</Text>
+            {!pin && (
+              <Text style={styles.pinCardCopy}>
+                {pinState?.key === pinKey && pinState.error
+                  ? 'Código indisponível. Reabra o pedido para tentar novamente.'
+                  : pedido.status === 'aguardando_pagamento'
+                    ? 'O código será liberado após o pagamento.'
+                    : 'Carregando código…'}
+              </Text>
+            )}
+            <View style={styles.pinDigits}>
+              {(pin ?? '').split('').map((digito, index) => (
+                <View key={`${digito}-${index}`} style={styles.pinDigitBox}>
+                  <Text style={styles.pinDigit}>{digito}</Text>
+                </View>
+              ))}
+            </View>
+            <Text style={styles.pinCardCopy}>
+              Mostre este código ao lojista no hub{'\n'}para confirmar a retirada.
+            </Text>
+          </View>
+
+          {hub && (
+            <View style={styles.hubCard}>
+              <View style={styles.hubIcon}>
+                <Text style={styles.hubIconGlyph}>⚲</Text>
+              </View>
+              <View style={styles.hubInfo}>
+                <Text style={styles.hubNome}>{hub.nome}</Text>
+                <Text style={styles.hubEndereco}>{hub.endereco}</Text>
+              </View>
+              <Pressable onPress={handleComoChegar} disabled={!SUPORTE_WHATSAPP_DISPONIVEL} hitSlop={8}>
+                <Text style={[styles.comoChegar, !SUPORTE_WHATSAPP_DISPONIVEL && styles.comoChegarDesabilitado]}>
+                  {comoChegarLabel(SUPORTE_WHATSAPP_DISPONIVEL)}
+                </Text>
+              </Pressable>
+            </View>
+          )}
+
+          {/**
+           * Story 6.21 (AC1) — prompt/banner in-app com "Aguardar mais"
+           * (dispensa local) / "Solicitar análise" (chama backend), seguindo
+           * o MESMO padrão visual de `CancelarPedido.tsx` (card + CTA).
+           * Reforçado server-side pela RPC `cancelar_pedido_atraso` — nunca
+           * só a UI decide.
+           */}
+          {casoAtrasoAberto && <Text style={styles.atrasoCopy}>A solicitação por atraso está em análise. O pedido continua ativo até a decisão.</Text>}
+          {mostrarBannerAtraso && (
+            <View style={styles.atrasoCard}>
+              <Text style={styles.atrasoTitulo}>Seu pedido está atrasado</Text>
+              <Text style={styles.atrasoCopy}>
+                O lojista está demorando mais do que o combinado. Você pode aguardar ou solicitar análise do atendimento.
+              </Text>
+              {!!erroAtraso && <Text style={styles.atrasoErro}>{erroAtraso}</Text>}
+              <View style={styles.atrasoAcoes}>
+                <View style={styles.atrasoAcao}>
+                  <Button title="Aguardar mais" variant="outline" onPress={() => setAtrasoDispensado(true)} />
+                </View>
+                <View style={styles.atrasoAcao}>
+                  <Button title="Solicitar análise" onPress={handleCancelarPorAtraso} loading={cancelandoAtraso} />
+                </View>
+              </View>
+            </View>
+          )}
+
+          {/**
+           * Story 6.20 (AC1) — ponto de entrada que hoje não existe em
+           * nenhum lugar (`LojistaNaoVeio.tsx` só era alcançável
+           * programaticamente até esta Story). Só aparece quando a condição
+           * do AC1 é satisfeita — reforçada server-side pela RPC
+           * `reportar_lojista_nao_veio` (nunca só a UI decide).
+           */}
+          {podeReportarLojistaNaoVeio(pedido) && (
+            <View style={styles.lojistaNaoVeioCard}>
+              <Text style={styles.lojistaNaoVeioTitulo}>O lojista ainda não chegou?</Text>
+              <Text style={styles.lojistaNaoVeioCopy}>
+                Se você já esperou o tempo combinado, pode reportar e receber reembolso integral.
+              </Text>
+              <Button
+                title="Lojista não veio"
+                variant="outline"
+                onPress={() =>
+                  navigation.navigate('Main', {
+                    screen: 'PedidosTab',
+                    params: { screen: 'LojistaNaoVeio', params: { pedidoId: pedido.id } },
+                  })
+                }
+              />
+            </View>
+          )}
+
+          <Text style={styles.footer}>
+            Pedido #{pedido.numero} · {formatReais(pedido.total_pago_reais)}
+          </Text>
+        </>
+      )}
+    </Screen>
+  );
+}
+
+const styles = StyleSheet.create({
+  pinCard: {
+    backgroundColor: lightColors.text.primary,
+    borderRadius: radii.card,
+    paddingVertical: spacing['6'],
+    paddingHorizontal: spacing['4'],
+    alignItems: 'center',
+    marginBottom: spacing['4'],
+  },
+  pinCardLabel: {
+    fontFamily: 'HankenGrotesk-Medium',
+    fontSize: typography.sizes.xs.fontSize,
+    color: lightColors.text.faint,
+    letterSpacing: 1,
+    marginBottom: spacing['4'],
+  },
+  pinDigits: {
+    flexDirection: 'row',
+    gap: spacing['2'],
+    marginBottom: spacing['4'],
+  },
+  pinDigitBox: {
+    width: 56,
+    height: 64,
+    borderRadius: radii.md,
+    backgroundColor: lightColors.bg.canvas,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pinDigit: {
+    fontFamily: 'HankenGrotesk-ExtraBold',
+    fontSize: typography.sizes['2xl'].fontSize,
+    color: lightColors.accent.brand,
+  },
+  pinCardCopy: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.text.faint,
+    textAlign: 'center',
+    lineHeight: typography.sizes.sm.lineHeight,
+  },
+  hubCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: lightColors.bg.surface,
+    borderRadius: radii.card,
+    padding: spacing['3'],
+    marginBottom: spacing['4'],
+  },
+  hubIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: radii.full,
+    backgroundColor: lightColors.text.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing['3'],
+  },
+  hubIconGlyph: {
+    color: lightColors.accent.brand,
+    fontSize: typography.sizes.md.fontSize,
+  },
+  hubInfo: {
+    flex: 1,
+  },
+  hubNome: {
+    fontFamily: 'HankenGrotesk-SemiBold',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.text.primary,
+  },
+  hubEndereco: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.xs.fontSize,
+    color: lightColors.text.secondary,
+    marginTop: 2,
+  },
+  comoChegar: {
+    fontFamily: 'HankenGrotesk-SemiBold',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.accent.successFg,
+  },
+  comoChegarDesabilitado: {
+    color: lightColors.text.tertiary,
+  },
+  atrasoCard: {
+    backgroundColor: lightColors.bg.surface,
+    borderRadius: radii.card,
+    borderWidth: 1,
+    borderColor: lightColors.accent.warning,
+    padding: spacing['4'],
+    marginBottom: spacing['4'],
+    gap: spacing['3'],
+  },
+  atrasoTitulo: {
+    fontFamily: 'HankenGrotesk-SemiBold',
+    fontSize: typography.sizes.md.fontSize,
+    color: lightColors.accent.warning,
+  },
+  atrasoCopy: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.text.secondary,
+    lineHeight: typography.sizes.sm.lineHeight,
+  },
+  atrasoErro: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.accent.warning,
+  },
+  atrasoAcoes: {
+    flexDirection: 'row',
+    gap: spacing['3'],
+  },
+  atrasoAcao: {
+    flex: 1,
+  },
+  lojistaNaoVeioCard: {
+    backgroundColor: lightColors.bg.surface,
+    borderRadius: radii.card,
+    padding: spacing['4'],
+    marginBottom: spacing['4'],
+    gap: spacing['3'],
+  },
+  lojistaNaoVeioTitulo: {
+    fontFamily: 'HankenGrotesk-SemiBold',
+    fontSize: typography.sizes.md.fontSize,
+    color: lightColors.text.primary,
+  },
+  lojistaNaoVeioCopy: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.text.secondary,
+    lineHeight: typography.sizes.sm.lineHeight,
+  },
+  footer: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.xs.fontSize,
+    color: lightColors.text.tertiary,
+    textAlign: 'center',
+    marginTop: spacing['6'],
+  },
+});

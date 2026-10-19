@@ -1,0 +1,89 @@
+schema: 1
+story: '2.6'
+slug: login-real-email-senha-cliente
+title: Login real do Cliente por e-mail e senha
+gate: CONCERNS
+status_reason: >-
+  ACs funcionais 1-7 e 9 implementadas e verificadas de forma independente
+  (testes, typechecks, greps de não-regressão, revisão de segurança). AC8
+  (persistência de sessão após reiniciar o app em device) e o E2E de
+  signup->login (dependente de Confirm email OFF no keepit-dev) não são
+  verificáveis neste ambiente autônomo — permanecem como verificação manual
+  pendente. Nenhum achado critical/high; mensagem de erro genérica é a escolha
+  de segurança correta contra enumeração de e-mail.
+reviewer: 'Quinn'
+updated: '2026-08-12T02:10:00Z'
+
+# Evidência empírica reexecutada pelo @qa (não confiada cegamente no @dev)
+evidence:
+  independent_verification: true
+  tests:
+    - 'pnpm qa → 27/27 tasks Turbo PASS (lint/typecheck/test em todos os workspaces)'
+    - '@keepit/core-data:test → 112/112 PASS (auth.supabase.test.ts 10/10, inclui 3 novos testes de signIn: sucesso, propagação de erro, guarda defensiva sem usuário)'
+    - '@keepit/supabase-client:test → 8/8 PASS'
+    - 'supabase-adapters.test.ts → signIn corretamente EXCLUÍDO da varredura de NotImplementedError (agora implementado)'
+  typecheck:
+    - '@keepit/cliente typecheck → PASS (exit 0)'
+    - '@keepit/admin typecheck → PASS (exit 0) — sem regressão'
+  regression_greps:
+    - "navigate('Main') em apps/cliente/src → apenas em docstrings (Login/ConfirmacaoSMS); nenhuma chamada viva remanescente"
+    - 'DEMO_EMAIL/DEMO_SENHA em apps/cliente → apenas 1 menção em comentário de useCurrentCliente.ts; fallback e constantes removidos'
+    - 'signInWithPassword → só no adapter e no teste (fora build artifacts .next do SDK)'
+  security_boundary:
+    - 'service_role/asaas em cliente+core-data (fonte .ts/.tsx) → apenas docstrings; nenhum segredo no bundle'
+    - 'Story sem migration/SQL — RLS/schema de clientes inalterados (git status confirma ausência de .sql)'
+    - 'catch de signIn não loga nem exibe e-mail/senha/erro bruto do SDK (AC4)'
+    - 'Mensagem única e genérica para invalid_credentials e qualquer falha → não revela existência de e-mail (anti-enumeração)'
+
+acceptance_criteria:
+  - id: AC1
+    status: MET
+    note: 'Login.tsx reproduz o frame 10 · Login (título/subtítulo/campos/botão Entrar); sem separador "ou" nem Google/Apple (pendência 10.2 respeitada). Revisão visual fina em device é confirmatória, baixo risco.'
+  - id: AC2
+    status: MET
+    note: 'Link "Esqueci a senha" navega para EsqueciSenha (rota existente); nenhum reset implementado nesta story.'
+  - id: AC3
+    status: MET
+    note: 'signIn via supabase.auth.signInWithPassword; reusa mapUserToCliente (zero duplicação); propaga erro do SDK sem simular sucesso; guarda defensiva para user null sem erro. Coberto por teste.'
+  - id: AC4
+    status: MET
+    note: 'submitError com banner genérico; sai de loading no finally (permite nova tentativa); catch não loga nem inclui credencial. Propagação de erro coberta por teste de adapter.'
+  - id: AC5
+    status: MET
+    note: 'Sem navegação imperativa; transição para Main é consequência do observer onAuthStateChange (2.3.1). Sem redirecionamento por telefone/confirmação. Transição reativa em runtime é confirmatória em device.'
+  - id: AC6
+    status: MET
+    note: 'Removidos os dois navigate("Main") inertes (Login/ConfirmacaoSMS) e o fallback DEMO_EMAIL/DEMO_SENHA em useCurrentCliente. Greps confirmam: só docstrings remanescentes.'
+  - id: AC7
+    status: MET
+    note: 'setTimeout ~5s degrada para setCliente(null)+console.warn sem dado sensível; cancelado via flag settled (1º evento) e no cleanup (unmount); deps [] evita timer duplicado. Timing em runtime é confirmatório.'
+  - id: AC8
+    status: PENDING_MANUAL
+    note: 'Login real -> fechar app -> reabrir autenticado exige device/simulador + credenciais reais e depende da infra de storage da 2.5.1. Não verificável neste ambiente autônomo.'
+  - id: AC9
+    status: MET
+    note: 'Re-login por e-mail/senha permanece o fallback de acesso ao PIN; nenhum código de PIN é exibido ou alterado por esta story.'
+
+top_issues:
+  - id: 'REL-009'
+    severity: medium
+    category: reliability
+    finding: 'AC8 (persistência de sessão após encerrar/reabrir o app) não validada — ambiente autônomo sem device/simulador nem EXPO_PUBLIC_SUPABASE_URL/ANON_KEY reais.'
+    suggested_action: 'Antes de habilitar DATA_SOURCE=supabase no piloto: login real em device, matar o processo, reabrir e confirmar sessão ativa. Também confirmar transição reativa Auth->Main e o fallback de ~5s.'
+  - id: 'CFG-001'
+    severity: low
+    category: reliability
+    finding: 'E2E signup->login depende de Confirm email OFF no painel keepit-dev; toggle aplicado em paralelo pelo usuário, não verificado nesta sessão. Se ON, signIn após signup falha com credencial válida mas conta não confirmada — comportamento correto do backend, não bug desta story.'
+    suggested_action: 'Confirmar Confirm email OFF em keepit-dev antes do E2E manual; não contornar com workaround no código.'
+  - id: 'TEST-003'
+    severity: medium
+    category: tests
+    finding: 'Componentes RN (Login.tsx, RootNavigator.tsx timeout, ConfirmacaoSMS.tsx) sem cobertura de teste de render/interação: apps/cliente/vitest.config.ts roda em environment node e só inclui *.test.ts; sem @testing-library/react-native. Pré-existente, fora do escopo desta story.'
+    suggested_action: 'Story arquitetural própria para introduzir infraestrutura de teste de componente RN; até lá, AC1-AC4/AC7 validados por leitura + device. Cobertura de lógica pura (signIn) já adicionada.'
+  - id: 'MNT-002'
+    severity: low
+    category: maintainability
+    finding: 'Worktree divergente da 2.5.1 (dependência técnica) permanece não integrado em main; débito de integração herdado (ver gate 2.5.1 MNT-001).'
+    suggested_action: 'Débito para @devops: reconciliar/descartar o worktree antigo antes de push/PR. Não bloqueia o código atual.'
+
+waiver: { active: false }

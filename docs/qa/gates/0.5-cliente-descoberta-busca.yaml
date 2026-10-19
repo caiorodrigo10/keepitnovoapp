@@ -1,0 +1,189 @@
+schema: 1
+story: '0.5'
+story_title: 'Cliente: Descoberta & Busca'
+gate: CONCERNS
+status_reason: >-
+  As 6 telas + estados de loja + rating placeholder existem, typecheck verde,
+  zero hex hardcoded e consumo 100% via ports/hooks (nenhum mock direto) — mas
+  ficam 5 débitos não-bloqueantes: validação visual em device (REQ-002),
+  simplificações de fidelidade na Home/Loja (card destacado + "~20 min"), gap de
+  schema para rating/distância antes do Épico 1/5, ausência de método `search`
+  nas ports, e CodeRabbit não executado (sem WSL).
+reviewer: 'Quinn'
+updated: '2026-07-28T00:00:00Z'
+
+# --- 7 Quality Checks (story-lifecycle.md Phase 4) ---
+quality_checks:
+  - id: 1
+    name: 'Code review (patterns, readability, maintainability)'
+    result: PASS
+    notes: >-
+      Componentes de discovery reutilizáveis (StoreCard/ProductRow/SearchBar/
+      CategoryChips/AsyncStateBlock/RatingLabel/LojaEstadoBadge/ImagePlaceholder)
+      evitam duplicação nas 6 telas. Hooks locais compõem `useAsyncResource` +
+      `getDataClient()` no mesmo padrão de useCurrentCliente (0.4)/useAdminHubs
+      (0.12). Comentários [IDS]/[AUTO-DECISION] documentam cada decisão. Imports
+      limpos, params de rota tipados.
+  - id: 2
+    name: 'Unit tests (coverage, passing)'
+    result: N/A
+    notes: >-
+      Sem testes de UI automatizados — mesma decisão consciente das Stories
+      0.1/0.3/0.4 (casca visual, MVP). Contrato das ports (incl. deriveLojaEstado
+      → aberta/fechada/pausada) já é testado em packages/core-data (Story 0.2,
+      ex.: store.mock.test.ts); esta story apenas consome o contrato mockado.
+  - id: 3
+    name: 'Acceptance criteria met'
+    result: PASS
+    notes: >-
+      AC1: 6 telas (Home, Hub, Loja+catálogo, DetalheProduto, BuscaProduto,
+      BuscaLoja) implementadas em apps/cliente/src/screens/home/, substituindo
+      stubs da 0.3 sem rename de rota (navigation/types.ts só adicionou params
+      tipados). Loja renderiza os 3 estados (aberta/fechada/pausada) via
+      store.getState + LojaEstado; rating placeholder via RatingLabel. AC2:
+      dados exclusivamente via hooks compondo getDataClient() + ports
+      (hub/store/product) — grep confirmou zero import de mock/fixtures nas
+      telas. AC3: DevStateToggle (__DEV__) injeta forceEmpty/forceError; cada
+      tela ramifica loading/empty/error via AsyncStateBlock (mecanismo verificado
+      por leitura de código). AC4: 100% via @keepit/ui-tokens, grep confirmou
+      zero hex hardcoded; catálogo desabilitado com opacity 0.4 + pointerEvents
+      none quando fechada/pausada.
+  - id: 4
+    name: 'No regressions'
+    result: PASS
+    notes: >-
+      `pnpm --filter @keepit/cliente typecheck` → exit 0 (rodado nesta revisão).
+      File List restrito a apps/cliente/**. `lint`/`test` são `echo skipped`
+      neste app desde a 0.1 (sem cobertura de lint a regredir). Verificação de
+      escopo limitada (não é repo git); packages/core-data e demais apps não
+      constam na File List e não foram alterados.
+  - id: 5
+    name: 'Performance'
+    result: N/A
+    notes: >-
+      Casca visual sem rede/persistência real. useMemo usado em agrupamentos
+      (favoritos/categorias/filtros) evitando recomputo desnecessário — sem
+      otimização prematura (MVP). Sem superfície de performance mensurável.
+  - id: 6
+    name: 'Security (OWASP basics)'
+    result: PASS
+    notes: >-
+      Sem chamadas de rede/backend, sem segredos, sem auth real. Nenhum valor
+      financeiro/operacional hardcoded — preço unitário vem do mock de produto.
+      Nenhum cálculo real de distância (Haversine proibido no Épico 0).
+  - id: 7
+    name: 'Documentation'
+    result: PASS
+    notes: >-
+      Dev Agent Record exaustivo (cobertura por AC, [AUTO-DECISION]s, como os 3
+      estados foram exercitados, débitos). Docstrings por tela citando fonte/PNG
+      de referência. discoveryDisplay.ts documenta a decisão de mapa estático.
+      QA Results preenchido nesta revisão.
+
+top_issues:
+  - id: 'REQ-002'
+    severity: low
+    category: requirements
+    finding: >-
+      Fidelidade visual (AC4) não validada em simulador iOS/emulador Android —
+      sandbox sem ambiente visual. Débito herdado dos gates 0.1/0.3/0.4.
+      Comparação feita lendo os 4 PNGs de referência contra o JSX/estilos.
+    suggested_action: >-
+      Rodar as 6 telas em device/simulador real e comparar 1:1 com as 4
+      referências (incl. tocar o DevStateToggle para ver loading/vazio/erro)
+      antes de fechar o Épico 0.
+  - id: 'REQ-005'
+    severity: low
+    category: requirements
+    finding: >-
+      Simplificações de fidelidade visíveis já na comparação com os PNGs: a Home
+      (cliente-02) mostra a 1ª loja como CARD DESTACADO (imagem grande + badge
+      "Aberto" sobreposto + rating + pílula "~20 min") e as demais como linha
+      compacta; a implementação renderiza TODAS como linha compacta uniforme
+      (StoreCard), sem card destacado, sem badge de estado na Home e sem a pílula
+      "~20 min". A Loja (cliente-03) mostra "Pronto em ~20 min" ao lado do rating
+      e tabs curados (Promoções/Higiene/Cuidados) — a impl omite o tempo de
+      preparo e deriva as tabs de `categoria_produto`.
+    suggested_action: >-
+      Decidir com @po/UX se o card destacado da Home e o "~20 min" (tempo de
+      preparo) entram no Épico 0 ou ficam para a Descoberta real (Épico 5).
+      Se entrarem, ajustar StoreCard/Home/Loja; caso contrário, registrar como
+      simplificação aceita. Não bloqueia o objetivo de casca visual desta story.
+  - id: 'REQ-006'
+    severity: medium
+    category: requirements
+    finding: >-
+      Gap de schema para rating e distância. O ★ (rating) NÃO tem tabela/campo
+      algum em docs/architecture/03-data-models.md — hoje é placeholder visual
+      com valores do protótipo (discoveryDisplay.ts). Distância também não é
+      campo da port `Estabelecimento` (é geo/backend futuro). Aceitável no Épico
+      0 (valores congelados do protótipo, não inventados/computados), mas ambos
+      bloqueiam dado real na Descoberta do Épico 1/5.
+    suggested_action: >-
+      Escalar ao stakeholder (via Caio) ANTES do Épico 5: (a) o produto terá
+      avaliação/rating de verdade? Se sim, modelar tabela/campo em core-data; se
+      não, remover o ★ da UI. (b) distância será calculada no backend (geo)?
+      Registrar decisão em docs/PERGUNTAS_REGRAS_NEGOCIO.md.
+  - id: 'ARCH-002'
+    severity: low
+    category: code
+    finding: >-
+      Nenhuma port expõe método `search` — a busca (Tasks 5/6) é client-side em
+      memória: useSearchProdutos compõe store.listByHub + product.list + filtro
+      por texto/categoria; useSearchLojas filtra listByHub. Autorizado pelos Dev
+      Notes da 0.5 (equivalente funcional ao pg_trgm, sem replicá-lo). Nota
+      menor: useSearchProdutos só repassa `options` para listByHub, não para
+      product.list — suficiente para exercitar loading/vazio/erro, mas o erro
+      injetado não cobre a fase de catálogo.
+    suggested_action: >-
+      Ao implementar a Descoberta real (Épico 5), adicionar método de busca
+      (`search`/trigram) às ports store/product em core-data e migrar os hooks
+      locais para consumi-lo, em vez do filtro em memória.
+  - id: 'REQ-007'
+    severity: low
+    category: requirements
+    finding: >-
+      "Favoritos" da Home é subconjunto fixo (estab-farmacia-vida) em
+      discoveryDisplay.ts — não persistido/editável. Correto per Dev Notes (não
+      há port de favoritos no Épico 0). DetalheProduto busca a loja auxiliar sem
+      repassar o DevStateToggle (fallback '...' se em modo Erro) — decisão
+      consciente para não bloquear a tela por dado secundário.
+    suggested_action: >-
+      Nenhuma ação de código no Épico 0. Favoritar de verdade (persistência) é
+      trabalho de épico posterior — registrar quando for priorizado.
+  - id: 'DOC-002'
+    severity: low
+    category: docs
+    finding: >-
+      CodeRabbit (`coderabbit --prompt-only -t uncommitted`) não executado —
+      ambiente Linux nativo sem WSL, e o CLI roda via WSL neste projeto. Mesma
+      situação prevista pela missão ("CodeRabbit pode estar ausente").
+    suggested_action: >-
+      @devops/CI rodar CodeRabbit em ambiente com WSL/CLI disponível antes do
+      PR, se desejado. Não bloqueia — sem infra para executar no sandbox.
+
+waiver: { active: false }
+
+# --- Notas do revisor ---
+review_notes: |
+  Gate CONCERNS (não PASS) apenas para RASTREAR os 6 débitos não-bloqueantes
+  acima — nenhum deles impede o objetivo desta story (casca visual de Descoberta
+  & Busca do Cliente para revisão de UX). AC1-AC4 atendidos a nível de código;
+  typecheck verde (verificado); zero hex hardcoded; ports consumidas via hooks
+  sem mock direto; 3 estados de loja com base em store.getState real; toggle
+  dev-only é substituto razoável da validação de estados sem simulador.
+
+  As [AUTO-DECISION]s da missão foram avaliadas e são ACEITÁVEIS para o Épico 0:
+    - Distância/rating via mapa estático (discoveryDisplay.ts) com valores exatos
+      do protótipo — não computa (Haversine proibido) nem inventa. OK, mas ver
+      REQ-006 antes do Épico 1/5.
+    - Busca client-side (nenhuma port tem `search`) — OK, ver ARCH-002 p/ Épico 5.
+    - "Favoritos" subconjunto fixo — OK, ver REQ-007.
+
+  Follow-ups mais importantes para @po/stakeholder:
+    1. REQ-006 (rating sem schema + distância geo) — decisão de produto/modelo,
+       bloqueia Descoberta real (Épico 1/5). Registrar em PERGUNTAS_REGRAS_NEGOCIO.
+    2. REQ-005 (card destacado Home + "~20 min") — decisão de fidelidade/escopo.
+    3. REQ-002 (validação em device) — débito herdado, mesmo padrão 0.1/0.3/0.4.
+    4. ARCH-002 (método search nas ports) — trabalho do Épico 5.
+    5. DOC-002 (CodeRabbit) — @devops/CI quando houver WSL.

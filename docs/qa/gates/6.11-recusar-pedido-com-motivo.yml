@@ -1,0 +1,12 @@
+schema: 1
+story: '6.11'
+gate: PASS
+status_reason: 'RPC recusar_pedido atômica (UPDATE status/motivo + INSERT refund 100% na mesma transação), autorização por ownership/is_admin() dentro da função, radio-group AC1 e bloco condicional em Recibo entregues; pnpm qa verde e cobertura de erros nomeados no adapter/mock.'
+reviewer: 'Quinn'
+updated: '2026-08-14T02:11:00Z'
+top_issues:
+  - id: 'TEST-001'
+    severity: low
+    finding: 'Teste manual/device com DATA_SOURCE=supabase não executado (fora do alcance de agente autônomo, mesmo padrão aceito nas Stories de auth anteriores).'
+    suggested_action: 'Executar smoke em device: recusar pedido com cada um dos 3 motivos e conferir status=recusado, motivo_recusa e refund 100% pendente no keepit-dev.'
+waiver: { active: false }

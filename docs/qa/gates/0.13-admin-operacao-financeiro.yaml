@@ -1,0 +1,201 @@
+schema: 1
+story: "0.13"
+storyId: "0.13"
+storyName: "Admin: Operação & Financeiro"
+gate: CONCERNS
+verdict: CONCERNS
+status_reason: >-
+  Implementação sólida e verificada de forma INDEPENDENTE: as 8 telas
+  operacionais/financeiras do Admin renderam de fato (HTTP 200 em todas as 9
+  rotas + subrotas, zero PageStub, zero Application error) com dados reais do
+  mock e tema dark confirmado por screenshot Playwright (bodyBg rgb(27,30,28) =
+  token #1B1E1C; /financeiro exibiu GMV R$ 46,90 / Receita Keepit R$ 5,04
+  derivados do snapshot `taxa_keepit_reais` do pedido entregue, nunca
+  hardcoded). Todos os 3 ACs funcionalmente atendidos, ações destrutivas
+  (forçar cancelamento, bloquear, suspender, executar reembolso) exigem
+  confirmação/motivo, estados loading/vazio/erro exercitáveis (?vazio/?erro
+  confirmados), zero hex/rgb hardcoded (grep limpo), e
+  `pnpm --filter @keepit/admin typecheck` PASS (exit 0). CONCERNS por débitos
+  não-bloqueantes, com destaque para a fronteira mock/real: as 8 telas
+  consomem um adaptador LOCAL (`apps/admin/src/mock/`) em vez das ports reais
+  `admin.port`/`order.port` de `packages/core-data`, porque essas ports não
+  suportam os casos de uso admin. Aceitável como casca do Épico 0, mas EXIGE
+  follow-up ARCH obrigatório antes do Épico 1.
+reviewer: Quinn
+reviewedBy: "@qa (Quinn)"
+reviewedAt: "2026-07-28"
+updated: "2026-07-28T00:00:00Z"
+model: opus (claude-opus-4-8)
+
+verification_method: >-
+  Verificação INDEPENDENTE (sem confiar no relato do @dev): leitura completa das
+  8 page.tsx + 3 subrotas [id] + adaptador local (adminOpsMock/Fixtures/Types/
+  asyncOpsHelpers) + hook useAdminOps + adminLabels; grep por hex/rgb/style
+  inline em app/ e src/ (limpo — único rgba é comentário-doc em Card.tsx); grep
+  por literais financeiros fora de fixtures/labels (nenhum); execução própria de
+  `pnpm --filter @keepit/admin typecheck` (exit 0); boot limpo de `next dev`
+  (rm -rf .next) na porta 3113 + `curl` nas 9 rotas (todas 200, zero PageStub,
+  zero app error) incluindo ids reais (reembolso-ops-1, pedido-ops-3005,
+  estab-farmacia-vida); screenshots Playwright de /financeiro, /reembolsos,
+  /clientes confirmando tema dark + dados reais do mock; verificação textual dos
+  estados ?vazio=1 ("Nenhum reembolso pendente.") e ?erro=1 ("Erro ao
+  carregar... Tentar novamente"); confirmação de que apps/admin/File List não
+  toca packages/* (symlink @keepit/core-data intacto).
+
+quality_checks:
+  code_review:
+    status: PASS
+    notes: >-
+      Código limpo e coeso. Hook local `useAdminOps` REUSA `useAsyncResource` de
+      @keepit/core-data/hooks (mesmo padrão da 0.12) sem duplicar lógica de
+      loading/erro/refresh. Fixtures espelham os nomes de campo do schema real
+      (03-data-models.md). Decisão IDS (REUSE>ADAPT>CREATE) documentada no topo
+      do adaptador com justificativa técnica. Tradução de enums centralizada em
+      adminLabels; nenhum valor numérico em labels.
+  unit_tests:
+    status: CONCERNS
+    notes: >-
+      Nenhum teste automatizado das funções mock (Task 1 subitem "Testes
+      unitários dos novos métodos mock" deixado desmarcado honestamente). O
+      adaptador exporta `__resetAdminOpsDbForTests` (gancho de teste presente,
+      testes não escritos). Consistente com o padrão do Épico 0 (casca visual,
+      sem harness). Validação empírica feita pelo @qa (render + screenshot +
+      estados). Débito rastreado (TEST-001), não bloqueante.
+  acceptance_criteria:
+    status: PASS
+    notes: >-
+      AC1: as 8 telas existem e renderam (fila de reembolsos, executar
+      reembolso, lista de pedidos c/ filtro de 15 status, detalhe+forçar
+      cancelamento, lista de clientes+bloquear, lista de lojistas, detalhe+
+      suspender, dashboard financeiro, qualidade do lojista). Todas as ações
+      destrutivas exigem confirmação/motivo obrigatório (forceCancelOrder,
+      blockCliente, suspendLojista com textarea obrigatória + botão disabled
+      quando vazio; processRefund com botão de confirmação). AC2: dados via
+      mock, estados loading/vazio/erro exercitáveis e verificados. AC3: design
+      system dark (bodyBg rgb(27,30,28) = #1B1E1C via tokens), zero hex
+      hardcoded, valores financeiros derivados dos snapshots de `pedidos`.
+      Ressalva de rastreabilidade em REQ-001 (texto do AC2 diz "admin.port/
+      order.port mock", impl usa adaptador local equivalente).
+  no_regressions:
+    status: PASS
+    notes: >-
+      typecheck do admin PASS (exit 0). File List confinada a apps/admin/ —
+      packages/* e outros apps não tocados (symlink @keepit/core-data intacto).
+      Cross-workspace turbo (typecheck/lint) não executado deliberadamente para
+      não colidir com @dev irmão em packages/* — ver MNT-002.
+  performance:
+    status: PASS
+    notes: "N/A para casca visual. next dev pronto em 218ms; rotas respondem rápido."
+  security:
+    status: PASS
+    notes: >-
+      Sem auth real, sem dados reais, sem segredos, sem Asaas/Supabase. Todas as
+      ações são transições de estado in-memory no mock (escopo Épico 0). Sem
+      superfície OWASP em UI mock.
+  documentation:
+    status: PASS
+    notes: >-
+      Dev Notes/Completion Notes completos e honestos (Task 1 marcada parcial
+      [~], gap de escopo explicado, follow-up ARCH registrado). Change Log
+      mantido. Comentários com [Source:] rastreando schema e decisões IDS.
+
+top_issues:
+  - id: ARCH-001
+    severity: medium
+    finding: >-
+      As 8 telas consomem um adaptador LOCAL (apps/admin/src/mock/adminOpsMock.ts
+      + Fixtures/Types/asyncOpsHelpers) em vez das ports reais admin.port/
+      order.port de packages/core-data. Razão legítima e verificada: as ports da
+      Story 0.2 NÃO suportam operações admin (sem list-all de clientes/lojistas/
+      pedidos, sem forceCancelOrder, `db.reembolsos` do mock real nunca é
+      populado). @dev NÃO tocou packages/* (constraint de escopo respeitada) e
+      NÃO inventou campos (Article IV). ACEITÁVEL como casca do Épico 0, MAS
+      quebra a fronteira mock/real que o épico inteiro depende: o Admin passa a
+      consumir um mock paralelo, não a port compartilhada. Se não for promovido,
+      ligar o backend real no Épico 1 exigirá reescrever a camada de dados das 8
+      telas.
+    suggested_action: >-
+      FOLLOW-UP ARCH OBRIGATÓRIO antes do Épico 1: @architect avaliar onde cada
+      método reside (admin.port vs order.port) e @data-engineer/@dev promover as
+      7 funções (listAllAdmin/forceCancelOrder/listClientes/blockCliente/
+      suspendLojista/financialDashboard/lojistaQualityView) + fixtures para
+      packages/core-data, então religar os hooks do Admin nas ports reais.
+      Registrar como story dedicada (ex.: 1.0 ou reabertura de 0.2).
+  - id: MNT-001
+    severity: medium
+    finding: >-
+      @keepit/core-data está vinculado a apps/admin via symlink manual em
+      node_modules (mesma constraint da 0.12: sem `pnpm install` na sessão). Em
+      checkout limpo/CI o build quebra até rodar `pnpm install`, pois o symlink
+      não é versionado.
+    suggested_action: >-
+      @devops rodar `pnpm install` (atualizando pnpm-lock.yaml) e confirmar
+      resolução de @keepit/core-data sem symlink manual ANTES do push.
+  - id: TEST-001
+    severity: low
+    finding: >-
+      Sem testes automatizados das funções mock (forceCancelOrder gerando
+      reembolso, processRefund, block/suspend, financialDashboard, filtros).
+      Task 1 subitem de testes deixado desmarcado. Consistente com o Épico 0.
+    suggested_action: >-
+      Adicionar cobertura quando as funções forem promovidas às ports reais
+      (junto de ARCH-001), reusando o gancho __resetAdminOpsDbForTests.
+  - id: MNT-002
+    severity: low
+    finding: >-
+      typecheck/lint cross-workspace (turbo) não executados (deliberado, para
+      não colidir com @dev irmão em packages/*). Só o workspace admin foi
+      validado (exit 0).
+    suggested_action: "@devops rodar `pnpm turbo run typecheck` e `lint` completos antes do push."
+  - id: REQ-001
+    severity: low
+    finding: >-
+      O texto literal do AC2 diz "Dados via admin.port / order.port mock", mas a
+      implementação usa o adaptador local equivalente (ver ARCH-001). Contrato
+      idêntico (AsyncCallOptions, mesmos nomes de campo), mas o AC não é
+      satisfeito ao pé da letra. Aceito por o @po já ter validado o gap de
+      dependência 0.2 (GO 9/10) e por o adaptador ser funcionalmente
+      equivalente.
+    suggested_action: >-
+      Ao promover para ports reais (ARCH-001), o AC2 passa a ser satisfeito
+      literalmente. Nenhuma ação nesta story.
+
+evidence:
+  render:
+    routes_200:
+      - "/reembolsos -> 200 (Fila de Reembolsos; 2 pendente_admin: #3003 TIMEOUT R$29,00 PIX, #3005 R$23,80 PIX)"
+      - "/reembolsos/reembolso-ops-1 -> 200 (id real)"
+      - "/pedidos -> 200 (filtro de 15 status)"
+      - "/pedidos/pedido-ops-3005 -> 200 (não-terminal: botão Forçar cancelamento)"
+      - "/clientes -> 200 (Ana Souza Bloquear; Bruno Lima BLOQUEADO c/ motivo; Desbloquear)"
+      - "/lojistas -> 200 (todos os status)"
+      - "/lojistas/estab-farmacia-vida -> 200 (id real; ativo -> ação Suspender)"
+      - "/financeiro -> 200 (GMV R$ 46,90 / Receita Keepit R$ 5,04 / ranking Farmácia Vida)"
+      - "/qualidade-lojista -> 200"
+    states: "?vazio=1 -> 'Nenhum reembolso pendente.'; ?erro=1 -> 'Erro ao carregar... Tentar novamente' (ambos 200)"
+    screenshots:
+      - "/tmp/013-fin.png — dark + GMV/Receita/Ranking com dados reais"
+      - "/tmp/013-reemb.png — dark + fila de reembolsos"
+      - "/tmp/013-cli.png — dark + clientes com badge Bloqueado"
+    dark_theme: "bodyBg = rgb(27,30,28) = #1B1E1C (token bg-shell) confirmado via getComputedStyle"
+    typecheck: "pnpm --filter @keepit/admin typecheck -> exit 0"
+    hardcoded_colors: "grep hex/rgb/style inline em app+src -> nenhum (único rgba é comentário-doc em Card.tsx)"
+    hardcoded_financials: "grep por literais financeiros fora de fixtures/labels -> nenhum"
+
+dev_decisions_assessed:
+  adaptador_local: >-
+    DEFENSÁVEL como casca do Épico 0 — ports reais não suportam ops admin,
+    packages/* fora de escopo, sem invenção de campos. MAS gera fratura na
+    fronteira mock/real: ver ARCH-001 (follow-up obrigatório antes do Épico 1).
+  task1_desmarcada: >-
+    CORRETO — @dev deixou os subitens de core-data de Task 1 honestamente
+    desmarcados em vez de fingir conclusão. Transparência valorizada.
+  force_cancel_gera_reembolso: >-
+    CORRETO — forceCancelOrder transiciona para cancelado_admin E gera entrada
+    em reembolsos (motivo cancelamento_admin), coerente com o schema real.
+  gmv_derivado_snapshot: >-
+    CORRETO — GMV/Receita somam total_pago_reais/taxa_keepit_reais de pedidos
+    entregue no período; verificado que R$ 5,04 == taxa_keepit_reais de
+    pedido-ops-3001 (único entregue em 30d). Nada hardcoded.
+
+waiver: { active: false }

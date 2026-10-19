@@ -1,0 +1,46 @@
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+
+import { getDataClient } from '@keepit/core-data';
+
+import type { PerfilStackParamList } from './types';
+import { QA_BUILD_ENABLED } from '../config/buildInfo';
+import { getQaPerfilRouteNames, isQaRuntimeEnabled } from '../lib/qaAccess';
+import Perfil from '../screens/perfil/Perfil';
+import Cartoes from '../screens/perfil/Cartoes';
+import AdicionarCartao from '../screens/home/AdicionarCartao';
+import Favoritos from '../screens/perfil/Favoritos';
+import ExcluirConta from '../screens/perfil/ExcluirConta';
+import PainelQA from '../screens/perfil/PainelQA';
+
+const Stack = createNativeStackNavigator<PerfilStackParamList>();
+
+/**
+ * Stack aninhada da tab "Perfil" — Épico 0, Story 0.3 (AC1, AC3).
+ *
+ * **Story 2.8 (decisão 10.8, 2026-08-02):** rota `Configuracoes` removida —
+ * não existe mais tela de Configurações separada. Toda a estrutura de menu
+ * do frame 08 (Notificações, Ajuda & suporte, Hubs favoritos, Formas de
+ * pagamento, Termos, Política) foi materializada dentro de `Perfil` com
+ * navegação honesta (`Alert`, sem rota nova). `ExcluirConta` continua como
+ * rota própria — é o único destino real fora de `Perfil` nesta stack,
+ * exigido por compliance Apple 5.1.1(v).
+ */
+export function PerfilStack() {
+  const qaEnabled = isQaRuntimeEnabled(
+    QA_BUILD_ENABLED,
+    getDataClient().demoScenario,
+  );
+
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="Perfil" component={Perfil} />
+      <Stack.Screen name="Cartoes" component={Cartoes} />
+      <Stack.Screen name="AdicionarCartao" component={AdicionarCartao} />
+      <Stack.Screen name="Favoritos" component={Favoritos} />
+      <Stack.Screen name="ExcluirConta" component={ExcluirConta} />
+      {getQaPerfilRouteNames(qaEnabled).map((routeName) => (
+        <Stack.Screen key={routeName} name={routeName} component={PainelQA} />
+      ))}
+    </Stack.Navigator>
+  );
+}

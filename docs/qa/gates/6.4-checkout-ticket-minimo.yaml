@@ -1,0 +1,12 @@
+schema: 1
+story: '6.4'
+gate: PASS
+status_reason: 'COALESCE ticket_minimo_reais ?? businessConfig.ticketMinimoReais correto, fronteira "<" (subtotal igual ao mínimo é válido) provada, botão desabilitado + aviso com valores + defesa em profundidade no handlePagar. Cobertura unitária exaustiva; nenhuma AC pendente.'
+reviewer: 'Quinn'
+updated: '2026-08-12T23:40:00Z'
+top_issues:
+  - id: 'REL-001'
+    severity: low
+    finding: 'Teste manual/device não executado (sandbox sem simulador) — loja com ticket customizado vs. null coberta pelas fixtures mock (30 e null).'
+    suggested_action: 'Verificação visual em device no piloto (não bloqueante).'
+waiver: { active: false }

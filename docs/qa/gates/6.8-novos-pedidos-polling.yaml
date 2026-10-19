@@ -1,0 +1,27 @@
+schema: 1
+story: '6.8'
+gate: CONCERNS
+status_reason: 'listByEstabelecimento real autoriza SEMPRE pela sessão via RPC meu_estabelecimento_id() (deriva de auth.uid()), IGNORANDO o estabelecimentoId recebido como param — teste prova que, recebendo id de outra loja, a query filtra pelo estabelecimento da sessão. [] honesto sem sessão de lojista. Polling é setInterval de 25s (faixa 20-30s) via useFocusEffect com clearInterval no cleanup — sem vazamento de timer. tempoAceite é função pura display-only, sem cancelamento. SELECT explícito exclui pin_hash. Único débito: verificação manual/device do polling pendente + shared-types não regenerados.'
+reviewer: 'Quinn'
+updated: '2026-08-13T02:05:00Z'
+top_issues:
+  - id: 'DEV-004'
+    severity: low
+    finding: 'Teste manual/device (DATA_SOURCE=supabase: pedido novo aparece na lista dentro do intervalo de polling, sem push) não executado — sem Expo/device no sandbox. Cobertura automatizada equivalente em order.supabase.test.ts#listByEstabelecimento + tempoAceite.test.ts.'
+    suggested_action: 'Verificar em device no piloto — AC2 (novo pedido surge por polling em ~25s) confirmada visualmente.'
+  - id: 'MNT-002'
+    severity: low
+    finding: 'RPC meu_estabelecimento_id reconciliada manualmente em packages/shared-types/src/supabase.ts (tipos não regenerados por falta de SUPABASE_ACCESS_TOKEN neste ambiente). Débito compartilhado com o bloco.'
+    suggested_action: 'Regenerar shared-types via supabase gen types quando o token estiver disponível, removendo a reconciliação manual.'
+evidence:
+  tests_reviewed: 'core-data 387/387 (order.supabase.test.ts 21, order.mock.test.ts 18) e lojista 86/86 (tempoAceite.test.ts 5) — reexecutados fresh no worktree, fora do cache turbo. pnpm qa 27/27.'
+  acs_covered: [1, 2, 3, 4, 5]
+  security_confirmed:
+    - 'listByEstabelecimento autoriza pela SESSÃO (RPC meu_estabelecimento_id → eq estabelecimento_id) e não pelo estabelecimentoId do param; teste prova o filtro pela sessão recebendo id de outra loja como argumento.'
+    - '[] honesto quando não há estabelecimento próprio (nunca lança, nunca vaza pedidos de outra loja); builders.pedidos.select não é chamado nesse caminho.'
+    - 'meu_estabelecimento_id() é SECURITY DEFINER STABLE derivando de auth.uid(); RLS ve_pedidos_relacionados/pode_ver_pedido como 2ª barreira.'
+    - 'pin_hash fora de PEDIDO_COLUMNS e do tipo Pedido; polling só relê a própria loja.'
+    - 'Sem service_role no bundle.'
+  robustness: 'setInterval criado dentro de useFocusEffect com clearInterval no return — cleanup no blur/unmount, sem leak de timer. reload acessado via ref para evitar recriar o timer a cada render. Loading inicial (carregouUmaVez) separado do recarregamento — lista não pisca a cada ciclo de polling. Estados loading/vazio/erro tratados na tela.'
+  regression: 'NovosPedidos.tsx/PedidoCard.tsx sem redesenho além do texto de prazo (display-only) e do RefreshControl; mock listByEstabelecimento/fixtures preservados; nenhuma regressão nos 27 tasks do workspace.'
+waiver: { active: false }

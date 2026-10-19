@@ -1,0 +1,186 @@
+schema: 1
+story: "0.2"
+storyId: "0.2"
+storyName: "packages/core-data (ports + mock) e packages/config"
+gate: CONCERNS
+verdict: CONCERNS
+status_reason: >-
+  Fundação sólida: as 7 ports espelham 1:1 os campos snake_case e todos os enums
+  de docs/architecture/03-data-models.md (pedidos.status 15/15, reembolsos.motivo
+  9/9, estabelecimentos.status 4/4, view carteira_lojista), mocks são
+  genuinamente assíncronos (setTimeout, não Promise.resolve), pin_hash nunca é
+  exposto, e os 9 placeholders vivem só em @keepit/config. 58 testes verdes e
+  typecheck/lint/test 9/9 forçados (0 cache), sem regressão. CONCERNS apenas por
+  débitos LOW não-bloqueantes: lint real ainda ausente nos 2 novos pacotes
+  (herdado MNT-001) e wallet.mock fixa total_debitado_reais=0 (debitos_lojista
+  não modelado). Nenhum AC ficou em aberto.
+reviewer: Quinn
+reviewedBy: "@qa (Quinn)"
+reviewedAt: "2026-07-28"
+updated: "2026-07-28T00:00:00Z"
+model: opus (claude-opus-4-8)
+
+verification_method: >-
+  Verificação INDEPENDENTE (não confiando no relato do @dev): leitura direta das 7
+  ports vs. schema 03-data-models.md campo a campo e enum a enum; leitura dos mocks
+  (order/wallet/store/auth) e do async-helper; execução própria de
+  `pnpm turbo run typecheck --force`, `lint --force` e `test --force` (todos 9/9,
+  0 cache); grep confirmando pin_hash ausente do código-fonte e nenhum valor de
+  regra hard-coded fora de @keepit/config; inspeção dos testes de assincronicidade
+  ("same tick") e do teste de contrato de businessConfig.
+
+acceptance_criteria:
+  - id: AC1
+    description: "ports/ define interfaces por domínio (7) alinhadas a 03-data-models.md"
+    status: PASS
+    evidence: |
+      7 ports (auth, hub, store, product, order, wallet, admin) — limite do épico
+      respeitado, sem generic repository/CQRS. Verificado 1:1 contra o schema:
+      - pedidos.status: 15/15 literais exatos (aguardando_pagamento...estornado_chargeback).
+      - reembolsos_pendentes.motivo: 9/9 literais exatos.
+      - estabelecimentos.status: 4/4 (em_analise/ativo/rejeitado/suspenso).
+      - saques.status: 4/4; forma_pagamento: pix/cartao.
+      - view carteira_lojista: saldo_disponivel/bloqueado/total_sacado/total_debitado_reais.
+      - Nomes de coluna em snake_case preservados nos tipos de domínio (não traduzidos
+        para camelCase), como manda o épico. LojaEstado (aberta/fechada/pausada) é
+        DERIVADO e documentado como tal (não é coluna).
+      Campos extras de `clientes` (expo_push_token, notificacoes_ativas, hub_padrao_id)
+      omitidos do AuthPort — subset MVP intencional, sem divergência de nomes.
+  - id: AC2
+    description: "mocks assíncronos (Promise + latência) com fixtures do protótipo"
+    status: PASS
+    evidence: |
+      simulateAsync SEMPRE passa por setTimeout (nunca Promise.resolve síncrono) —
+      DEFAULT_MOCK_DELAY_MS=350, override por chamada. Teste "does not resolve on the
+      same tick" (delayMs:0 + assert resolved===false no mesmo tick) presente nos 7
+      domínios. Fixtures derivadas do protótipo via Grep (Farmácia Vida, Loja Bem
+      Vestir, Conveniência 24h, Padoca Nova, pedidos #2048/#2049) com origem documentada.
+  - id: AC3
+    description: "factory createDataClient({source}) default mock; hooks de consumo"
+    status: PASS
+    evidence: |
+      createDataClient default 'mock'; source:'supabase' lança erro explícito referenciando
+      Story 1.9; src/supabase/ só README placeholder. getDataClient() singleton para hooks.
+      Hooks (useHubs/useOrders/useStores/useWallet + useAsyncResource genérico) residem em
+      packages/core-data com sub-export @keepit/core-data/hooks (package.json exports["./hooks"]) —
+      decisão fixada cedo e documentada, propaga limpo para 0.4+ sem reescrever imports no swap Supabase.
+  - id: AC4
+    description: "injeção de estado por chamada: loading/vazio/erro"
+    status: PASS
+    evidence: |
+      AsyncCallOptions { delayMs?, forceError?, forceEmpty? } é o último parâmetro de toda
+      função de port. forceError rejeita, forceEmpty resolve vazio sem erro, delayMs exercita
+      loading. Coberto por teste dedicado nos 7 domínios (forceError + forceEmpty presentes em cada .test.ts).
+  - id: AC5
+    description: "config exporta placeholders num único módulo tipado; mocks leem dele"
+    status: PASS
+    evidence: |
+      businessConfig (`as const`) com os 7 obrigatórios do AC5 + pinBloqueioMin e
+      janelaToleranciaHubMin (regras fechadas usadas por order.port). order.mock lê
+      taxaKeepitPercent/pinTentativasMax/pinBloqueioMin; wallet.mock lê saqueMinimoReais/
+      carteiraLiberacaoDias. Grep confirma zero valor de regra hard-coded em mocks/ports
+      (apenas dados de fixture como endereços/horários, que não são config).
+  - id: AC6
+    description: "testes unitários dos mocks validando o contrato das ports"
+    status: PASS
+    evidence: |
+      58 testes verdes (2 @keepit/config + 56 @keepit/core-data), executados por mim
+      (--force, 0 cache). Cobrem por port: shape de retorno, assincronicidade real,
+      forceError, forceEmpty, mais regras de negócio (taxa Keepit sobre subtotal,
+      bloqueio de PIN após 5 tentativas, saque < mínimo, derivação de estado da loja).
+      Teste de businessConfig usa toEqual contra os 9 valores confirmados na doc de regras.
+
+quality_checks:
+  code_review: PASS
+  unit_tests: PASS
+  acceptance_criteria: PASS
+  regressions: PASS
+  performance: N/A
+  security: PASS
+  documentation: PASS
+
+issues:
+  - id: MNT-001
+    severity: low
+    category: code
+    status: CARRIED_FORWARD
+    description: >-
+      lint continua placeholder `echo skipped` — inclusive nos 2 NOVOS pacotes
+      (@keepit/config, @keepit/core-data). "lint 9/9" passa, mas nenhum ESLint real
+      roda sobre o código de fundação criado nesta story. Débito herdado do gate 0.1.
+      Não é regressão (o monorepo inteiro segue sem ESLint real), mas fundação de 11
+      stories idealmente deveria ter lint de verdade.
+    recommendation: >-
+      Configurar ESLint real (typescript-eslint) ao menos em packages/core-data e
+      packages/config em story futura, dado que este contrato será o mais reusado do projeto.
+  - id: ARCH-001
+    severity: low
+    category: code
+    status: OPEN
+    description: >-
+      wallet.mock#computeCarteira fixa total_debitado_reais=0 — o mock não modela
+      debitos_lojista (nem fixture de débito), então saldo/débito nunca refletem
+      chargeback. A view real carteira_lojista deriva total_debitado_reais de
+      debitos_lojista. Simplificação aceitável no Épico 0 (nenhuma tela consome débito
+      ainda), mas a tela de carteira do lojista (story futura) não conseguirá exercitar
+      um estado com débito > 0 sem estender o mock.
+    recommendation: >-
+      Quando a tela de carteira/extrato do lojista entrar, adicionar débitos ao MockDb
+      (ou uma fixture de debito) para exercitar total_debitado_reais e saldo negativo,
+      fechando o gap contra a view real.
+  - id: DOC-001
+    severity: low
+    category: docs
+    status: DEFERRED
+    description: >-
+      CodeRabbit CLI indisponível neste ambiente (sandbox Linux sem WSL) — self-healing
+      pré-review pulado por graceful degradation (core-config: skip_if_not_installed),
+      mesmo padrão do gate 0.1. Substituído por revisão manual + execução própria de
+      typecheck/lint/test.
+    recommendation: >-
+      Rodar `coderabbit --prompt-only -t committed --base main` quando o ambiente com
+      CodeRabbit estiver disponível, antes do push (@devops).
+
+regressions_check:
+  status: PASS
+  evidence: |
+    typecheck 9/9, lint 9/9, test 9/9 em run FORÇADO (--force, 0 cached) — não é replay de
+    cache. Os 7 workspaces pré-existentes seguem intactos (scripts test `echo skipped` não
+    quebram). Nenhuma tela/app (apps/*) tocada — escopo do Épico 0 respeitado (UI só a partir
+    da Story 0.4). Nenhum projeto/migration Supabase criado.
+
+security_check:
+  status: PASS
+  evidence: >-
+    Grep confirma que `pin_hash` NÃO existe no código-fonte de core-data — só é citado num
+    comentário de order.port.ts documentando que NUNCA deve ser exposto; a port expõe apenas
+    pin_texto. Sem rede/backend/segredos/credenciais. Nenhum valor de regra hard-coded fora de
+    @keepit/config. Story 100% in-memory local — superfície de ataque nula. OWASP básico N/A.
+
+contract_fidelity:
+  status: PASS
+  evidence: |
+    Ponto mais crítico da story (fundação de 11 stories + swap Supabase Épicos 1-9).
+    Conferido campo a campo e enum a enum contra 03-data-models.md — divergência ZERO nos
+    nomes que importam para o swap. Os 3 enums de maior risco (pedidos.status 15 valores,
+    reembolsos.motivo 9 valores, estabelecimentos.status 4 valores) batem exatamente. Nenhum
+    campo inventado (respeitada a nota "não há tabela de estoque"). Confirmado o @po (GO 9/10).
+
+notes: |
+  Fundação forte e mais limpa que a Story 0.1. A verificação independente de contrato — o
+  risco central que o épico sinaliza como "caro de corrigir depois" — passou 1:1 em todos os
+  7 domínios. Assincronicidade é real (setTimeout comprovado por teste de "same tick"), config
+  é fonte única (grep sem hard-code), e a segurança de contrato (pin_hash oculto) está correta.
+
+  Verdict CONCERNS (não PASS) apenas para RASTREAR dois débitos LOW que uma fundação reusada
+  merece ter visíveis: (1) MNT-001 — os 2 novos pacotes ainda não têm ESLint real; (2) ARCH-001
+  — wallet.mock não modela debitos_lojista, então total_debitado_reais é sempre 0. Nenhum dos
+  dois toca um AC (todos os 6 ACs fecharam e foram verificados neste ambiente) nem bloqueia o
+  avanço. Story vai para Done com os follow-ups registrados.
+
+next_action:
+  - "ARCH-001 (low): ao implementar a tela de carteira/extrato do lojista, estender o MockDb com debitos_lojista para exercitar total_debitado_reais > 0 e saldo negativo."
+  - "MNT-001 (low): configurar ESLint real em packages/core-data e packages/config em story futura (contrato mais reusado do projeto)."
+  - "DOC-001: rodar CodeRabbit antes do push quando o ambiente com WSL/CLI estiver disponível."
+
+waiver: { active: false }

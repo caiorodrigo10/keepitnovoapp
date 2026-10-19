@@ -1,0 +1,134 @@
+import type { NavigatorScreenParams } from '@react-navigation/native';
+
+/**
+ * Param lists tipados da navegação do App Cliente — Épico 0, Story 0.3.
+ *
+ * Todas as rotas desta story são stubs (sem conteúdo real), por isso os
+ * params ficam `undefined` por enquanto. Params reais (ex.: `produtoId` em
+ * `DetalheProduto`) serão adicionados pelas Stories 0.4–0.7 quando o
+ * conteúdo/lógica de cada tela for implementado.
+ */
+
+export type AuthStackParamList = {
+  Onboarding1: undefined;
+  CriarConta: undefined;
+  ConfirmacaoSMS: undefined;
+  /**
+   * `toast` adicionado pela Story 2.7 (AC4) — literal `'Senha redefinida'`,
+   * repassado por `RecuperarSenha` após sucesso. Opcional: toda navegação
+   * anterior a esta story continua chamando `navigate('Login')` sem params.
+   */
+  Login: { toast?: 'Senha redefinida' | 'E-mail confirmado, faça login' } | undefined;
+  EsqueciSenha: undefined;
+  /**
+   * Story 2.7 (AC3) — decisão de arquitetura 0.1.3: única rota receptora
+   * do callback `com.keepithub.cliente://auth/reset`, mapeada pelo linking
+   * de `NavigationContainer` (`passwordRecoveryLinking.ts`). `recovery`
+   * nunca carrega token — só o resultado (`ready`/`invalid`) já decidido
+   * dentro da fronteira de dados.
+   */
+  RecuperarSenha: { recovery?: 'ready' | 'invalid' } | undefined;
+};
+
+export type HomeStackParamList = {
+  Home: undefined;
+  /** `hubId` adicionado pela Story 0.5 (Task 2) — antes rota sem params (stub da 0.3). */
+  Hub: { hubId: string };
+  /** `estabelecimentoId` adicionado pela Story 0.5 (Task 3). */
+  Loja: { estabelecimentoId: string };
+  /** `produtoId` adicionado pela Story 0.5 (Task 4). */
+  DetalheProduto: { produtoId: string };
+  /** `query`/`categoria` opcionais (deep-link a partir de categoria da Home) — Story 0.5 (Task 5). */
+  BuscaProduto: { query?: string; categoria?: string } | undefined;
+  /** `query`/`categoria` opcionais — Story 0.5 (Task 6). */
+  BuscaLoja: { query?: string; categoria?: string } | undefined;
+  Carrinho: undefined;
+  Checkout: undefined;
+  EscolhaRetirada: undefined;
+  Pagamento: undefined;
+  AdicionarCartao: { operacaoId?: string } | undefined;
+};
+
+/**
+ * `ConfirmarRetiradaPin` (inventário da Story 0.7) NÃO é uma rota desta
+ * stack — foi mapeada para o modal raiz `ModalConfirmarPin` (ver
+ * RootStackParamList) para evitar rota duplicada. Ver Dev Notes da Story
+ * 0.3 ("Modal PIN — distinção Cliente x Lojista").
+ *
+ * Params `pedidoId` adicionados pela Story 0.7 (Task 2-7) — cada tela desta
+ * story precisa saber a qual pedido se refere. Onde `pedidoId` é opcional
+ * (`ChegueiAoHub`/`Recibo`), a tela cai de volta ao pedido "em andamento"
+ * mais recente do cliente (fixture única disponível no mock — ver
+ * `usePedidosMine`), mesmo padrão de fallback já usado em `Checkout`
+ * (Story 0.6, `DEFAULT_HUB_ID`).
+ */
+export type PedidosStackParamList = {
+  MeusPedidos: undefined;
+  ChegueiAoHub: { pedidoId?: string } | undefined;
+  Recibo: { pedidoId?: string } | undefined;
+  CancelarPedido: { pedidoId?: string } | undefined;
+  LojistaNaoVeio: { pedidoId?: string } | undefined;
+};
+
+/**
+ * Story 2.8 (decisão 10.8, 2026-08-02): `Configuracoes` removida — não há
+ * mais tela de Configurações separada, a estrutura de menu do frame 08 vive
+ * inteira dentro de `Perfil` (ver `PerfilStack.tsx`).
+ */
+export type PerfilStackParamList = {
+  Perfil: undefined;
+  Cartoes: undefined;
+  AdicionarCartao: { operacaoId?: string } | undefined;
+  Favoritos: undefined;
+  ExcluirConta: undefined;
+  PainelQA: undefined;
+};
+
+export type MainTabParamList = {
+  HomeTab: NavigatorScreenParams<HomeStackParamList>;
+  PedidosTab: NavigatorScreenParams<PedidosStackParamList>;
+  PerfilTab: NavigatorScreenParams<PerfilStackParamList>;
+};
+
+export type RootStackParamList = {
+  Auth: NavigatorScreenParams<AuthStackParamList>;
+  Main: NavigatorScreenParams<MainTabParamList>;
+  ScheduledDeletion: undefined;
+  /**
+   * `onSubmit` adicionado pela Story 0.6 (Task 4) — callback opcional
+   * chamado após o cliente confirmar o CPF, permitindo à tela de origem
+   * (Checkout) continuar o fluxo (`navigation.navigate('Pagamento')`) sem
+   * acoplar `ModalCPF` a uma rota de destino fixa. Não é serializável
+   * (função em `params`) — aceitável no Épico 0 (sem deep link/state
+   * persistence para esta rota).
+   */
+  ModalCPF: { onSubmit?: () => void } | undefined;
+  /**
+   * `pedidoId` adicionado pela Story 0.7 (Task 2) — "Seu pedido" (AC1),
+   * tela que exibe o PIN de 4 dígitos + timeline de status. Opcional: sem
+   * `pedidoId`, a tela usa o pedido "em andamento" mais recente do cliente
+   * (mesmo fallback de `PedidosStackParamList`).
+   */
+  ModalConfirmarPin: { pedidoId?: string } | undefined;
+  ModalPermissaoPush: undefined;
+  /**
+   * Story 6.7.1 (AC1, Task 6) — feedback visual de PIX (QR REAL do payload
+   * FAKE + copia-e-cola + "Aguardando pagamento" → "Pagamento confirmado"),
+   * navegada logo após `Pagamento.tsx#handlePagar` criar o pedido — `pedidoId`
+   * SEMPRE existe (diferente de `ModalConfirmarPin`, sem fallback aqui).
+   */
+  ModalPagamentoPix: { pedidoId: string };
+  /**
+   * Story 6.7.1 (AC3, Task 6) — mesmo papel de `ModalPagamentoPix` acima,
+   * para o fluxo de cartão salvo ("Processando pagamento…" → "Pagamento
+   * aprovado").
+   */
+  ModalProcessandoPagamento: { pedidoId: string; cartaoSalvoId?: string };
+};
+
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace ReactNavigation {
+    interface RootParamList extends RootStackParamList {}
+  }
+}

@@ -1,0 +1,52 @@
+schema: 1
+story: '4.8'
+gate: CONCERNS
+status_reason: 'Adapter Supabase real de `StorePort.setPausadoManualmente` (`UPDATE estabelecimentos SET pausado_manualmente`) sob a RLS `lojista_atualiza_proprio` (USING+WITH CHECK `dono_user_id = auth.uid()`), com `pausado_manualmente` deliberadamente FORA do trigger de imutabilidade (`trg_estabelecimentos_imutaveis` só trava status/cnpj/asaas_wallet_id/dono_user_id) — confirmado na migration `20260812123046`. Escrita cross-tenant afeta 0 linhas → releitura devolve null → método lança (sem sucesso simulado). AC5 (pedido já aceito) honestamente não verificável — `pedidos` é Épico 6, nenhuma checagem fictícia adicionada. Nenhuma condição de FAIL. CONCERNS por débitos: a UI da seção "Pausar novos pedidos" engole erros de escrita silenciosamente agora que a escrita é real (REL-001), AC5 adiada ao Épico 6, RLS validada por mock e não contra o `keepit-dev` real, e revisão de @architect do `getById` compartilhado pendente.'
+reviewer: 'Quinn'
+updated: '2026-08-12T00:00:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static+test
+    evidence: '`setPausadoManualmente` deixou de ser stub `NotImplementedError` e faz `UPDATE` real, relendo o estabelecimento via `fetchEstabelecimentoPorId` pós-escrita (nunca ecoa input). `LojaDisponibilidadeContext.getById`/`setPausadoManualmente` já eram as chamadas do provider — ZERO alteração de UI/Context. Teste `store.supabase.test.ts`: "faz UPDATE pausado_manualmente=true e relê o Estabelecimento real".'
+  AC2:
+    status: MET
+    method: static+test
+    evidence: 'RLS `lojista_atualiza_proprio` (FOR UPDATE, USING+WITH CHECK `dono_user_id = (SELECT auth.uid())`) confirmada na migration `20260812123046`; `pausado_manualmente` não está no trigger de imutabilidade (só status/cnpj/asaas_wallet_id/dono_user_id) → dono pode alterar, terceiro não. Escrita cross-tenant: 0 linhas → releitura null → `throw` "não encontrou a linha". Teste: "RLS bloqueando escrita de outro dono — releitura rejeita". Falha no servidor (RLS), não só na UI.'
+  AC3:
+    status: N/A
+    method: scope
+    evidence: 'Ocultação da loja pausada no catálogo do cliente já provisionada pela RLS `publico_ve_ativos` (`status=ativo AND pausado_manualmente=false AND excluido_em IS NULL`, migration `20260812123046`) — exercitada pela leitura pública do Épico 5, não reimplementada aqui.'
+  AC4:
+    status: MET
+    method: static+test
+    evidence: 'Desativar grava `pausado_manualmente=false` pelo MESMO mecanismo do AC2 (nenhuma diferença de implementação ativar/desativar). Teste: "faz UPDATE pausado_manualmente=false ... relê". Mock (`store.mock.ts#setPausadoManualmente`) já real desde a Story 1.10, não tocado.'
+  AC5:
+    status: DEFERRED
+    method: scope+test
+    evidence: 'Ajustado honestamente pelo @po/@sm: `pedidos` não existe (Épico 6). `setPausadoManualmente` só escreve `estabelecimentos.pausado_manualmente`, sem tocar outra tabela — nenhum mecanismo poderia afetar um pedido. Nenhuma checagem fictícia (Artigo IV — No Invention respeitado). Verificação formal registrada como retomada para o Épico 6.'
+
+evidence:
+  tests_reviewed: 'core-data 333/333 PASS (reexecutado); 4 casos de `setPausadoManualmente` (true/false, RLS cross-tenant→throw, erro do SDK propagado) + casos de `getById` compartilhados. `supabase-adapters.test.ts` atualizado (removido `setPausadoManualmente`/`getById` da lista de stubs).'
+  risk_summary: 'Baixo no core-data (escrita honesta sob RLS, releitura). Risco residual médio na borda de UX: a camada de UI (pré-existente, fora do File List desta Story) não expõe falhas de escrita agora reais — ver REL-001.'
+
+top_issues:
+  - id: 'REL-001'
+    severity: medium
+    finding: '`LojaDisponibilidadeContext.setRecebendoPedidos`/`selecionarPausa` atualizam o estado otimista e persistem via `.catch(() => undefined)` — engolem silenciosamente falhas de `setPausadoManualmente`. Agora que a escrita é real (rede/RLS podem falhar de verdade), uma falha deixa a UI mostrando "Pausado" enquanto `estabelecimentos.pausado_manualmente` permanece o valor antigo — divergência silenciosa numa função CORE. O adapter em si é honesto (lança); a fricção é na UI pré-existente (Story 0.9/1.10), NÃO alterada por esta Story (File List não toca `apps/lojista`), por isso é débito e não FAIL.'
+    suggested_action: 'Tratar o `catch` do toggle de pausa: reverter o estado otimista e exibir erro (ex.: `Alert`/mensagem inline) em caso de falha de escrita — alinhar à honestidade já aplicada na seção de horários (Story 4.7). Registrar como fix follow-up antes do piloto.'
+  - id: 'ARCH-001'
+    severity: medium
+    finding: '`StorePort.getById` (necessário para o carregamento inicial desta tela) foi promovido de stub `Épico 5` para real via [AUTO-DECISION] de @dev, sem a sessão dedicada de @architect prevista como Quality Gate Task compartilhada com a 4.7. Decisão bem fundamentada e sem vazamento de dado privado (RLS `publico_ve_ativos`), mas revisão formal pendente. Mesma issue registrada na 4.7 (ARCH-001).'
+    suggested_action: 'Registrar revisão de @architect (Sol) da promoção de `getById` para o Épico 4 — resolver uma vez para 4.7 e 4.8.'
+  - id: 'TEST-001'
+    severity: low
+    finding: 'Persistência e RLS cross-tenant de `pausado_manualmente` validadas por unit test com Supabase client mockado (0 linhas → releitura null → throw), não contra o `keepit-dev` real; revisão manual em device/Expo (pausar → remount → persiste → RLS de outro dono) não executada.'
+    suggested_action: 'Exercitar um UPDATE de `pausado_manualmente` cross-tenant contra o `keepit-dev` real (dois donos) e uma passagem manual em device antes do piloto.'
+  - id: 'DEP-001'
+    severity: low
+    finding: 'AC5 (pedido já aceito não é afetado) não verificável até o Épico 6 (`pedidos`). Tratado como retomada explícita, não simulado.'
+    suggested_action: 'Verificar formalmente o AC5 quando `pedidos` existir (Épico 6).'
+
+waiver: { active: false }

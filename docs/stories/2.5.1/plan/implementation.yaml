@@ -1,0 +1,125 @@
+# `implementation-schema` allows one dotted segment; this plan's explicit reference retains the project's full story ID.
+storyId: 'story-2.5'
+storyReference: '2.5.1'
+createdAt: '2026-07-31T00:00:00Z'
+createdBy: '@architect'
+status: pending
+complexity: STANDARD
+estimatedEffort: '1 development session, plus device/simulator validation'
+
+dependencies:
+  - name: '@react-native-async-storage/async-storage'
+    version: '2.2.0 (already present in @keepit/cliente)'
+    purpose: 'Persist the Cliente Supabase Auth session at the app bootstrap boundary.'
+  - name: '@supabase/supabase-js'
+    version: '^2.58.0 (already present)'
+    purpose: 'Provide SupabaseClient and the platform-agnostic storage type.'
+
+phases:
+  - id: phase-1
+    name: Public configuration boundary
+    description: 'Expose only the public Supabase URL and anon key to Expo while retaining the server/script fallback.'
+    subtasks:
+      - id: '1.1'
+        description: 'Document the Expo-public Supabase URL and anon key in the root environment template without exposing service-role or Asaas credentials.'
+        service: infra
+        files:
+          - '.env.example'
+        verification:
+          type: manual
+          instructions: 'Confirm only EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY are introduced for the mobile bundle; SUPABASE_SERVICE_ROLE_KEY and every ASAAS value remain unprefixed.'
+        status: pending
+        notes: 'AC1. The public anon key is allowed; no secret may acquire the EXPO_PUBLIC_ prefix.'
+
+  - id: phase-2
+    name: Shared Supabase and data-client contracts
+    description: 'Make the shared packages accept injected platform storage and reuse exactly one Supabase client across all adapters.'
+    subtasks:
+      - id: '2.1'
+        description: 'Extend createClient with additive, platform-agnostic auth options and resolve public Expo environment names before the existing server/script names.'
+        service: backend
+        files:
+          - 'packages/supabase-client/src/index.ts'
+          - 'packages/supabase-client/src/index.test.ts'
+          - 'packages/supabase-client/package.json'
+        verification:
+          type: command
+          command: 'pnpm --filter @keepit/supabase-client typecheck && pnpm --filter @keepit/supabase-client test'
+        status: pending
+        dependencies:
+          - '1.1'
+        notes: 'AC1–AC2. Import only the SupportedStorage type from supabase-js; never import AsyncStorage, SecureStore, or React Native. Preserve createServiceRoleClient exactly, including persistSession: false.'
+      - id: '2.2'
+        description: 'Add the optional supabaseClient injection point to CreateDataClientOptions and pass one resolved instance to all eight Supabase adapter factories.'
+        service: backend
+        files:
+          - 'packages/core-data/src/index.ts'
+          - 'packages/core-data/src/index.test.ts'
+        verification:
+          type: command
+          command: 'pnpm --filter @keepit/core-data typecheck && pnpm --filter @keepit/core-data test'
+        status: pending
+        dependencies:
+          - '2.1'
+        notes: 'AC3. Keep every adapter factory signature unchanged: auth, hub, store, product, order, wallet, admin, analytics already accept client?. Test that createDataClient({ source: "supabase", supabaseClient }) routes the same reference to all eight factories and that omitted injection creates one client, not eight.'
+
+  - id: phase-3
+    name: Cliente bootstrap
+    description: 'Create the sole React Native-specific composition point before navigation or hooks can memoize the data client.'
+    subtasks:
+      - id: '3.1'
+        description: 'Declare the direct bootstrap dependency on the Supabase client package for the Cliente app.'
+        service: infra
+        files:
+          - 'apps/cliente/package.json'
+        verification:
+          type: command
+          command: 'pnpm --filter @keepit/cliente typecheck'
+        status: pending
+        dependencies:
+          - '2.1'
+        notes: 'The direct app import is an intentional exception limited to the bootstrap module; screens and hooks remain dependent only on @keepit/core-data.'
+      - id: '3.2'
+        description: 'Initialize the Cliente data client at module-load bootstrap with AsyncStorage and import that bootstrap before RootNavigator can call getDataClient.'
+        service: frontend
+        files:
+          - 'apps/cliente/src/lib/dataClient.ts'
+          - 'apps/cliente/App.tsx'
+          - 'apps/cliente/src/lib/dataClient.test.ts'
+        verification:
+          type: command
+          command: 'pnpm --filter @keepit/cliente typecheck && pnpm --filter @keepit/cliente test'
+        status: pending
+        dependencies:
+          - '2.2'
+          - '3.1'
+        notes: 'AC4. Call getDataClient({ source: "supabase", supabaseClient: createClient({ storage: AsyncStorage, persistSession: true, autoRefreshToken: true }) }) at module scope, and import this module at the top of App.tsx. Do not defer it to useEffect; getDataClient memoizes first use. Do not touch Lojista or Admin.'
+
+  - id: phase-4
+    name: Cross-platform integration gate
+    description: 'Prove the persistent session on mobile and prove that React Native dependencies did not leak into Admin.'
+    subtasks:
+      - id: '4.1'
+        description: 'Run the package quality suite and the mandatory Admin typecheck and Next production build after integration.'
+        service: infra
+        files:
+          - 'package.json'
+        verification:
+          type: command
+          command: 'pnpm qa && pnpm --filter @keepit/cliente typecheck && pnpm --filter @keepit/admin typecheck && pnpm --filter @keepit/admin exec next build'
+        status: pending
+        dependencies:
+          - '3.2'
+        notes: 'AC2, AC3, AC6. This task changes no package script unless an existing script prevents the listed mandated commands; record command output in the Dev Agent Record rather than changing scope.'
+      - id: '4.2'
+        description: 'Validate real Supabase Auth persistence by closing and reopening the Cliente app on a device or simulator.'
+        service: frontend
+        files:
+          - 'apps/cliente/App.tsx'
+        verification:
+          type: manual
+          instructions: 'With EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY configured, authenticate against Supabase, terminate the Cliente process, reopen it, and confirm the existing session reaches Main without a new login. Also inspect the Admin dependency graph/build evidence for no React Native or AsyncStorage dependency.'
+        status: pending
+        dependencies:
+          - '4.1'
+        notes: 'AC5 and final architecture boundary review. If real credentials or a runnable device/simulator are unavailable, this acceptance criterion remains blocked rather than simulated.'

@@ -1,0 +1,174 @@
+import { describe, expect, it, vi } from 'vitest';
+
+import {
+  consumePasswordRecoveryUrl,
+  createPasswordRecoveryLinking,
+  EMAIL_CONFIRMATION_CALLBACK,
+  consumeEmailConfirmationUrl,
+  PASSWORD_RECOVERY_CALLBACK,
+} from './passwordRecoveryLinking';
+
+/**
+ * Espera um macrotask (em vez de contar `Promise.resolve()`) — robusto ao
+ * número exato de microtasks encadeados dentro de `consumePasswordRecoveryUrl`
+ * (um `await` interno + o `.then` externo do `subscribe`).
+ */
+function flushMicrotasks(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+const SENSITIVE_CALLBACK_FIELDS = ['access_token', 'refresh_token', 'code', 'requestId'];
+
+function expectSafeRecoveryUrl(value: unknown, state: 'ready' | 'invalid'): asserts value is string {
+  expect(value).toBe(`${PASSWORD_RECOVERY_CALLBACK}?recovery=${state}`);
+  for (const field of SENSITIVE_CALLBACK_FIELDS) {
+    expect(value).not.toContain(field);
+  }
+}
+
+/**
+ * Story 2.7 (AC3, AC5): garante que o token/URL bruta do callback nunca
+ * chega à camada de navegação — só a rota segura `?recovery=ready|invalid`
+ * sai deste módulo — e que `RecuperarSenha` é a única rota configurada
+ * para `auth/reset`.
+ */
+describe('passwordRecoveryLinking (Story 2.7)', () => {
+  it('sanitiza o callback de confirmação e leva ao Login sem expor o código PKCE', async () => {
+    const result = await consumeEmailConfirmationUrl(`${EMAIL_CONFIRMATION_CALLBACK}?code=pkce-secret`);
+
+    expect(result).toBe(`${EMAIL_CONFIRMATION_CALLBACK}?toast=E-mail%20confirmado%2C%20fa%C3%A7a%20login`);
+    expect(result).not.toContain('pkce-secret');
+  });
+
+  it('consumeAuthUrl encaminha confirmação de e-mail ao Login no cold start', async () => {
+    const establishPasswordRecoverySession = vi.fn(async () => undefined);
+    const linking = createPasswordRecoveryLinking(
+      { establishPasswordRecoverySession },
+      {
+        getInitialURL: async () => `${EMAIL_CONFIRMATION_CALLBACK}?code=pkce-secret`,
+        addEventListener: vi.fn(() => ({ remove: vi.fn() })),
+      },
+    );
+
+    await expect(linking.getInitialURL?.()).resolves.toBe(
+      `${EMAIL_CONFIRMATION_CALLBACK}?toast=E-mail%20confirmado%2C%20fa%C3%A7a%20login`,
+    );
+    expect(establishPasswordRecoverySession).not.toHaveBeenCalled();
+  });
+
+  it('entrega a URL bruta somente ao AuthPort e retorna rota sem token (AC5)', async () => {
+    const establishPasswordRecoverySession = vi.fn(async () => undefined);
+    const rawUrl = `${PASSWORD_RECOVERY_CALLBACK}#access_token=secret&refresh_token=also-secret&type=recovery`;
+
+    await expect(
+      consumePasswordRecoveryUrl(rawUrl, { establishPasswordRecoverySession }),
+    ).resolves.toBe(`${PASSWORD_RECOVERY_CALLBACK}?recovery=ready`);
+    expect(establishPasswordRecoverySession).toHaveBeenCalledWith(rawUrl);
+    expect(establishPasswordRecoverySession).toHaveBeenCalledTimes(1);
+  });
+
+  it('encaminha callback inválido/expirado para o estado recuperável, sem dados sensíveis (AC3)', async () => {
+    const establishPasswordRecoverySession = vi.fn(async () => {
+      throw new Error('provider detail');
+    });
+
+    const result = await consumePasswordRecoveryUrl(
+      `${PASSWORD_RECOVERY_CALLBACK}#error=expired&description=secret`,
+      { establishPasswordRecoverySession },
+    );
+
+    expect(result).toBe(`${PASSWORD_RECOVERY_CALLBACK}?recovery=invalid`);
+    expect(result).not.toContain('secret');
+  });
+
+  it('URL nula (sem link) resolve null e não chama o AuthPort', async () => {
+    const establishPasswordRecoverySession = vi.fn();
+    await expect(consumePasswordRecoveryUrl(null, { establishPasswordRecoverySession })).resolves.toBeNull();
+    expect(establishPasswordRecoverySession).not.toHaveBeenCalled();
+  });
+
+  it('ignora URL de outra rota (não é o callback canônico) e não chama o AuthPort', async () => {
+    const establishPasswordRecoverySession = vi.fn();
+    await expect(
+      consumePasswordRecoveryUrl('com.keepithub.cliente://auth/other', { establishPasswordRecoverySession }),
+    ).resolves.toBeNull();
+    expect(establishPasswordRecoverySession).not.toHaveBeenCalled();
+  });
+
+  it('ignora callback com userinfo mesmo quando host/path aparentam ser canônicos', async () => {
+    const establishPasswordRecoverySession = vi.fn();
+    await expect(
+      consumePasswordRecoveryUrl(
+        'com.keepithub.cliente://intruso:segredo@auth/reset?requestId=recovery-opaque123',
+        { establishPasswordRecoverySession },
+      ),
+    ).resolves.toBeNull();
+    expect(establishPasswordRecoverySession).not.toHaveBeenCalled();
+  });
+
+  it('configura RecuperarSenha como única rota receptora de auth/reset (decisão de arquitetura 0.1.3)', () => {
+    const linking = createPasswordRecoveryLinking(
+      { establishPasswordRecoverySession: vi.fn(async () => undefined) },
+      { getInitialURL: async () => null, addEventListener: vi.fn(() => ({ remove: vi.fn() })) },
+    );
+
+    expect(linking.prefixes).toEqual(['com.keepithub.cliente://']);
+    expect(linking.config).toEqual({
+      screens: { Auth: { screens: { RecuperarSenha: 'auth/reset', Login: 'auth/callback' } } },
+    });
+  });
+
+  it.each([
+    ['real implícito', `${PASSWORD_RECOVERY_CALLBACK}#access_token=a&refresh_token=b&type=recovery`],
+    ['real PKCE', `${PASSWORD_RECOVERY_CALLBACK}?code=pkce-secret`],
+    ['mock', `${PASSWORD_RECOVERY_CALLBACK}?requestId=recovery-opaque123`],
+  ])('getInitialURL sanitiza callback %s no cold start', async (_label, rawUrl) => {
+    const establishPasswordRecoverySession = vi.fn(async () => undefined);
+    const linking = createPasswordRecoveryLinking(
+      { establishPasswordRecoverySession },
+      { getInitialURL: async () => rawUrl, addEventListener: vi.fn(() => ({ remove: vi.fn() })) },
+    );
+
+    const result = await linking.getInitialURL?.();
+    expectSafeRecoveryUrl(result, 'ready');
+  });
+
+  it('subscribe só notifica o listener quando a URL recebida é o callback de recuperação', async () => {
+    const establishPasswordRecoverySession = vi.fn(async () => undefined);
+    let urlHandler: ((event: { url: string }) => void) | undefined;
+    const addEventListener = vi.fn((_type: 'url', handler: (event: { url: string }) => void) => {
+      urlHandler = handler;
+      return { remove: vi.fn() };
+    });
+    const linking = createPasswordRecoveryLinking(
+      { establishPasswordRecoverySession },
+      { getInitialURL: async () => null, addEventListener },
+    );
+
+    const listener = vi.fn();
+    const unsubscribe = linking.subscribe?.(listener);
+    expect(urlHandler).toBeDefined();
+
+    // Deep link de outra rota do app — não relacionado à recuperação — não deve notificar.
+    urlHandler!({ url: 'com.keepithub.cliente://qualquer-outra-rota' });
+    await flushMicrotasks();
+    expect(listener).not.toHaveBeenCalled();
+
+    const callbacks = [
+      `${PASSWORD_RECOVERY_CALLBACK}#access_token=a&refresh_token=b&type=recovery`,
+      `${PASSWORD_RECOVERY_CALLBACK}?code=pkce-secret`,
+      `${PASSWORD_RECOVERY_CALLBACK}?requestId=recovery-opaque123`,
+    ];
+    for (const callback of callbacks) {
+      urlHandler!({ url: callback });
+      await flushMicrotasks();
+    }
+
+    expect(listener).toHaveBeenCalledTimes(callbacks.length);
+    for (const [safeUrl] of listener.mock.calls) {
+      expectSafeRecoveryUrl(safeUrl, 'ready');
+    }
+
+    unsubscribe?.();
+  });
+});

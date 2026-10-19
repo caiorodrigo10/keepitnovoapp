@@ -1,0 +1,210 @@
+schema: 1
+story: '2.3'
+gate: CONCERNS
+status_reason: 'AC1, AC2 e AC3 provados EMPIRICAMENTE contra o keepit-dev real (2 usuários criados, trigger conferido, RLS testada negativamente, CASCADE provado, dados limpos). AC4 provada empiricamente para a configuração de HOJE (obfuscação identities:[] reproduzida ao vivo). **AC5 NÃO está cumprida** e não está "passando por acidente" — está passando por omissão: a navegação de sucesso aponta para a rota `Main`, que NÃO existe no navigator enquanto a tela CriarConta está montada (RootNavigator monta Auth XOR Main). Somado a isso, a Task 4 (`Confirm email` OFF) segue pendente e foi reconfirmada por mim (mailer_autoconfirm=false). Nenhum dos dois é corrigível dentro da autoridade/escopo desta story, por isso CONCERNS e não FAIL — mas AC5 é carregada explicitamente como NÃO ENTREGUE e nenhuma story downstream pode assumi-la pronta.'
+reviewer: 'Quinn'
+updated: '2026-07-31T14:10:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: empirical
+    evidence: 'OpenAPI do PostgREST (service_role) em /rest/v1/ → definitions.clientes com EXATAMENTE 5 propriedades (id uuid PK, nome text, telefone text, cpf text, criado_em timestamptz default now()), required=[id,nome,criado_em] (ou seja, telefone/cpf nullable, nome NOT NULL). Nenhuma coluna de épico futuro antecipada. ON DELETE CASCADE provado por execução: após DELETE /auth/v1/admin/users/{id} dos 2 usuários de teste, GET /rest/v1/clientes retornou [].'
+  AC2:
+    status: MET
+    method: empirical
+    evidence: |
+      Dois usuários reais criados no keepit-dev; JWT real de A obtido via /auth/v1/token?grant_type=password (anon key).
+        RLS positiva  : GET /clientes?select=id,nome com JWT de A → 1 linha, a própria.
+        RLS negativa 1: GET /clientes?id=eq.{UID_B} com JWT de A → [] (não vaza linha alheia).
+        RLS negativa 2: POST /clientes {id:UID_A} com JWT de A → HTTP 403, 42501 "new row violates row-level security policy" (policy sem_insert_direto_clientes).
+        RLS negativa 2b: POST /clientes com id arbitrário → HTTP 403, mesmo erro.
+        RLS negativa 3: PATCH /clientes?id=eq.{UID_B} com JWT de A → [] (0 linhas), e a linha de B verificada intacta por service_role depois.
+        DELETE /clientes?id=eq.{UID_A} com JWT de A → [] (0 linhas; não há policy de DELETE, como documentado no .sql).
+        UPDATE da própria linha → 200 com a linha alterada (comportamento esperado da AC2).
+      Dados de teste removidos ao final; GET /auth/v1/admin/users → nenhum usuário restante; GET /clientes → [].
+  AC3:
+    status: MET
+    method: empirical
+    evidence: 'Usuário A criado com user_metadata {"nome":"Ana QA Quinn","telefone":"11987654321"} → linha em clientes com nome="Ana QA Quinn", telefone="11987654321", cpf=null, criado_em preenchido. Usuário B criado com {"nome":"Bruno QA Quinn"} (sem chave telefone) → nome="Bruno QA Quinn", telefone=null (NULLIF/ausente → NULL, correto). Isto fecha a preocupação #8 do gate: as chaves usadas pelo adapter (nome/telefone) batem EXATAMENTE com as lidas pelo trigger — nenhuma gravação silenciosa de nome="".'
+  AC4:
+    status: MET_PARTIAL
+    method: empirical
+    evidence: |
+      POST /auth/v1/signup (anon key) para um e-mail JÁ EXISTENTE retornou, ao vivo:
+        HTTP 200, sem campo "error", user com id ALEATÓRIO (31d3365f-…, diferente do real) e "identities":[].
+      Ou seja: a obfuscação existe de verdade e o branch `!data.user || data.user.identities?.length === 0`
+      do @dev DISPARA — não é código que "parece certo e nunca roda". Verificado também que esse signup
+      obfuscado NÃO cria linha fantasma em clientes (SELECT pelo id falso → []).
+      PARCIAL porque o OUTRO branch (error.code === 'user_already_exists' | 'email_exists') NÃO foi exercitado
+      contra o banco: ele só se manifesta com `Confirm email` OFF — exatamente o estado alvo da Task 4. Ver TEST-004.
+      Os dois códigos existem de fato no SDK instalado (conferido em @supabase/auth-js@2.111.0 dist/module/lib/error-codes.d.ts).
+  AC5:
+    status: NOT_MET
+    method: empirical + leitura estática
+    evidence: 'Duas causas independentes, ambas provadas — ver REL-006 e CFG-001.'
+
+top_issues:
+  - id: 'REL-006'
+    severity: high
+    category: requirements
+    finding: |
+      AC5 não está "passando por acidente" — ela não pode passar. `RootNavigator` monta as rotas
+      `Auth` e `Main` de forma MUTUAMENTE EXCLUSIVA:
+        {authenticated ? <Stack.Screen name="Main" .../> : <Stack.Screen name="Auth" .../>}
+      Com AUTH_GUARD_ENABLED=false, isAuthenticated() é sempre true → só `Main` existe e a AuthStack
+      (onde vive CriarConta) NUNCA é montada: a tela de cadastro é INALCANÇÁVEL no build padrão.
+      Para chegar em CriarConta é preciso flipar AUTH_GUARD_ENABLED=true manualmente — e nesse
+      estado a rota `Main` NÃO está registrada, então
+      `navigation.getParent()?.navigate('Main', {...})` é uma ação não tratada: React Navigation
+      emite um aviso e NADA acontece. `isAuthenticated()` é função pura sem estado/contexto, então
+      o RootNavigator nunca re-renderiza após o signup.
+      Efeito para um usuário real hoje: conta criada no Supabase, linha gravada em clientes,
+      spinner para, e ele CONTINUA na tela "Criar conta", sem erro e sem feedback. Falha silenciosa.
+      Nota: o padrão é herdado do Épico 0 — Login.tsx e ConfirmacaoSMS.tsx têm exatamente a mesma
+      chamada, igualmente inerte. Não é defeito introduzido por esta story, mas é a razão pela qual
+      a AC5 desta story não está entregue.
+    suggested_action: |
+      NÃO corrigível dentro do escopo desta story (navigation/ e authGuard.ts estão em "O que NÃO tocar").
+      Story 2.6 (login real) DEVE, na mesma entrega: (a) substituir o stub por estado de sessão real
+      (Supabase onAuthStateChange / getSession) de modo que o RootNavigator RE-RENDERIZE e troque
+      Auth→Main sozinho, tornando a chamada explícita a navigate('Main') desnecessária; e
+      (b) revisar as 3 chamadas inertes (CriarConta, Login, ConfirmacaoSMS).
+      Até lá, AC5 permanece marcada NOT_MET e nenhuma story (2.11 em especial, que depende de
+      "primeira entrada na home após signup") pode assumi-la pronta.
+  - id: 'CFG-001'
+    severity: high
+    category: requirements
+    finding: |
+      Task 4 (`Confirm email` OFF) NÃO foi feita. Reconfirmado por mim ao vivo:
+      GET /auth/v1/settings → "mailer_autoconfirm": false. Consequência real: signUp completa sem
+      sessão (session/access_token nulos). Mesmo que REL-006 fosse resolvido, o usuário chegaria à
+      home SEM SESSÃO — e a primeira tela que fizer uma query com RLS retornaria vazio/erro, porque
+      cliente_le_proprio usa auth.uid() e não há JWT. Ou seja: as duas metades da AC5 estão quebradas,
+      não uma só.
+      A migration documenta a config no cabeçalho do .sql (registro durável — bom), mas o registro
+      factual em docs/PERGUNTAS_REGRAS_NEGOCIO.md → 10.5 não foi feito (arquivo estava em "não tocar")
+      e não existe checklist de provisionamento de projeto Supabase no repo — lacuna já escalada pelo
+      @data-engineer, ainda aberta.
+    suggested_action: |
+      Ação manual do Caio, agora: Painel → keepit-dev → Authentication → Sign In/Providers → Email →
+      desmarcar "Confirm email". Verificar por GET /auth/v1/settings → mailer_autoconfirm=true.
+      Depois disso, rodar apps/supabase/scripts/verify-2.3.sh (ele valida AC5 de ponta a ponta) E
+      re-testar o e-mail duplicado (ver TEST-004). Registrar data/autor em PERGUNTAS_REGRAS_NEGOCIO.md → 10.5
+      (só o fato técnico, sem mexer no status de negócio) e abrir a lacuna do checklist de provisionamento
+      com @architect/@devops — produção nasce com Confirm email ON.
+  - id: 'TEST-004'
+    severity: medium
+    category: tests
+    finding: |
+      O tratamento de e-mail duplicado tem DOIS branches e só um deles é o que valerá em produção.
+      Hoje (Confirm email ON) o Supabase obfusca e o branch `identities:[]` é o que dispara — provei
+      isso ao vivo. Quando a Task 4 for aplicada, o comportamento MUDA: o servidor passa a devolver
+      erro explícito, e aí o branch `error.code === 'user_already_exists'|'email_exists'` é o único
+      que roda. Esse branch está coberto apenas por teste de unidade com mock (auth.supabase.test.ts),
+      nunca contra o servidor real. É exatamente a classe "código que parece certo e não dispara nunca",
+      só que deslocada para depois da Task 4.
+      Risco adicional inverso: com autoconfirm ON, um signup LEGÍTIMO retorna identities com 1 item —
+      confirmado no fluxo dos usuários de teste, então não há falso positivo hoje.
+    suggested_action: 'Após aplicar a Task 4, repetir contra o keepit-dev: signUp anon com e-mail já existente, e confirmar que o retorno cai no branch error.code (e que a tela mostra "Este e-mail já está cadastrado."). Colar a saída real no Dev Agent Record. Item obrigatório do gate da Story 2.6.'
+  - id: 'SEC-002'
+    severity: medium
+    category: security
+    finding: |
+      Achado próprio, não previsto pela story: `cliente_atualiza_proprio` permite ao cliente
+      atualizar QUALQUER coluna da própria linha. Provei ao vivo (PATCH /clientes?id=eq.{self} com
+      JWT do próprio usuário alterou `nome` → HTTP 200 + linha alterada). Isso está conforme a AC2
+      ("cliente atualiza a própria linha"), então NÃO é violação de AC — mas o débito documentado no
+      .sql fala só de `bloqueado`. O mesmo vetor vale para `cpf`: quando o CPF virar dado fiscal
+      (checkout / Asaas), o cliente poderá reescrevê-lo livremente após a compra.
+    suggested_action: 'Ampliar o débito registrado no .sql/arquitetura: a policy de UPDATE precisa de WITH CHECK por coluna (ou de uma coluna-lista permitida) antes de cpf/bloqueado ganharem significado operacional. Levar a @architect junto com o pedido já registrado pelo @data-engineer sobre 05-security.md §3.1.'
+  - id: 'DOC-005'
+    severity: low
+    category: docs
+    finding: 'O Dev Agent Record e o Change Log citam "@supabase/supabase-js@2.58 → @supabase/auth-js@2.111.0". A versão REALMENTE instalada é @supabase/supabase-js@2.111.0 (o "^2.58.0" é o range declarado em package.json, não a versão resolvida). Não muda a conclusão — os códigos de erro citados existem de fato no pacote instalado, conferi — mas é uma citação imprecisa num épico que já teve duas fontes falsas.'
+    suggested_action: 'Ao citar versão de dependência, citar a resolvida (node_modules/.pnpm ou pnpm list), não o range do package.json.'
+  - id: 'DOC-006'
+    severity: low
+    category: docs
+    finding: 'auth-errors.ts afirma que a obfuscação está "documentada no changelog oficial do Supabase Auth (comportamento estável desde 2023)" — citação sem link, sem versão, não verificável a partir do repo. O comportamento em si é VERDADEIRO (provei empiricamente contra o keepit-dev), então não é fonte falsa; é provenance não verificável.'
+    suggested_action: 'Trocar a frase pela evidência empírica: apontar para o gate 2.3 / verify-2.3.sh, que reproduzem o comportamento, em vez de invocar um changelog não linkado.'
+
+deviations_review:
+  - id: 'DEV-1'
+    subject: 'bloqueado/motivo_bloqueio mantidos como opcionais em Cliente, em vez de removidos'
+    verdict: ACEITÁVEL
+    rationale: 'A instrução literal do @po não previu o acoplamento com admin.mock.ts e apps/admin (Story 1.10, código funcional fora do escopo). Tornar opcional evita a regressão sem reintroduzir a "mentira de tipo" que o @po queria impedir: opcional = pode ser undefined, e o adapter Supabase de fato não os popula — a assinatura passa a ser honesta. Documentado in-line com AUTO-DECISION. Débito residual baixo: consumidores precisam tratar undefined; o mock continua os preenchendo, então nada quebra.'
+  - id: 'DEV-2'
+    subject: 'db.ts, admin.mock.ts, useCurrentCliente.ts tocados fora do File List original'
+    verdict: ACEITÁVEL
+    rationale: 'São compile-fixes forçados por mudanças mandatórias da própria Task 5 (assinatura de signIn, nullability de telefone). Sem eles os pacotes não compilam. Nenhuma lógica de negócio nova; File List foi atualizada e o desvio declarado. Conferi que nada em navigation/, Login.tsx, EsqueciSenha.tsx, Onboarding*, ConfirmacaoSMS.tsx, telefoneMask.* foi tocado.'
+  - id: 'DEV-3'
+    subject: 'auth-errors.ts (arquivo novo) fora do File List original'
+    verdict: ACEITÁVEL
+    rationale: 'IDS CREATE justificado: nenhum tipo de erro existente distinguia e-mail duplicado, e sem essa distinção a AC4 ("mostrado claramente") é impossível. Arquivo mínimo (32 linhas), uma classe, exportado pelo índice. Ressalva menor em DOC-006.'
+
+rel_003_regression_check:
+  status: NÃO_REABERTO
+  evidence: 'CriarConta.tsx L102-126: navegação de sucesso está DENTRO do try, imediatamente após o await signUp (L112-114). O catch (L115-123) contém apenas setSubmitError — nenhum navigate. O finally (L124-126) contém EXCLUSIVAMENTE setLoading(false). grep de navigate no arquivo: 3 hits — L114 (sucesso, dentro do try), L183 (link "Já tem conta? Entrar", no JSX). REL-003 preservado. REL-004 fechada: o catch deixou de ser vazio e distingue EmailJaExisteError de erro genérico, com estado de erro dedicado (submitError, banner próprio) em vez de sobrecarregar FourErrors por campo — decisão documentada in-line.'
+
+article_iv_check: |
+  Fontes citadas no código e nos comentários, reconferidas uma a uma:
+  1. 'user_already_exists' / 'email_exists' como códigos do SDK → VERDADEIRO. Ambos presentes em
+     @supabase/auth-js@2.111.0 .../dist/module/lib/error-codes.d.ts (grep direto no node_modules).
+  2. Obfuscação identities:[] sob Confirm email ON → VERDADEIRO, e melhor que citado: PROVADO ao vivo
+     contra o keepit-dev nesta review (HTTP 200, sem error, id aleatório, identities:[]).
+  3. 'admin_users não existe no keepit-dev' (comentário do .sql) → VERDADEIRO. O OpenAPI do PostgREST
+     com service_role lista apenas os paths /clientes e /_canary; não há admin_users.
+  4. 'REVOKE aplicado / função não exposta como RPC' → VERDADEIRO e verificado por mim de duas formas:
+     (a) o OpenAPI não lista NENHUM path /rpc/; (b) POST /rest/v1/rpc/criar_cliente_apos_signup com
+     anon key → HTTP 404 PGRST202. A função do trigger não é invocável como RPC.
+  5. 'AUTH_GUARD_ENABLED = false, stub do Épico 0, não lê sessão real' (JSDoc de CriarConta) → VERDADEIRO,
+     li authGuard.ts. O @dev descreveu o problema com honestidade — a crítica em REL-006 é que a
+     descrição parou um passo antes da consequência real (rota Main inexistente).
+  6. 'Confirm email ON hoje' → VERDADEIRO, reconfirmado (mailer_autoconfirm=false).
+  7. Contrato de raw_user_meta_data (nome/telefone) → VERDADEIRO, provado por signup real, não por leitura.
+  Imprecisões encontradas: DOC-005 (versão do SDK) e DOC-006 (changelog não linkado). Nenhuma fonte falsa.
+
+evidence:
+  gate_command: 'pnpm qa --force (monorepo inteiro)'
+  gate_result: '27/27 tasks successful, 0 cached, 8.914s. @keepit/core-data: 12 arquivos, 100 testes verdes (inclui os 4 novos de auth.supabase.test.ts). @keepit/cliente: 2 arquivos, 26 testes verdes. @keepit/config: 3 testes. typecheck (tsc --noEmit) limpo em todos os pacotes. lint continua stub "echo skipped" — débito TEST-002 do Épico 1, não desta story.'
+  db_state_verification: |
+    MCP Supabase NÃO estava disponível neste contexto de subagente (nenhuma ferramenta mcp__supabase__*
+    exposta; o servidor está configurado como conector claude.ai, fora do alcance). Substituí por
+    verificação empírica direta contra o projeto real via REST/Auth API com as credenciais do .env —
+    o que, para RLS, é evidência MAIS FORTE que ler pg_policy, porque exercita o caminho real do PostgREST.
+    O que NÃO consegui provar por essa via, e declaro como não verificado:
+      - `relforcerowsecurity` (FORCE RLS) diretamente em pg_class — não há acesso a pg_catalog por REST.
+        Indireto: o INSERT direto é bloqueado até para o dono da tabela pelo desenho da policy, e o
+        trigger funciona (BYPASSRLS do role postgres), consistente com FORCE RLS ativo.
+      - `proacl` da função via SELECT em pg_proc — substituído pela prova funcional equivalente
+        (RPC responde 404 PGRST202 para anon; nenhum path /rpc/ no OpenAPI).
+      - get_advisors (security e performance) — requer MCP, NÃO EXECUTADO nesta review.
+  test_data_cleanup: 'Confirmado limpo. 2 usuários criados (qa.quinn.a/b.1785506145@keepit-qa.invalid) e removidos via DELETE /auth/v1/admin/users. Pós-limpeza: GET /rest/v1/clientes → [] e GET /auth/v1/admin/users → nenhum usuário. O signup obfuscado do teste de duplicidade não gerou usuário nem linha. Banco no mesmo estado de antes da review.'
+  scope_check: 'git show --name-only nos 3 commits: migration + verify script (@data-engineer); 11 arquivos de packages/core-data + CriarConta.tsx + useCurrentCliente.ts (@dev). Nenhum toque em apps/cliente/src/navigation/**, Login.tsx, EsqueciSenha.tsx, Onboarding*.tsx, ConfirmacaoSMS.tsx, telefoneMask.*, docs/architecture/**, docs/PERGUNTAS_REGRAS_NEGOCIO.md. git status limpo ao final da review.'
+
+nfr_validation:
+  security:
+    status: PASS
+    notes: 'RLS provada negativamente (não é mais "RLS por inspeção"). Função SECURITY DEFINER com search_path fixo e EXECUTE revogado de PUBLIC/anon/authenticated — verificado funcionalmente. Nenhum segredo em código; anon key é pública por design. Ressalva registrada em SEC-002 (UPDATE sem restrição de coluna) — débito, não falha atual.'
+  reliability:
+    status: CONCERNS
+    notes: 'REL-003 preservado, REL-004 fechada. Mas REL-006 introduz uma falha silenciosa de ponta de fluxo: signup bem-sucedido sem feedback nem transição de tela.'
+  performance:
+    status: PASS
+    notes: 'Policies usam (SELECT auth.uid()) — idioma recomendado pelo Supabase, avalia uma vez por query. Uma chamada de rede por submit. Nenhum SELECT extra após o signUp (decisão documentada e correta dado o estado sem sessão).'
+  maintainability:
+    status: PASS
+    notes: 'Migration excepcionalmente bem documentada (rollback ordenado, pré-condição de BYPASSRLS, guarda literal do bloqueado, registro da config fora-do-git). Decisões do @dev registradas in-line, não só na story.'
+
+recommendations:
+  immediate:
+    - 'Caio: aplicar a Task 4 (Confirm email OFF) no keepit-dev e registrar data/autor. É o desbloqueio de metade da AC5 e pré-condição do TEST-004.'
+    - 'Após a Task 4: rodar apps/supabase/scripts/verify-2.3.sh e colar a saída real no Dev Agent Record; re-testar e-mail duplicado no branch error.code.'
+  future:
+    - 'Story 2.6: guard de sessão real substituindo AUTH_GUARD_ENABLED, com re-render do RootNavigator; revisar as 3 chamadas navigate(Main) inertes (REL-006).'
+    - 'SEC-002: restringir colunas no WITH CHECK de cliente_atualiza_proprio antes de cpf/bloqueado virarem operacionais.'
+    - 'Criar checklist de provisionamento de projeto Supabase (Confirm email OFF é passo obrigatório; produção nasce com ON) — @architect/@devops.'
+    - 'Executar get_advisors (security + performance) num contexto com MCP Supabase — não foi possível nesta review.'
+
+waiver: { active: false }

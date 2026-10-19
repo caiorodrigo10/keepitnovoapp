@@ -1,0 +1,49 @@
+schema: 1
+story: '5.3'
+gate: CONCERNS
+status_reason: 'Adapter Supabase real de `StorePort.getState` (`store.supabase.ts`): reaproveita `fetchEstabelecimentoPorId` (já real, 4.7/4.8) + aplica `deriveLojaEstado`, agora fonte ÚNICA relocada para `store.port.ts` (`[IDS] ADAPT`, mesmo padrão de `validarHorariosSemanais`) e reexportada por `store.mock.ts` sem quebrar importadores. `pausado_manualmente` sempre vence (AC3); fora do horário do dia → fechada; senão aberta (AC1). Estabelecimento inexistente/RLS-bloqueado LANÇA erro honesto — nunca simula estado. 4 ACs atendidos (AC2 é ajuste de escopo explícito, não código). Testes reexecutados fora do cache Turbo (vitest direto: core-data 357/357): store.port 15/15 (3 estados + bordas exatas hora_abre inclusivo / hora_fecha exclusivo / 1min antes), store.supabase getState 5 casos com relógio controlado por vi.setSystemTime (pausada vence horário, aberta, fechada, lança-quando-ausente, propaga erro SDK). CONCERNS (não PASS) por débitos não-bloqueantes documentados: (1) getState contra o keepit-dev real não exercitado (ambiente sem credenciais vivas) — a barreira RLS `publico_ve_ativos`/`publico_ve_horarios` é pré-existente, os testes usam client injetado; (2) sem simulador/device — derivação de fuso local do dispositivo não validada em runtime real; (3) AC2 (esconder loja fechada da lista) permanece pergunta aberta §5.5, corretamente NÃO presumida. Nenhum critical/high.'
+reviewer: 'Quinn'
+updated: '2026-08-12T22:20:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: empirical
+    evidence: '`getState` = `fetchEstabelecimentoPorId(resolveClient(), id)` + `deriveLojaEstado(estabelecimento)`. Teste "aberta dentro do horário" (vi.setSystemTime quarta 12:00, horário 09:00-18:00) → ''aberta''. `useLojaEstado` consome `client.store.getState` sem tocar o mock; `LojaEstadoBadge` renderiza o dado real. Badge já fiel ao protótipo desde 0.5 — sem mudança de UI.'
+  AC2:
+    status: DEFERRED
+    method: static
+    evidence: 'Ajuste de escopo honesto: o filtro "esconder loja fechada da listagem" NÃO existe em nenhuma camada (nem no mock, nem na 5.2 — grep ausente; listByHub retorna todas as lojas ativas/não-pausadas). Esta Story NÃO o adiciona — mantém paridade com o mock. Registrado como pergunta de UX/negócio em docs/PERGUNTAS_REGRAS_NEGOCIO.md §5.5. Não presumido, não inventado.'
+  AC3:
+    status: MET
+    method: empirical
+    evidence: '`deriveLojaEstado`: `if (estabelecimento.pausado_manualmente) return ''pausada''` ANTES de qualquer checagem de horário. Teste "pausada vence horário" (pausado=true dentro de 09:00-18:00) → ''pausada'' tanto em store.port quanto em store.supabase (getState). Pausada não aparece na LISTAGEM via RLS (5.2); no DETALHE, `Loja.tsx` mostra o overlay "está pausada". Comportamento intencional.'
+  AC4:
+    status: MET
+    method: empirical
+    evidence: 'Fonte ÚNICA: `deriveLojaEstado` relocada de store.mock.ts → store.port.ts (linhas 198-215). store.mock.ts:3 importa, :20 reexporta (`export { deriveLojaEstado }`), :57 usa — importadores intactos (store.mock.test 13/13 verde). store.supabase.ts:7 importa a MESMA função. Zero duplicação da regra de horário entre mock e Supabase.'
+
+security:
+  status: PASS
+  notes: |
+    - Leitura pública via `createClient()` (anon key) — nenhum service_role no caminho do bundle do cliente.
+    - `getState` só expõe um valor derivado ('aberta'|'fechada'|'pausada') — não vaza colunas sensíveis. `ESTABELECIMENTO_COLUMNS` NÃO inclui `telefone` (verificado: linha 21-22 de store.supabase.ts).
+    - Estabelecimento não visível pela RLS → `fetchEstabelecimentoPorId` devolve null → `getState` LANÇA (nunca simula um estado para uma loja que a RLS esconderia). Falha honesta, sem tela branca (useLojaEstado mantém `null` inicial; Loja.tsx cai em "Loja não encontrada" via getById).
+
+issues:
+  - id: DEV-5.3-001
+    severity: medium
+    category: tests
+    description: 'getState contra o keepit-dev real (RLS publico_ve_ativos/publico_ve_horarios servindo o app Cliente anônimo) não foi exercitado — sem credenciais/ambiente vivo. Os testes de integração usam client Supabase injetado (caso trivial), provando a forma da query + a derivação, não a policy real do Postgres. A RLS em si é pré-existente (Stories 3.4/3.5), já gateada.'
+    recommendation: 'Validar getState contra o keepit-dev (aberta/fechada/pausada reais) na próxima janela com ambiente vivo, junto com o device.'
+  - id: DEV-5.3-002
+    severity: low
+    category: requirements
+    description: 'AC2 (esconder loja fechada da lista) é decisão de UX/regra de negócio pendente do Caio (§5.5), não implementada nem presumida. A feature de estado está completa; a filtragem de listagem depende dessa decisão.'
+    recommendation: 'Levar §5.5 ao Caio; se decidido esconder, é uma story de escopo explícito sobre listByHub, não sobre getState.'
+
+recommendations:
+  immediate: []
+  future:
+    - 'Validar os 3 estados contra keepit-dev + device (fuso local do dispositivo) quando o ambiente estiver disponível.'
+    - 'Resolver §5.5 (esconder loja fechada) com o Caio antes de tocar a listagem.'

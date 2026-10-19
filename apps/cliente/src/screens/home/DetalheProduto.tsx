@@ -1,0 +1,393 @@
+import { useRef, useState } from 'react';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+
+import { resolveLojaDisponibilidade } from '@keepit/core-data';
+import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
+
+import { FloatingCartButton } from '../../components/checkout';
+import { AsyncStateBlock, RatingLabel } from '../../components/discovery';
+import { ImagePlaceholder } from '../../components/discovery/ImagePlaceholder';
+import { Screen } from '../../components/ui';
+import { useCart } from '../../context/CartContext';
+import { useQaSimulation } from '../../context/QaScenarioContext';
+import { useProductDetail } from '../../hooks/useProductDetail';
+import { useStoreDetail } from '../../hooks/useStoreDetail';
+import { createActionInterlock } from '../../lib/actionInterlock';
+import { getRatingPlaceholder } from '../../lib/discoveryDisplay';
+import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
+import type { HomeStackParamList } from '../../navigation/types';
+
+type Props = NativeStackScreenProps<HomeStackParamList, 'DetalheProduto'>;
+
+function formatPreco(preco: number): string {
+  return preco.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+/**
+ * Detalhe do produto (Task 4, AC1-AC4). Fiel a `cliente-12-detalhe-produto.png`:
+ * foto, nome/preço, rating + "Em estoque" (não há controle de estoque real
+ * no schema — "Em estoque" é um rótulo fixo derivado de `produto.ativo`),
+ * descrição, seletor de quantidade (estado local).
+ *
+ * **Atualizado pela Story 0.6:** o botão "Adicionar ao carrinho" (antes
+ * stub/`disabled` na Story 0.5) agora chama `useCart().addItem(...)` e
+ * navega para `Carrinho` — é o ponto de entrada real do fluxo de checkout
+ * desta story.
+ *
+ * **Story 12.9:** a tela decide a confirmação e só navega depois que
+ * `cart.addItem` devolve `committed` (snapshot já persistido).
+ */
+export default function DetalheProduto({ route, navigation }: Props) {
+  const { produtoId } = route.params;
+  const storesSimulation = useQaSimulation('stores');
+  const [quantidade, setQuantidade] = useState(1);
+  const [selecoes, setSelecoes] = useState<Record<string, string[]>>({});
+  const [addPending, setAddPending] = useState(false);
+  const addInterlockRef = useRef(createActionInterlock());
+  const cart = useCart();
+
+  const { data: produto, loading: productLoading, error: errorProduto } = useProductDetail(
+    produtoId,
+    simulationToAsyncCallOptions(storesSimulation),
+  );
+  const loadingProduto = productLoading || isForcedLoading(storesSimulation);
+  const { data: loja } = useStoreDetail(produto?.estabelecimento_id ?? '', {});
+  const disponibilidade = loja ? resolveLojaDisponibilidade(loja) : null;
+  const compraDisponivel = disponibilidade?.disponivelParaCompra ?? false;
+  const grupos = produto?.gruposComplementos ?? [];
+  const complementoIds = grupos.flatMap((grupo) => selecoes[grupo.id ?? grupo.nome] ?? []);
+  const selecaoValida = grupos.every((grupo) => {
+    const count = (selecoes[grupo.id ?? grupo.nome] ?? []).length;
+    return count >= grupo.min_selecoes && count <= grupo.max_selecoes;
+  });
+  const extras = grupos.flatMap((grupo) => grupo.itens.filter((item) => (selecoes[grupo.id ?? grupo.nome] ?? []).includes(item.id ?? '')).map((item) => item.preco_extra_reais)).reduce((sum, price) => sum + price, 0);
+  const motivoIndisponibilidade = disponibilidade && !disponibilidade.disponivelParaCompra
+    ? disponibilidade.estado === 'pausada'
+      ? 'Esta loja está pausada no momento'
+      : 'Esta loja está fechada agora'
+    : null;
+
+  const showPersistenceError = () => {
+    Alert.alert(
+      'Não foi possível atualizar o carrinho',
+      'Não conseguimos salvar sua alteração. Tente novamente em instantes.',
+    );
+  };
+
+  const finishAddIntent = () => {
+    addInterlockRef.current.release();
+    setAddPending(false);
+  };
+
+  const handleAddItem = async (confirmed = false) => {
+    if (!produto || !loja || !resolveLojaDisponibilidade(loja).disponivelParaCompra) {
+      finishAddIntent();
+      return;
+    }
+
+    if (!selecaoValida) { finishAddIntent(); return; }
+    const input = {
+      estabelecimentoId: produto.estabelecimento_id,
+      produtoId: produto.id,
+      nome: produto.nome,
+      precoReais: produto.preco_reais + extras,
+      quantidade,
+      fotoUrl: produto.foto_url,
+      complementoIds,
+      complementos: grupos.flatMap((grupo) => grupo.itens.filter((item) => (selecoes[grupo.id ?? grupo.nome] ?? []).includes(item.id ?? '')).map((item) => ({ grupoNome: grupo.nome, itemNome: item.nome, precoExtraReais: item.preco_extra_reais }))),
+    };
+    const result = await cart.addItem(input, confirmed);
+
+    if (result.status === 'committed') {
+      finishAddIntent();
+      navigation.navigate('Carrinho');
+      return;
+    }
+
+    if (result.status === 'persistence_error') {
+      finishAddIntent();
+      showPersistenceError();
+      return;
+    }
+
+    if (result.status === 'confirmation_required') {
+      Alert.alert('Trocar de loja?', 'Isso vai limpar seu carrinho atual. Continuar?', [
+        { text: 'Cancelar', style: 'cancel', onPress: finishAddIntent },
+        {
+          text: 'Continuar',
+          style: 'destructive',
+          onPress: () => {
+            void handleAddItem(true);
+          },
+        },
+      ], { cancelable: true, onDismiss: finishAddIntent });
+      return;
+    }
+
+    finishAddIntent();
+  };
+
+  const beginAddItem = () => {
+    if (!addInterlockRef.current.acquire()) {
+      return;
+    }
+    setAddPending(true);
+    void handleAddItem();
+  };
+
+  return (
+    <View style={styles.flexOne}>
+      <Screen>
+        <View style={styles.topBar}>
+          <Pressable onPress={() => navigation.goBack()} hitSlop={8} style={styles.roundButton}>
+            <Text style={styles.roundButtonIcon}>‹</Text>
+          </Pressable>
+          <View style={styles.roundButton}>
+            <Text style={styles.roundButtonIcon}>♡</Text>
+          </View>
+        </View>
+
+        {errorProduto ? (
+          <AsyncStateBlock kind="error" errorLabel="Não foi possível carregar este produto. Tente novamente." />
+        ) : loadingProduto ? (
+          <AsyncStateBlock kind="loading" />
+        ) : !produto ? (
+          <AsyncStateBlock kind="empty" emptyLabel="Produto não encontrado." />
+        ) : (
+          <>
+            <ImagePlaceholder uri={produto.foto_url} style={styles.foto} borderRadius={radii.card} />
+
+            <View style={styles.headerRow}>
+              <Text style={styles.nome}>{produto.nome}</Text>
+              <Text style={styles.preco}>{formatPreco(produto.preco_reais)}</Text>
+            </View>
+            <Text style={styles.lojaNome}>
+              {loja?.nome_fantasia ?? '...'} · {produto.categoria_produto}
+            </Text>
+
+            <View style={styles.metaRow}>
+              <RatingLabel value={getRatingPlaceholder(produto.estabelecimento_id)} reviewCount={213} />
+              {produto.ativo && (
+                <View style={styles.estoqueBadge}>
+                  <Text style={styles.estoqueBadgeLabel}>Em estoque</Text>
+                </View>
+              )}
+            </View>
+
+            {produto.descricao && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Descrição</Text>
+                <Text style={styles.descricao}>{produto.descricao}</Text>
+              </View>
+            )}
+
+            {grupos.map((grupo) => {
+              const key = grupo.id ?? grupo.nome;
+              const selected = selecoes[key] ?? [];
+              return <View key={key} style={styles.section}>
+                <Text style={styles.sectionTitle}>{grupo.nome} {grupo.min_selecoes >= 1 ? '(Obrigatório)' : '(Opcional)'}</Text>
+                {grupo.itens.map((item) => {
+                  const checked = selected.includes(item.id ?? '');
+                  return <Pressable key={item.id ?? item.nome} style={styles.complementoOption} onPress={() => setSelecoes((current) => {
+                    const actual = current[key] ?? []; const id = item.id ?? '';
+                    if (grupo.tipo === 'unica') return { ...current, [key]: checked ? [] : [id] };
+                    if (checked) return { ...current, [key]: actual.filter((value) => value !== id) };
+                    return actual.length >= grupo.max_selecoes ? current : { ...current, [key]: [...actual, id] };
+                  })}>
+                    <Text>{checked ? '☑' : grupo.tipo === 'unica' ? '○' : '☐'} {item.nome}</Text>
+                    <Text>{item.preco_extra_reais ? `+ ${formatPreco(item.preco_extra_reais)}` : 'Grátis'}</Text>
+                  </Pressable>;
+                })}
+                {!selecaoValida && selected.length < grupo.min_selecoes ? <Text style={styles.avisoIndisponibilidade}>Escolha ao menos {grupo.min_selecoes} opção(ões).</Text> : null}
+              </View>;
+            })}
+
+            <View style={styles.quantidadeRow}>
+              <Text style={styles.sectionTitle}>Quantidade</Text>
+              <View style={styles.stepper}>
+                <Pressable
+                  style={styles.stepperButton}
+                  onPress={() => setQuantidade((q) => Math.max(1, q - 1))}
+                  hitSlop={8}
+                >
+                  <Text style={styles.stepperButtonLabel}>−</Text>
+                </Pressable>
+                <Text style={styles.stepperValue}>{quantidade}</Text>
+                <Pressable style={styles.stepperButton} onPress={() => setQuantidade((q) => q + 1)} hitSlop={8}>
+                  <Text style={styles.stepperButtonLabel}>+</Text>
+                </Pressable>
+              </View>
+            </View>
+
+            {motivoIndisponibilidade && (
+              <Text accessibilityRole="alert" style={styles.avisoIndisponibilidade}>
+                {motivoIndisponibilidade}
+              </Text>
+            )}
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Adicionar ao carrinho"
+              accessibilityState={{ disabled: addPending || !compraDisponivel || !selecaoValida, busy: addPending }}
+              disabled={addPending || !compraDisponivel || !selecaoValida}
+              style={[styles.addButton, (addPending || !compraDisponivel || !selecaoValida) && styles.addButtonDisabled]}
+              onPress={beginAddItem}
+            >
+              <Text style={styles.addButtonLabel}>Adicionar ao carrinho</Text>
+              <Text style={styles.addButtonPreco}>{formatPreco((produto.preco_reais + extras) * quantidade)}</Text>
+            </Pressable>
+          </>
+        )}
+      </Screen>
+      <FloatingCartButton onPress={() => navigation.navigate('Carrinho')} />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  flexOne: {
+    flex: 1,
+  },
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: spacing['4'],
+  },
+  roundButton: {
+    width: 36,
+    height: 36,
+    borderRadius: radii.full,
+    backgroundColor: lightColors.bg.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  roundButtonIcon: {
+    fontSize: typography.sizes.lg.fontSize,
+    color: lightColors.text.primary,
+  },
+  foto: {
+    width: '100%',
+    height: 180,
+    marginBottom: spacing['4'],
+  },
+  complementoOption: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing['2'] },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: spacing['2'],
+  },
+  nome: {
+    flex: 1,
+    fontFamily: 'HankenGrotesk-Bold',
+    fontSize: typography.sizes.xl.fontSize,
+    color: lightColors.text.primary,
+  },
+  preco: {
+    fontFamily: 'HankenGrotesk-Bold',
+    fontSize: typography.sizes.xl.fontSize,
+    color: lightColors.text.primary,
+  },
+  lojaNome: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.text.secondary,
+    marginTop: 2,
+    textTransform: 'capitalize',
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing['3'],
+    marginTop: spacing['3'],
+  },
+  estoqueBadge: {
+    backgroundColor: lightColors.accent.successBg,
+    borderRadius: radii.badge,
+    paddingHorizontal: spacing['3'],
+    paddingVertical: spacing['1'],
+  },
+  estoqueBadgeLabel: {
+    fontFamily: 'HankenGrotesk-SemiBold',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.accent.successFg,
+  },
+  section: {
+    marginTop: spacing['5'],
+  },
+  sectionTitle: {
+    fontFamily: 'HankenGrotesk-SemiBold',
+    fontSize: typography.sizes.md.fontSize,
+    color: lightColors.text.primary,
+    marginBottom: spacing['1'],
+  },
+  descricao: {
+    fontFamily: 'HankenGrotesk-Regular',
+    fontSize: typography.sizes.md.fontSize,
+    lineHeight: typography.sizes.md.lineHeight * 1.3,
+    color: lightColors.text.secondary,
+  },
+  quantidadeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: spacing['5'],
+  },
+  stepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing['3'],
+  },
+  stepperButton: {
+    width: 32,
+    height: 32,
+    borderRadius: radii.full,
+    backgroundColor: lightColors.bg.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepperButtonLabel: {
+    fontFamily: 'HankenGrotesk-Bold',
+    fontSize: typography.sizes.lg.fontSize,
+    color: lightColors.text.primary,
+  },
+  stepperValue: {
+    fontFamily: 'HankenGrotesk-SemiBold',
+    fontSize: typography.sizes.lg.fontSize,
+    color: lightColors.text.primary,
+    minWidth: 20,
+    textAlign: 'center',
+  },
+  addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: lightColors.accent.brand,
+    borderRadius: radii.sm,
+    paddingHorizontal: spacing['5'],
+    height: 56,
+    marginTop: spacing['6'],
+  },
+  addButtonLabel: {
+    fontFamily: 'HankenGrotesk-SemiBold',
+    fontSize: typography.sizes.lg.fontSize,
+    color: lightColors.text.primary,
+  },
+  addButtonDisabled: {
+    backgroundColor: lightColors.bg.muted,
+    borderColor: lightColors.border.default,
+    borderWidth: 1,
+  },
+  avisoIndisponibilidade: {
+    fontFamily: 'HankenGrotesk-Medium',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.accent.warning,
+    marginTop: spacing['4'],
+  },
+  addButtonPreco: {
+    fontFamily: 'HankenGrotesk-Bold',
+    fontSize: typography.sizes.lg.fontSize,
+    color: lightColors.text.primary,
+  },
+});

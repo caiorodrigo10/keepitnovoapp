@@ -1,0 +1,302 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, StyleSheet, View } from 'react-native';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+
+import type { Hub } from '@keepit/core-data';
+import { spacing } from '@keepit/ui-tokens';
+
+import { SelectableRow } from '../../components/checkout';
+import { AsyncStateBlock } from '../../components/discovery';
+import { FavoriteButton } from '../../components/discovery/FavoriteButton';
+import { AppHeader, Button, FormScreen, TextField } from '../../components/ui';
+import { useCart } from '../../context/CartContext';
+import { useQaSimulation } from '../../context/QaScenarioContext';
+import { useHubsList } from '../../hooks/useHubsList';
+import { formatDistanceKm, haversineKm, type LatLng } from '../../lib/distance';
+import { createActionInterlock } from '../../lib/actionInterlock';
+import { geocodeCep } from '../../lib/geocodeCep';
+import { getCurrentCoords } from '../../lib/geolocation';
+import { isForcedLoading, simulationToAsyncCallOptions } from '../../lib/qaSimulation';
+import type { HomeStackParamList } from '../../navigation/types';
+
+type Props = NativeStackScreenProps<HomeStackParamList, 'EscolhaRetirada'>;
+
+function formatAbertoAte(hub: Hub): string | undefined {
+  const hoje = new Date().getDay();
+  const horario = hub.horarios.find((item) => item.dia_semana === hoje);
+  if (!horario?.aberto || !horario.hora_fecha) {
+    return undefined;
+  }
+  return `Aberto até ${horario.hora_fecha.slice(0, 5).replace(':00', 'h')}`;
+}
+
+interface HubComDistancia {
+  hub: Hub;
+  distanciaKm: number | null;
+}
+
+/**
+ * AC2/AC3/AC4 (Story 5.1.1): calcula a distância de cada hub à `origin`
+ * (GPS ou CEP geocodado) e ordena por distância crescente quando há
+ * origem. Sem origem, mantém a ordem recebida de `useHubsList` e omite a
+ * distância (nunca trava — degradação graciosa).
+ */
+function ordenarPorDistancia(hubs: Hub[], origin: LatLng | null): HubComDistancia[] {
+  if (!origin) {
+    return hubs.map((hub) => ({ hub, distanciaKm: null }));
+  }
+
+  return hubs
+    .map((hub) => ({ hub, distanciaKm: haversineKm(origin, { lat: hub.lat, lng: hub.lng }) }))
+    .sort((a, b) => a.distanciaKm - b.distanciaKm);
+}
+
+/**
+ * Escolha do ponto de retirada (Task 3, AC1/AC4). Fiel a
+ * `cliente-05-escolha-ponto-retirada.png`, MENOS o mapa.
+ *
+ * **[DESVIO CONSCIENTE DO PROTÓTIPO] Sem mapa:** a referência mostra um
+ * mapa com pins dos hubs, mas a decisão da Rodada 4 (`docs/ARQUITETURA.md`)
+ * é "sem provider de mapa" — decisão que `docs/design-refs/INDEX.md`
+ * registra como conflito não resolvido (inspeção anterior do protótipo
+ * havia concluído erroneamente que não havia mapa). Esta story HONRA a
+ * decisão de arquitetura já fechada (sem provider de mapa = sem custo/
+ * dependência nova no MVP) em vez do protótipo, e mantém a lista de hubs
+ * (nome/endereço/distância/aberto até) como único mecanismo de escolha —
+ * ver `docs/design-refs/INDEX.md#Conflitos`. Pendente de revisão do
+ * stakeholder se o mapa deve ser adicionado antes do lançamento.
+ *
+ * **Distância real por GPS/CEP (Story 5.1.1, AC2-AC4):** ao montar, tenta
+ * `getCurrentCoords()` (Expo Location no nativo, `navigator.geolocation` no
+ * web). Se obtiver a posição: calcula Haversine cliente↔hub
+ * (`lib/distance.ts`) e ordena por distância crescente. Se a localização for
+ * negada/indisponível: mostra um input de CEP; `geocodeCep` (BrasilAPI CEP
+ * v2) resolve a origem a partir do CEP com o mesmo cálculo. Sem GPS e sem
+ * CEP (ou CEP que não resolve): a lista continua funcional, sem distância —
+ * nenhum caminho trava ou impede a seleção (degradação graciosa, AC3/AC4).
+ * O cálculo aqui é client-side, para o demo/mock — produção migra para Edge
+ * Function (FR59), fora do escopo desta Story.
+ */
+export default function EscolhaRetirada({ navigation }: Props) {
+  const cart = useCart();
+  const hubsSimulation = useQaSimulation('hubs');
+
+  const { data: hubs, loading: hubsLoading, error } = useHubsList(
+    simulationToAsyncCallOptions(hubsSimulation),
+  );
+  const loading = hubsLoading || isForcedLoading(hubsSimulation);
+
+  const [origin, setOrigin] = useState<LatLng | null>(null);
+  const [mostrarInputCep, setMostrarInputCep] = useState(false);
+  const [cepInput, setCepInput] = useState('');
+  const [cepMensagem, setCepMensagem] = useState<string | undefined>(undefined);
+  const [geocodificandoCep, setGeocodificandoCep] = useState(false);
+  const [selectionPending, setSelectionPending] = useState(false);
+  const selectionInterlockRef = useRef(createActionInterlock());
+  // Bug Q: uma vez disparado o goBack, a tela está saindo — nenhum setState
+  // posterior pode remontar as linhas no mesmo frame do pop (ver leaveWithSelection).
+  const selectionLeavingRef = useRef(false);
+
+  // AC2/AC3: tenta GPS ao abrir; sem sucesso, cai no fallback de CEP — nunca trava.
+  useEffect(() => {
+    let cancelado = false;
+
+    getCurrentCoords()
+      .then((coords) => {
+        if (cancelado || selectionLeavingRef.current) return;
+        if (coords) {
+          setOrigin(coords);
+        } else {
+          setMostrarInputCep(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelado) setMostrarInputCep(true);
+      });
+
+    return () => {
+      cancelado = true;
+    };
+  }, []);
+
+  const hubsComDistancia = useMemo(() => ordenarPorDistancia(hubs, origin), [hubs, origin]);
+
+  const handleBuscarCep = async () => {
+    setCepMensagem(undefined);
+    setGeocodificandoCep(true);
+    const coords = await geocodeCep(cepInput);
+    setGeocodificandoCep(false);
+
+    if (coords) {
+      setOrigin(coords);
+    } else {
+      // AC3: degradação graciosa — CEP inválido/sem coordenadas/erro de rede, lista segue sem distância.
+      setCepMensagem('Não encontramos esse CEP. A lista continua disponível, sem distância.');
+    }
+  };
+
+  const finishSelection = () => {
+    selectionInterlockRef.current.release();
+    if (!selectionLeavingRef.current) {
+      setSelectionPending(false);
+    }
+  };
+
+  // Bug Q (crash 1x ao SELECIONAR outro hub, distinto do re-toque do bug K):
+  // no caminho committed/unchanged, o código chamava finishSelection()
+  // (setSelectionPending(false)) imediatamente antes de navigation.goBack().
+  // Isso remontava TODAS as linhas (pointerEvents none->auto, opacity e
+  // FavoriteButton disabled) no mesmo batch/frame em que o native-stack
+  // desmonta a tela, somado ao re-render do commit do carrinho (hubId novo,
+  // check da linha). No Fabric, a inserção dessa hierarquia numa tela em
+  // remoção (addViewAt no ScrollView/ReactClippingViewManager) derruba o app
+  // com "The specified child already has a parent" — intermitente porque
+  // depende da coincidência dos batches. Ao sair, não há o que reativar:
+  // libera o interlock (ref, sem re-render) e navega uma única vez.
+  // O Alert de confirmação também chama finishSelection em onDismiss após
+  // "Continuar" — a flag impede esse setState tardio na tela que já saiu.
+  const leaveWithSelection = () => {
+    selectionInterlockRef.current.release();
+    selectionLeavingRef.current = true;
+    navigation.goBack();
+  };
+
+  const selectHub = async (hub: Hub, confirmed = false) => {
+    const result = await cart.selectHub(hub, confirmed);
+
+    if (result.status === 'committed' || result.status === 'unchanged') {
+      leaveWithSelection();
+      return;
+    }
+
+    if (result.status === 'persistence_error') {
+      finishSelection();
+      Alert.alert('Não foi possível salvar sua seleção. Tente novamente.');
+      return;
+    }
+
+    if (result.status === 'blocked') {
+      finishSelection();
+      Alert.alert('Este hub não está disponível para novos pedidos.');
+      return;
+    }
+
+    Alert.alert('Limpar carrinho?', 'Ao trocar de hub ou loja, os itens atuais serão removidos.', [
+      { text: 'Cancelar', style: 'cancel', onPress: finishSelection },
+      {
+        text: 'Continuar',
+        style: 'destructive',
+        onPress: () => {
+          void selectHub(hub, true);
+        },
+      },
+    ], { cancelable: true, onDismiss: finishSelection });
+  };
+
+  const beginHubSelection = (hub: Hub) => {
+    if (hub.id === cart.hubId) {
+      return;
+    }
+    if (!selectionInterlockRef.current.acquire()) {
+      return;
+    }
+    setSelectionPending(true);
+    void selectHub(hub);
+  };
+
+  return (
+    <FormScreen>
+      <AppHeader
+        title="Escolha o ponto de retirada"
+        back={{ navigation, fallback: () => navigation.navigate('Home') }}
+      />
+
+      {error ? (
+        <AsyncStateBlock kind="error" errorLabel="Não foi possível carregar os hubs. Tente novamente." />
+      ) : loading ? (
+        <AsyncStateBlock kind="loading" />
+      ) : hubs.length === 0 ? (
+        <AsyncStateBlock kind="empty" emptyLabel="Nenhum hub disponível perto de você." />
+      ) : (
+        <>
+          {mostrarInputCep && !origin && (
+            <View style={styles.cepBlock}>
+              <TextField
+                label="Não conseguimos sua localização — informe seu CEP"
+                value={cepInput}
+                onChangeText={(value) => {
+                  setCepInput(value);
+                  setCepMensagem(undefined);
+                }}
+                placeholder="00000-000"
+                keyboardType="numeric"
+                error={cepMensagem}
+              />
+              <Button
+                title={geocodificandoCep ? 'Buscando…' : 'Usar este CEP'}
+                onPress={handleBuscarCep}
+                loading={geocodificandoCep}
+              />
+            </View>
+          )}
+
+          <View style={styles.list}>
+            {hubsComDistancia.map(({ hub, distanciaKm }) => (
+              <View
+                key={hub.id}
+                style={styles.hubRow}
+              >
+                <View
+                  pointerEvents={hub.ativo && !selectionPending ? 'auto' : 'none'}
+                  style={[styles.hubSelection, (!hub.ativo || selectionPending) && styles.hubDisabled]}
+                >
+                  <SelectableRow
+                    selected={hub.id === cart.hubId}
+                    title={hub.nome}
+                    subtitle={distanciaKm != null ? `${hub.endereco} · ${formatDistanceKm(distanciaKm)}` : hub.endereco}
+                    highlight={formatAbertoAte(hub)}
+                    onPress={() => {
+                      beginHubSelection(hub);
+                    }}
+                  />
+                </View>
+                <View style={styles.favoriteControl}>
+                  <FavoriteButton
+                    kind="hub"
+                    resourceId={hub.id}
+                    resourceName={hub.nome}
+                    disabled={selectionPending}
+                  />
+                </View>
+              </View>
+            ))}
+          </View>
+        </>
+      )}
+    </FormScreen>
+  );
+}
+
+const styles = StyleSheet.create({
+  list: {
+    marginTop: spacing['2'],
+    marginBottom: spacing['5'],
+  },
+  hubRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing['2'],
+  },
+  hubSelection: {
+    flex: 1,
+  },
+  hubDisabled: {
+    opacity: 0.45,
+  },
+  favoriteControl: {
+    marginBottom: spacing['3'],
+  },
+  cepBlock: {
+    marginTop: spacing['2'],
+  },
+});

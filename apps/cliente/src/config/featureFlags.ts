@@ -1,0 +1,1 @@
+export const CARD_TOKENIZATION_ENABLED = process.env.EXPO_PUBLIC_CARD_TOKENIZATION_ENABLED === 'true';

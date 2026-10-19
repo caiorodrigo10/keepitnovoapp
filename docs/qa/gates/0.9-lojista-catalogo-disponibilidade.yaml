@@ -1,0 +1,115 @@
+schema: 1
+story: '0.9'
+story_title: 'Lojista: Catálogo & Disponibilidade'
+gate: CONCERNS
+status_reason: >-
+  Casca visual completa, fiel ao protótipo (P7/P9) e com tokens dark limpos; typecheck do
+  lojista passa. Os writes de reativar/excluir produto e do toggle de disponibilidade da loja
+  são session-local por gaps reais de ProductPort/StorePort em core-data — aceitável para o
+  Épico 0, mas precisa de follow-up ARCH antes do Épico 1.
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-07-28T00:00:00Z'
+
+waiver: { active: false }
+
+top_issues:
+  - id: 'ARCH-001'
+    severity: medium
+    finding: >-
+      ProductPort (packages/core-data) não tem delete(), o UpdateProdutoInput não aceita `ativo`
+      (não há reativar) e list() filtra `ativo === true` incondicionalmente. Só create/update de
+      campos e pause() persistem no mock db. Reativar produto, excluir produto e a listagem de
+      produtos pausados são local-only no ProductCatalogContext — o provider ficaria inconsistente
+      se remontado (ex.: hot-reload) após uma pausa.
+    suggested_action: >-
+      Estender ProductPort em packages/core-data (add delete()/excluido_em, permitir `ativo` no
+      update ou reactivate(), e um list() que inclua inativos) numa story de reconciliação ARCH
+      antes do Épico 1 (troca mock→Supabase). Delegar a @architect/@data-engineer.
+  - id: 'ARCH-002'
+    severity: medium
+    finding: >-
+      StorePort só expõe leitura (listByHub, getCatalog, getById, getState) — não há método de
+      escrita para persistir estabelecimentos.pausado_manualmente. O toggle "Recebendo pedidos"
+      (Task 6) está no domínio correto (store, não product) mas é session-local; não sobrevive a
+      remount nem é lido de volta por store.port.
+    suggested_action: >-
+      Adicionar método de escrita em store.port.ts / store.mock.ts (ex.: setPausadoManualmente)
+      na mesma story de reconciliação ARCH. Delegar a @architect/@data-engineer.
+  - id: 'MNT-001'
+    severity: low
+    finding: >-
+      ProductCatalogContext e LojaDisponibilidadeContext vivem em apps/lojista, não em
+      @keepit/core-data/hooks (onde useHubs/useOrders/useStores/useWallet vivem por decisão da
+      0.2) — consequência da restrição de escopo desta execução (só apps/lojista/**).
+    suggested_action: >-
+      Mover ambos os contexts para @keepit/core-data/hooks na story de reconciliação, para manter
+      a troca mock→Supabase transparente às telas como as demais ports.
+  - id: 'TEST-001'
+    severity: low
+    finding: >-
+      Nenhum teste unitário adicionado para os helpers puros desta story (agruparHorarios,
+      estoqueDisplayFromId) nem para a lógica dos contexts, embora agruparHorarios/estoque sejam
+      facilmente testáveis. Consistente com o precedente de validação manual das 0.1/0.8 (monorepo
+      sem framework de teste de UI; scripts de lint são `echo`).
+    suggested_action: >-
+      Adicionar testes unitários dos helpers puros quando um harness de teste (Jest/Vitest) for
+      configurado no app lojista, ou em packages/core-data ao mover a lógica para lá (MNT-001).
+  - id: 'REQ-002'
+    severity: low
+    finding: >-
+      Validação visual em simulador iOS / emulador Android deferida — ambiente sem simulador.
+      Fidelidade conferida por comparação estática do código contra as referências
+      lojista-07-catalogo.png e lojista-09-horarios.png (cores/textos/tokens revisados).
+    suggested_action: >-
+      Rodar a validação visual em simulador/emulador antes de considerar a trilha lojista pronta
+      para produção (débito recorrente do Épico 0, mesmo padrão de 0.1/0.4/0.8).
+
+evidence:
+  files_reviewed: 16
+  screens_delivered:
+    - GerenciarCatalogo (lista + busca + tabs Todos/Ativos/Pausados)
+    - CadastrarProduto (ProductForm modo criação)
+    - EditarProduto (ProductForm modo edição + excluir com ConfirmModal)
+    - HorariosDisponibilidade (Loja aberta + Pausar novos pedidos + FUNCIONAMENTO + Salvar)
+    - 'Pausar/excluir: toggle inline no ProductCard + excluir na tela Editar'
+    - 'Toggle recebendo pedidos: dentro de HorariosDisponibilidade'
+  independent_checks:
+    typecheck_lojista: PASS
+    hex_hardcoded_new_files: 'NONE (limpo — todas as cores via @keepit/ui-tokens)'
+    port_gaps_confirmed: 'ProductPort sem delete()/reactivate; StorePort sem write; list() filtra ativo===true — todos verificados no código'
+    fixture_farmacia: 'estab-farmacia-vida = categoria "farmacia" → aviso tarjado (Task 7) dispara corretamente'
+    routes_preserved: 'CatalogoStackParamList mantida; stubs substituídos sem alterar nomes de rota'
+
+nfr_validation:
+  security: { status: PASS, notes: 'Sem rede/backend real, sem segredos, upload 100% mock/local.' }
+  performance: { status: PASS, notes: 'Casca visual; catálogo carregado uma vez, mutações em memória.' }
+  reliability: { status: CONCERNS, notes: 'Writes session-local (ARCH-001/002) podem divergir em remount — aceitável no Épico 0.' }
+  maintainability: { status: CONCERNS, notes: 'Contexts fora de core-data/hooks (MNT-001); ausência de testes de helpers (TEST-001).' }
+
+acceptance_criteria_review:
+  - ac: 'AC1 — 6 telas/funcionalidades substituindo stubs da 0.3, rotas preservadas'
+    status: PASS
+    notes: 'Todas as 6 presentes; stubs substituídos sem tocar a estrutura de navegação.'
+  - ac: 'AC2 — CRUD via product.port; toggle via domínio store (pausado_manualmente)'
+    status: CONCERNS
+    notes: >-
+      Domínios corretos (produto via product.port; toggle via store — correção correta da
+      imprecisão do épico). create/update/pause persistem no mock; reativar/excluir/toggle-loja
+      são session-local por gaps de port (ARCH-001/002). Aceitável para casca do Épico 0.
+  - ac: 'AC3 — fidelidade visual (tema dark) contra o protótipo'
+    status: PASS
+    notes: 'Comparado com lojista-07/09 PNGs; tokens dark, textos e layout fiéis; zero hex nas telas novas.'
+
+recommendations:
+  immediate: []
+  future:
+    - 'Story de reconciliação ARCH em packages/core-data: estender ProductPort (delete/reactivate/list-inativos) e StorePort (write de pausado_manualmente) antes do Épico 1 — consolidar com gaps já achados nas 0.12/0.13.'
+    - 'Mover ProductCatalogContext/LojaDisponibilidadeContext para @keepit/core-data/hooks (MNT-001).'
+    - 'Validação visual em simulador/emulador (REQ-002) e testes de helpers puros (TEST-001).'
+
+pre_existing_notes:
+  - >-
+    Literal `#1B1E1C` permanece hardcoded em apps/lojista/src/components/PrimaryButton.tsx e
+    screens/perfil/Configuracoes.tsx — arquivos da Story 0.8, FORA do File List desta story e não
+    modificados aqui. Pertence ao gate 0.8 (já CONCERNS). Consumido pelas telas da 0.9 mas não
+    introduzido por ela. Severidade low, não bloqueia esta story.

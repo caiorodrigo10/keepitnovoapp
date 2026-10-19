@@ -1,0 +1,92 @@
+import { createOrderMock } from './order.mock';
+import type { CheckoutPort, Cotacao, CotacaoInput } from '../ports/checkout.port';
+import type { SettingsPort } from '../ports/settings.port';
+import type { HubHorario } from '../ports/hub.port';
+import { parseCotacao } from '../financial-contract';
+import { generateMockId as mockId } from './async-helpers';
+import type { MockDb } from './db';
+
+export function createCheckoutMock(db: MockDb, settings: SettingsPort): CheckoutPort {
+  const cotacoes = new Map<string, { clienteId: string; cotacao: Cotacao; input: CotacaoInput; itens: Array<{ produtoId: string; nome: string; precoUnitarioCentavos: number; quantidade: number; complementosSnapshot: Array<{ grupoId: string; grupoNome: string; itemId: string; itemNome: string; precoExtraCentavos: number }> }> }>();
+  const operacoes = new Map<string, { payload: string; resultado: Promise<{ pedidoId: string }> }>();
+  const consumidas = new Set<string>();
+  const checkout: CheckoutPort = {
+    async cotar(input) {
+      const cliente = db.clientes.find((c) => c.id === db.sessionClienteId);
+      if (!cliente || cliente.bloqueado) throw new Error('ACESSO_NEGADO');
+      if (!Array.isArray(input.itens) || !input.itens.length || input.itens.length > 100
+        || new Set(input.itens.map((i) => i.produtoId)).size !== input.itens.length
+        || input.itens.some((i) => !Number.isInteger(i.quantidade) || i.quantidade < 1 || i.quantidade > 2147483647)) throw new Error('ITENS_INVALIDOS');
+      const loja = db.estabelecimentos.find((e) => e.id === input.estabelecimentoId);
+      if (!loja || loja.status !== 'ativo' || loja.pausado_manualmente || loja.excluido_em) throw new Error('LOJA_INDISPONIVEL');
+      // O catálogo demo compartilha todos os hubs; vínculos reais são validados pela RPC.
+      const hub = db.hubs.find((h) => h.id === input.hubId && h.ativo);
+      if (!hub) throw new Error('HUB_INDISPONIVEL');
+      const agora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+      const minutos = agora.getHours() * 60 + agora.getMinutes() + agora.getSeconds() / 60;
+      const hora = (h: string) => { const [hh, mm, ss = 0] = h.split(':').map(Number); return hh * 60 + mm + ss / 60; };
+      const aberto = (horarios: HubHorario[], margem: number, aceitarLimite: boolean) => {
+        const h = horarios.find((h) => h.dia_semana === agora.getDay());
+        return !!h?.aberto && !!h.hora_abre && !!h.hora_fecha && minutos >= hora(h.hora_abre) && (aceitarLimite ? minutos + margem <= hora(h.hora_fecha) : minutos + margem < hora(h.hora_fecha));
+      };
+      if (!aberto(loja.horarios, 0, false) || !aberto(hub.horarios, loja.tempo_medio_entrega_min + 10, true)) throw new Error('HORARIO_INVIAVEL');
+      const itens = input.itens.map((item) => {
+        const p = db.produtos.find((p) => p.id === item.produtoId && p.estabelecimento_id === loja.id && p.ativo && !p.excluido_em);
+        if (!p) throw new Error('PRODUTO_INDISPONIVEL');
+        const ids = [...new Set(item.complementoIds ?? [])].sort();
+        if (ids.length !== (item.complementoIds?.length ?? 0)) throw new Error('COMPLEMENTOS_INVALIDOS');
+        const grupos = p.gruposComplementos;
+        const selected = grupos.flatMap((grupo) => grupo.itens.filter((complemento) => ids.includes(complemento.id ?? '')).map((complemento) => ({ grupo, complemento })));
+        if (selected.length !== ids.length) throw new Error('COMPLEMENTOS_INVALIDOS');
+        if (grupos.some((grupo) => { const count = selected.filter((item) => item.grupo === grupo).length; return count < grupo.min_selecoes || count > grupo.max_selecoes; })) throw new Error('SELECAO_COMPLEMENTOS_INVALIDA');
+        const complementosSnapshot = selected.map(({ grupo, complemento }) => ({ grupoId: grupo.id ?? '', grupoNome: grupo.nome, itemId: complemento.id ?? '', itemNome: complemento.nome, precoExtraCentavos: Math.round(complemento.preco_extra_reais * 100) }));
+        return { ...item, complementoIds: ids, nome: p.nome, precoUnitarioCentavos: Math.round(p.preco_reais * 100) + complementosSnapshot.reduce((sum, complemento) => sum + complemento.precoExtraCentavos, 0), complementosSnapshot };
+      });
+      const subtotal = itens.reduce((sum, i) => sum + BigInt(i.precoUnitarioCentavos) * BigInt(i.quantidade), BigInt(0));
+      if (subtotal < BigInt(Math.round((loja.ticket_minimo_reais ?? 20) * 100))) throw new Error('MINIMO_NAO_ATINGIDO');
+      const taxas = await settings.getTaxas();
+      const frete = BigInt(Math.round(loja.taxa_deslocamento_reais * 100));
+      const comissao = (subtotal * BigInt(taxas.comissaoBps) + BigInt(5000)) / BigInt(10000);
+      const total = subtotal + frete + BigInt(taxas.servicoCentavos);
+      if (total > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('VALOR_INVALIDO');
+      const cotacao = parseCotacao({ id: mockId('cotacao'), taxas, subtotalCentavos: Number(subtotal), freteCentavos: Number(frete), comissaoCentavos: Number(comissao), totalCentavos: Number(total), liquidoLojistaCentavos: Number(subtotal - comissao + frete) });
+      cotacoes.set(cotacao.id, { clienteId: cliente.id, cotacao, input, itens });
+      return { ...cotacao, taxas: { ...taxas } };
+    },
+    async criar(input) {
+      const key = `${db.sessionClienteId}:${input.operacaoId}`;
+      const payload = JSON.stringify(input);
+      const existente = operacoes.get(key);
+      if (existente) {
+        if (existente.payload !== payload) throw new Error('OPERACAO_CONFLITANTE');
+        return existente.resultado;
+      }
+      const saved = cotacoes.get(input.cotacaoId);
+      if (!saved || saved.clienteId !== db.sessionClienteId) throw new Error('ACESSO_NEGADO');
+      if (consumidas.has(input.cotacaoId)) throw new Error('COTACAO_UTILIZADA');
+      const resultado = (async () => {
+        let atual: Cotacao;
+        try { atual = await checkout.cotar(saved.input); } catch { throw new Error('COTACAO_DESATUALIZADA'); }
+        const novos = cotacoes.get(atual.id)!; cotacoes.delete(atual.id);
+        if (JSON.stringify(saved.itens) !== JSON.stringify(novos.itens) || JSON.stringify(saved.cotacao.taxas) !== JSON.stringify(atual.taxas)
+          || saved.cotacao.totalCentavos !== atual.totalCentavos) throw new Error('COTACAO_DESATUALIZADA');
+        if (consumidas.has(input.cotacaoId)) throw new Error('COTACAO_UTILIZADA');
+        consumidas.add(input.cotacaoId);
+        const q = saved.cotacao;
+        try {
+          const pedido = await createOrderMock(db).create({
+            cliente_id: saved.clienteId, estabelecimento_id: saved.input.estabelecimentoId, hub_id: saved.input.hubId,
+            itens: saved.itens.map((i) => ({ produto_id: i.produtoId, nome_snapshot: i.nome, preco_unitario_reais: i.precoUnitarioCentavos / 100, quantidade: i.quantidade, complementos_snapshot: i.complementosSnapshot })),
+            forma_pagamento: input.forma, nf_solicitada: input.nfSolicitada,
+            subtotal_produtos_reais: q.subtotalCentavos / 100, taxa_deslocamento_reais: q.freteCentavos / 100,
+            taxa_keepit_reais: q.comissaoCentavos / 100, taxa_servico_comprador_reais: q.taxas.servicoCentavos / 100, total_pago_reais: q.totalCentavos / 100,
+          }, { delayMs: 0 });
+          return { pedidoId: pedido.id };
+        } catch (error) { consumidas.delete(input.cotacaoId); throw error; }
+      })();
+      operacoes.set(key, { payload, resultado });
+      try { return await resultado; } catch (error) { operacoes.delete(key); throw error; }
+    },
+  };
+  return checkout;
+}

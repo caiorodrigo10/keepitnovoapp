@@ -1,0 +1,16 @@
+schema: 1
+story: '6.12'
+gate: CONCERNS
+status_reason: 'Adapter real de markReadyForHub liga a RPC avancar_estado_pedido com ownership/transição server-side, erros nomeados mapeados e saiu_hub_em honesto; falta apenas a verificação manual device/E2E contra o backend real.'
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-08-13T03:15:00Z'
+top_issues:
+  - id: 'TEST-001'
+    severity: low
+    finding: 'Teste manual/device com DATA_SOURCE=supabase não executado (aceitar → Saindo pro hub → conferir status=saindo_hub e saiu_hub_em no banco). Cobertura unitária completa (6 casos), mas o caminho real ainda não foi exercido em ambiente.'
+    suggested_action: 'Executar o teste manual em device/ambiente Supabase real antes de considerar o bloco fechado para piloto.'
+  - id: 'DOC-001'
+    severity: low
+    finding: 'packages/shared-types/src/supabase.ts foi reconciliado manualmente (entrada avancar_estado_pedido) por ausência de SUPABASE_ACCESS_TOKEN para supabase gen types.'
+    suggested_action: 'Regenerar os tipos via supabase gen types quando houver token, para eliminar a divergência potencial entre schema real e tipagem.'
+waiver: { active: false }

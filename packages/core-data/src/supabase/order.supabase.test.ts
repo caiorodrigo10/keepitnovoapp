@@ -1,0 +1,788 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@keepit/shared-types';
+
+import type { CreatePedidoInput } from '../ports/order.port';
+import { PinBloqueadoError, PinIncorretoError } from '../ports/order.port';
+import {
+  AcessoNegadoError,
+  AtrasoNaoConfirmadoError,
+  AutenticacaoNecessariaError,
+  EstadoInvalidoError,
+  MotivoObrigatorioError,
+  PedidoNaoEncontradoError,
+  TempoEstimadoInvalidoError,
+  TempoMinimoNaoAtingidoError,
+  TransicaoInvalidaError,
+} from './order-errors';
+import { createOrderSupabase } from './order.supabase';
+
+/**
+ * Stories 6.6/6.7 — [IDS] REUSE do padrão de query builder encadeável já
+ * estabelecido em `store.supabase.test.ts` (Stories 4.7/4.8), estendido com
+ * `.order()`/`.in()`/`.rpc()` e `auth.getUser()`.
+ */
+type QueryResult = { data: unknown; error: unknown };
+
+function makeQueryBuilder(result: QueryResult) {
+  const builder: Record<string, unknown> = {};
+  builder.select = vi.fn(() => builder);
+  builder.eq = vi.fn(() => builder);
+  builder.in = vi.fn(() => builder);
+  builder.order = vi.fn(() => builder);
+  builder.maybeSingle = vi.fn(async () => result);
+  builder.then = (onFulfilled: (value: QueryResult) => unknown, onRejected?: (reason: unknown) => unknown) =>
+    Promise.resolve(result).then(onFulfilled, onRejected);
+  return builder;
+}
+
+function fakeClient(options: {
+  userId?: string;
+  userError?: unknown;
+  rpc?: { data: unknown; error: unknown };
+  pedidos?: QueryResult;
+  pedidosItens?: QueryResult;
+}) {
+  const builders = {
+    pedidos: makeQueryBuilder(options.pedidos ?? { data: null, error: null }),
+    pedidos_itens: makeQueryBuilder(options.pedidosItens ?? { data: [], error: null }),
+  };
+  const from = vi.fn((table: string) => builders[table as 'pedidos' | 'pedidos_itens']);
+  const rpc = vi.fn(async (_fn: string, _args: unknown) => options.rpc ?? { data: null, error: null });
+  const auth = {
+    getUser: vi.fn(async () =>
+      options.userError
+        ? { data: { user: null }, error: options.userError }
+        : options.userId
+          ? { data: { user: { id: options.userId } }, error: null }
+          : { data: { user: null }, error: null },
+    ),
+  };
+  const client = { from, rpc, auth } as unknown as SupabaseClient<Database>;
+  return { client, rpc, builders };
+}
+
+const PEDIDO_ROW = {
+  id: 'pedido-1',
+  numero: 2048,
+  cliente_id: 'cliente-1',
+  estabelecimento_id: 'estab-1',
+  hub_id: 'hub-1',
+  status: 'aguardando_aceite',
+  pin_texto: '7734',
+  tentativas_pin: 0,
+  pin_bloqueado_ate: null,
+  tempo_estimado_min: null,
+  criado_em: '2026-08-13T10:00:00.000Z',
+  aceito_em: null,
+  saiu_hub_em: null,
+  cliente_chegou_em: null,
+  entregue_em: null,
+  cancelado_em: null,
+  subtotal_produtos_reais: 29.8,
+  taxa_deslocamento_reais: 5,
+  taxa_keepit_reais: 2.98,
+  taxa_servico_comprador_reais: 2.9,
+  total_pago_reais: 37.7,
+  motivo_recusa: null,
+  motivo_cancelamento: null,
+  motivo_nao_retirado: null,
+  forma_pagamento: 'pix',
+};
+
+const PEDIDO_ITEM_ROW = {
+  id: 'item-1',
+  pedido_id: 'pedido-1',
+  produto_id: 'produto-dipirona',
+  nome_snapshot: 'Dipirona Monoidratada 500mg',
+  preco_unitario_reais: 14.9,
+  quantidade: 2,
+  subtotal_reais: 29.8,
+  separado: false,
+  separado_em: null,
+};
+
+describe('criação legada real desativada', () => {
+  it('não envia valores do app para qualquer RPC', async () => {
+    const { client, rpc } = fakeClient({});
+    await expect(createOrderSupabase(client).create({} as CreatePedidoInput)).rejects.toThrow('CHECKOUT_COTACAO_OBRIGATORIA');
+    expect(rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('OrderPort compatível com atendimento', () => {
+  it('preserva pedido histórico com cliente removido e rótulo anônimo', async () => {
+    const { client } = fakeClient({
+      userId: 'lojista-1',
+      rpc: { data: 'estab-1', error: null },
+      pedidos: { data: [{ ...PEDIDO_ROW, cliente_id: null, cliente_nome: 'Cliente excluído' }], error: null },
+      pedidosItens: { data: [], error: null },
+    });
+
+    await expect(createOrderSupabase(client).listByEstabelecimento('qualquer-loja')).resolves.toEqual([
+      expect.objectContaining({ cliente_id: null, cliente_nome: 'Cliente excluído' }),
+    ]);
+  });
+
+  it('cancel após aceite abre solicitação e devolve pedido ainda em preparo', async () => {
+    const row = { ...PEDIDO_ROW, status: 'em_preparo' };
+    const { client, rpc } = fakeClient({ rpc: { data: { id: 'caso-1', pedido_id: 'pedido-1', operacao_id: 'op-1', tipo: 'cancelamento', estado: 'aberta', motivo: 'Desisti', motivo_decisao: null, criado_em: '2026-10-01T00:00:00Z', encerrada_em: null }, error: null }, pedidos: { data: row, error: null } });
+    const pedido = await createOrderSupabase(client).cancel('pedido-1', 'Desisti');
+    expect(pedido.status).toBe('em_preparo');
+    expect(rpc).toHaveBeenCalledWith('abrir_solicitacao_pedido', expect.objectContaining({ p_pedido_id: 'pedido-1', p_tipo: 'cancelamento', p_motivo: 'Desisti', p_operacao_id: expect.stringMatching(/^[0-9a-f-]{36}$/) }));
+  });
+
+  it('cancel mapeia os erros de negócio da RPC de solicitação', async () => {
+    const cases = [
+      ['AUTENTICACAO_NECESSARIA', AutenticacaoNecessariaError],
+      ['MOTIVO_OBRIGATORIO', MotivoObrigatorioError],
+      ['PEDIDO_NAO_ENCONTRADO', PedidoNaoEncontradoError],
+      ['ACESSO_NEGADO', AcessoNegadoError],
+      ['ESTADO_INVALIDO', EstadoInvalidoError],
+    ] as const;
+
+    for (const [code, ErrorType] of cases) {
+      const { client } = fakeClient({ rpc: { data: null, error: new Error(code) } });
+      await expect(createOrderSupabase(client).cancel('pedido-1', 'Desisti')).rejects.toBeInstanceOf(ErrorType);
+    }
+  });
+
+  it('ausência do cliente abre atendimento sem marcar pedido como não retirado', async () => {
+    const row = { ...PEDIDO_ROW, status: 'no_hub' };
+    const { client, rpc } = fakeClient({ rpc: { data: { id: 'caso-2', pedido_id: 'pedido-1', operacao_id: 'op-2', tipo: 'cliente_ausente', estado: 'aberta', motivo: 'Cliente não veio', motivo_decisao: null, criado_em: '2026-10-01T00:00:00Z', encerrada_em: null }, error: null }, pedidos: { data: row, error: null } });
+    const pedido = await createOrderSupabase(client).markCustomerNoShow('pedido-1', 'Cliente não veio');
+    expect(pedido.status).toBe('no_hub');
+    expect(rpc).toHaveBeenCalledWith('abrir_solicitacao_pedido', expect.objectContaining({ p_pedido_id: 'pedido-1', p_tipo: 'cliente_ausente', p_motivo: 'Cliente não veio' }));
+  });
+
+  it('markCustomerNoShow mapeia os erros de negócio da RPC de solicitação', async () => {
+    const cases = [
+      ['AUTENTICACAO_NECESSARIA', AutenticacaoNecessariaError],
+      ['MOTIVO_OBRIGATORIO', MotivoObrigatorioError],
+      ['PEDIDO_NAO_ENCONTRADO', PedidoNaoEncontradoError],
+      ['ACESSO_NEGADO', AcessoNegadoError],
+      ['ESTADO_INVALIDO', EstadoInvalidoError],
+    ] as const;
+
+    for (const [code, ErrorType] of cases) {
+      const { client } = fakeClient({ rpc: { data: null, error: new Error(code) } });
+      await expect(
+        createOrderSupabase(client).markCustomerNoShow('pedido-1', 'Cliente não veio'),
+      ).rejects.toBeInstanceOf(ErrorType);
+    }
+  });
+});
+
+describe('order.supabase.ts — listMine (Story 6.7, AC4, AC5)', () => {
+  it('sem sessão resolve [] honesto sem consultar pedidos', async () => {
+    const { client } = fakeClient({});
+    const port = createOrderSupabase(client);
+    await expect(port.listMine('qualquer-cliente-id')).resolves.toEqual([]);
+  });
+
+  it('filtra por auth.uid() da SESSÃO, não pelo clienteId recebido como parâmetro (AC5)', async () => {
+    const { client, builders } = fakeClient({
+      userId: 'cliente-da-sessao',
+      pedidos: { data: [PEDIDO_ROW], error: null },
+      pedidosItens: { data: [PEDIDO_ITEM_ROW], error: null },
+    });
+
+    const port = createOrderSupabase(client);
+    await port.listMine('cliente-de-outro-usuario-passado-como-param');
+
+    expect(builders.pedidos.eq).toHaveBeenCalledWith('cliente_id', 'cliente-da-sessao');
+  });
+
+  it('mapeia pedidos + itens para o formato Pedido[], ordenado por criado_em desc, sem vazar pin_hash', async () => {
+    const { client, builders } = fakeClient({
+      userId: 'cliente-1',
+      pedidos: { data: [PEDIDO_ROW], error: null },
+      pedidosItens: { data: [PEDIDO_ITEM_ROW], error: null },
+    });
+
+    const port = createOrderSupabase(client);
+    const pedidos = await port.listMine('cliente-1');
+
+    expect(builders.pedidos.order).toHaveBeenCalledWith('criado_em', { ascending: false });
+    expect(pedidos).toHaveLength(1);
+    expect(pedidos[0]).not.toHaveProperty('pin_texto');
+    expect(pedidos[0]).not.toHaveProperty('pin_hash');
+    expect(pedidos[0].itens).toHaveLength(1);
+  });
+});
+
+describe('order.supabase.ts — listByEstabelecimento (Story 6.8, AC1, AC5)', () => {
+  it('resolve a partir de meu_estabelecimento_id() da SESSÃO, ignorando o estabelecimentoId recebido como parâmetro', async () => {
+    const { client, rpc, builders } = fakeClient({
+      rpc: { data: 'estab-da-sessao', error: null },
+      pedidos: { data: [PEDIDO_ROW], error: null },
+      pedidosItens: { data: [PEDIDO_ITEM_ROW], error: null },
+    });
+
+    const port = createOrderSupabase(client);
+    const pedidos = await port.listByEstabelecimento('estabelecimento-de-outra-loja-passado-como-param');
+
+    expect(rpc).toHaveBeenCalledWith('meu_estabelecimento_id');
+    expect(builders.pedidos.eq).toHaveBeenCalledWith('estabelecimento_id', 'estab-da-sessao');
+    expect(builders.pedidos.order).toHaveBeenCalledWith('criado_em', { ascending: false });
+    expect(pedidos).toHaveLength(1);
+    expect(pedidos[0]).not.toHaveProperty('pin_hash');
+  });
+
+  it('sem estabelecimento próprio (sem sessão de lojista) resolve [] honesto sem consultar pedidos', async () => {
+    const { client, builders } = fakeClient({ rpc: { data: null, error: null } });
+
+    const port = createOrderSupabase(client);
+    await expect(port.listByEstabelecimento('qualquer-id')).resolves.toEqual([]);
+    expect(builders.pedidos.select).not.toHaveBeenCalled();
+  });
+});
+
+describe('order.supabase.ts — accept (Story 6.9, AC2, AC3, AC5)', () => {
+  const ACEITO_ROW = { ...PEDIDO_ROW, status: 'aceito', tempo_estimado_min: 25, aceito_em: '2026-08-13T10:05:00.000Z' };
+
+  it('chama a RPC aceitar_pedido com os args certos e monta o Pedido a partir da releitura real (RPC retorna só o uuid)', async () => {
+    const { client, rpc } = fakeClient({
+      rpc: { data: 'pedido-1', error: null },
+      pedidos: { data: ACEITO_ROW, error: null },
+      pedidosItens: { data: [PEDIDO_ITEM_ROW], error: null },
+    });
+
+    const port = createOrderSupabase(client);
+    const pedido = await port.accept('pedido-1', 25);
+
+    expect(rpc).toHaveBeenCalledWith('aceitar_pedido', { p_pedido_id: 'pedido-1', p_tempo_estimado_min: 25 });
+    expect(pedido.status).toBe('aceito');
+    expect(pedido.tempo_estimado_min).toBe(25);
+    expect(pedido.aceito_em).toBe('2026-08-13T10:05:00.000Z');
+  });
+
+  it('mapeia AUTENTICACAO_NECESSARIA para AutenticacaoNecessariaError', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'AUTENTICACAO_NECESSARIA', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.accept('pedido-1', 25)).rejects.toBeInstanceOf(AutenticacaoNecessariaError);
+  });
+
+  it('mapeia TEMPO_ESTIMADO_INVALIDO para TempoEstimadoInvalidoError', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'TEMPO_ESTIMADO_INVALIDO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.accept('pedido-1', 0)).rejects.toBeInstanceOf(TempoEstimadoInvalidoError);
+  });
+
+  it('mapeia PEDIDO_NAO_ENCONTRADO para PedidoNaoEncontradoError', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'PEDIDO_NAO_ENCONTRADO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.accept('pedido-inexistente', 25)).rejects.toBeInstanceOf(PedidoNaoEncontradoError);
+  });
+
+  it('mapeia ACESSO_NEGADO para AcessoNegadoError (pedido de outra loja)', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'ACESSO_NEGADO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.accept('pedido-de-outra-loja', 25)).rejects.toBeInstanceOf(AcessoNegadoError);
+  });
+
+  it('mapeia ESTADO_INVALIDO para EstadoInvalidoError — proteção contra dupla-aceitação', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'ESTADO_INVALIDO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.accept('pedido-ja-aceito', 25)).rejects.toBeInstanceOf(EstadoInvalidoError);
+  });
+
+  it('propaga qualquer outro erro sem mascarar e sem sucesso simulado', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'erro de rede', code: '500' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.accept('pedido-1', 25)).rejects.toMatchObject({ message: 'erro de rede' });
+  });
+});
+
+describe('order.supabase.ts — refuse (Story 6.11, AC2, AC3)', () => {
+  const RECUSADO_ROW = { ...PEDIDO_ROW, status: 'recusado', motivo_recusa: 'Sem estoque' };
+
+  it('chama a RPC recusar_pedido com os args certos e monta o Pedido a partir da releitura real (RPC retorna só o uuid)', async () => {
+    const { client, rpc } = fakeClient({
+      rpc: { data: 'pedido-1', error: null },
+      pedidos: { data: RECUSADO_ROW, error: null },
+      pedidosItens: { data: [PEDIDO_ITEM_ROW], error: null },
+    });
+
+    const port = createOrderSupabase(client);
+    const pedido = await port.refuse('pedido-1', 'Sem estoque');
+
+    expect(rpc).toHaveBeenCalledWith('recusar_pedido', { p_pedido_id: 'pedido-1', p_motivo: 'Sem estoque' });
+    expect(pedido.status).toBe('recusado');
+    expect(pedido.motivo_recusa).toBe('Sem estoque');
+  });
+
+  it('mapeia AUTENTICACAO_NECESSARIA para AutenticacaoNecessariaError', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'AUTENTICACAO_NECESSARIA', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.refuse('pedido-1', 'Sem estoque')).rejects.toBeInstanceOf(AutenticacaoNecessariaError);
+  });
+
+  it('mapeia MOTIVO_OBRIGATORIO para MotivoObrigatorioError', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'MOTIVO_OBRIGATORIO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.refuse('pedido-1', '')).rejects.toBeInstanceOf(MotivoObrigatorioError);
+  });
+
+  it('mapeia PEDIDO_NAO_ENCONTRADO para PedidoNaoEncontradoError', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'PEDIDO_NAO_ENCONTRADO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.refuse('pedido-inexistente', 'Sem estoque')).rejects.toBeInstanceOf(PedidoNaoEncontradoError);
+  });
+
+  it('mapeia ACESSO_NEGADO para AcessoNegadoError (pedido de outra loja)', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'ACESSO_NEGADO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.refuse('pedido-de-outra-loja', 'Sem estoque')).rejects.toBeInstanceOf(AcessoNegadoError);
+  });
+
+  it('mapeia ESTADO_INVALIDO para EstadoInvalidoError — recusa só é possível antes do aceite', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'ESTADO_INVALIDO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.refuse('pedido-ja-aceito', 'Sem estoque')).rejects.toBeInstanceOf(EstadoInvalidoError);
+  });
+
+  it('propaga qualquer outro erro sem mascarar e sem sucesso simulado', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'erro de rede', code: '500' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.refuse('pedido-1', 'Sem estoque')).rejects.toMatchObject({ message: 'erro de rede' });
+  });
+});
+
+describe('order.supabase.ts — confirmarPagamento (Story 6.7.1, AC1, AC2, AC3, AC4)', () => {
+  it('não faz nenhum UPDATE/RPC — apenas releitura real via fetchPedidoPorId (no-op)', async () => {
+    const { client, rpc, builders } = fakeClient({
+      pedidos: { data: PEDIDO_ROW, error: null },
+      pedidosItens: { data: [PEDIDO_ITEM_ROW], error: null },
+    });
+
+    const port = createOrderSupabase(client);
+    const pedido = await port.confirmarPagamento('pedido-1');
+
+    expect(rpc).not.toHaveBeenCalled();
+    expect(builders.pedidos.eq).toHaveBeenCalledWith('id', 'pedido-1');
+    expect(pedido.id).toBe('pedido-1');
+    expect(pedido.status).toBe('aguardando_aceite');
+  });
+
+  it('pedido inexistente/RLS bloqueando: lança em vez de simular sucesso (nunca engole o erro)', async () => {
+    const { client } = fakeClient({ pedidos: { data: null, error: null } });
+
+    const port = createOrderSupabase(client);
+    await expect(port.confirmarPagamento('pedido-inexistente')).rejects.toThrow(/releitura não encontrou a linha/);
+  });
+
+  it('propaga erro de rede da releitura sem mascarar', async () => {
+    const { client } = fakeClient({ pedidos: { data: null, error: { message: 'erro de rede', code: '500' } } });
+
+    const port = createOrderSupabase(client);
+    await expect(port.confirmarPagamento('pedido-1')).rejects.toMatchObject({ message: 'erro de rede' });
+  });
+});
+
+describe('order.supabase.ts — markReadyForHub (Story 6.12, AC2, AC4, AC6)', () => {
+  const SAINDO_HUB_ROW = { ...PEDIDO_ROW, status: 'saindo_hub', saiu_hub_em: '2026-08-13T11:00:00.000Z' };
+
+  it('chama a RPC avancar_estado_pedido com p_novo_status=saindo_hub e monta o Pedido a partir da releitura real (RPC retorna só o status), com saiu_hub_em honesto (não hard-coded null)', async () => {
+    const { client, rpc } = fakeClient({
+      rpc: { data: 'saindo_hub', error: null },
+      pedidos: { data: SAINDO_HUB_ROW, error: null },
+      pedidosItens: { data: [PEDIDO_ITEM_ROW], error: null },
+    });
+
+    const port = createOrderSupabase(client);
+    const pedido = await port.markReadyForHub('pedido-1');
+
+    expect(rpc).toHaveBeenCalledWith('avancar_estado_pedido', { p_pedido_id: 'pedido-1', p_novo_status: 'saindo_hub' });
+    expect(pedido.status).toBe('saindo_hub');
+    expect(pedido.saiu_hub_em).toBe('2026-08-13T11:00:00.000Z');
+  });
+
+  it('mapeia AUTENTICACAO_NECESSARIA para AutenticacaoNecessariaError', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'AUTENTICACAO_NECESSARIA', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.markReadyForHub('pedido-1')).rejects.toBeInstanceOf(AutenticacaoNecessariaError);
+  });
+
+  it('mapeia PEDIDO_NAO_ENCONTRADO para PedidoNaoEncontradoError', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'PEDIDO_NAO_ENCONTRADO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.markReadyForHub('pedido-inexistente')).rejects.toBeInstanceOf(PedidoNaoEncontradoError);
+  });
+
+  it('mapeia ACESSO_NEGADO para AcessoNegadoError (pedido de outra loja)', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'ACESSO_NEGADO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.markReadyForHub('pedido-de-outra-loja')).rejects.toBeInstanceOf(AcessoNegadoError);
+  });
+
+  it('mapeia TRANSICAO_INVALIDA para TransicaoInvalidaError — origem fora de aceito/em_preparo (ex.: dupla-execução)', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'TRANSICAO_INVALIDA', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.markReadyForHub('pedido-ja-saindo-hub')).rejects.toBeInstanceOf(TransicaoInvalidaError);
+  });
+
+  it('propaga qualquer outro erro sem mascarar e sem sucesso simulado', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'erro de rede', code: '500' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.markReadyForHub('pedido-1')).rejects.toMatchObject({ message: 'erro de rede' });
+  });
+});
+
+describe('order.supabase.ts — setItemSeparado', () => {
+  it('mapeia separado/separado_em, chama a RPC com os args certos e relê o pedido retornado', async () => {
+    const { client, rpc } = fakeClient({
+      rpc: { data: 'pedido-1', error: null },
+      pedidos: { data: { ...PEDIDO_ROW, status: 'em_preparo' }, error: null },
+      pedidosItens: {
+        data: [{ ...PEDIDO_ITEM_ROW, separado: true, separado_em: '2026-10-18T10:30:00.000Z' }],
+        error: null,
+      },
+    });
+
+    const pedido = await createOrderSupabase(client).setItemSeparado('item-1', true);
+
+    expect(rpc).toHaveBeenCalledWith('marcar_item_separado_pedido', { p_item_id: 'item-1', p_separado: true });
+    expect(pedido.id).toBe('pedido-1');
+    expect(pedido.itens).toEqual([
+      expect.objectContaining({ separado: true, separado_em: '2026-10-18T10:30:00.000Z' }),
+    ]);
+  });
+
+  it('mapeia ESTADO_INVALIDO para EstadoInvalidoError sem simular sucesso', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'ESTADO_INVALIDO', code: 'P0001' } } });
+
+    await expect(createOrderSupabase(client).setItemSeparado('item-finalizado', true)).rejects.toBeInstanceOf(EstadoInvalidoError);
+  });
+});
+
+describe('order.supabase.ts — markArrivedAtHub (Story 6.14, AC2, AC3, AC6, AC7)', () => {
+  const NO_HUB_ROW = { ...PEDIDO_ROW, status: 'no_hub', saiu_hub_em: '2026-08-13T11:00:00.000Z' };
+
+  it('chama a RPC avancar_estado_pedido com p_novo_status=no_hub e monta o Pedido a partir da releitura real (RPC retorna só o status)', async () => {
+    const { client, rpc } = fakeClient({
+      rpc: { data: 'no_hub', error: null },
+      pedidos: { data: NO_HUB_ROW, error: null },
+      pedidosItens: { data: [PEDIDO_ITEM_ROW], error: null },
+    });
+
+    const port = createOrderSupabase(client);
+    const pedido = await port.markArrivedAtHub('pedido-1');
+
+    expect(rpc).toHaveBeenCalledWith('avancar_estado_pedido', { p_pedido_id: 'pedido-1', p_novo_status: 'no_hub' });
+    expect(pedido.status).toBe('no_hub');
+  });
+
+  it('mapeia AUTENTICACAO_NECESSARIA para AutenticacaoNecessariaError', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'AUTENTICACAO_NECESSARIA', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.markArrivedAtHub('pedido-1')).rejects.toBeInstanceOf(AutenticacaoNecessariaError);
+  });
+
+  it('mapeia PEDIDO_NAO_ENCONTRADO para PedidoNaoEncontradoError', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'PEDIDO_NAO_ENCONTRADO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.markArrivedAtHub('pedido-inexistente')).rejects.toBeInstanceOf(PedidoNaoEncontradoError);
+  });
+
+  it('mapeia ACESSO_NEGADO para AcessoNegadoError (pedido de outra loja / não é o lojista dono nem admin)', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'ACESSO_NEGADO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.markArrivedAtHub('pedido-de-outra-loja')).rejects.toBeInstanceOf(AcessoNegadoError);
+  });
+
+  it('mapeia TRANSICAO_INVALIDA para TransicaoInvalidaError — origem fora de saindo_hub (ex.: em_preparo, ou no_hub repetido/dupla-execução)', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'TRANSICAO_INVALIDA', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.markArrivedAtHub('pedido-ja-no-hub')).rejects.toBeInstanceOf(TransicaoInvalidaError);
+  });
+
+  it('propaga qualquer outro erro sem mascarar e sem sucesso simulado', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'erro de rede', code: '500' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.markArrivedAtHub('pedido-1')).rejects.toMatchObject({ message: 'erro de rede' });
+  });
+});
+
+describe('order.supabase.ts — confirmPin (Story 6.15, AC2, AC3, AC4, AC6, AC8)', () => {
+  const ENTREGUE_ROW = { ...PEDIDO_ROW, status: 'entregue', entregue_em: '2026-08-13T12:00:00.000Z' };
+
+  it('PIN correto: lê resultado="entregue" da linha e monta o Pedido a partir da releitura real (nunca lê pin_hash)', async () => {
+    const { client, rpc } = fakeClient({
+      rpc: { data: [{ resultado: 'entregue', tentativas_restantes: null, bloqueado_ate: null }], error: null },
+      pedidos: { data: ENTREGUE_ROW, error: null },
+      pedidosItens: { data: [PEDIDO_ITEM_ROW], error: null },
+    });
+
+    const port = createOrderSupabase(client);
+    const pedido = await port.confirmPin('pedido-1', '7734');
+
+    expect(rpc).toHaveBeenCalledWith('confirmar_pin_pedido', { p_pedido_id: 'pedido-1', p_pin: '7734' });
+    expect(pedido.status).toBe('entregue');
+    expect(pedido.entregue_em).toBe('2026-08-13T12:00:00.000Z');
+    expect(pedido).not.toHaveProperty('pin_hash');
+  });
+
+  it('PIN incorreto: lê resultado="pin_incorreto" e rejeita com PinIncorretoError carregando tentativas_restantes (NÃO trata como exceção da RPC)', async () => {
+    const { client } = fakeClient({
+      rpc: { data: [{ resultado: 'pin_incorreto', tentativas_restantes: 3, bloqueado_ate: null }], error: null },
+    });
+
+    const port = createOrderSupabase(client);
+    const promise = port.confirmPin('pedido-1', '0000');
+    await expect(promise).rejects.toBeInstanceOf(PinIncorretoError);
+    await promise.catch((err: PinIncorretoError) => {
+      expect(err.tentativasRestantes).toBe(3);
+    });
+  });
+
+  it('5º erro bloqueia: lê resultado="pin_bloqueado" e rejeita com PinBloqueadoError carregando bloqueado_ate', async () => {
+    const { client } = fakeClient({
+      rpc: {
+        data: [{ resultado: 'pin_bloqueado', tentativas_restantes: 0, bloqueado_ate: '2026-08-13T12:05:00.000Z' }],
+        error: null,
+      },
+    });
+
+    const port = createOrderSupabase(client);
+    const promise = port.confirmPin('pedido-1', '0000');
+    await expect(promise).rejects.toBeInstanceOf(PinBloqueadoError);
+    await promise.catch((err: PinBloqueadoError) => {
+      expect(err.bloqueadoAte).toBe('2026-08-13T12:05:00.000Z');
+    });
+  });
+
+  it('tentativa durante bloqueio ativo: mesmo contrato de resultado="pin_bloqueado" (a RPC não consome tentativa, mas o adapter só lê a linha)', async () => {
+    const { client, rpc } = fakeClient({
+      rpc: {
+        data: [{ resultado: 'pin_bloqueado', tentativas_restantes: 0, bloqueado_ate: '2026-08-13T12:05:00.000Z' }],
+        error: null,
+      },
+    });
+
+    const port = createOrderSupabase(client);
+    await expect(port.confirmPin('pedido-1', '9999')).rejects.toBeInstanceOf(PinBloqueadoError);
+    expect(rpc).toHaveBeenCalledWith('confirmar_pin_pedido', { p_pedido_id: 'pedido-1', p_pin: '9999' });
+  });
+
+  it('mapeia AUTENTICACAO_NECESSARIA (exceção estrutural) para AutenticacaoNecessariaError', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'AUTENTICACAO_NECESSARIA', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.confirmPin('pedido-1', '7734')).rejects.toBeInstanceOf(AutenticacaoNecessariaError);
+  });
+
+  it('mapeia PEDIDO_NAO_ENCONTRADO (exceção estrutural) para PedidoNaoEncontradoError', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'PEDIDO_NAO_ENCONTRADO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.confirmPin('pedido-inexistente', '7734')).rejects.toBeInstanceOf(PedidoNaoEncontradoError);
+  });
+
+  it('mapeia ACESSO_NEGADO (exceção estrutural) para AcessoNegadoError', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'ACESSO_NEGADO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.confirmPin('pedido-de-outra-loja', '7734')).rejects.toBeInstanceOf(AcessoNegadoError);
+  });
+
+  it('mapeia ESTADO_INVALIDO (exceção estrutural) para EstadoInvalidoError — pedido ainda em saindo_hub, fora de no_hub', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'ESTADO_INVALIDO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.confirmPin('pedido-saindo-hub', '7734')).rejects.toBeInstanceOf(EstadoInvalidoError);
+  });
+
+  it('propaga qualquer outro erro sem mascarar e sem sucesso simulado', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'erro de rede', code: '500' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.confirmPin('pedido-1', '7734')).rejects.toMatchObject({ message: 'erro de rede' });
+  });
+});
+
+describe('order.supabase.ts — markClienteChegou (Story 6.20, pré-requisito — fecha o débito da Story 6.14)', () => {
+  const NO_HUB_COM_CHEGADA_ROW = {
+    ...PEDIDO_ROW,
+    status: 'no_hub',
+    cliente_chegou_em: '2026-08-13T11:10:00.000Z',
+  };
+
+  it('chama a RPC marcar_cliente_chegou e monta o Pedido a partir da releitura real (cliente_chegou_em honesto, não hard-coded null)', async () => {
+    const { client, rpc } = fakeClient({
+      rpc: { data: 'pedido-1', error: null },
+      pedidos: { data: NO_HUB_COM_CHEGADA_ROW, error: null },
+      pedidosItens: { data: [PEDIDO_ITEM_ROW], error: null },
+    });
+
+    const port = createOrderSupabase(client);
+    const pedido = await port.markClienteChegou('pedido-1');
+
+    expect(rpc).toHaveBeenCalledWith('marcar_cliente_chegou', { p_pedido_id: 'pedido-1' });
+    expect(pedido.cliente_chegou_em).toBe('2026-08-13T11:10:00.000Z');
+  });
+
+  it('mapeia AUTENTICACAO_NECESSARIA para AutenticacaoNecessariaError', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'AUTENTICACAO_NECESSARIA', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.markClienteChegou('pedido-1')).rejects.toBeInstanceOf(AutenticacaoNecessariaError);
+  });
+
+  it('mapeia PEDIDO_NAO_ENCONTRADO para PedidoNaoEncontradoError', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'PEDIDO_NAO_ENCONTRADO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.markClienteChegou('pedido-inexistente')).rejects.toBeInstanceOf(PedidoNaoEncontradoError);
+  });
+
+  it('mapeia ACESSO_NEGADO para AcessoNegadoError (pedido de outro cliente)', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'ACESSO_NEGADO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.markClienteChegou('pedido-de-outro-cliente')).rejects.toBeInstanceOf(AcessoNegadoError);
+  });
+
+  it('mapeia ESTADO_INVALIDO para EstadoInvalidoError — fora de no_hub', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'ESTADO_INVALIDO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.markClienteChegou('pedido-saindo-hub')).rejects.toBeInstanceOf(EstadoInvalidoError);
+  });
+
+  it('propaga qualquer outro erro sem mascarar e sem sucesso simulado', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'erro de rede', code: '500' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.markClienteChegou('pedido-1')).rejects.toMatchObject({ message: 'erro de rede' });
+  });
+});
+
+describe('order.supabase.ts — reportLojistaNaoVeio (Story 6.20, AC2, AC4)', () => {
+  const LOJISTA_AUSENTE_EM_ANALISE_ROW = { ...PEDIDO_ROW, status: 'no_hub' };
+
+  it('chama a RPC reportar_lojista_nao_veio e mantém o pedido no hub durante a análise', async () => {
+    const { client, rpc } = fakeClient({
+      rpc: { data: 'pedido-1', error: null },
+      pedidos: { data: LOJISTA_AUSENTE_EM_ANALISE_ROW, error: null },
+      pedidosItens: { data: [PEDIDO_ITEM_ROW], error: null },
+    });
+
+    const port = createOrderSupabase(client);
+    const pedido = await port.reportLojistaNaoVeio('pedido-1');
+
+    expect(rpc).toHaveBeenCalledWith('reportar_lojista_nao_veio', { p_pedido_id: 'pedido-1' });
+    expect(pedido.status).toBe('no_hub');
+  });
+
+  it('mapeia AUTENTICACAO_NECESSARIA para AutenticacaoNecessariaError', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'AUTENTICACAO_NECESSARIA', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.reportLojistaNaoVeio('pedido-1')).rejects.toBeInstanceOf(AutenticacaoNecessariaError);
+  });
+
+  it('mapeia PEDIDO_NAO_ENCONTRADO para PedidoNaoEncontradoError', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'PEDIDO_NAO_ENCONTRADO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.reportLojistaNaoVeio('pedido-inexistente')).rejects.toBeInstanceOf(PedidoNaoEncontradoError);
+  });
+
+  it('mapeia ACESSO_NEGADO para AcessoNegadoError (pedido de outro cliente)', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'ACESSO_NEGADO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.reportLojistaNaoVeio('pedido-de-outro-cliente')).rejects.toBeInstanceOf(AcessoNegadoError);
+  });
+
+  it('mapeia ESTADO_INVALIDO para EstadoInvalidoError — fora de no_hub ou sem cliente_chegou_em', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'ESTADO_INVALIDO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.reportLojistaNaoVeio('pedido-saindo-hub')).rejects.toBeInstanceOf(EstadoInvalidoError);
+  });
+
+  it('mapeia TEMPO_MINIMO_NAO_ATINGIDO para TempoMinimoNaoAtingidoError — reforço server-side do AC1', async () => {
+    const { client } = fakeClient({
+      rpc: { data: null, error: { message: 'TEMPO_MINIMO_NAO_ATINGIDO', code: 'P0001' } },
+    });
+    const port = createOrderSupabase(client);
+    await expect(port.reportLojistaNaoVeio('pedido-recem-chegado')).rejects.toBeInstanceOf(
+      TempoMinimoNaoAtingidoError,
+    );
+  });
+
+  it('propaga qualquer outro erro sem mascarar e sem sucesso simulado', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'erro de rede', code: '500' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.reportLojistaNaoVeio('pedido-1')).rejects.toMatchObject({ message: 'erro de rede' });
+  });
+});
+
+describe('order.supabase.ts — cancelPedidoAtraso (Story 6.21, AC2, AC3)', () => {
+  const ATRASO_EM_ANALISE_ROW = { ...PEDIDO_ROW, status: 'em_preparo' };
+
+  it('chama a RPC cancelar_pedido_atraso e mantém o pedido em preparo durante a análise', async () => {
+    const { client, rpc } = fakeClient({
+      rpc: { data: 'pedido-1', error: null },
+      pedidos: { data: ATRASO_EM_ANALISE_ROW, error: null },
+      pedidosItens: { data: [PEDIDO_ITEM_ROW], error: null },
+    });
+
+    const port = createOrderSupabase(client);
+    const pedido = await port.cancelPedidoAtraso('pedido-1');
+
+    expect(rpc).toHaveBeenCalledWith('cancelar_pedido_atraso', { p_pedido_id: 'pedido-1' });
+    expect(pedido.status).toBe('em_preparo');
+    expect(pedido.cancelado_em).toBeNull();
+  });
+
+  it('mapeia AUTENTICACAO_NECESSARIA para AutenticacaoNecessariaError', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'AUTENTICACAO_NECESSARIA', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.cancelPedidoAtraso('pedido-1')).rejects.toBeInstanceOf(AutenticacaoNecessariaError);
+  });
+
+  it('mapeia PEDIDO_NAO_ENCONTRADO para PedidoNaoEncontradoError', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'PEDIDO_NAO_ENCONTRADO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.cancelPedidoAtraso('pedido-inexistente')).rejects.toBeInstanceOf(PedidoNaoEncontradoError);
+  });
+
+  it('mapeia ACESSO_NEGADO para AcessoNegadoError (pedido de outro cliente)', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'ACESSO_NEGADO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.cancelPedidoAtraso('pedido-de-outro-cliente')).rejects.toBeInstanceOf(AcessoNegadoError);
+  });
+
+  it('mapeia ESTADO_INVALIDO para EstadoInvalidoError — fora de aceito/em_preparo', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'ESTADO_INVALIDO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.cancelPedidoAtraso('pedido-no-hub')).rejects.toBeInstanceOf(EstadoInvalidoError);
+  });
+
+  it('mapeia ATRASO_NAO_CONFIRMADO para AtrasoNaoConfirmadoError — reforço server-side do AC1', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'ATRASO_NAO_CONFIRMADO', code: 'P0001' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.cancelPedidoAtraso('pedido-dentro-do-prazo')).rejects.toBeInstanceOf(AtrasoNaoConfirmadoError);
+  });
+
+  it('propaga qualquer outro erro sem mascarar e sem sucesso simulado', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'erro de rede', code: '500' } } });
+    const port = createOrderSupabase(client);
+    await expect(port.cancelPedidoAtraso('pedido-1')).rejects.toMatchObject({ message: 'erro de rede' });
+  });
+});
+
+describe('projeção pública e PIN privado', () => {
+  it('getById lê pedido e itens sem selecionar ou retornar segredos', async () => {
+    const { client, builders } = fakeClient({ pedidos: { data: PEDIDO_ROW, error: null }, pedidosItens: { data: [PEDIDO_ITEM_ROW], error: null } });
+    const pedido = await createOrderSupabase(client).getById('pedido-1');
+    expect(pedido?.id).toBe('pedido-1');
+    expect(pedido?.itens).toHaveLength(1);
+    expect(pedido).not.toHaveProperty('pin_texto');
+    expect(pedido).not.toHaveProperty('pin_hash');
+    expect(String((builders.pedidos.select as ReturnType<typeof vi.fn>).mock.calls[0])).not.toMatch(/pin_texto|pin_hash|\*/);
+  });
+  it('getById devolve null quando a RLS não expõe o pedido', async () => {
+    const { client } = fakeClient({});
+    await expect(createOrderSupabase(client).getById('outro')).resolves.toBeNull();
+  });
+  it('obtém PIN apenas pela RPC autorizada', async () => {
+    const { client, rpc, builders } = fakeClient({ rpc: { data: '0000', error: null } });
+    await expect(createOrderSupabase(client).obterPinCliente('pedido-1')).resolves.toBe('0000');
+    expect(rpc).toHaveBeenCalledWith('obter_pin_cliente', { p_pedido_id: 'pedido-1' });
+    expect(builders.pedidos.select).not.toHaveBeenCalled();
+  });
+  it('propaga recusa de autorização sem fallback', async () => {
+    const { client } = fakeClient({ rpc: { data: null, error: { message: 'ACESSO_NEGADO' } } });
+    await expect(createOrderSupabase(client).obterPinCliente('outro')).rejects.toBeInstanceOf(AcessoNegadoError);
+  });
+});

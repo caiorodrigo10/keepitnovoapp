@@ -1,0 +1,142 @@
+schema: 1
+story: "0.12"
+storyId: "0.12"
+storyName: "Admin: Aprovações & Hubs"
+gate: CONCERNS
+verdict: CONCERNS
+status_reason: >-
+  Implementação sólida e verificada de forma independente: as 6 telas do Admin
+  (login, aprovações, aprovar/rejeitar, hubs list/novo/editar) renderam de fato
+  (HTTP 200 em todas + screenshot Playwright de /aprovacoes com dados reais do
+  mock "Padoca Nova / EM ANÁLISE / ALIMENTACAO" via admin.port.pendingStores()),
+  todos os 3 ACs atendidos, zero cor/hex hardcoded (grep limpo, só tokens
+  @keepit/ui-tokens dark), motivo de rejeição obrigatório (botão desabilitado +
+  validação inline), CRUD de hub com soft-deactivate correto, e `pnpm --filter
+  @keepit/admin typecheck` PASS (exit 0). CONCERNS apenas por débitos
+  não-bloqueantes: symlink manual de @keepit/core-data não é reproduzível em
+  checkout limpo (exige `pnpm install` do @devops antes do push), campos de
+  schema deferidos (cnpj/telefone/chave_pix) e ausência de testes automatizados
+  (herdado do padrão do Épico 0). Nenhum AC ficou em aberto.
+reviewer: Quinn
+reviewedBy: "@qa (Quinn)"
+reviewedAt: "2026-07-28"
+updated: "2026-07-28T02:11:00Z"
+model: opus (claude-opus-4-8)
+
+verification_method: >-
+  Verificação INDEPENDENTE (não confiando no relato do @dev): leitura de todos os
+  6 page.tsx + 4 componentes (Badge/Card/Button/HubForm) + 2 hooks + adminClient
+  + authGuard; grep por hex/rgb/style inline em app/(dashboard), app/(auth) e src
+  (limpo); cruzamento das chamadas de port contra as assinaturas reais em
+  packages/core-data/src/ports/{admin,hub,store}.port.ts; verificação de que cada
+  classe de token usada resolve em packages/ui-tokens (colors.dark, radii,
+  letterSpacing, shadows.card); execução própria de `npx tsc --noEmit` no
+  workspace admin (exit 0); boot de `next dev` limpo (rm -rf .next) + `curl` nas 6
+  rotas (todas 200, zero PageStub) incluindo ids reais (estab-em-analise,
+  hub-centro) e estados ?vazio=1/?erro=1; screenshot Playwright de /aprovacoes
+  confirmando tema dark + sidebar + dados reais do mock.
+
+quality_checks:
+  code_review:
+    status: PASS
+    notes: >-
+      Componentes reutilizáveis, hooks compõem sobre building blocks de
+      @keepit/core-data (getDataClient, useAsyncResource) sem duplicar
+      lógica de port. Nenhum fixture inline. Comentários rastreiam fontes.
+  unit_tests:
+    status: CONCERNS
+    notes: >-
+      Nenhum teste automatizado de UI (mesmo padrão da 0.1). Contrato do mock é
+      coberto por *.mock.test.ts na Story 0.2. Validação empírica feita pelo @qa
+      (render + screenshot). Débito rastreado, não bloqueante.
+  acceptance_criteria:
+    status: PASS
+    notes: >-
+      AC1: 6 telas nas rotas da 0.3 sem rename; login navega (router.push
+      /aprovacoes); rejeição com motivo obrigatório (botão disabled + validação
+      inline, não submete vazio); CRUD de hubs completo. AC2: dados via
+      admin.port/hub.port/store.port mock, estados loading/vazio/erro
+      exercitáveis (?vazio=1/?erro=1). AC3: design system dark, 100% via tokens.
+  no_regressions:
+    status: PASS
+    notes: >-
+      typecheck do admin PASS (exit 0). Symlink @keepit/core-data resolve. @dev
+      ficou dentro de apps/admin (File List) — packages/* e outros apps não
+      tocados por esta story. Ver MNT-001 quanto à reprodutibilidade.
+  performance:
+    status: PASS
+    notes: "N/A para casca visual. next dev pronto em 213ms, rotas rápidas."
+  security:
+    status: PASS
+    notes: >-
+      Sem auth real (authGuard é stub documentado, alternável por
+      AUTH_GUARD_ENABLED) — dentro do escopo do Épico 0. Sem dados reais, sem
+      segredos. Login apenas navega. Sem superfície OWASP em UI mock.
+  documentation:
+    status: PASS
+    notes: "Dev Notes/Completion Notes completos; Change Log mantido; comentários com Source."
+
+top_issues:
+  - id: MNT-001
+    severity: medium
+    finding: >-
+      Dependência @keepit/core-data foi adicionada a apps/admin/package.json
+      (workspace:*) mas o vínculo em node_modules foi criado como symlink MANUAL
+      (constraint da missão: sem `pnpm install`). Em checkout limpo/CI o build
+      quebra até rodar `pnpm install`, pois o symlink não é versionado.
+    suggested_action: >-
+      @devops deve rodar `pnpm install` (atualizando pnpm-lock.yaml) e confirmar
+      que o admin resolve @keepit/core-data sem o symlink manual, ANTES do push.
+  - id: TEST-001
+    severity: low
+    finding: >-
+      Sem testes automatizados das 4 telas/fluxos (aprovar/rejeitar, CRUD hub,
+      validação de motivo). Consistente com o padrão do Épico 0 (casca visual).
+    suggested_action: >-
+      Rastrear como débito; adicionar cobertura quando a lógica real (Épico 1)
+      substituir os mocks.
+  - id: REQ-001
+    severity: low
+    finding: >-
+      Estabelecimento na port real não tem cnpj/telefone/chave_pix/aprovado_em;
+      corretamente NÃO inventados (Article IV), mas a aprovação real (Épico 1)
+      dependerá desses campos (CNPJ/PIX/telefone do lojista).
+    suggested_action: >-
+      @po/@architect avaliarem reabrir 0.2/1.x para adicionar esses campos ao
+      schema/port antes do Épico 1.
+  - id: MNT-002
+    severity: low
+    finding: >-
+      Botão de hub rotulado "Excluir"/"Excluindo…" executa soft-deactivate
+      (update ativo:false), não delete físico. Decisão funcional correta (evita
+      quebra de integridade com pedidos.hub_id), mas o rótulo diverge da ação.
+    suggested_action: >-
+      Considerar renomear para "Desativar" para alinhar rótulo e comportamento.
+  - id: MNT-003
+    severity: low
+    finding: >-
+      typecheck/lint cross-workspace (turbo) não executados (deliberado, para não
+      colidir com @dev irmão em packages/*). Só o workspace admin foi validado.
+    suggested_action: >-
+      @devops rodar `pnpm turbo run typecheck` e `lint` completos antes do push.
+
+evidence:
+  render:
+    routes_200:
+      - "/login -> 200 (Admin/Entrar/E-mail/Senha)"
+      - "/aprovacoes -> 200 (Lojistas Pendentes)"
+      - "/aprovacoes/estab-em-analise -> 200 (id real)"
+      - "/hubs -> 200"
+      - "/hubs/novo -> 200 (Novo Hub/Horário/Latitude/Criar hub)"
+      - "/hubs/hub-centro -> 200 (id real)"
+    states: "?vazio=1 e ?erro=1 -> 200 em /aprovacoes e /hubs"
+    screenshot: "/tmp/aprovacoes.png — tema dark + sidebar + dados reais do mock"
+    typecheck: "npx tsc --noEmit (apps/admin) -> exit 0"
+    hardcoded_colors: "grep hex/rgb/style inline -> nenhum (único rgba é comentário doc)"
+
+dev_decisions_assessed:
+  hooks_locais: "DEFENSÁVEL — compõem sobre core-data sem duplicar port; respeita constraint de escopo."
+  soft_deactivate: "CORRETO — delete físico faria splice do array (verificado no mock), quebrando integridade referencial."
+  campos_ausentes: "CORRETO — port é fonte de verdade, sem invenção (Article IV). Ver REQ-001 para follow-up."
+
+waiver: { active: false }

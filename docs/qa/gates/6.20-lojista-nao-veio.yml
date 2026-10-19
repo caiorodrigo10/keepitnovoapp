@@ -1,0 +1,16 @@
+schema: 1
+story: '6.20'
+gate: CONCERNS
+status_reason: 'RPC reportar_lojista_nao_veio com 3 efeitos atômicos e reforço server-side do tempo (GREATEST(tempo_estimado_min,20)) entregue e testada; único ponto a rastrear é a reintrodução da coluna pedidos.cliente_chegou_em, deliberadamente adiada no backend-piloto, via [AUTO-DECISION] do @dev.'
+reviewer: 'Quinn'
+updated: '2026-08-14T02:11:00Z'
+top_issues:
+  - id: 'ARCH-001'
+    severity: low
+    finding: 'A coluna pedidos.cliente_chegou_em + RPC marcar_cliente_chegou foram (re)introduzidas por [AUTO-DECISION] do @dev, embora 20260813022930 e o doc backend-piloto a tenham deixado explicitamente fora do piloto. Decisão razoável e bem documentada (AC2 a exige; markClienteChegou já existia na OrderPort/UI/mock desde 1.10/6.14; alinhada ao modelo-alvo §5.1) — NÃO era regra de negócio nova, corretamente não escalada ao stakeholder. Mas é um desvio do doc de backend-piloto que merece rastreio de governança.'
+    suggested_action: 'Sincronizar docs/architecture/07-mvp-pilot-backend.md e o doc de deferral com a decisão desta Story para o schema-piloto e o de destino não divergirem no registro.'
+  - id: 'TEST-001'
+    severity: low
+    finding: 'Teste manual/device com DATA_SOURCE=supabase não executado (fora do alcance de agente autônomo).'
+    suggested_action: 'Smoke em device: pedido em no_hub com cliente_chegou_em antigo → confirmar status=nao_entregue_lojista + refund pendente + linha em estabelecimentos_falhas (tipo=lojista_nao_apareceu).'
+waiver: { active: false }

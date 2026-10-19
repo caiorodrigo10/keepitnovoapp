@@ -1,0 +1,71 @@
+schema: 1
+story: '0.7'
+gate: CONCERNS
+status_reason: 'Todas as telas (Seu pedido/PIN, Meus pedidos, Recibo, Cheguei ao hub, Cancelar, Lojista não veio) implementadas com fidelidade sólida, typecheck limpo e a fronteira crítica respeitada (Cliente EXIBE o PIN, nunca digita). Concerns são débitos de fronteira mock/real herdados (order.port incompleta, percentuais de reembolso fora de @keepit/config) e pequenos gaps de fidelidade — todos non-blocking e deferidos para follow-up.'
+reviewer: 'Quinn'
+updated: '2026-07-28T03:10:00Z'
+
+story_type: Frontend
+epic: 0
+review_depth: deep
+
+acceptance_criteria_review:
+  - id: AC1
+    description: 'Telas implementadas com fidelidade (PIN, Cheguei ao hub, Recibo, Meus pedidos, exceções) substituindo stubs da 0.3'
+    status: PASS
+    notes: 'Todas as 6 telas implementadas substituindo os stubs da 0.3; rotas preservadas em PedidosStack.tsx + RootNavigator.tsx (ModalConfirmarPin), params pedidoId adicionados sem quebrar navegação existente. ModalConfirmarPin reaproveita a rota já mapeada pela 0.3 (decisão correta).'
+  - id: AC2
+    description: 'Máquina de estados do pedido mockada em memória via order.port'
+    status: CONCERNS
+    notes: 'Fronteira crítica CONFIRMADA: o Cliente apenas EXIBE o PIN (caixas de dígitos read-only, sem TextInput) — nunca digita. Transições reais (accept/confirmPin/cancel) usam a port de verdade. Porém order.port NÃO expõe em_preparo/saindo_hub/no_hub/cliente_chegou_em → o @dev criou OrderStatusOverrideContext client-side (tech debt bem documentado, sem persistência/rede). OrderStatusDevAdvancer só oferece o próximo passo válido — nenhuma transição pula estado.'
+  - id: AC3
+    description: 'Estados loading/vazio/erro fiéis via injeção de latência/erro do mock'
+    status: PASS
+    notes: 'MeusPedidos usa DevStateToggle (__DEV__) + toAsyncCallOptions → forceEmpty/forceError/delayMs em usePedidosMine, mesmo padrão das 0.4-0.6. Telas de detalhe herdam loading/erro/vazio via usePedidoDetail (AsyncStateBlock em todas). Empty labels específicos por tela.'
+  - id: AC4
+    description: 'Fidelidade visual verificada contra o protótipo (tema claro)'
+    status: CONCERNS
+    notes: 'Comparação feita contra as 3 referências. Alta fidelidade em estrutura, tipografia e cores (100% via @keepit/ui-tokens, zero hex hardcoded). Pequenos gaps: (1) Recibo não renderiza o botão "Ajuda" presente em cliente-14; (2) faixa de pagamento sem o chip "PIX" da referência; (3) footer de "Seu pedido" omite o nome da loja ("Pedido #2048 · Farmácia Vida · R$"); (4) MeusPedidos usa tabs exclusivas enquanto cliente-07 sugere seção "CONCLUÍDOS" abaixo dos ativos. Validação em device deferida (REQ-002, sem simulador).'
+
+quality_checks:
+  code_review: PASS
+  unit_tests: CONCERNS
+  acceptance_criteria: CONCERNS
+  no_regressions: PASS
+  performance: PASS
+  security: PASS
+  documentation: PASS
+
+evidence:
+  typecheck: 'PASS — pnpm --filter @keepit/cliente typecheck (tsc --noEmit) sem erros'
+  lint: 'no-op (script lint = echo skipped em apps/cliente, precedente 0.1/0.4-0.6)'
+  hardcoded_hex: 'Nenhum hex hardcoded em código — única ocorrência (#1F9D57) é comentário citando o mapeamento protótipo→token accent.successFg'
+  business_rules_config: 'businessConfig expõe janelaToleranciaHubMin=10, taxaKeepitPercent=12 — usado corretamente em ChegueiAoHub. Percentuais de reembolso (100/90/10) NÃO existem em @keepit/config'
+  pin_boundary: 'CONFIRMADO — Cliente exibe PIN read-only (pin_texto.split); nenhum TextInput de PIN. confirmPin só no OrderStatusDevAdvancer (dev-only, simula o lojista)'
+  visual_validation: 'Deferida — sem simulador iOS/emulador Android no ambiente (REQ-002, precedente 0.1). Comparação por leitura das 3 refs vs JSX/estilos'
+
+top_issues:
+  - id: ARCH-001
+    severity: medium
+    finding: 'order.port não cobre os estados em_preparo/saindo_hub/no_hub/cliente_chegou_em (dependem do app Lojista, 0.9/0.10) nem getById; supridos por OrderStatusOverrideContext + usePedidoDetail client-side (tech debt).'
+    suggested_action: 'Consolidar no ARCH de core-data: estender OrderPort (advanceStatus/markChegada/getById) e substituir o override local por chamadas reais à port. Coordenar com 0.9/0.10/0.12/0.13.'
+  - id: REQ-001
+    severity: medium
+    finding: 'Percentuais de reembolso (100/90/10/80/20 — Rodada 2) NÃO estão em @keepit/config; centralizados em apps/cliente/src/lib/cancelamentoPolicy.ts. Story/CodeRabbit focus exige valores de regra vindos de packages/config.'
+    suggested_action: 'Follow-up: estender @keepit/config (businessConfig) com os percentuais de reembolso decididos na Rodada 2 e migrar cancelamentoPolicy.ts para consumir de lá. É valor de regra de negócio que deve morar no config central. Mitigado por ora: centralizado em 1 arquivo com fonte citada, packages/* fora do escopo desta mission.'
+  - id: REQ-002
+    severity: low
+    finding: 'Fidelidade visual não validada em device (sem simulador/emulador) — pequenos gaps identificados por leitura: botão "Ajuda" ausente no Recibo, chip "PIX" ausente, nome da loja ausente no footer de "Seu pedido", tabs vs seção combinada em MeusPedidos.'
+    suggested_action: 'Deferir para @ux-expert + validação em device quando disponível. Ajustar Recibo (adicionar "Ajuda" + chip PIX) e footer de ModalConfirmarPin (incluir nome da loja) na passada de fidelidade.'
+  - id: TEST-001
+    severity: low
+    finding: 'apps/cliente sem framework de teste configurado (test = echo skipped, precedente desde 0.1); nenhum teste unitário novo. Lógica pura (pedidoStatus.ts, cancelamentoPolicy.ts) escrita como funções puras exportadas, prontas para teste.'
+    suggested_action: 'Configurar runner de teste em apps/cliente numa story de tooling futura e cobrir pedidoStatus/cancelamentoPolicy. Não bloqueia (mesmo precedente 0.4-0.6).'
+
+follow_ups:
+  - 'Estender OrderPort em @keepit/core-data com estados client-side (em_preparo/saindo_hub/no_hub/cliente_chegou_em), getById e nao_entregue_lojista; remover OrderStatusOverrideContext. Consolidar com débito do Épico 0 (gaps 0.9/0.10/0.12/0.13).'
+  - 'Estender @keepit/config com percentuais de reembolso (100/90/10/80/20) e migrar cancelamentoPolicy.ts.'
+  - 'Passada de fidelidade @ux-expert em device: Recibo (botão Ajuda, chip PIX), footer de Seu pedido (nome loja), layout de MeusPedidos vs protótipo.'
+  - 'Configurar test runner em apps/cliente e cobrir a lógica pura desta story.'
+
+waiver: { active: false }

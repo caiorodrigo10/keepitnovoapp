@@ -1,0 +1,127 @@
+schema: 1
+story: '3.10'
+gate: CONCERNS
+status_reason: >-
+  Roteamento pós-login derivado 100% do status real do PRÓPRIO estabelecimento
+  (leitura filtrada por dono_user_id + RLS), credencial inválida não estabelece
+  sessão, os 5 ramos cobertos sem tela branca e com testes frescos (237 core-data
+  + 60 lojista). Débitos não-bloqueantes: E2E/device real contra keepit-dev e
+  revisão de @architect do mecanismo de sessão permanecem pendentes.
+reviewer: 'Quinn'
+updated: '2026-08-12T16:10:00Z'
+
+story_title: 'Login por status (roteamento do lojista)'
+executor: '@dev (Dex)'
+
+# 7 quality checks (story-lifecycle.md Phase 4)
+checks:
+  code_review: PASS
+  unit_tests: PASS       # core-data 237/237, lojista 60/60 (fresh, não-cache)
+  acceptance_criteria: PASS  # AC1..AC6 atendidas (device E2E manual pendente)
+  no_regressions: PASS
+  performance: PASS
+  security: PASS         # (a) sem sessão em credencial inválida; (b) leitura só do próprio estab.; (c) status imutável (read-only); (d) motivo íntegro sem vazamento cross-lojista
+  documentation: PASS
+
+acceptance_criteria_status:
+  - id: AC1
+    status: MET
+    note: >-
+      lojistaAuth.signIn (Supabase signInWithPassword) real; erro do SDK é
+      relançado, Login.tsx mostra mensagem genérica sem navegar e sem chamar
+      signInLojista() — nenhuma sessão estabelecida. Mock preserva a
+      permissividade só na senha (e-mail exige signUp prévio), coerente com
+      Cliente/Admin. Testado (supabase + mock).
+  - id: AC2
+    status: MET
+    note: 'em_analise → EmAnalise; ativo → Main (via signInLojista só quando status real é ativo). resolveRotaPosLogin testado.'
+  - id: AC3
+    status: MET
+    note: >-
+      rejeitado → CadastroRejeitado exibindo motivo_rejeicao íntegro (sem
+      truncar; fallback honesto "Motivo não informado" só quando null); botão
+      "Cadastrar novamente" chama resetDraft() → CadastroPasso1.
+  - id: AC4
+    status: MET
+    note: >-
+      0 linhas (getMeuEstabelecimento → null) → retomada do wizard
+      (CadastroPasso2), nunca erro/tela branca. Prefill best-effort de
+      raw_user_meta_data via getCadastroMetadata; metadata ausente/parcial não
+      bloqueia (try/catch dedicado; campos faltantes → ''). Testado
+      (completo/parcial/ausente).
+  - id: AC5
+    status: MET
+    note: 'suspenso e qualquer valor não mapeado → ContaIndisponivel (seam SUPORTE_WHATSAPP_DISPONIVEL), sem exibir motivo_suspensao nem motivo inventado.'
+  - id: AC6
+    status: MET
+    note: >-
+      Rota decidida só pela resposta real (sem cache/heurística/otimismo).
+      Falha real de rede/RLS (distinta de "0 linhas") → MSG de erro sem decidir
+      rota. Adapter distingue 0 linhas (maybeSingle → null) de erro (throw).
+      Testado.
+
+top_issues:
+  - id: 'ARCH-001'
+    severity: low
+    finding: >-
+      Mecanismo de sessão real do Lojista (extensão de LojistaAuthPort com
+      signIn/signOut/getCadastroMetadata) e contrato de leitura do próprio
+      estabelecimento (EstabelecimentoCadastroPort.getMeuEstabelecimento)
+      foram [AUTO-DECISION] do @dev — sem sessão dedicada de @architect (Sol),
+      mesmo padrão de débito já registrado nas Stories 3.2/3.5/3.7.
+    suggested_action: >-
+      Revisão retroativa de @architect do mecanismo de sessão/port do Lojista,
+      consolidando com Cliente (AuthPort) e Admin (adminAuth.ts) num ADR único.
+  - id: 'TEST-001'
+    severity: low
+    finding: >-
+      Login E2E/device real contra keepit-dev para os 5 ramos permanece
+      verificação manual pendente (não executável no ambiente autônomo) —
+      cobertura por testes unitários (mock + Supabase fake client) aplicada no
+      lugar. Mesmo padrão de lacuna das Stories 2.5.1/2.6/3.2/3.5/3.7/3.9.
+    suggested_action: >-
+      Executar a bateria manual dos 5 ramos (em_analise/ativo/rejeitado/
+      sem-linha/suspenso) num device com Supabase real antes do go-live do piloto.
+  - id: 'REL-001'
+    severity: low
+    finding: >-
+      Em DATA_SOURCE=mock, alcançar o painel Main do Lojista via Login agora
+      exige uma linha 'ativo' semeada em db.estabelecimentosCadastrados
+      (signInLojista só dispara com status real 'ativo'; db começa vazio). É o
+      comportamento honesto correto exigido pelo AC6 (fim do "qualquer entrada
+      sempre entra"), mas muda o fluxo demonstrativo mock.
+    suggested_action: >-
+      Se a demo mock precisar exibir o painel Main, semear um estabelecimento
+      'ativo' de exemplo (fora do escopo desta Story) — não é bug, é tradeoff
+      documentado.
+  - id: 'MNT-001'
+    severity: low
+    finding: >-
+      Gap mock pré-existente (não introduzido aqui): admin.mock.ts#reject
+      escreve em db.estabelecimentos (Descoberta), não em
+      db.estabelecimentosCadastrados (índice do wizard) — os testes semeiam
+      motivoRejeicao diretamente para exercitar o ramo rejeitado. Cast de
+      status como text (shared-types) também segue como débito herdado.
+    suggested_action: >-
+      Reconciliar os dois "mundos" mock e o contrato shared-types num
+      trabalho de higiene futuro (Épico 6+ / manutenção).
+
+evidence:
+  tests_reviewed:
+    - packages/core-data/src/mock/lojista-auth.mock.test.ts (10)
+    - packages/core-data/src/mock/estabelecimento-cadastro.mock.test.ts (17)
+    - packages/core-data/src/supabase/lojista-auth.supabase.test.ts (14)
+    - packages/core-data/src/supabase/estabelecimento-cadastro.supabase.test.ts (15)
+    - apps/lojista/src/lib/loginRouting.test.ts (6)
+  test_results:
+    core_data: '237 passed / 237 (fresh run, não-cache)'
+    lojista: '60 passed / 60 (fresh run, não-cache)'
+    pnpm_qa: '27/27 tasks (FULL TURBO)'
+  security_verified:
+    - 'Credencial inválida: signIn relança erro do SDK; Login.tsx não navega e não chama signInLojista() — nenhuma sessão.'
+    - 'Isolamento por dono: getMeuEstabelecimento aplica .eq(dono_user_id, auth.uid()) explícito ALÉM da RLS (defense-in-depth) — sem esse filtro a policy publico_ve_ativos também exporia lojas ativo de outros donos.'
+    - 'Status imutável: leitura read-only (SELECT status, motivo_rejeicao); nenhum UPDATE de status no app.'
+    - 'motivo_rejeicao íntegro, oriundo só da própria linha; ContaIndisponivel nunca exibe motivo_suspensao/motivo_rejeicao.'
+    - 'Sem service_role/segredo no bundle do Lojista — adapters usam createClient() (anon key, Story 2.5.1).'
+
+waiver: { active: false }

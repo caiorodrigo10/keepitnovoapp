@@ -1,0 +1,58 @@
+{
+  "expo": {
+    "name": "Keepit Cliente",
+    "slug": "keepit-cliente",
+    "scheme": "com.keepithub.cliente",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#F6F7F3",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.keepithub.cliente",
+      "buildNumber": "3",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.keepithub.cliente",
+      "versionCode": 25,
+      "permissions": [],
+      "adaptiveIcon": {
+        "backgroundColor": "#F6F7F3",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#F6F7F3"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Usamos sua localização para mostrar o hub de retirada mais próximo."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "4335faeb-fcfb-46cd-bd96-41b4c7440bd1"
+      }
+    },
+    "owner": "keepithub"
+  }
+}

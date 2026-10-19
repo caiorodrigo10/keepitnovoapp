@@ -1,0 +1,12 @@
+schema: 1
+story: '6.21'
+gate: PASS
+status_reason: 'RPC cancelar_pedido_atraso com 3 efeitos atômicos e reforço server-side do atraso (2x tempo_estimado_min) entregue e testada; detecção client-side via polling existente com limiar exato coberto (1.999x/2.0x/2.001x); "Aguardar mais" é 100% local, sem rede. pnpm qa verde.'
+reviewer: 'Quinn'
+updated: '2026-08-14T02:11:00Z'
+top_issues:
+  - id: 'TEST-001'
+    severity: low
+    finding: 'Teste manual/device com DATA_SOURCE=supabase não executado (fora do alcance de agente autônomo).'
+    suggested_action: 'Smoke em device: pedido aceito com tempo_estimado_min pequeno, aguardar 2x → confirmar prompt e cancelamento com status=cancelado_atraso + refund pendente + falha atraso_grave.'
+waiver: { active: false }

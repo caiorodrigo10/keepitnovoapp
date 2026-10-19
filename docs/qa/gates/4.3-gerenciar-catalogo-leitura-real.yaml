@@ -1,0 +1,48 @@
+schema: 1
+story: '4.3'
+gate: CONCERNS
+status_reason: 'Leitura real de `produtos` implementada com paridade exata ao mock e barreira RLS (`lojista_gerencia_produtos`, FORCE) verificada na migration; as 6 ACs funcionais estão atendidas. CONCERNS apenas por débitos não-bloqueantes: revisão @architect do novo `getMeuEstabelecimentoId`, regeneração de `shared-types` e validação RLS/E2E em device (mesma lacuna de ambiente das stories anteriores).'
+reviewer: 'Quinn'
+updated: '2026-08-12T00:00:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static
+    evidence: '`product.supabase.ts#list` seleciona `PRODUTO_COLUMNS` filtrando `.eq(estabelecimento_id)` — cards de `GerenciarCatalogo.tsx` inalterados; `estoqueDisplay` segue derivado client-side em `ProductCatalogContext.tsx` via `estoqueDisplayFromId(id)`, sem coluna de estoque no schema.'
+  AC2:
+    status: MET
+    method: static+test
+    evidence: 'Bug pré-existente corrigido — `ProductCatalogContext.tsx:111` agora passa `{ incluirInativos: true }` ao `list` (antes nunca passado desde a Story 0.9/1.10, tab "Pausados" ficava sempre vazia). Adapter aplica `ativo = true` só quando `incluirInativos` não é true e sempre `.is(excluido_em, null)` — paridade exata com `product.mock.ts#list`. Testes: "com incluirInativos: true, não filtra por ativo".'
+  AC3:
+    status: MET
+    method: static
+    evidence: 'Botão "+ Novo" e navegação a `CadastrarProduto` intactos — nenhuma mudança de UI nesta story.'
+  AC4:
+    status: MET
+    method: static
+    evidence: 'Menu do card (editar/pausar/excluir) inalterado; efeitos reais permanecem escopados às Stories 4.5/4.6 (`update`/`pause`/`delete` seguem `NotImplementedError`, confirmado em `supabase-adapters.test.ts:49`).'
+  AC5:
+    status: MET
+    method: static+test
+    evidence: 'loading/vazio/erro preservados em `ProductCatalogContext.tsx`: erro real propagado ao `setError` (nunca lista vazia disfarçada); `estabelecimentoId === null` resolve para lista vazia honesta (sem sessão/cadastro), não erro. Teste: "lista vazia quando não há produtos — sem erro" e "propaga o erro do SDK sem sucesso fictício".'
+  AC6:
+    status: MET
+    method: static
+    evidence: 'RLS `lojista_gerencia_produtos` (FOR ALL, USING via `EXISTS(... dono_user_id = auth.uid())`) + `ENABLE`/`FORCE ROW LEVEL SECURITY` na migration `20260812190000_criar_produtos.sql`. `estabelecimento_id` também aplicado como filtro explícito no adapter (defesa em profundidade), mas a barreira real é o Postgres. Teste simula `permission denied` propagado sem sucesso fictício.'
+
+top_issues:
+  - id: 'ARCH-001'
+    severity: medium
+    finding: 'Novo método `EstabelecimentoCadastroPort.getMeuEstabelecimentoId()` criado via [AUTO-DECISION] para resolver o `estabelecimento_id` real do lojista logado. Escopado só ao catálogo; demais telas (Pedidos/Financeiro/`LojaDisponibilidadeContext`) seguem usando o fixture mock `CURRENT_ESTABELECIMENTO_ID` — carry-forward documentado.'
+    suggested_action: 'Revisão @architect: confirmar se o método deve viver na port de cadastro ou em `StorePort.getById`, e planejar a reconciliação ampla do `CURRENT_ESTABELECIMENTO_ID` (Épico 6+).'
+  - id: 'MNT-001'
+    severity: low
+    finding: 'Tabela `produtos` adicionada manualmente em `packages/shared-types/src/supabase.ts` (sem `supabase gen types` no ambiente).'
+    suggested_action: 'Verificado: espelha EXATAMENTE o DDL da migration (12 colunas, tipos, nullability). Regenerar com a tooling quando `SUPABASE_ACCESS_TOKEN` estiver disponível.'
+  - id: 'TEST-001'
+    severity: low
+    finding: 'RLS cross-tenant e leitura em device/E2E validadas apenas por mocks de erro do SDK; teste de integração contra o banco real fica pendente.'
+    suggested_action: 'Executar verificação manual/integração quando houver ambiente de device (mesma lacuna recorrente das Stories 2.5.1/3.x/4.1).'
+
+waiver: { active: false }

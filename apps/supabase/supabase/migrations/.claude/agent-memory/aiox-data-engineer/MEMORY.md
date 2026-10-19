@@ -1,0 +1,1 @@
+- [RLS column-immutability pattern in arch docs is unenforceable](project_rls_immutability_gotcha.md) — §3.4/§3.5 self-subquery WITH CHECK causes infinite-recursion; use ownership-only RLS + BEFORE UPDATE trigger

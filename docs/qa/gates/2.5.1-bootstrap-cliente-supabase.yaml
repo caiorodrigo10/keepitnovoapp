@@ -1,0 +1,66 @@
+schema: 1
+story: '2.5.1'
+slug: bootstrap-cliente-supabase
+title: Bootstrap do cliente Supabase no app Cliente
+gate: CONCERNS
+status_reason: >-
+  AC1-AC4 e AC6 implementadas e verificadas de forma independente (testes,
+  typechecks, next build e grafo de dependências do Admin livre de RN). AC5
+  (persistência de sessão em device) não é verificável neste ambiente sem
+  device/credenciais reais — permanece como verificação manual pendente.
+reviewer: 'Quinn'
+updated: '2026-08-12T01:55:00Z'
+
+# Evidência empírica reexecutada pelo @qa (não confiada cegamente no @dev)
+evidence:
+  independent_verification: true
+  tests:
+    - '@keepit/supabase-client:test → 8/8 PASS'
+    - '@keepit/core-data:test → 109/109 PASS (inclui teste AC3 de injeção de instância única)'
+    - '@keepit/cliente:test → 30/30 PASS (inclui 4 testes de dataClientBootstrap: mock default, valor != supabase, injeção supabase, degradação falha→mock)'
+  typecheck:
+    - '@keepit/admin typecheck → PASS (exit 0)'
+    - '@keepit/cliente typecheck → PASS (exit 0)'
+  build:
+    - '@keepit/admin exec next build → PASS (17 rotas geradas, sem erro)'
+  security_boundary:
+    - 'pnpm --filter @keepit/admin why react-native → vazio (Admin RN-free)'
+    - 'pnpm --filter @keepit/admin why @react-native-async-storage/async-storage → vazio'
+    - 'apps/lojista/package.json não importa @keepit/supabase-client'
+    - '.env.example: SERVICE_ROLE e ASAAS_* SEM prefixo EXPO_PUBLIC_ (fora do bundle mobile)'
+    - 'createServiceRoleClient() intocado (persistSession:false)'
+    - 'Story sem migration — RLS/schema não alterados'
+
+acceptance_criteria:
+  - id: AC1
+    status: MET
+    note: 'readEnv() lê EXPO_PUBLIC_{name} primeiro com fallback sem prefixo; .env.example atualizado; service_role/Asaas não prefixados.'
+  - id: AC2
+    status: MET
+    note: 'CreateClientOptions aditivo/opcional; storage tipado como SupportedStorage; nenhum import React Native no pacote (apenas menções em JSDoc).'
+  - id: AC3
+    status: MET
+    note: 'createDataClient propaga a MESMA instância de SupabaseClient aos 8 factories; teste prova via onAuthStateChange que o client injetado é o usado.'
+  - id: AC4
+    status: MET
+    note: 'dataClientBootstrap.ts é o primeiro import de App.tsx (efeito no module-eval, antes do RootNavigator); gated por EXPO_PUBLIC_DATA_SOURCE; Lojista/Admin intocados.'
+  - id: AC5
+    status: PENDING_MANUAL
+    note: 'Persistência de sessão sobrevivendo a fechar/reabrir o app exige device/simulador + credenciais reais — não verificável neste ambiente autônomo. Verificação manual pendente do usuário.'
+  - id: AC6
+    status: MET
+    note: 'admin typecheck e next build verdes; grafo de dependências do Admin comprovadamente livre de React Native.'
+
+top_issues:
+  - id: 'REL-001'
+    severity: medium
+    category: reliability
+    finding: 'AC5 (persistência de sessão Supabase Auth após fechar/reabrir o app Cliente) não foi validada — ambiente autônomo sem device/simulador nem EXPO_PUBLIC_SUPABASE_URL/ANON_KEY reais.'
+    suggested_action: 'Antes de habilitar DATA_SOURCE=supabase em piloto: em device/simulador, fazer signup/login, matar o processo, reabrir e confirmar sessão ativa. Cobre o único AC funcional não verificado.'
+  - id: 'MNT-001'
+    severity: low
+    category: maintainability
+    finding: 'Worktree .worktrees/story-2.5.1 (branch story/2.5.1-bootstrap-client, commit 25da602) contém implementação divergente e nunca mesclada da MESMA story, com gate próprio CONCERNS. Duas implementações da 2.5.1 coexistem (main vs worktree).'
+    suggested_action: 'Débito de integração para @devops: reconciliar ou descartar explicitamente o worktree antigo antes de qualquer push/PR. Não bloqueia o código atual em main.'
+
+waiver: { active: false }

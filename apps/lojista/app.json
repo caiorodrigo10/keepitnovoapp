@@ -1,0 +1,52 @@
+{
+  "expo": {
+    "name": "Keepit Lojista",
+    "slug": "keepit-lojista",
+    "scheme": "com.keepithub.lojista",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#1B1E1C",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.keepithub.lojista",
+      "buildNumber": "2",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.keepithub.lojista",
+      "versionCode": 19,
+      "permissions": [],
+      "adaptiveIcon": {
+        "backgroundColor": "#1B1E1C",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#1B1E1C"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "e6fd72af-f4f1-4f53-801d-0baabd792f8f"
+      }
+    },
+    "owner": "keepithub"
+  }
+}

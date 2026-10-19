@@ -1,0 +1,169 @@
+storyId: 1.2
+storyName: Extrair tokens de design do prototipo
+verdict: CONCERNS
+reviewedBy: "@qa (Quinn)"
+reviewedAt: "2026-07-02"
+model: opus
+
+acceptance_criteria:
+  - id: AC1
+    description: "tokens.json contem paleta completa (dark: #1B1E1C, #75DC8D, #1F9D57, cinzas; light: fundos claros, verdes claros de badge; laranja #E0894A)"
+    status: PASS
+    evidence: |
+      Todas as cores nomeadas explicitamente no spec estao presentes em tokens.json:
+      - dark.bg.primary = #1B1E1C (confirmado 188x no prototipo)
+      - dark.accent.brand = #75DC8D (117x no prototipo)
+      - dark.accent.success = #1F9D57 (17x no prototipo)
+      - dark.accent.warning = #E0894A (1x no prototipo, mas e o unico laranja)
+      - light.bg.primary = #F6F7F3 (36x no prototipo)
+      - light.accent.successBg = #E2F7E8 (2x), successBorder = #CDEED7 (1x), successMuted = #DBE6CC (1x)
+      - Cinzas: #20241A, #767B70, #9AA089, #C5C9BB todos presentes no prototipo (confirmado por grep).
+      21 tokens dark + 24 tokens light. Coverage empirica das cores-chave do spec: 15/15 = 100%.
+
+  - id: AC2
+    description: "Tokens de tipografia (Hanken Grotesk, pesos 400/500/700/800, tamanhos 10-24px com line-height)"
+    status: PASS
+    evidence: |
+      - fontFamily: "Hanken Grotesk" [OK]
+      - weights: regular=400, medium=500, semibold=600, bold=700, extrabold=800 (spec pede 400/500/700/800 -- todos presentes; 600 e desvio auto-reportado, justificado abaixo)
+      - sizes: xs=10, sm=11, base=12, md=14, lg=16, xl=20, 2xl=24, 3xl=30, 4xl=38 -- range 10-24px coberto por xs..2xl (7 sizes), extras 3xl/4xl uteis para hero titles. Cada size tem fontSize + lineHeight [OK]
+      - letterSpacing: 8 valores para all-caps sections e badges (extra util, alinhado com docs/prd/03-ux-design.md secao Branding)
+
+  - id: AC3
+    description: "Tokens de spacing (multiplos de 4px), radii (10px card, 20px badge), sombras"
+    status: CONCERNS
+    evidence: |
+      - Spacing: 0,4,8,12,16,20,24,32,40,48 -- todos multiplos de 4 [OK]
+      - Radii: card=16, badge=20 [DIVERGENCIA]. Spec pede "10px card, 20px badge". Empiricamente no prototipo, border-radius:10px aparece apenas 5x, enquanto 14px(42), 16px(30), 18px(39), 20px(37) dominam. O card=16 do dev e mais fiel ao prototipo real do que o "10px" do spec. Ainda assim, e um desvio nao documentado no README nem em Deviations do dev.
+      - badge=20 [OK, casa com prototipo 37x e com spec]
+      - modal=26 [OK, 3x no prototipo]
+      - Shadows: 6 sombras (xs, sm, md, lg, xl, light-xl). md="0 6px 14px rgba(0,0,0,0.2)" [PROTOTIPO 3x], xl e light-xl sao as duas variantes mais usadas do prototipo (14x e 11x) [OK]. Nao inclui "0 2px 8px rgba(0,0,0,.12)" (5x no prototipo) -- pequena omissao.
+
+  - id: AC4
+    description: "Export do JSON em formato consumivel por Expo (expo.ts) e por Tailwind (tailwind.js)"
+    status: PASS
+    evidence: |
+      - src/expo.ts: importa tokens.json e re-exporta com helpers tipados (darkColors, lightColors, typography, spacing, radii, shadows) + tipos derivados (Tokens, DarkColorTheme, LightColorTheme, Typography). Empirico: `import { darkColors } from './index'; const c: string = darkColors.bg.primary` compila sem erro.
+      - src/tailwind.js: preset Tailwind com flattenColors(bg/text/accent/border), fontFamily.sans, fontSize (com line-height), fontWeight, letterSpacing, spacing, borderRadius, boxShadow. Light theme exposto via prefixo "light-". @ts-check aplicado.
+      - src/index.ts: re-exporta expo + tokens.json como default. package.json aponta main/types para src/index.ts e expoe "./tailwind" via exports map.
+      - Typecheck: `pnpm turbo run typecheck` = 7/7 successful (cache hit + no-cache local em ui-tokens tambem PASSA).
+
+  - id: AC5
+    description: "Documentacao curta no README explicando origem e como estender"
+    status: PASS
+    evidence: |
+      README (57 linhas) cobre: (1) origem (extraido do keepit-app/index.html na Story 1.2), (2) uso em Expo com exemplo de codigo real (darkColors, lightColors, typography, spacing, radii, shadows), (3) uso em Tailwind como preset com sintaxe correta do tailwind.config.js, (4) regra de extensao em 4 passos incluindo "regra absoluta: nenhum valor visual hardcoded nos apps". Claro para dev novo.
+
+quality_checks:
+  code_review: PASS
+  unit_tests: N/A
+  acceptance_criteria: CONCERNS
+  regressions: PASS
+  performance: PASS
+  security: PASS
+  documentation: PASS
+
+issues:
+  - severity: medium
+    category: requirements
+    description: |
+      Divergencia nao-documentada em radii.card: spec da Story 1.2 diz "10px card, 20px badge" mas tokens.json tem card=16. A escolha do dev e MAIS fiel ao prototipo (10px aparece so 5x, 16px aparece 30x), mas essa decisao nao foi listada nos "3 desvios auto-reportados" nem justificada no README. Cria risco de re-abertura da discussao mais tarde.
+    recommendation: |
+      Adicionar linha ao README ou a um docs/qa/design-decisions.md registrando: "radii.card = 16 (nao 10 como no spec); decisao baseada em analise empirica do prototipo onde border-radius:16px aparece 30x contra 5x para 10px". Alternativamente, atualizar o spec da Story em docs/prd/epics/1-setup-fundacao.md para refletir 16px.
+
+  - severity: medium
+    category: requirements
+    description: |
+      Escala de font-sizes usa ladder xs/sm/base/md/lg/xl/2xl/3xl/4xl com valores 10,11,12,14,16,20,24,30,38 mas o prototipo usa MUITO 15px (70x -- segunda maior frequencia) e 13px (53x). Nenhum dos dois esta representavel diretamente na escala -- dev vai precisar snap para 14 ou 16 (uma diferenca de 6-13%). Para textos com hierarquia visual fina, isso pode gerar drift perceptivel vs o prototipo.
+    recommendation: |
+      Opcao A (recomendada): adicionar tamanhos intermediarios ao ladder -- `smd: {13,17}` e `mdlg: {15,21}` -- que sao os mais usados e sem representacao. Opcao B: aceitar o drift e documentar no README a regra de rounding (sempre para o mais proximo). Discutir com dev antes de iniciar Story 1.6 (tela canario) que exercitara essa escala pela primeira vez.
+
+  - severity: low
+    category: code
+    description: |
+      Cor decorativa #C4C9BE foi omitida (justificada pelo dev como "baixa frequencia") mas empiricamente aparece 9x no prototipo -- todas como stroke de icones SVG. Nao e "baixa frequencia": e o stroke padrao dos icones no tema light. Se icones SVG forem redesenhados nos apps, essa cor sera necessaria.
+    recommendation: |
+      Adicionar como `light.accent.iconStroke = "#C4C9BE"` (ou similar) em tokens.json. Baixa prioridade -- pode ser feito quando Story 1.6/1.7 precisar renderizar icones. #DDE0D8 (1x skeleton) e #C9CDC4 (2x decorative dots) podem realmente ficar de fora.
+
+  - severity: low
+    category: code
+    description: |
+      src/index.ts tem exports potencialmente conflitantes: `export * from './expo'` re-exporta `tokens` (definido em expo.ts como `export const tokens = tokensJson`) E `export { default as tokens } from './tokens.json'` re-exporta o mesmo nome. TS resolve com o export nomeado ganhando (nao gera erro sob resolveJsonModule+isolatedModules na config atual, confirmado empiricamente), mas o codigo esta redundante e pode confundir editores/tooling.
+    recommendation: |
+      Simplificar: manter apenas `export * from './expo'` (que ja expoe `tokens`) OU remover a linha 3 do expo.ts e manter apenas a re-exportacao do JSON como default no index.ts. Nao urgente -- 1 linha de limpeza.
+
+  - severity: low
+    category: code
+    description: |
+      Shadow "0 2px 8px rgba(0,0,0,.12)" aparece 5x no prototipo (segunda camada intermediaria de sombra) mas nao esta em tokens.shadows. O shadow atual mais proximo e `sm: "0 2px 6px rgba(0,0,0,0.08)"` (proximo mas nao identico).
+    recommendation: |
+      Adicionar `shadows.md-soft` (ou similar) = "0 2px 8px rgba(0,0,0,0.12)". Muito baixa prioridade -- decidir se aparecer necessidade em Story 1.6/1.7.
+
+notes: |
+  Analise dos 3 desvios auto-reportados pelo @dev:
+
+  1. semibold: 600 -- JUSTIFICADO E BEM FEITO.
+     Empirico: font-weight:600 aparece 99x no prototipo vs font-weight:400 = 4x (o "regular" que o spec exige e o MENOS usado).
+     Semibold 600 e efetivamente o "peso padrao" do prototipo para textos secundarios e labels.
+     Nao remover.
+
+  2. dark.text.primary = "#FFFFFF" -- JUSTIFICADO.
+     Spec nao lista o branco explicitamente mas o prototipo usa `color:#fff` inline em contexto dark
+     (font-size:15px + color:#fff + font-weight:700 em titulos sobre #1B1E1C).
+     Semanticamente correto ter dark.text.primary = "#FFFFFF".
+
+  3. Omissao de #DDE0D8, #C4C9BE, #C9CDC4 -- PARCIALMENTE JUSTIFICADO.
+     #DDE0D8 (1x skeleton) e #C9CDC4 (2x dots) -- justificavel omitir.
+     #C4C9BE (9x como stroke de icones SVG light theme) -- NAO deveria ser omitido; ver LOW #3.
+
+  Cobertura empirica das cores principais listadas no spec (docs/prd/03-ux-design.md secao Branding):
+  15 cores citadas -> 15 presentes em tokens.json -> 100%.
+
+  Cobertura empirica das 20 cores mais frequentes do prototipo (por grep):
+  17/20 = 85%. As 3 ausentes sao (1) branco em non-brand context [ok, tem em dark.text.primary], (2) #C4C9BE stroke de icones [LOW issue], (3) pequenas variantes de gray usadas 1-2x [nao precisa].
+
+  Pontos fortes da implementacao:
+  - Nomenclatura 100% semantica (bg/text/accent/border por tema). Zero "gray500" ou "green200" -- alinhado com principio do AIOX.
+  - Estrutura hierarquica no JSON facilita leitura e extensao.
+  - expo.ts helpers sao tipados corretamente; `type Tokens = typeof tokens` funciona (verificado empiricamente).
+  - tailwind.js usa @ts-check e JSDoc para tipagem em JS puro -- codigo defensivo, boa pratica.
+  - flattenColors expoe classes tailwind semanticas (bg-primary, text-secondary, etc.) mantendo hierarquia.
+  - README claro em portugues, com exemplos executaveis.
+  - Nenhuma alteracao em docs/, keepit-app/, .aiox-core/, .env*, ou em Story 1.1 (verificado por mtime e diff).
+  - Sem chaves, PII ou URLs em tokens.json/exports.
+  - Performance OK: tokens.json 3.1KB, sem overhead perceptivel no typecheck (23ms >>> FULL TURBO).
+
+  Areas de atencao (nao bloqueantes mas devem ser conversadas antes de Story 1.6):
+  - Divergencia radii.card 16 vs 10 do spec (MEDIUM #1).
+  - Ausencia de sizes 13 e 15 na escala tipografica -- este e o mais preocupante ao meu ver porque
+    15px e o segundo tamanho mais usado no prototipo (MEDIUM #2). Se ficar como esta, a primeira tela
+    canario (Story 1.6/1.7) ja vai forcar decisao de rounding e potencialmente drift visual.
+
+next_action:
+  - "Verdict CONCERNS. Story 1.2 pode ir para Done SE @dev/orquestrador aceitarem os 2 issues medium como debito rastreado. Recomendo endereçar MEDIUM #2 (fontsize 15px/13px) ANTES de Story 1.6, pois a tela canario vai exercitar o ladder de fontes pela primeira vez."
+  - "Atualizar spec em docs/prd/epics/1-setup-fundacao.md para refletir radii.card = 16 (nao 10) -- ou registrar a decisao em docs/qa/design-decisions.md."
+  - "Considerar adicionar #C4C9BE ao tokens.json como light.accent.iconStroke antes de Story 1.6 renderizar icones."
+
+follow_ups_applied:
+  date: "2026-07-03"
+  applied_by: "orchestrator (post-QA cleanup)"
+  changes:
+    - issue_ref: "MEDIUM #1 (radii.card = 16 vs spec 10px)"
+      change: "Decisao formalizada em docs/qa/design-decisions.md com evidencia empirica (16px 30x vs 10px 5x no prototipo). AC3 em docs/prd/epics/1-setup-fundacao.md atualizado apontando para o design-decisions.md."
+      status: RESOLVED
+    - issue_ref: "MEDIUM #2 (font-sizes 13 e 15 ausentes)"
+      change: "Adicionados 'smd' (13px/lh 18) e 'mdlg' (15px/lh 21) ao tokens.json em typography.sizes, entre base/md e md/lg respectivamente. Nomenclatura seguindo padrao existente."
+      status: RESOLVED
+    - issue_ref: "LOW #3 (#C4C9BE ausente)"
+      change: "Adicionado como light.accent.iconStroke = '#C4C9BE' no tokens.json."
+      status: RESOLVED
+    - issue_ref: "LOW #4 (index.ts com re-export duplicado)"
+      change: "Removida linha 'export { default as tokens } from ./tokens.json' -- tokens ja vem de expo.ts."
+      status: RESOLVED
+    - issue_ref: "LOW #5 (shadow 0 2px 8px rgba .12 ausente)"
+      change: "Adicionado como shadows.card = '0 2px 8px rgba(0,0,0,0.12)' entre sm e md na escala."
+      status: RESOLVED
+  verification:
+    - "pnpm turbo run typecheck: 7 successful, 7 total, 458ms"
+    - "Nenhuma quebra em Story 1.1 (apps continuam typecheck-ok)"
+  ready_for_story: "1.3 (Extrair fontes Hanken Grotesk); tokens estao prontos para tela canario da Story 1.6"

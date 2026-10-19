@@ -1,0 +1,134 @@
+schema: 1
+story: '0.10'
+story_title: 'Lojista: Pedidos & PIN'
+gate: CONCERNS
+status_reason: >-
+  As 10 telas substituem os stubs da 0.3 com máquina de estados mockada, guards de transição
+  tipados (OrderTransitionError) e fidelidade dark alta contra os 3 frames de referência;
+  typecheck do lojista passa. Concerns: ordem.port do lado lojista vive local no app (gap real
+  de core-data), @keepit/config espelhado em constantes locais, sem test runner no app e 2 novos
+  literais #1B1E1C hardcoded. Aceitável para a casca do Épico 0, com follow-ups obrigatórios.
+reviewer: 'Quinn (Test Architect)'
+updated: '2026-07-28T00:00:00Z'
+
+waiver: { active: false }
+
+top_issues:
+  - id: 'ARCH-001'
+    severity: medium
+    finding: >-
+      order.port (packages/core-data, Story 0.2) só cobre o lado Cliente e não expõe
+      listByEstabelecimento, markReadyForHub, markArrivedAtHub, markCustomerNoShow, nem
+      AuthPort.getById. A Task 1 foi implementada como extensão mock LOCAL ao app
+      (screens/pedidos/lojistaOrders.mock.ts + OrdersContext.tsx), espelhando o padrão
+      assíncrono/erro-tipado do order.mock real, sem tocar packages/*. As transições de estado
+      são session-local (em memória do provider) — divergiriam num remount/hot-reload.
+    suggested_action: >-
+      Follow-up ARCH OBRIGATÓRIO antes do Épico 1: promover os métodos do lado lojista
+      (listByEstabelecimento, markReadyForHub, markArrivedAtHub, markCustomerNoShow) e o
+      AuthPort.getById para o OrderPort/AuthPort reais em packages/core-data, unificando com a
+      Story 0.2. Consolidar numa única story de reconciliação com os gaps já achados nas
+      0.9 (ARCH-001/002), 0.12 e 0.13. Delegar a @architect/@data-engineer.
+  - id: 'TEST-001'
+    severity: medium
+    finding: >-
+      Testes unitários do mock (Task 1 último subitem + Task 10) não foram escritos como arquivo
+      executável — apps/lojista não tem test runner (scripts.test = "echo skipped", sem
+      vitest/jest declarado, diferente de packages/core-data). Os guards de transição inválida
+      (confirmPin fora de no_hub, etc.) existem em runtime (OrderTransitionError) mas só foram
+      validados por typecheck + inspeção do @dev e desta review — não há regressão automatizada.
+    suggested_action: >-
+      Escalar como story de infra separada: configurar Jest/Vitest em apps/lojista (exige
+      pnpm install, fora do escopo desta execução) e cobrir as 7 transições válidas + as
+      rejeições inválidas do lojistaOrders.mock. Idealmente feito junto de ARCH-001, testando os
+      métodos já em packages/core-data.
+  - id: 'MNT-001'
+    severity: low
+    finding: >-
+      2 novos literais #1B1E1C hardcoded introduzidos por esta story:
+      ConfirmarRetirada.tsx:68 e DetalheSepararPedido.tsx:236 (checkIcon.color). O valor é
+      correto (== darkColors.bg.primary), sem defeito visual, mas viola a cláusula "nenhum hex
+      hardcoded" da Task 10/AC3 e regride do padrão limpo da 0.9 ("zero hex nas telas novas").
+    suggested_action: >-
+      Substituir os dois literais por darkColors.bg.primary. Correção trivial de @dev; não
+      bloqueia a story.
+  - id: 'ARCH-002'
+    severity: low
+    finding: >-
+      @keepit/config não está declarado como dependência de apps/lojista/package.json nem
+      symlinkado em node_modules/@keepit — businessConfig.taxaKeepitPercent (12%) e o fallback de
+      tempo de preparo foram espelhados como constantes locais documentadas (TAXA_KEEPIT_PERCENT,
+      FALLBACK_TEMPO_PREPARO_MIN). Parte do débito de "pnpm install" comum à trilha lojista.
+    suggested_action: >-
+      Declarar @keepit/config como dependência real do app e ler as constantes de
+      packages/config/src/index.ts na story de infra/pnpm install. Consolidar com ARCH-001.
+  - id: 'REQ-002'
+    severity: low
+    finding: >-
+      Validação visual em simulador iOS / emulador Android deferida — sandbox sem device.
+      Fidelidade conferida por leitura direta das 3 referências (lojista-02-pedidos.png,
+      lojista-03-confirmar-retirada-pin.png, lojista-08-pedido-detalhe-separar.png) contra o
+      código. Débito recorrente do Épico 0 (mesmo padrão de 0.1/0.4/0.8/0.9).
+    suggested_action: >-
+      Rodar a validação visual empírica em simulador/emulador antes de considerar a trilha
+      lojista pronta para produção.
+
+evidence:
+  files_reviewed: 17
+  screens_delivered:
+    - 'NovosPedidos (Pedidos — tabs Ativos/Concluídos, cards com CTA contextual por status)'
+    - 'AceitarPedido (tempo estimado pré-preenchido via store.getById, NumericStepper)'
+    - 'RecusarPedido (motivo obrigatório, FormField, botão desabilitado até preencher)'
+    - 'DetalheSepararPedido (checklist de separação, contador, nota de retirada)'
+    - 'SaindoParaHub (transição saindo_hub)'
+    - 'ChegueiAoHub (markArrivedAtHub → lojista_chegou_em, habilita PIN)'
+    - 'DigitarPin (tela cheia + teclado numérico 3-col + Confirmar entrega)'
+    - 'ConfirmarRetirada (sucesso pós-PIN)'
+    - 'Concluidos (histórico discreto, opacity .7)'
+    - 'ClienteNaoApareceu (motivo obrigatório → nao_retirado)'
+  independent_checks:
+    typecheck_lojista: 'PASS (tsc --noEmit, exit 0)'
+    lint_lojista: 'script é `echo skipped` (sem ESLint no app) — nada a rodar, mesmo precedente 0.1/0.9'
+    hex_hardcoded_new_files: '2 literais #1B1E1C novos (ConfirmarRetirada:68, DetalheSepararPedido:236) — ver MNT-001'
+    rgba_from_prototype: 'rgba(255,255,255,0.12) e rgba(117,220,141,0.3) são valores extraídos direto dos frames do protótipo (Dev Notes); aceitável, idealmente tokenizar'
+    routes_preserved: 'PedidosStackParamList mantida; 10 stubs da 0.3 substituídos sem renomear rotas; pedidoId adicionado às rotas que operam sobre pedido'
+    digitar_pin_full_screen: 'CONFIRMADO — DigitarPin é SafeAreaView de tela cheia (não modal), distinção deliberada do ModalConfirmarPin do Cliente (types.ts)'
+    confirmar_entrega_button: 'PRESENTE — botão explícito, desabilitado até 4 dígitos (fiel ao frame P3)'
+    state_machine_guards: >-
+      Verificado por inspeção — assertStatus() dispara OrderTransitionError ANTES de qualquer
+      mutação: acceptOrder/refuseOrder só de aguardando_aceite; markReadyForHub de aceito/em_preparo;
+      markArrivedAtHub só de saindo_hub; confirmPin e markCustomerNoShow só de no_hub. confirmPin
+      incrementa tentativas_pin em pin incorreto sem trocar status. Nenhuma transição inválida
+      possível via UI (CTAs condicionados por status).
+    config_values: 'tempo estimado via estabelecimentos.tempo_medio_entrega_min real; taxa/fallback de config (espelhados localmente, ARCH-002) — nenhum valor de negócio inline nas telas'
+
+nfr_validation:
+  security: { status: PASS, notes: 'Sem rede/backend real; PIN comparado contra pin_texto do fixture em memória; sem segredos; pin_hash/pgcrypto e bloqueio fora de escopo (Épico 0).' }
+  performance: { status: PASS, notes: 'Casca visual; lista carregada uma vez, mutações em memória; latência simulada 350ms.' }
+  reliability: { status: CONCERNS, notes: 'Máquina de estados session-local (ARCH-001) diverge em remount — aceitável no Épico 0. Guards tipados robustos.' }
+  maintainability: { status: CONCERNS, notes: 'order.port lojista fora de core-data (ARCH-001), config espelhado (ARCH-002), sem test runner (TEST-001), 2 hex novos (MNT-001).' }
+
+acceptance_criteria_review:
+  - ac: 'AC1 — 10 telas substituindo stubs da 0.3, rotas preservadas; Digitar PIN tela cheia; Confirmar entrega presente'
+    status: PASS
+    notes: 'As 10 telas presentes; rotas preservadas; DigitarPin tela cheia (não modal); botão Confirmar entrega presente e fiel ao P3.'
+  - ac: 'AC2 — máquina de estados via mock refletida na UI, com guards de transição inválida'
+    status: PASS
+    notes: >-
+      Transições refletem no card imediatamente (upsert no OrdersContext); guards tipados
+      (OrderTransitionError) rejeitam transições inválidas sem mudar estado. Sólido por inspeção,
+      mas sem cobertura de teste automatizada (TEST-001).
+  - ac: 'AC3 — fidelidade visual (tema dark) contra o protótipo'
+    status: CONCERNS
+    notes: >-
+      Alta fidelidade contra os 3 frames (P2/P3/P8) — header, tabs pill, cards, badges, checkboxes,
+      caixas de PIN, teclado e botões conferem. 2 literais #1B1E1C novos violam a cláusula "nenhum
+      hex hardcoded" (MNT-001, valor correto, sem defeito visual).
+
+recommendations:
+  immediate:
+    - 'Trocar os 2 literais #1B1E1C por darkColors.bg.primary (MNT-001) — trivial.'
+  future:
+    - 'Story de reconciliação ARCH em packages/core-data: promover métodos do lado lojista do order.port + AuthPort.getById (ARCH-001) e declarar @keepit/config (ARCH-002) antes do Épico 1 — consolidar com gaps das 0.9/0.12/0.13.'
+    - 'Configurar test runner em apps/lojista e cobrir as transições do mock (TEST-001).'
+    - 'Validação visual em simulador/emulador (REQ-002) antes de produção.'

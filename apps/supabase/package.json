@@ -1,0 +1,22 @@
+{
+  "name": "@keepit/supabase",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "echo \"supabase start (not yet configured)\"",
+    "build": "echo skipped",
+    "lint": "echo skipped",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "verify:chargeback-concurrency": "node scripts/verify-chargeback-concurrency.mjs",
+    "verify:estabelecimentos-rest": "python3 supabase/tests/database/estabelecimentos_projecao_publica_rest.py"
+  },
+  "dependencies": {
+    "@keepit/shared-types": "workspace:*",
+    "@supabase/supabase-js": "^2.58.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vitest": "^1.2.0"
+  }
+}

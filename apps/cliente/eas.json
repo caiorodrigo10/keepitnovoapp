@@ -1,0 +1,110 @@
+{
+  "cli": {
+    "appVersionSource": "local"
+  },
+  "build": {
+    "demo": {
+      "distribution": "store",
+      "autoIncrement": true,
+      "environment": "preview",
+      "ios": {
+        "credentialsSource": "local"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_DATA_SOURCE": "mock",
+        "EXPO_PUBLIC_APP_ENV": "qa",
+        "EXPO_PUBLIC_QA_ENABLED": "true"
+      }
+    },
+    "demo-apk": {
+      "distribution": "internal",
+      "autoIncrement": true,
+      "environment": "preview",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_DATA_SOURCE": "mock",
+        "EXPO_PUBLIC_APP_ENV": "qa",
+        "EXPO_PUBLIC_QA_ENABLED": "true"
+      }
+    },
+    "preview-apk": {
+      "distribution": "internal",
+      "autoIncrement": true,
+      "environment": "preview",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_DATA_SOURCE": "supabase",
+        "EXPO_PUBLIC_APP_ENV": "homologacao",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://jhhbewnmnorhmsdvfppo.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpoaGJld25tbm9yaG1zZHZmcHBvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUzMzczOTcsImV4cCI6MjEwMDkxMzM5N30.wr4g8eQOuQPbKoIlgPR8my6yyqXXELB5ODoiNb1R45g",
+        "EXPO_PUBLIC_CARD_TOKENIZATION_ENABLED": "false",
+        "EXPO_PUBLIC_QA_ENABLED": "false"
+      }
+    },
+    "homolog": {
+      "distribution": "store",
+      "autoIncrement": true,
+      "environment": "preview",
+      "ios": {
+        "credentialsSource": "remote"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_DATA_SOURCE": "supabase",
+        "EXPO_PUBLIC_APP_ENV": "homologacao",
+        "EXPO_PUBLIC_QA_ENABLED": "false"
+      }
+    },
+    "production": {
+      "distribution": "store",
+      "autoIncrement": true,
+      "environment": "production",
+      "ios": {
+        "credentialsSource": "local"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_DATA_SOURCE": "supabase",
+        "EXPO_PUBLIC_APP_ENV": "production",
+        "EXPO_PUBLIC_QA_ENABLED": "false"
+      }
+    }
+  },
+  "submit": {
+    "demo": {
+      "ios": {
+        "ascAppId": "6796881085",
+        "ascApiKeyPath": "credentials/AuthKey.p8",
+        "ascApiKeyId": "T5CQNTR77Y",
+        "ascApiKeyIssuerId": "207349a8-a4fb-4b33-a791-c3b66358f3d1"
+      },
+      "android": {
+        "serviceAccountKeyPath": "/root/.secrets/keepit-play-service-account.json",
+        "track": "internal"
+      }
+    },
+    "production": {
+      "ios": {
+        "ascAppId": "6796881085",
+        "ascApiKeyPath": "credentials/AuthKey.p8",
+        "ascApiKeyId": "T5CQNTR77Y",
+        "ascApiKeyIssuerId": "207349a8-a4fb-4b33-a791-c3b66358f3d1"
+      },
+      "android": {
+        "serviceAccountKeyPath": "/root/.secrets/keepit-play-service-account.json",
+        "track": "internal"
+      }
+    }
+  }
+}

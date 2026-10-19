@@ -1,0 +1,55 @@
+schema: 1
+story: '9.0.10'
+gate: PASS
+status_reason: 'Story config-only (dois `eas.json` + `.gitignore`). As 6 ACs satisfeitas e verificadas empiricamente. O achado REL-ANDROID-001 (levantado no gate CONCERNS inicial) foi CORRIGIDO na mesma sessão via Opção A: `credentialsSource: "local"` saiu do nível do profile e passou para DENTRO do bloco `ios` (`build.pilot.ios.credentialsSource: "local"`, linhas 8-10) nos dois `eas.json`; o bloco `android` não tem override → EAS-managed keystore, alinhado a `08-mvp-pilot-android.md` §5. iOS íntegro (mantém `local` + `credentials.json` Apple, `submit.pilot.ios` inalterado); `env.DATA_SOURCE=mock` segue único no nível do profile; `distribution:"store"` inalterado. JSON revalidado e `pnpm qa` 6/6 verde após a correção.'
+reviewer: 'Quinn'
+updated: '2026-08-09T00:00:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static
+    evidence: '`apps/cliente/eas.json:11-13` e `apps/lojista/eas.json:11-13` → `build.pilot.android = { "buildType": "app-bundle" }`, ao lado do bloco `ios`. `distribution` permanece `"store"` (linha 7), correto para gerar AAB assinável (vs. APK sideload de `internal`). JSON válido (`JSON.parse` OK nos dois após a correção).'
+  AC2:
+    status: MET
+    method: static
+    evidence: '`env.DATA_SOURCE=mock` está em `build.pilot.env` (linhas 14-16), NÍVEL DO PROFILE — não dentro de `android` nem `ios`. Nenhum bloco `env` novo/duplicado criado dentro de `android`. Herança compartilhada entre plataformas preservada, conforme §9 e a disciplina da 9.0.2 (inalterado pela correção de REL-ANDROID-001).'
+  AC3:
+    status: MET
+    method: static
+    evidence: '`submit.pilot.android` presente nos dois `eas.json` (linhas 27-30): `serviceAccountKeyPath: "./credentials/play-service-account.json"` (caminho relativo à pasta do app, coberto por `.gitignore`) + `track: "internal"`. Nenhum arquivo de segredo criado nem committado. `git status` não mostra nenhum `*.json` de service account rastreado.'
+  AC4:
+    status: MET
+    method: static
+    evidence: 'Dev Notes documentam que o profile `pilot` (incluindo o bloco Android) é exclusivo do piloto interno e não serve produção — seções "Herança do env.DATA_SOURCE", "Keystore — Opção A" e "serviceAccountKeyPath — segredo". `eas.json` é JSON estrito (sem comentários); documentação vive no story file, correto.'
+  AC5:
+    status: MET
+    method: static
+    evidence: 'Objetivo agora GARANTIDO mecanicamente (Opção A). Após a correção de REL-ANDROID-001: `credentialsSource: "local"` vive DENTRO do bloco `ios` (`build.pilot.ios.credentialsSource`, `apps/cliente/eas.json:8-10` e `apps/lojista/eas.json:8-10`) — não mais no nível do profile. O bloco `android` (linhas 11-13) não tem `credentialsSource` e não herda `local` de nível superior → EAS gerencia a keystore Android remotamente. iOS mantém `local`/`credentials.json` Apple. Alinhado a `08-mvp-pilot-android.md` §5.'
+  AC6:
+    status: MET
+    method: static
+    evidence: '`.gitignore:54-58` adiciona os padrões Android: `apps/*/credentials/*service-account*.json`, `*serviceAccount*.json`, `*.jks`, `*.keystore`. O `serviceAccountKeyPath` (`play-service-account.json`) casa com `*service-account*.json` E já estava coberto por `apps/*/credentials/` (linha 52). Segredo Android duplamente coberto; keystore local (Opção B futura) coberta defensivamente.'
+
+top_issues: []
+
+resolved_issues:
+  - id: 'REL-ANDROID-001'
+    severity: medium
+    category: config
+    finding: '`credentialsSource: "local"` no nível do profile `build.pilot` cascateava para Android no EAS, contrariando a Opção A (EAS-managed) da AC5 e §5 — poderia falhar o build não-interativo de @devops por credenciais Android locais ausentes.'
+    resolution: 'Corrigido na mesma sessão via Opção A: `credentialsSource: "local"` movido do nível do profile para DENTRO do bloco `ios` (`build.pilot.ios.credentialsSource`, linhas 8-10) nos dois `eas.json`. Android sem override → EAS-managed keystore. Verificado por QA: `JSON.parse` OK e `pnpm qa` 6/6 verde após a correção; iOS íntegro (mantém `local` + `credentials.json` Apple, `submit.pilot.ios` inalterado); `env.DATA_SOURCE=mock` e `distribution:"store"` inalterados. AC5 promovida de CONCERNS → MET.'
+    verified_by: 'Quinn (@qa) — 2026-08-09'
+
+waiver: { active: false }
+
+# Notas não-bloqueantes
+notes:
+  - id: 'DOC-001'
+    severity: low
+    finding: 'CodeRabbit CLI indisponível no sandbox (auth não-interativa) — self-healing pulado com degradação graciosa.'
+    suggested_action: 'Aceitável: a mudança é config JSON/gitignore, sem lógica de aplicação. Nenhuma ação requerida.'
+  - id: 'DOC-002'
+    severity: low
+    finding: 'quality_gate da story aponta "@devops" (Executor Assignment), enquanto o épico §7 mapeia stories de config @dev → gate @qa. O @po já registrou a reconciliação no Change Log v0.2. Este gate @qa cobre a conformidade de escrita da config; a validação de execução (eas whoami, service account, build real) permanece com @devops (9.0.12).'
+    suggested_action: 'Nenhuma ação nesta story. REL-ANDROID-001 (o único item concreto) já foi corrigido e verificado — ver resolved_issues.'

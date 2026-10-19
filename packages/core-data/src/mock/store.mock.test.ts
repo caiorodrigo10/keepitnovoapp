@@ -1,0 +1,246 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+
+import type { Estabelecimento, StorePort } from '../ports/store.port';
+import { createMockDb, type MockDb } from './db';
+import { createStoreMock, deriveLojaEstado } from './store.mock';
+
+describe('store.mock (contract)', () => {
+  let db: MockDb;
+  let port: StorePort;
+
+  beforeEach(() => {
+    db = createMockDb();
+    port = createStoreMock(db);
+  });
+
+  it('listByHub resolves with an array of Estabelecimento (status ativo)', async () => {
+    const lojas = await port.listByHub('hub-centro', { delayMs: 1 });
+    expect(lojas.length).toBeGreaterThan(0);
+    expect(lojas.every((loja) => loja.status === 'ativo')).toBe(true);
+  });
+
+  it('listByHub mostra somente lojas vinculadas ao hub escolhido', async () => {
+    db.estabelecimentoHubIds = {
+      'estab-farmacia-vida': ['hub-centro'],
+      'estab-conveniencia-24h': ['hub-jardins'],
+    };
+
+    const centro = await port.listByHub('hub-centro', { delayMs: 1 });
+    const jardins = await port.listByHub('hub-jardins', { delayMs: 1 });
+
+    expect(centro.map((loja) => loja.id)).toContain('estab-farmacia-vida');
+    expect(centro.map((loja) => loja.id)).not.toContain('estab-conveniencia-24h');
+    expect(jardins.map((loja) => loja.id)).toContain('estab-conveniencia-24h');
+    expect(jardins.map((loja) => loja.id)).not.toContain('estab-farmacia-vida');
+  });
+
+  it('listByHub não descobre lojas por um hub inativo, mesmo quando o vínculo existe', async () => {
+    const hub = db.hubs.find((item) => item.id === 'hub-centro')!;
+    hub.ativo = false;
+    db.estabelecimentoHubIds['estab-farmacia-vida'] = ['hub-centro'];
+
+    await expect(port.listByHub('hub-centro', { delayMs: 1 })).resolves.toEqual([]);
+  });
+
+  it('listByHub devolve lojas públicas abertas, fechadas e pausadas, sem administrativas ou excluídas', async () => {
+    const now = new Date(2026, 8, 5, 12, 0);
+    const horarioAberto = [
+      { dia_semana: now.getDay(), aberto: true, hora_abre: '08:00', hora_fecha: '18:00' },
+    ];
+    const horarioFechado = [
+      { dia_semana: now.getDay(), aberto: true, hora_abre: '08:00', hora_fecha: '10:00' },
+    ];
+    const loja = (id: string, override: Partial<Estabelecimento>): Estabelecimento => ({
+      id,
+      nome_fantasia: `Loja ${id}`,
+      categoria: 'farmacia',
+      descricao: null,
+      foto_fachada_url: null,
+      endereco: 'Rua A',
+      lat: 0,
+      lng: 0,
+      raio_atendimento_km: 1,
+      tempo_medio_entrega_min: 20,
+      taxa_deslocamento_reais: 5,
+      ticket_minimo_reais: null,
+      status: 'ativo',
+      motivo_rejeicao: null,
+      motivo_suspensao: null,
+      pausado_manualmente: false,
+      excluido_em: null,
+      horarios: horarioAberto,
+      ...override,
+    });
+    db.estabelecimentos = [
+      loja('open', { horarios: horarioAberto }),
+      loja('closed', { horarios: horarioFechado }),
+      loja('paused', { pausado_manualmente: true }),
+      loja('suspended', { status: 'suspenso' }),
+      loja('deleted', { excluido_em: '2026-09-05T09:00:00.000Z' }),
+    ];
+    db.estabelecimentoHubIds = {
+      open: ['hub-centro'],
+      closed: ['hub-centro'],
+      paused: ['hub-centro'],
+      suspended: ['hub-centro'],
+      deleted: ['hub-centro'],
+    };
+
+    const lojas = await port.listByHub('hub-centro', { delayMs: 0 });
+    const ids = lojas.map(({ id }) => id);
+
+    expect(ids).toEqual(expect.arrayContaining(['open', 'closed', 'paused']));
+    expect(ids).not.toContain('suspended');
+    expect(ids).not.toContain('deleted');
+  });
+
+  it('getCatalog resolves with only active products for the given loja', async () => {
+    const catalogo = await port.getCatalog('estab-farmacia-vida', { delayMs: 1 });
+    expect(catalogo.length).toBeGreaterThan(0);
+    expect(catalogo.every((p) => p.estabelecimento_id === 'estab-farmacia-vida')).toBe(true);
+  });
+
+  it('getById returns null for unknown id', async () => {
+    await expect(port.getById('does-not-exist', { delayMs: 1 })).resolves.toBeNull();
+  });
+
+  it('getState returns "pausada" for a manually-paused loja regardless of horário', async () => {
+    const estado = await port.getState('estab-bem-vestir', { delayMs: 1 });
+    expect(estado).toBe('pausada');
+  });
+
+  it('is genuinely asynchronous — does not resolve on the same tick', () => {
+    let resolved = false;
+    const promise = port.listByHub('hub-centro', { delayMs: 0 }).then(() => {
+      resolved = true;
+    });
+    expect(resolved).toBe(false);
+    return promise;
+  });
+
+  it('forceError rejects the Promise', async () => {
+    await expect(port.listByHub('hub-centro', { forceError: true, delayMs: 1 })).rejects.toThrow();
+  });
+
+  it('forceEmpty resolves with an empty array', async () => {
+    await expect(port.listByHub('hub-centro', { forceEmpty: true, delayMs: 1 })).resolves.toEqual([]);
+  });
+
+  it('setPausadoManualmente persists across a new getById (Story 1.10, Task 6)', async () => {
+    const atualizado = await port.setPausadoManualmente('estab-farmacia-vida', true, { delayMs: 1 });
+    expect(atualizado.pausado_manualmente).toBe(true);
+
+    const relido = await port.getById('estab-farmacia-vida', { delayMs: 1 });
+    expect(relido?.pausado_manualmente).toBe(true);
+  });
+
+  it('updateHorarios substitui as 7 linhas e persiste através de um novo getById (Story 4.7, AC1, AC3)', async () => {
+    const novosHorarios = [
+      { dia_semana: 0, aberto: false, hora_abre: null, hora_fecha: null },
+      { dia_semana: 1, aberto: true, hora_abre: '10:00', hora_fecha: '20:00' },
+    ];
+
+    const atualizado = await port.updateHorarios('estab-farmacia-vida', novosHorarios, { delayMs: 1 });
+    expect(atualizado).toEqual(novosHorarios);
+
+    const relido = await port.getById('estab-farmacia-vida', { delayMs: 1 });
+    expect(relido?.horarios).toEqual(novosHorarios);
+  });
+
+  it('updateHorarios rejeita quando aberto=true e hora_abre >= hora_fecha, sem gravar nada (Story 4.7, AC1)', async () => {
+    const original = await port.getById('estab-farmacia-vida', { delayMs: 1 });
+
+    await expect(
+      port.updateHorarios(
+        'estab-farmacia-vida',
+        [{ dia_semana: 2, aberto: true, hora_abre: '18:00', hora_fecha: '08:00' }],
+        { delayMs: 1 },
+      ),
+    ).rejects.toThrow(/hora_abre/);
+
+    const relido = await port.getById('estab-farmacia-vida', { delayMs: 1 });
+    expect(relido?.horarios).toEqual(original?.horarios);
+  });
+
+  it('updateHorarios lança para estabelecimento inexistente', async () => {
+    await expect(
+      port.updateHorarios('does-not-exist', [{ dia_semana: 0, aberto: false, hora_abre: null, hora_fecha: null }], {
+        delayMs: 1,
+      }),
+    ).rejects.toThrow(/não encontrado/);
+  });
+
+  it('checkCnpjDisponivel sempre resolve true — mock não modela cnpj em Estabelecimento (Story 3.3, AC2, AC4)', async () => {
+    await expect(port.checkCnpjDisponivel('11.222.333/0001-81', { delayMs: 1 })).resolves.toBe(true);
+    // Mesmo CNPJ chamado de novo — ainda "disponível" (sem estado de duplicidade simulado nesta Story).
+    await expect(port.checkCnpjDisponivel('11.222.333/0001-81', { delayMs: 1 })).resolves.toBe(true);
+  });
+
+  it('checkCnpjDisponivel é genuinamente assíncrono e respeita forceError (Story 3.3, AC2)', async () => {
+    let resolved = false;
+    const promise = port.checkCnpjDisponivel('11.222.333/0001-81', { delayMs: 0 }).then(() => {
+      resolved = true;
+    });
+    expect(resolved).toBe(false);
+    await promise;
+
+    await expect(
+      port.checkCnpjDisponivel('11.222.333/0001-81', { forceError: true, delayMs: 1 }),
+    ).rejects.toThrow();
+  });
+});
+
+/**
+ * Modo Demo (`docs/architecture/09-modo-demo-mock.md` §3.2/§3.4) — trava o
+ * dataset de demonstração: a MAIORIA das lojas ativas usa horário amplo
+ * (`00:00–23:59`, 7 dias) e por isso aparece "Aberta" a qualquer hora/dia,
+ * mas o dataset preserva EXATAMENTE 1 loja "Pausada"
+ * (`pausado_manualmente = true`) e 1 loja "Fechada" (horário estreito) para
+ * o demo continuar exibindo os 3 estados do protótipo (AC1). `now` fixo
+ * (quarta-feira 15h) — dentro da janela ampla e fora da janela estreita da
+ * padaria (06:00–11:00) — para o teste ser determinístico independentemente
+ * do relógio real da máquina que roda a suíte.
+ */
+describe('dataset de demo (docs/architecture/09-modo-demo-mock.md, §3.2/§3.4) — estados AC1', () => {
+  let db: MockDb;
+  let port: StorePort;
+
+  beforeEach(() => {
+    db = createMockDb();
+    port = createStoreMock(db);
+  });
+
+  const now = new Date('2026-07-29T15:00:00'); // quarta-feira, 15h
+
+  it('a MAIORIA das lojas ativas está "Aberta" a qualquer hora do demo (horário amplo)', async () => {
+    const ativas = await port.listByHub('hub-centro', { delayMs: 1 });
+    expect(ativas.length).toBeGreaterThanOrEqual(8);
+
+    const estados = ativas.map((loja) => ({ id: loja.id, estado: deriveLojaEstado(loja, now) }));
+    const abertas = estados.filter((e) => e.estado === 'aberta');
+    const pausadas = estados.filter((e) => e.estado === 'pausada');
+    const fechadas = estados.filter((e) => e.estado === 'fechada');
+
+    expect(abertas.length).toBeGreaterThan(estados.length / 2);
+    expect(pausadas).toHaveLength(1);
+    expect(fechadas).toHaveLength(1);
+  });
+
+  it('exatamente 1 loja "Pausada" independentemente do horário (Loja Bem Vestir)', () => {
+    const bemVestir = db.estabelecimentos.find((e) => e.id === 'estab-bem-vestir')!;
+    expect(deriveLojaEstado(bemVestir, now)).toBe('pausada');
+  });
+
+  it('exatamente 1 loja "Fechada" na maior parte do dia (Padaria Aurora, janela 06:00–11:00)', () => {
+    const padaria = db.estabelecimentos.find((e) => e.id === 'estab-padaria-aurora')!;
+    expect(deriveLojaEstado(padaria, now)).toBe('fechada');
+    // Dentro da janela estreita, a mesma loja fica "aberta" (a regra não muda, só o dado).
+    const dentroDaJanela = new Date('2026-07-29T08:00:00');
+    expect(deriveLojaEstado(padaria, dentroDaJanela)).toBe('aberta');
+  });
+});
+
+// `deriveLojaEstado` foi relocada para `store.port.ts` (Story 5.3, AC4,
+// `[IDS] ADAPT`, fonte única mock/Supabase) — testes movidos para
+// `store.port.test.ts` junto de `validarHorariosSemanais` (mesmo padrão de
+// função pura compartilhada testada isoladamente de seus consumidores).

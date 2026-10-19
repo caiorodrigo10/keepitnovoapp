@@ -1,0 +1,400 @@
+import type {
+  AuthPort,
+  Cliente,
+  ClienteConfirmacaoTelefone,
+  PasswordResetRequestResult,
+  SignUpInput,
+  UpdateEmailResult,
+  UpdateProfileInput,
+} from '../ports/auth.port';
+import type { AsyncCallOptions } from '../types';
+import { generateMockId, simulateAsync } from './async-helpers';
+import {
+  CLIENTE_DEMO_INITIAL_PASSWORD,
+  readMockPasswordRecovery,
+  runMockPasswordRecoveryMutation,
+  writeMockPasswordRecovery,
+} from './cliente-state';
+import type { MockDb } from './db';
+
+const PASSWORD_RECOVERY_CALLBACK = 'com.keepithub.cliente://auth/reset';
+const NO_ACTIVE_PASSWORD_RECOVERY_ERROR = '[mock] Nenhuma sessão de recuperação ativa.';
+const INVALID_PASSWORD_RECOVERY_CALLBACK_ERROR =
+  '[mock] auth.establishPasswordRecoverySession — link inválido ou sessão indisponível.';
+const PASSWORD_RECOVERY_PERSISTENCE_ERROR =
+  '[mock] Não foi possível persistir a recuperação de senha.';
+let passwordRecoveryRequestSequence = 0;
+
+function createPasswordRecoveryRequestId(): string {
+  passwordRecoveryRequestSequence += 1;
+  return `${generateMockId('recovery')}-${passwordRecoveryRequestSequence.toString(36)}`;
+}
+
+function createPasswordRecoveryCallback(requestId: string): string {
+  const callback = new URL(PASSWORD_RECOVERY_CALLBACK);
+  callback.searchParams.set('requestId', requestId);
+  return callback.toString();
+}
+
+export function createAuthMock(db: MockDb): AuthPort {
+  /**
+   * Story 2.3.1 (Task 2, AC1): pub/sub mínimo fechado sobre `db`, sem
+   * dependência nova (`Set` nativo). Notificado pelos 3 pontos que já mutam
+   * `db.sessionClienteId` (`signUp`, `signIn`, `signOut`) logo abaixo.
+   */
+  const listeners = new Set<(cliente: Cliente | null) => void>();
+  function currentSessionCliente(): Cliente | null {
+    return db.clientes.find((c) => c.id === db.sessionClienteId) ?? null;
+  }
+
+  function notifyAuthStateChange(): void {
+    const cliente = currentSessionCliente();
+    listeners.forEach((listener) => listener(cliente));
+  }
+
+  async function persistPasswordRecoveryMutation(mutate: () => () => void): Promise<void> {
+    if (await runMockPasswordRecoveryMutation(db, mutate)) return;
+    throw new Error(PASSWORD_RECOVERY_PERSISTENCE_ERROR);
+  }
+
+  function parsePasswordRecoveryRequestId(callbackUrl: string): string {
+    let url: URL;
+    try {
+      url = new URL(callbackUrl);
+    } catch {
+      throw new Error('[mock] auth.establishPasswordRecoverySession — callback inválido.');
+    }
+
+    if (`${url.protocol}//${url.host}${url.pathname}` !== PASSWORD_RECOVERY_CALLBACK) {
+      throw new Error('[mock] auth.establishPasswordRecoverySession — callback de outra rota.');
+    }
+
+    const requestIds = url.searchParams.getAll('requestId');
+    if (
+      url.username !== '' ||
+      url.password !== '' ||
+      url.hash !== '' ||
+      [...url.searchParams.keys()].some((key) => key !== 'requestId') ||
+      requestIds.length !== 1 ||
+      !/^recovery-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(requestIds[0] ?? '')
+    ) {
+      throw new Error(INVALID_PASSWORD_RECOVERY_CALLBACK_ERROR);
+    }
+
+    return requestIds[0]!;
+  }
+
+  db.onClienteStateReset = () => {
+    writeMockPasswordRecovery(db, null);
+    notifyAuthStateChange();
+  };
+
+  return {
+    signUp(input: SignUpInput, options?: AsyncCallOptions): Promise<Cliente> {
+      return simulateAsync(
+        () =>
+          db.runClienteMutation(async (persist) => {
+            const cliente: Cliente = {
+              id: generateMockId('cliente'),
+              nome: input.nome,
+              telefone: input.telefone,
+              cpf: null,
+              bloqueado: false,
+              motivo_bloqueio: null,
+              criado_em: new Date().toISOString(),
+            };
+            db.clientes.push(cliente);
+            db.clienteCredenciais.push({ clienteId: cliente.id, email: input.email, password: input.senha });
+            db.sessionClienteId = cliente.id;
+            await persist();
+            notifyAuthStateChange();
+            return cliente;
+          }),
+        {} as Cliente,
+        options,
+      );
+    },
+
+    signIn(email: string, senha: string, options?: AsyncCallOptions): Promise<Cliente> {
+      return simulateAsync(
+        () =>
+          db.runClienteMutation(async (persist) => {
+            const credencial = db.clienteCredenciais.find((c) => c.email === email);
+            const cliente = credencial ? db.clientes.find((c) => c.id === credencial.clienteId) : undefined;
+            if (!cliente || credencial?.password !== senha) {
+              throw new Error('[mock] Credenciais inválidas.');
+            }
+            if (cliente.bloqueado) {
+              throw new Error(`[mock] Cliente bloqueado: ${cliente.motivo_bloqueio ?? 'sem motivo informado'}`);
+            }
+            db.sessionClienteId = cliente.id;
+            await persist();
+            notifyAuthStateChange();
+            return cliente;
+          }),
+        {} as Cliente,
+        options,
+      );
+    },
+
+    /**
+     * Story 2.7 (AC6) — não chama serviço externo, não altera
+     * `db.clientes`/`db.clienteCredenciais`. Resolve sempre com sucesso,
+     * independente do e-mail existir (mesma anti-enumeração do adapter
+     * Supabase, AC7).
+     */
+    requestPasswordReset(email: string, options?: AsyncCallOptions): Promise<PasswordResetRequestResult> {
+      const emptyResult: PasswordResetRequestResult = {
+        delivery: 'demo',
+        callbackUrl: createPasswordRecoveryCallback(createPasswordRecoveryRequestId()),
+      };
+      return simulateAsync(
+        async () => {
+          const requestId = createPasswordRecoveryRequestId();
+          await persistPasswordRecoveryMutation(() => {
+            const clienteId = db.clienteCredenciais.find((credential) => credential.email === email)?.clienteId;
+            const previousRecovery = readMockPasswordRecovery(db);
+            writeMockPasswordRecovery(
+              db,
+              clienteId ? { requestId, clienteId, state: 'requested' } : null,
+            );
+            return () => writeMockPasswordRecovery(db, previousRecovery);
+          });
+          return { delivery: 'demo' as const, callbackUrl: createPasswordRecoveryCallback(requestId) };
+        },
+        emptyResult,
+        options,
+      );
+    },
+
+    /** Story 2.7 (AC6) — valida a rota e ativa somente a conta solicitada sem expor enumeração. */
+    establishPasswordRecoverySession(callbackUrl: string, options?: AsyncCallOptions): Promise<void> {
+      return simulateAsync(
+        async () => {
+          const requestId = parsePasswordRecoveryRequestId(callbackUrl);
+          await persistPasswordRecoveryMutation(() => {
+            const recovery = readMockPasswordRecovery(db);
+            if (!recovery || recovery.requestId !== requestId || recovery.state !== 'requested') {
+              throw new Error(INVALID_PASSWORD_RECOVERY_CALLBACK_ERROR);
+            }
+            writeMockPasswordRecovery(db, { ...recovery, state: 'ready' });
+            return () => writeMockPasswordRecovery(db, recovery);
+          });
+        },
+        undefined,
+        options,
+      );
+    },
+
+    /** Story 2.7 (AC6) — exige sessão de recuperação e troca somente a senha dessa conta. */
+    updatePassword(password: string, options?: AsyncCallOptions): Promise<void> {
+      return simulateAsync(
+        async () => {
+          await persistPasswordRecoveryMutation(() => {
+            const recovery = readMockPasswordRecovery(db);
+            if (!recovery || recovery.state !== 'ready') {
+              throw new Error(NO_ACTIVE_PASSWORD_RECOVERY_ERROR);
+            }
+            const credencial = db.clienteCredenciais.find((item) => item.clienteId === recovery.clienteId);
+            if (!credencial) {
+              throw new Error(NO_ACTIVE_PASSWORD_RECOVERY_ERROR);
+            }
+            const previousPassword = credencial.password;
+            credencial.password = password;
+            writeMockPasswordRecovery(db, { ...recovery, state: 'consumed' });
+            return () => {
+              credencial.password = previousPassword;
+              writeMockPasswordRecovery(db, recovery);
+            };
+          });
+        },
+        undefined,
+        options,
+      );
+    },
+
+    currentUser(options?: AsyncCallOptions): Promise<Cliente | null> {
+      return simulateAsync(
+        () => db.clientes.find((c) => c.id === db.sessionClienteId) ?? null,
+        null,
+        options,
+      );
+    },
+
+    signOut(options?: AsyncCallOptions): Promise<void> {
+      return simulateAsync(
+        () =>
+          db.runClienteMutation(async (persist) => {
+            db.sessionClienteId = null;
+            await persist();
+            notifyAuthStateChange();
+          }),
+        undefined,
+        options,
+      );
+    },
+
+    /** Story 2.8 (AC1, AC2) — lê `clienteCredenciais` pela sessão mock atual; `null` sem sessão. */
+    currentEmail(options?: AsyncCallOptions): Promise<string | null> {
+      return simulateAsync(
+        () => db.clienteCredenciais.find((c) => c.clienteId === db.sessionClienteId)?.email ?? null,
+        null,
+        options,
+      );
+    },
+
+    /**
+     * Story 2.8 (AC3, AC4, AC6) — mesma barreira de autorização do adapter
+     * Supabase: só a sessão mock atual pode se atualizar, `clienteId` de
+     * outra sessão é rejeitado (não é a RLS real, mas o mesmo contrato).
+     */
+    updateProfile(clienteId: string, input: UpdateProfileInput, options?: AsyncCallOptions): Promise<Cliente> {
+      return simulateAsync(
+        () =>
+          db.runClienteMutation(async (persist) => {
+            if (db.sessionClienteId !== clienteId) {
+              throw new Error('[mock] updateProfile — clienteId não corresponde à sessão autenticada.');
+            }
+            const cliente = db.clientes.find((c) => c.id === clienteId);
+            if (!cliente) {
+              throw new Error(`[mock] Cliente não encontrado: ${clienteId}`);
+            }
+            let changed = false;
+            if (input.nome !== undefined) {
+              const nome = input.nome.trim();
+              if (!nome) {
+                throw new Error('[mock] updateProfile — nome não pode ser vazio.');
+              }
+              if (cliente.nome !== nome) {
+                cliente.nome = nome;
+                changed = true;
+              }
+            }
+            if (input.telefone !== undefined) {
+              const telefone = input.telefone?.trim() || null;
+              if (cliente.telefone !== telefone) {
+                cliente.telefone = telefone;
+                changed = true;
+              }
+            }
+            if (changed) {
+              await persist();
+            }
+            return cliente;
+          }),
+        {} as Cliente,
+        options,
+      );
+    },
+
+    /**
+     * Story 2.8 (AC5) — parity mock: sem double opt-in real (não há
+     * Supabase Auth aqui), atualiza `clienteCredenciais` de imediato e
+     * devolve `updated`. Documentado como desvio consciente no Dev Agent
+     * Record — a UI trata os dois status genericamente, então o mock não
+     * precisa simular o estado `confirmation_required`.
+     */
+    updateEmail(newEmail: string, options?: AsyncCallOptions): Promise<UpdateEmailResult> {
+      return simulateAsync(
+        () =>
+          db.runClienteMutation(async (persist) => {
+            if (!db.sessionClienteId) {
+              throw new Error('[mock] updateEmail — nenhuma sessão ativa.');
+            }
+            const email = newEmail.trim();
+            if (!email) {
+              throw new Error('[mock] updateEmail — e-mail inválido.');
+            }
+            const credencial = db.clienteCredenciais.find((c) => c.clienteId === db.sessionClienteId);
+            if (credencial) {
+              credencial.email = email;
+            } else {
+              db.clienteCredenciais.push({
+                clienteId: db.sessionClienteId,
+                email,
+                password: CLIENTE_DEMO_INITIAL_PASSWORD,
+              });
+            }
+            await persist();
+            return { status: 'updated' as const };
+          }),
+        { status: 'updated' as const },
+        options,
+      );
+    },
+
+    confirmPhone(clienteId: string, codigo: string, options?: AsyncCallOptions): Promise<ClienteConfirmacaoTelefone> {
+      return simulateAsync(
+        () => {
+          const cliente = db.clientes.find((c) => c.id === clienteId);
+          if (!cliente) {
+            throw new Error(`[mock] Cliente não encontrado: ${clienteId}`);
+          }
+          if (!/^\d{4}$/.test(codigo)) {
+            throw new Error('[mock] Código de confirmação inválido — esperado 4 dígitos');
+          }
+          // Story 2.3: `telefone_confirmado` não existe mais em `Cliente`
+          // (decisão 10.4, telefone não é verificado no MVP) — este método
+          // segue existente só por contrato (`ConfirmacaoSMS.tsx` é stub
+          // inativo, fora do fluxo desde a decisão 10.4; não reativado).
+          const confirmacao: ClienteConfirmacaoTelefone = {
+            id: generateMockId('confirmacao'),
+            cliente_id: clienteId,
+            telefone: cliente.telefone ?? '',
+            tentativas: 1,
+            expira_em: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+            consumido_em: new Date().toISOString(),
+          };
+          return confirmacao;
+        },
+        {} as ClienteConfirmacaoTelefone,
+        options,
+      );
+    },
+
+    getById(clienteId: string, options?: AsyncCallOptions): Promise<Cliente | null> {
+      return simulateAsync(() => db.clientes.find((c) => c.id === clienteId) ?? null, null, options);
+    },
+
+    /**
+     * Story 6.5 (AC3) — "set once", defesa em profundidade (mesmo padrão do
+     * adapter Supabase, `auth.supabase.ts`): nunca sobrescreve um CPF já
+     * salvo. Se `cliente.cpf` já estiver preenchido, esta chamada é um
+     * no-op honesto — devolve o cliente ATUAL (com o CPF original), sem
+     * erro e sem gravar o valor recebido.
+     */
+    updateCpf(clienteId: string, cpf: string, options?: AsyncCallOptions): Promise<Cliente> {
+      return simulateAsync(
+        () =>
+          db.runClienteMutation(async (persist) => {
+            const cliente = db.clientes.find((c) => c.id === clienteId);
+            if (!cliente) {
+              throw new Error(`[mock] Cliente não encontrado: ${clienteId}`);
+            }
+            if (cliente.cpf == null) {
+              cliente.cpf = cpf;
+              await persist();
+            }
+            return cliente;
+          }),
+        {} as Cliente,
+        options,
+      );
+    },
+
+    onAuthStateChange(callback: (cliente: Cliente | null) => void): () => void {
+      listeners.add(callback);
+      // "Pelo menos uma vez, de forma assíncrona" (AC1) — via `simulateAsync`
+      // com `delayMs: 0`, mesmo padrão de latência genuína usado no resto do
+      // arquivo (nunca `Promise.resolve()` puro).
+      simulateAsync(() => currentSessionCliente(), null, { delayMs: 0 }).then((cliente) => {
+        if (listeners.has(callback)) {
+          callback(cliente);
+        }
+      });
+      return () => {
+        listeners.delete(callback);
+      };
+    },
+  };
+}

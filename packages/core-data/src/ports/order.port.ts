@@ -1,0 +1,260 @@
+import type { AsyncCallOptions } from '../types';
+
+/**
+ * 15 valores exatos do CHECK constraint de `pedidos.status`.
+ * [Source: docs/architecture/03-data-models.md#5.1]
+ */
+export type PedidoStatus =
+  | 'aguardando_pagamento'
+  | 'aguardando_aceite'
+  | 'aceito'
+  | 'em_preparo'
+  | 'saindo_hub'
+  | 'no_hub'
+  | 'entregue'
+  | 'cancelado'
+  | 'cancelado_timeout'
+  | 'cancelado_atraso'
+  | 'cancelado_admin'
+  | 'recusado'
+  | 'nao_retirado'
+  | 'nao_entregue_lojista'
+  | 'estornado_chargeback';
+
+export type FormaPagamento = 'pix' | 'cartao';
+
+export interface ComplementoSnapshot {
+  grupoId: string;
+  grupoNome: string;
+  itemId: string;
+  itemNome: string;
+  precoExtraCentavos: number;
+}
+
+/**
+ * Domínio: tabela `pedidos_itens` (snapshot dos itens no momento do checkout).
+ * [Source: docs/architecture/03-data-models.md#5.2]
+ */
+export interface PedidoItem {
+  id: string;
+  pedido_id: string;
+  produto_id: string | null;
+  nome_snapshot: string;
+  preco_unitario_reais: number;
+  quantidade: number;
+  subtotal_reais: number;
+  /** Checklist operacional do lojista, persistido somente pela RPC autorizada. */
+  separado: boolean;
+  separado_em: string | null;
+  complementos_snapshot: ComplementoSnapshot[];
+}
+
+/**
+ * Domínio: tabela `pedidos` (tabela central do sistema).
+ *
+ * IMPORTANTE: nenhum segredo de retirada é exposto. `pin_hash` NUNCA
+ * é exposto pela port — é um detalhe de persistência da implementação real.
+ * [Source: docs/architecture/03-data-models.md#5.1]
+ */
+export interface Pedido {
+  id: string;
+  numero: number;
+  cliente_id: string | null;
+  estabelecimento_id: string;
+  hub_id: string;
+  status: PedidoStatus;
+  /** Nome limitado à projeção autorizada deste pedido. */
+  cliente_nome?: string;
+  tentativas_pin: number;
+  pin_bloqueado_ate: string | null;
+  tempo_estimado_min: number | null;
+  criado_em: string;
+  aceito_em: string | null;
+  saiu_hub_em: string | null;
+  cliente_chegou_em: string | null;
+  lojista_chegou_em: string | null;
+  entregue_em: string | null;
+  cancelado_em: string | null;
+  subtotal_produtos_reais: number;
+  taxa_deslocamento_reais: number;
+  /** 12% de `subtotal_produtos_reais` — calculado via `businessConfig.taxaKeepitPercent`, nunca hard-coded. */
+  taxa_keepit_reais: number;
+  /**
+   * Story 6.16 (AC1, AC3) — [IDS] ADAPT: campo que faltava neste tipo de
+   * domínio. `CreatePedidoInput.taxa_servico_comprador_reais` (Story 6.6) já
+   * existia e já era persistido pela RPC `criar_pedido`/pelo mock, mas o
+   * READ MODEL (`Pedido`) nunca expunha o valor de volta — gap real
+   * confirmado por leitura direta de `PEDIDO_COLUMNS`/`mapRowToPedido`
+   * (`order.supabase.ts`), necessário para `Recibo.tsx` corrigir o rótulo
+   * "Taxa de serviço" (hoje ligado erroneamente a `taxa_deslocamento_reais`,
+   * mesmo bug já corrigido em `Checkout.tsx`, Rodada 8).
+   */
+  taxa_servico_comprador_reais: number;
+  total_pago_reais: number;
+  motivo_recusa: string | null;
+  motivo_cancelamento: string | null;
+  motivo_nao_retirado: string | null;
+  forma_pagamento: FormaPagamento;
+  itens: PedidoItem[];
+}
+
+/** Snapshot legado usado exclusivamente por fixtures no adapter mock. */
+export interface CreatePedidoItemInput {
+  produto_id: string;
+  nome_snapshot: string;
+  preco_unitario_reais: number;
+  quantidade: number;
+  complementos_snapshot?: ComplementoSnapshot[];
+}
+
+/** Criação demo. O adapter real rejeita esta entrada; use CheckoutPort.criar. */
+export interface CreatePedidoInput {
+  cliente_id: string;
+  estabelecimento_id: string;
+  hub_id: string;
+  itens: CreatePedidoItemInput[];
+  forma_pagamento: FormaPagamento;
+  subtotal_produtos_reais: number;
+  taxa_deslocamento_reais: number;
+  /** 12%→10% de `subtotal_produtos_reais` (`businessConfig.taxaKeepitPercent`) — cobrada do LOJISTA, nunca exibida ao cliente. */
+  taxa_keepit_reais: number;
+  /** Taxa fixa do comprador (`businessConfig.taxaServicoCompradorReais`, hoje R$ 2,90, provisória). */
+  taxa_servico_comprador_reais: number;
+  total_pago_reais: number;
+  nf_solicitada: boolean;
+}
+
+/**
+ * Erro tipado de transição de status inválida (Story 1.10, Task 1) —
+ * promovido do padrão já validado em `apps/lojista/src/screens/pedidos/lojistaOrders.mock.ts`
+ * (Story 0.10). Usado por toda transição de `OrderPort` que exige um status
+ * de origem específico (lado lojista e lado cliente).
+ */
+export class OrderTransitionError extends Error {
+  constructor(action: string, fromStatus: PedidoStatus, allowed: PedidoStatus[]) {
+    super(
+      `[core-data] Ação "${action}" não permitida a partir do status "${fromStatus}" (esperado: ${allowed.join(', ')}).`,
+    );
+    this.name = 'OrderTransitionError';
+  }
+}
+
+/**
+ * Status alcançáveis via `OrderPort.advanceStatus` (Story 1.10, Task 2) — os
+ * 3 estados intermediários que, até a Story 1.9, só existiam via o
+ * `OrderStatusOverrideContext` local do app Cliente (`apps/cliente`).
+ */
+export type AdvanceableStatus = Extract<PedidoStatus, 'em_preparo' | 'saindo_hub' | 'no_hub'>;
+
+export type OrderChangeEvent = {
+  clienteId: string;
+  pedidoId?: string;
+  reason: 'mutation' | 'auto-progress' | 'reset';
+};
+
+/**
+ * Story 6.15 (AC3, AC4, AC8) — [IDS] CREATE, mesmo padrão de erro tipado
+ * domínio-level já usado por `OrderTransitionError` acima (não vive em
+ * `order-errors.ts` porque não é um erro NOMEADO exclusivo da RPC real —
+ * `confirmar_pin_pedido` devolve o desfecho `'pin_incorreto'` como LINHA DE
+ * RESULTADO, não `RAISE`, e `order.mock.ts#confirmPin` precisa lançar o
+ * MESMO tipo para que `OrdersContext`/`DigitarPin.tsx` (lado lojista)
+ * diferenciem a mensagem de forma idêntica em `DATA_SOURCE=mock` e
+ * `DATA_SOURCE=supabase`). Carrega `tentativasRestantes` (derivado da RPC
+ * ou do contador local do mock) — nunca o PIN digitado nem o `pin_hash`.
+ */
+export class PinIncorretoError extends Error {
+  constructor(public readonly tentativasRestantes: number) {
+    super(`[core-data] confirmPin — PIN incorreto (tentativas restantes: ${tentativasRestantes}).`);
+    this.name = 'PinIncorretoError';
+  }
+}
+
+/**
+ * Story 6.15 (AC3, AC4, AC5, AC8) — par de `PinIncorretoError` acima, mesmo
+ * racional (tipo de domínio compartilhado entre mock e adapter real).
+ * Carrega `bloqueadoAte` (ISO timestamp) para a UI derivar o tempo restante
+ * de bloqueio (AC5) — nunca o PIN digitado nem o `pin_hash`.
+ */
+export class PinBloqueadoError extends Error {
+  constructor(public readonly bloqueadoAte: string) {
+    super(`[core-data] confirmPin — PIN bloqueado até ${bloqueadoAte}.`);
+    this.name = 'PinBloqueadoError';
+  }
+}
+
+export interface OrderPort {
+  /** Leitura privada: somente o cliente dono de um pedido pago. */
+  obterPinCliente(pedidoId: string): Promise<string>;
+  subscribeChanges?(listener: (event: OrderChangeEvent) => void): () => void;
+  create(input: CreatePedidoInput, options?: AsyncCallOptions): Promise<Pedido>;
+  listMine(clienteId: string, options?: AsyncCallOptions): Promise<Pedido[]>;
+  /** Resolve um único pedido por id — Story 1.10 (Task 2), usado pelas telas de detalhe do Cliente. */
+  getById(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido | null>;
+  accept(pedidoId: string, tempoEstimadoMin: number, options?: AsyncCallOptions): Promise<Pedido>;
+  refuse(pedidoId: string, motivo: string, options?: AsyncCallOptions): Promise<Pedido>;
+  /**
+   * Valida o PIN informado pelo lojista. Usa `businessConfig.pinTentativasMax` /
+   * `businessConfig.pinBloqueioMin` — nunca hard-coded.
+   * [Source: docs/PERGUNTAS_REGRAS_NEGOCIO.md — Rodada 6, "PIN — tentativas do lojista"]
+   */
+  confirmPin(pedidoId: string, pin: string, options?: AsyncCallOptions): Promise<Pedido>;
+  /** Mock confirma a simulação; Supabase apenas relê o estado confirmado pelo servidor. */
+  confirmarPagamento(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido>;
+  /** Compatibilidade: pré-aceite cancela; após aceite abre solicitação de atendimento e mantém o pedido em curso. */
+  cancel(pedidoId: string, motivo: string, options?: AsyncCallOptions): Promise<Pedido>;
+
+  // ---------------------------------------------------------------------
+  // Lado lojista (Story 1.10, Task 1 — promovido de
+  // `apps/lojista/src/screens/pedidos/lojistaOrders.mock.ts`, Story 0.10)
+  // ---------------------------------------------------------------------
+
+  /** Pedidos de um estabelecimento — usado pelo `OrdersContext` do app Lojista. */
+  listByEstabelecimento(estabelecimentoId: string, options?: AsyncCallOptions): Promise<Pedido[]>;
+  /** `aceito`/`em_preparo` → `saindo_hub` (preenche `saiu_hub_em`). */
+  markReadyForHub(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido>;
+  /** Marca/desmarca um item durante a separação; devolve o pedido relido. */
+  setItemSeparado(itemId: string, separado: boolean, options?: AsyncCallOptions): Promise<Pedido>;
+  /** `saindo_hub` → `no_hub` (preenche `lojista_chegou_em`). */
+  markArrivedAtHub(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido>;
+  /** Registra ausência do cliente para análise do atendimento; não conclui o pedido nem distribui crédito. */
+  markCustomerNoShow(pedidoId: string, motivo: string, options?: AsyncCallOptions): Promise<Pedido>;
+
+  // ---------------------------------------------------------------------
+  // Lado cliente (Story 1.10, Task 2 — promovido de
+  // `apps/cliente/src/context/OrderStatusOverrideContext.tsx`, Story 0.7)
+  // ---------------------------------------------------------------------
+
+  /**
+   * [AUTO-DECISION] Avanço genérico do pedido pelos 3 status intermediários
+   * (`em_preparo`/`saindo_hub`/`no_hub`) — usado exclusivamente pelo botão
+   * dev `OrderStatusDevAdvancer` (ferramenta de teste/demo, não uma ação real
+   * de negócio). Escolhido método genérico (em vez de 3 métodos nomeados,
+   * como no lado lojista) porque esta é uma ferramenta de avanço arbitrário
+   * de estado para QA/demo, não uma transição de negócio com regras
+   * específicas por etapa — um único método com validação de adjacência
+   * (`allowedTransitions`) é suficiente e evita 3 métodos "dev-only" na port.
+   */
+  advanceStatus(pedidoId: string, nextStatus: AdvanceableStatus, options?: AsyncCallOptions): Promise<Pedido>;
+  /** Marca `cliente_chegou_em` — metade do cliente na "janela de tolerância no hub". Exige status `no_hub`. */
+  markClienteChegou(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido>;
+  /**
+   * Story 6.20 (AC2, AC4) — o cliente reporta que o lojista não apareceu no
+   * hub. Exige `status = 'no_hub'` E `cliente_chegou_em` preenchido; reforço
+   * SERVER-SIDE (mock e real) da condição de tempo do AC1
+   * (`cliente_chegou_em + max(tempo_estimado_min, businessConfig.esperaLojistaMaxMin)`)
+   * — nunca confia só na visibilidade do botão na UI. Em sucesso, abre
+   * solicitação sem alterar o estado operacional nem reservar reembolso.
+   */
+  reportLojistaNaoVeio(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido>;
+  /**
+   * Story 6.21 (AC2, AC3) — o cliente cancela um pedido muito atrasado
+   * (avisado in-app via polling client-side, Story 6.13 — sem `pg_cron`/push,
+   * ver Classificação da Story). Exige `status IN ('aceito', 'em_preparo')`;
+   * reforço SERVER-SIDE (mock e real) da condição de atraso do AC1
+   * (`NOW() > aceito_em + 2 * tempo_estimado_min`) — nunca confia só no
+   * client ter mostrado o prompt. Em sucesso, abre solicitação sem alterar
+   * o estado operacional nem reservar reembolso.
+   */
+  cancelPedidoAtraso(pedidoId: string, options?: AsyncCallOptions): Promise<Pedido>;
+}

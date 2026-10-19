@@ -1,0 +1,251 @@
+import { createContext, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react';
+
+import { createSupportOperationId, getDataClient, PinBloqueadoError, PinIncorretoError, type Pedido, type SupportCase } from '@keepit/core-data';
+
+import { useCurrentStore } from '../../context/CurrentStoreContext';
+
+/**
+ * Fallback do "tempo médio de preparo" (Task 3) — tenta
+ * `store.port.getById(storeId).tempo_medio_entrega_min`
+ * (campo real do schema, `estabelecimentos`); se a chamada falhar por
+ * qualquer razão, cai para este valor — não há um valor de negócio mais
+ * específico para "tempo médio de preparo" em `@keepit/config` hoje.
+ */
+const FALLBACK_TEMPO_PREPARO_MIN = 10;
+
+/** Nome padrão enquanto a projeção autorizada do pedido não inclui o cliente. */
+const NOME_CLIENTE_FALLBACK = 'Cliente';
+
+/** Nome do hub padrão enquanto `HubPort.getById` ainda não resolveu (Story 1.10, Task 1). */
+const HUB_NOME_FALLBACK = 'Hub';
+
+/** Status finais — pedido sai de "Ativos" e passa para "Concluídos" (Task 8). */
+const STATUS_CONCLUIDOS = new Set([
+  'entregue',
+  'recusado',
+  'nao_retirado',
+  'cancelado',
+  'cancelado_timeout',
+  'cancelado_atraso',
+  'cancelado_admin',
+  'nao_entregue_lojista',
+  'estornado_chargeback',
+]);
+
+/**
+ * Story 6.15 (AC5) — [IDS] CREATE: substitui o antigo `{ pedido, correto:
+ * boolean }` (que colapsava "PIN incorreto" e "bloqueado" na mesma
+ * mensagem genérica — gap confirmado no Dev Notes da Story). `motivo`
+ * distingue os dois desfechos de erro para `DigitarPin.tsx` mostrar o texto
+ * honesto certo; `tentativasRestantes`/`bloqueadoAte` vêm direto de
+ * `PinIncorretoError`/`PinBloqueadoError` (`@keepit/core-data`), mesmas
+ * classes lançadas por `order.mock.ts` e `order.supabase.ts` (paridade).
+ */
+export type ConfirmPinResult =
+  | { pedido: Pedido; correto: true }
+  | { pedido: Pedido; correto: false; motivo: 'incorreto'; tentativasRestantes: number }
+  | { pedido: Pedido; correto: false; motivo: 'bloqueado'; bloqueadoAte: string };
+
+interface OrdersContextValue {
+  ativos: Pedido[];
+  concluidos: Pedido[];
+  solicitacoes: SupportCase[];
+  loading: boolean;
+  error: Error | null;
+  reload: () => void;
+  getById: (id: string) => Pedido | undefined;
+  /** Prefill de "Aceitar pedido" (Task 3) — `estabelecimentos.tempo_medio_entrega_min` real, com fallback documentado. */
+  tempoMedioPrepMin: number;
+  /** Nome do hub (Story 1.10, Task 1) — promovido de `CURRENT_HUB.nome` (`lojistaOrders.mock.ts`, Story 0.10). */
+  nomeHub: (hubId: string) => string;
+  /** Nome de exibição do cliente (Story 1.10, Task 3) — promovido de `nomeClienteDisplay`/`CLIENTE_NOME_POR_ID`. */
+  nomeCliente: (clienteId: string) => string;
+  acceptOrder: (pedidoId: string, tempoEstimadoMin: number) => Promise<Pedido>;
+  refuseOrder: (pedidoId: string, motivo: string) => Promise<Pedido>;
+  markReadyForHub: (pedidoId: string) => Promise<Pedido>;
+  setItemSeparado: (itemId: string, separado: boolean) => Promise<Pedido>;
+  markArrivedAtHub: (pedidoId: string) => Promise<Pedido>;
+  confirmPin: (pedidoId: string, pin: string) => Promise<ConfirmPinResult>;
+  markCustomerNoShow: (pedidoId: string, motivo: string) => Promise<Pedido>;
+}
+
+const OrdersContext = createContext<OrdersContextValue | null>(null);
+
+/**
+ * Provider da máquina de estados de pedidos do lado lojista — Story 0.10
+ * (Task 1), religado para `client.order` (via `getDataClient()`) na Story
+ * 1.10 (Task 1): `lojistaOrders.mock.ts` foi removido, esta é a fronteira
+ * mock->real única a partir de agora.
+ */
+export function OrdersProvider({ children }: PropsWithChildren) {
+  const { id: storeId } = useCurrentStore();
+  const [pedidos, setPedidos] = useState<Pedido[]>([]);
+  const [solicitacoes, setSolicitacoes] = useState<SupportCase[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
+  const [tempoMedioPrepMin, setTempoMedioPrepMin] = useState<number>(FALLBACK_TEMPO_PREPARO_MIN);
+  const [hubNomes, setHubNomes] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!storeId) return;
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    getDataClient()
+      .order.listByEstabelecimento(storeId)
+      .then((lista) => {
+        if (!cancelled) setPedidos(lista);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err : new Error(String(err)));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    void getDataClient().support.listar().then((lista) => { if (!cancelled) setSolicitacoes(lista); }).catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadToken, storeId]);
+
+  useEffect(() => {
+    if (!storeId) return;
+    let cancelled = false;
+    getDataClient()
+      .store.getById(storeId)
+      .then((estabelecimento) => {
+        if (!cancelled && estabelecimento) {
+          setTempoMedioPrepMin(estabelecimento.tempo_medio_entrega_min);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [storeId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const ids = [...new Set(pedidos.map(p => p.hub_id))];
+    void Promise.all(ids.map(async id => {
+      const hub = await getDataClient().hub.getById(id);
+      return [id, hub?.nome ?? HUB_NOME_FALLBACK] as const;
+    })).then(entries => { if (!cancelled) setHubNomes(Object.fromEntries(entries)); })
+      .catch(() => { if (!cancelled) setHubNomes({}); });
+    return () => { cancelled = true; };
+  }, [pedidos]);
+
+  function upsert(pedido: Pedido) {
+    setPedidos((previous) => previous.map((item) => (item.id === pedido.id ? pedido : item)));
+  }
+
+  const value = useMemo<OrdersContextValue>(() => {
+    const ativos = pedidos.filter((p) => !STATUS_CONCLUIDOS.has(p.status));
+    const concluidos = pedidos.filter((p) => STATUS_CONCLUIDOS.has(p.status));
+
+    return {
+      ativos,
+      concluidos,
+      solicitacoes,
+      loading,
+      error,
+      reload: () => setReloadToken((token) => token + 1),
+      getById: (id) => pedidos.find((p) => p.id === id),
+      tempoMedioPrepMin,
+      nomeHub: (hubId) => hubNomes[hubId] ?? HUB_NOME_FALLBACK,
+      nomeCliente: (clienteId: string) => pedidos.find(p => p.cliente_id === clienteId)?.cliente_nome ?? NOME_CLIENTE_FALLBACK,
+      async acceptOrder(pedidoId, tempoEstimadoMin) {
+        if (!storeId) throw new Error('Loja não identificada.');
+        const pedido = await getDataClient().order.accept(pedidoId, tempoEstimadoMin);
+        upsert(pedido);
+        return pedido;
+      },
+      async refuseOrder(pedidoId, motivo) {
+        if (!storeId) throw new Error('Loja não identificada.');
+        const pedido = await getDataClient().order.refuse(pedidoId, motivo);
+        upsert(pedido);
+        return pedido;
+      },
+      async markReadyForHub(pedidoId) {
+        if (!storeId) throw new Error('Loja não identificada.');
+        const pedido = await getDataClient().order.markReadyForHub(pedidoId);
+        upsert(pedido);
+        return pedido;
+      },
+      async setItemSeparado(itemId, separado) {
+        if (!storeId) throw new Error('Loja não identificada.');
+        const pedido = await getDataClient().order.setItemSeparado(itemId, separado);
+        upsert(pedido);
+        return pedido;
+      },
+      async markArrivedAtHub(pedidoId) {
+        if (!storeId) throw new Error('Loja não identificada.');
+        const pedido = await getDataClient().order.markArrivedAtHub(pedidoId);
+        upsert(pedido);
+        return pedido;
+      },
+      /**
+       * Story 6.15 (AC5) — [IDS] ADAPT: antes capturava QUALQUER erro e
+       * respondia sempre `{ correto: false }` (gap confirmado — colapsava
+       * "PIN incorreto" e "bloqueado" na mesma mensagem genérica em
+       * `DigitarPin.tsx`). Agora distingue por `instanceof`
+       * `PinIncorretoError`/`PinBloqueadoError` (mesmas classes lançadas
+       * por `order.mock.ts`/`order.supabase.ts` — paridade). Após uma recusa
+       * de PIN, relê `order.getById` sob a projeção autorizada
+       * do lojista. Isso mantém o detalhe preso ao pedido histórico (inclusive
+       * seu `hub_id`) mesmo se os vínculos atuais da loja mudarem. Qualquer
+       * outro erro (estrutural —
+       * `AUTENTICACAO_NECESSARIA`/`PEDIDO_NAO_ENCONTRADO`/`ACESSO_NEGADO`/
+       * `ESTADO_INVALIDO`) continua propagando, não é engolido.
+       */
+      async confirmPin(pedidoId, pin) {
+        if (!storeId) throw new Error('Loja não identificada.');
+        try {
+          const pedido = await getDataClient().order.confirmPin(pedidoId, pin);
+          upsert(pedido);
+          return { pedido, correto: true };
+        } catch (err) {
+          const pedidoAtual = (await getDataClient().order.getById(pedidoId)) ?? pedidos.find((p) => p.id === pedidoId);
+          if (!pedidoAtual) throw new Error(`[lojista] Pedido não encontrado: ${pedidoId}`);
+          upsert(pedidoAtual);
+
+          if (err instanceof PinBloqueadoError) {
+            return { pedido: pedidoAtual, correto: false, motivo: 'bloqueado', bloqueadoAte: err.bloqueadoAte };
+          }
+          if (err instanceof PinIncorretoError) {
+            return {
+              pedido: pedidoAtual,
+              correto: false,
+              motivo: 'incorreto',
+              tentativasRestantes: err.tentativasRestantes,
+            };
+          }
+          throw err;
+        }
+      },
+      async markCustomerNoShow(pedidoId, motivo) {
+        if (!storeId) throw new Error('Loja não identificada.');
+        const caso = await getDataClient().support.abrir({ pedidoId, tipo: 'cliente_ausente', motivo, operacaoId: createSupportOperationId() });
+        setSolicitacoes((lista) => [...lista.filter((item) => item.id !== caso.id), caso]);
+        const pedido = await getDataClient().order.getById(pedidoId);
+        if (!pedido) throw new Error('Pedido não encontrado após registrar solicitação.');
+        return pedido;
+      },
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pedidos, solicitacoes, loading, error, tempoMedioPrepMin, hubNomes, storeId]);
+
+  return <OrdersContext.Provider value={value}>{children}</OrdersContext.Provider>;
+}
+
+export function useOrdersContext(): OrdersContextValue {
+  const context = useContext(OrdersContext);
+  if (!context) {
+    throw new Error('useOrdersContext deve ser usado dentro de <OrdersProvider>.');
+  }
+  return context;
+}

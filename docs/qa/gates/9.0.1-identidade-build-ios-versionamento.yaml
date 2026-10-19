@@ -1,0 +1,39 @@
+schema: 1
+story: '9.0.1'
+gate: PASS
+status_reason: 'Story config-only (dois `app.json`) — as 5 ACs estão satisfeitas por leitura estática direta: bundle IDs exatos, `version 1.0.0`, `ios.buildNumber "1"`, nenhuma `infoPlist` supérflua (grep de deps de permissão vazio + os dois `ModalPermissaoPush` não chamam API nativa), e nenhuma fixture mock atribuível a esta story. As 2 falhas de expo-doctor são de ambiente do monorepo (react duplicado / SDK desatualizado), não campos iOS obrigatórios — não rebaixam o gate.'
+reviewer: 'Quinn'
+updated: '2026-07-31T00:00:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static
+    evidence: '`apps/cliente/app.json` → `expo.ios.bundleIdentifier = "com.keepithub.cliente"`; `apps/lojista/app.json` → `expo.ios.bundleIdentifier = "com.keepithub.lojista"`. Lido diretamente dos arquivos (linhas 10-13 de cada). Valores conferem com a decisão fechada por Caio em 2026-07-31 (`docs/prd/epics/9-publicacao-compliance.md`).'
+  AC2:
+    status: MET
+    method: static
+    evidence: 'Diff `git diff -- apps/*/app.json`: `"version": "0.0.0"` → `"1.0.0"` nos dois apps, e `"buildNumber": "1"` adicionado dentro de `expo.ios` nos dois. Nenhuma outra chave alterada (diff puramente aditivo: +2 linhas por arquivo dentro de `ios` + a troca de version).'
+  AC3:
+    status: MET
+    method: static+grep
+    evidence: 'Nenhuma chave `infoPlist` adicionada (confirmado por leitura dos dois `app.json` — o bloco `ios` só tem `supportsTablet`/`bundleIdentifier`/`buildNumber`). `grep -nE "expo-camera|expo-location|expo-notifications" apps/cliente/package.json apps/lojista/package.json` → vazio (exit 1). `apps/cliente/src/screens/modals/ModalPermissaoPush.tsx` é puramente visual — os botões "Permitir"/"Agora não" só chamam `navigation.goBack()`, nenhuma `Notifications.*`/`Camera.*`/`Location.*`. `apps/lojista/src/screens/modals/ModalPermissaoPush.tsx` é `createScreenStub(...)` (stub sem lógica). Decisão "não declarar usage description" está correta: nenhum permission dialog nativo é disparado em mock.'
+  AC4:
+    status: MET
+    method: static+dev-evidence
+    evidence: 'Todos os campos iOS obrigatórios (`bundleIdentifier`, `buildNumber`, `version != 0.0.0`) presentes e os dois `app.json` são JSON válido (`JSON.parse` OK). @dev reportou `npx expo-doctor` 18/20 nos dois apps; as 2 falhas remanescentes (duplicação de `react` no monorepo e drift de versão `typescript`/`expo`/`react-native` vs. SDK) são pré-existentes de ambiente e nenhuma menciona campo iOS obrigatório — não relacionadas a esta story (mission constraint #5). expo-doctor não re-executado no sandbox (sem simulador/rede — mesma limitação documentada desde a Story 0.1); AC verificável estaticamente pelo conteúdo do `app.json`.'
+  AC5:
+    status: MET
+    method: static
+    evidence: '`git diff --stat -- apps/cliente/app.json apps/lojista/app.json` → só os dois `app.json` (8 insertions, 4 deletions). File List da story lista apenas esses dois arquivos. As 3 fixtures de `packages/core-data/src/mock/fixtures/` (`estabelecimentos.ts`, `hubs.ts`, `produtos.ts`) aparecem dirty no `git status`, mas já estavam modificadas ANTES desta sessão (trabalho paralelo de reconciliação de ports, fora do escopo) — não tocadas por esta implementação e não no File List. `DATA_SOURCE=mock` inalterado; `packages/core-data` não é dependência desta mudança config-only.'
+
+top_issues: []
+
+waiver: { active: false }
+
+# Notas não-bloqueantes
+notes:
+  - id: 'DOC-001'
+    severity: low
+    finding: 'CodeRabbit CLI indisponível no sandbox (auth não-interativa) — self-healing pulado com degradação graciosa.'
+    suggested_action: 'Aceitável: a mudança é config JSON pura, sem lógica de aplicação. Nenhuma ação requerida.'

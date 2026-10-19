@@ -1,0 +1,56 @@
+schema: 1
+story: '4.4'
+gate: CONCERNS
+status_reason: 'Escrita real em `produtos` com `INSERT ... RETURNING` (nunca ecoa input), correção de sucesso fictício (`await` + navegação só em sucesso), `uploadFoto` real (path `{uid}/<arquivo>` único, URL pública) e RLS `WITH CHECK` via dono validando o INSERT — nenhuma condição de FAIL presente. CONCERNS por débitos explícitos e honestos: compressão AC5 e picker de foto sem lib no workspace, contrato de upload/`isFarmacia` pendentes de @architect, e E2E/device.'
+reviewer: 'Quinn'
+updated: '2026-08-12T00:00:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static
+    evidence: '`ProductForm.tsx` coleta nome/descrição/preço; "Categoria" migrou de texto livre para `SelectField` alimentado por `CATEGORIA_PRODUTO_OPTIONS` (`packages/config`). Foto: interação de picker desligada em `DATA_SOURCE=supabase` (`fotoUploadEnabled={!isSupabaseDataSource()}`) — sem `expo-image-picker` no workspace (débito, ver MNT-001).'
+  AC2:
+    status: MET
+    method: static
+    evidence: 'Migration `20260812190000_criar_produtos.sql` cria `produtos` conforme `03-data-models.md §3.1` (`preco_reais numeric(10,2) CHECK > 0`, `categoria_produto text NOT NULL`, soft delete `excluido_em`). `shared-types` espelha exatamente.'
+  AC3:
+    status: MET
+    method: static+test
+    evidence: 'RLS `lojista_gerencia_produtos` FOR ALL com `WITH CHECK (EXISTS ... dono_user_id = auth.uid())` — um `estabelecimento_id` de outro dono é rejeitado no INSERT pelo Postgres, não só pela UI. `FORCE ROW LEVEL SECURITY` ativo. Teste: "propaga erro de RLS (estabelecimento_id de outro dono) sem sucesso fictício".'
+  AC4:
+    status: MET
+    method: static+test
+    evidence: 'Bucket público `produtos` (migration `20260812190002`, 5MB, image/jpeg|png|webp). `uploadFoto` grava sob `${user.id}/produto-<timestamp>-<random>.<ext>` (nome único gerado internamente — não sobrescreve foto de outro produto/dono; policy `produtos_dono_insere` exige `foldername[1] = auth.uid()`), retorna URL pública direta (`getPublicUrl`, nunca assinada). Teste verifica path `^user-lojista-1/produto-.+\.jpg$` e `url.not.toMatch(/token=/)`.'
+  AC5:
+    status: NOT_MET (débito explícito, não simulado)
+    method: static
+    evidence: 'Compressão client-side (max 1200px) NÃO implementada — nenhuma lib de manipulação de imagem (`expo-image-manipulator`) no `pnpm-lock.yaml`. Nenhuma alegação de compressão foi feita (não simulado). Seam `produtoFoto.ts` valida MIME/tamanho (5MB) ANTES do upload e está testado, pronto para quando um picker/compressão real existir. Ver REQ-001.'
+  AC6:
+    status: MET
+    method: static+test
+    evidence: 'Bug de sucesso fictício corrigido: `CadastrarProduto.tsx#handleSubmit` agora `await`s `createProduto` e só `goBack()` em sucesso real; falha exibe `submitError` e preserva os dados do formulário (sem navegar). `create` devolve a linha REAL persistida (`INSERT ... RETURNING`), erro (rede/RLS/`CHECK preco_reais > 0`) propaga. Testes cobrem os três caminhos de erro.'
+
+top_issues:
+  - id: 'REQ-001'
+    severity: medium
+    finding: 'AC5 (compressão de imagem max 1200px) não implementada por ausência de lib de manipulação de imagem no workspace. Débito explícito, não simulado.'
+    suggested_action: 'Retomar quando `expo-image-manipulator`/picker forem instalados (requer `pnpm install` de dep nativa, fora do escopo de sessão autônoma). Ligar `produtoFoto.ts` (já testado) à UI.'
+  - id: 'MNT-001'
+    severity: low
+    finding: 'Picker de foto não cabeado (sem `expo-image-picker`); em `DATA_SOURCE=supabase` o form mostra estado honesto "Upload de foto disponível em breve". CRUD sem foto funciona de verdade em ambos os modos.'
+    suggested_action: 'Cabear `uploadFotoProduto` ao picker quando a dependência for adicionada. Seam honesto — nenhuma simulação de upload.'
+  - id: 'ARCH-001'
+    severity: low
+    finding: 'Contrato de `uploadFoto({ uri, ext })` decidido via [AUTO-DECISION] (ADAPT de `HubFotoUploadInput`); gap `isFarmacia` (depende de `store.getById`, stub Épico 5) → `isFarmacia` false/indefinido em modo supabase, documentado.'
+    suggested_action: 'Confirmação formal @architect do contrato de upload e do desenho de leitura do próprio estabelecimento (compartilhado com 4.7/4.8). Atualizar `05-security.md §6.7` (2 buckets públicos).'
+  - id: 'MNT-002'
+    severity: low
+    finding: 'Tabela `produtos` adicionada manualmente em `shared-types` (sem `supabase gen types`).'
+    suggested_action: 'Verificado: espelha o DDL da migration. Regenerar com a tooling quando disponível.'
+  - id: 'TEST-001'
+    severity: low
+    finding: 'RLS de INSERT cross-tenant e upload de foto validados por mocks do SDK; E2E/device (cadastro completo com foto real) pendente.'
+    suggested_action: 'Verificação manual/integração em ambiente de device (lacuna recorrente).'
+
+waiver: { active: false }

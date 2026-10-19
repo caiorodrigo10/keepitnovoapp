@@ -1,0 +1,74 @@
+schema: 1
+story: '5.2'
+gate: CONCERNS
+status_reason: 'Adapter Supabase real de `StorePort.listByHub` (`store.supabase.ts`) via junção `estabelecimentos_hubs` × `estabelecimentos`, sob a RLS fail-closed `publico_ve_estab_hubs` já aplicada. Todos os 6 ACs atendidos, incluindo o AC6 CRÍTICO (recorte honesto): hub sem associação resolve `[]` sem tocar `estabelecimentos` (short-circuit em `ids.length===0`) e sem lançar — provado em código E em teste dedicado. Filtro client-side explícito (status=ativo AND pausado_manualmente=false AND excluido_em IS NULL) é defesa em profundidade redundante com a RLS, mesmo padrão de `product.supabase.ts#list`. Nenhum caminho de escrita/vínculo criado — BR-HUB permanece pendência do Caio, não presumida. 7 testes novos escrutinados e reexecutados fora do cache Turbo (vitest direto: store.supabase 19/19, dos quais 7 de listByHub). CONCERNS (não PASS) por débitos abertos, todos documentados e não-bloqueantes: (1) a feature é funcionalmente inerte em produção — lista sempre vazia — até a POPULAÇÃO loja↔hub (BR-HUB) ser decidida e implementada; (2) validação contra o keepit-dev real bloqueada até existir uma associação no banco; (3) shared-types `estabelecimentos_hubs` reconciliada à mão, pendente de regeneração; (4) risco de divergência de histórico da migration (timestamp aplicado via MCP vs. arquivo versionado) não verificável neste ambiente. Nenhum critical/high.'
+reviewer: 'Quinn'
+updated: '2026-08-12T22:05:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: static
+    evidence: 'Tela do Hub (header + "Lojas neste hub") já existe fiel ao protótipo desde a Story 0.5. Nenhuma alteração de UI — File List só toca packages/core-data e packages/shared-types.'
+  AC2:
+    status: MET
+    method: empirical
+    evidence: '`listByHub` = `fetchEstabelecimentoIdsPorHub` (`.from(''estabelecimentos_hubs'').select(''estabelecimento_id'').eq(''hub_id'',hubId)`) → `fetchEstabelecimentosPorIds` (`.in(''id'',ids).eq(''status'',''ativo'').eq(''pausado_manualmente'',false).is(''excluido_em'',null)`). Teste "hub com 2 lojas" verifica `eq(''hub_id'',''hub-1'')`, `in(''id'',[''estab-1'',''estab-2''])` e os 3 filtros client-side. Sem raio_atendimento_km/Haversine (grep ausente). RLS `publico_ve_estab_hubs` (hub ativo E loja ativa/não-pausada/não-excluída) é a barreira real.'
+  AC3:
+    status: MET
+    method: static
+    evidence: 'Card mostra nome/categoria/distância estática — UI (StoreCard.tsx) inalterada. Badge de estado (Aberta/Fechada/Pausada) é responsabilidade da Story 5.3, corretamente fora desta. `Estabelecimento` retornado carrega os horários (via `fetchHorarios` reaproveitado).'
+  AC4:
+    status: MET
+    method: static
+    evidence: 'Filtro rápido por categoria (CategoryChips, filtro em memória sobre o array de `listByHub`) já implementado, não modificado.'
+  AC5:
+    status: MET
+    method: static
+    evidence: 'Toque em loja → Story 5.4 já implementado, não alterado.'
+  AC6:
+    status: MET
+    method: empirical
+    evidence: 'CRÍTICO. `fetchEstabelecimentosPorIds`: `if (ids.length === 0) return []` ANTES de qualquer query a `estabelecimentos`. Teste "hub sem associação resolve [] sem consultar estabelecimentos" assere `from` NUNCA chamado com ''estabelecimentos''. Nenhum erro lançado, nenhuma loja simulada. Enquanto BR-HUB não popular a junção, o comportamento em produção é lista vazia correta e verificável — não um falso positivo.'
+
+security:
+  status: PASS
+  notes: |
+    - Leitura pública via anon key (`createClient()`, NÃO `createServiceRoleClient` — verificado por grep). Nenhum service_role no caminho do bundle.
+    - RLS `publico_ve_estab_hubs` é fail-closed (verificado na migration 20260812213002): só expõe o par se hub ativo E estabelecimento ativo/não-pausado/não-excluído. Filtro client-side é defesa extra, não a única barreira.
+    - Escrita SOMENTE admin (`admin_gerencia_estab_hubs FOR ALL is_admin()`). A Story 5.2 NÃO cria nenhum caminho de escrita/vínculo — `listByHub` só faz SELECT. BR-HUB (auto na aprovação? admin? lojista?) permanece não decidida e não presumida.
+    - shared-types `estabelecimentos_hubs` coerente com o schema real: estabelecimento_id, hub_id, criado_em; PK composta; Relationships []. Espelha o DDL exatamente.
+
+issues:
+  - id: BR-HUB-5.2-001
+    severity: medium
+    category: requirements
+    description: 'A POPULAÇÃO da associação loja↔hub é regra de negócio pendente do Caio (BR-HUB — auto na aprovação / Admin seleciona / lojista escolhe). Hoje só o admin escreve em `estabelecimentos_hubs`; não há UI/RPC de vínculo. Consequência: `listByHub` retorna lista vazia para qualquer hub em produção — a feature entrega o estado vazio até BR-HUB ser decidida e implementada. Comportamento honesto e correto (AC6), não um bug — mas a story não é end-to-end funcional sem a decisão.'
+    recommendation: 'Levar BR-HUB ao Caio (docs/orchestration/PENDENCIAS-CAIO.md). Uma story futura de população (policy lojista_gerencia_estab_hubs OU fluxo admin OU auto-vínculo na aprovação) destrava a leitura já pronta desta Story.'
+  - id: DEV-5.2-002
+    severity: low
+    category: tests
+    description: 'Teste contra o keepit-dev real bloqueado até existir uma associação no banco (mesma pendência BR-HUB). Toda a lógica de leitura está provada por teste unitário; o caminho real com dados populados não foi exercitado.'
+    recommendation: 'Validar assim que a primeira associação for populada (via BR-HUB ou seed manual admin).'
+  - id: DEV-5.2-003
+    severity: low
+    category: code
+    description: 'Entrada `estabelecimentos_hubs` em shared-types reconciliada à mão (sem SUPABASE_ACCESS_TOKEN). Verificada contra o DDL da migration — forma correta. Débito compartilhado com a Story 5.1.'
+    recommendation: 'Regenerar via `supabase gen types` quando o token estiver disponível.'
+  - id: MIG-5.2-004
+    severity: low
+    category: data
+    description: 'Migration `20260812213002_criar_estabelecimentos_hubs.sql` consta como aplicada pelo @data-engineer, mas o timestamp aplicado ao keepit-dev (via MCP) pode divergir do arquivo versionado — risco conhecido de quebrar `db push`/`db pull`. Não verificável neste ambiente (sem token/MCP Supabase). Sem impacto funcional nesta Story: com BR-HUB pendente, `listByHub` retorna [] independentemente da tabela existir.'
+    recommendation: 'Reconciliar histórico de migration (`supabase migration list` local vs. remoto) antes de qualquer `db push` futuro.'
+  - id: DEV-5.2-005
+    severity: low
+    category: code
+    description: '`listByHub` não aplica ORDER BY sobre `estabelecimentos` — a ordem das lojas segue a ordem de retorno do Postgres (não determinística). Nenhum AC exige ordem e a distância exibida é placeholder estático; a UI aplica filtro de categoria em memória. Divergência de baixo impacto.'
+    recommendation: 'Se/quando a ordenação por relevância/distância entrar (gatilho de complexidade do piloto), definir ORDER BY estável — decisão de negócio a registrar, não presumir.'
+
+recommendations:
+  immediate: []
+  future:
+    - 'Decidir BR-HUB e implementar a população da junção em story dedicada.'
+    - 'Regenerar shared-types e reconciliar histórico de migration antes de db push.'
+    - 'Validar listByHub em device/keepit-dev após primeira associação populada.'

@@ -1,0 +1,20 @@
+schema: 1
+story: '3.8'
+gate: CONCERNS
+status_reason: 'Aprovação real via RPC SECURITY DEFINER guardada por is_admin(); autorização server-side, sucesso nunca fictício, sem update otimista, sem Asaas/hub. CONCERNS apenas por débitos não-bloqueantes (E2E manual contra keepit-dev, shared-types reconciliado à mão, JSDoc da página desatualizado).'
+reviewer: 'Quinn'
+updated: '2026-08-12T14:35:00Z'
+top_issues:
+  - id: 'TEST-001'
+    severity: medium
+    finding: 'Sem teste E2E/integração executado contra keepit-dev com sessão de admin real — a transição em_analise→ativo + gravação de aprovado_em/aprovado_por foi provada só por testes unitários com fake client. Mesma lacuna já aceita nas Stories 3.2/3.5/3.7 (sem admin provisionado no ambiente autônomo).'
+    suggested_action: 'Executar verificação manual: logar como admin real, aprovar um lojista em_analise, confirmar status=ativo e aprovado_em/aprovado_por gravados; tentar reaprovar → ESTADO_INVALIDO honesto. Fechar quando admin provisionado.'
+  - id: 'DOC-001'
+    severity: low
+    finding: 'JSDoc de apps/admin/app/(dashboard)/aprovacoes/[id]/page.tsx (linhas 35-40) ainda descreve approve/reject como stub NotImplementedError "até a 3.8/3.9" — texto desatualizado após a implementação. A página é funcionalmente correta (não precisou mudar), mas o comentário engana leitores futuros.'
+    suggested_action: 'Atualizar o JSDoc da página removendo a menção a stub; approve/reject agora chamam RPCs reais no modo supabase.'
+  - id: 'MNT-001'
+    severity: low
+    finding: 'packages/shared-types/src/supabase.ts reconciliado manualmente (Functions.aprovar_lojista) em vez de regenerado via supabase gen types — mesma limitação de ambiente (sem SUPABASE_ACCESS_TOKEN). Assinatura confere com a migration (p_estab_id uuid → uuid).'
+    suggested_action: 'Regenerar shared-types via supabase gen types quando o token estiver disponível, para eliminar a divergência manual.'
+waiver: { active: false }

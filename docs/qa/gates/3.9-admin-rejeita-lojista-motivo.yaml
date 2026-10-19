@@ -1,0 +1,20 @@
+schema: 1
+story: '3.9'
+gate: CONCERNS
+status_reason: 'Rejeição real via RPC SECURITY DEFINER guardada por is_admin(), com motivo validado server-side (btrim + MOTIVO_OBRIGATORIO) e persistido íntegro; sucesso nunca fictício, sem update otimista, sem navegar em erro. CONCERNS apenas por débitos não-bloqueantes (E2E manual contra keepit-dev, shared-types reconciliado à mão, JSDoc da página desatualizado).'
+reviewer: 'Quinn'
+updated: '2026-08-12T14:35:00Z'
+top_issues:
+  - id: 'TEST-001'
+    severity: medium
+    finding: 'Sem teste E2E/integração executado contra keepit-dev com sessão de admin real — a transição em_analise→rejeitado + gravação de motivo_rejeicao foi provada só por testes unitários com fake client, incluindo o bypass de motivo vazio (MOTIVO_OBRIGATORIO). Mesma lacuna já aceita nas Stories 3.2/3.5/3.7/3.8.'
+    suggested_action: 'Executar verificação manual: logar como admin real, rejeitar um lojista em_analise com motivo, confirmar status=rejeitado e motivo_rejeicao gravado íntegro (sem truncar); tentar chamar a RPC com motivo vazio → MOTIVO_OBRIGATORIO. Fechar quando admin provisionado.'
+  - id: 'DOC-001'
+    severity: low
+    finding: 'JSDoc de apps/admin/app/(dashboard)/aprovacoes/[id]/page.tsx (linhas 35-40) ainda descreve approve/reject como stub NotImplementedError "até a 3.8/3.9" — texto desatualizado após a implementação. Superfície compartilhada com a Story 3.8.'
+    suggested_action: 'Atualizar o JSDoc da página removendo a menção a stub; reject agora chama a RPC rejeitar_lojista real no modo supabase.'
+  - id: 'MNT-001'
+    severity: low
+    finding: 'packages/shared-types/src/supabase.ts reconciliado manualmente (Functions.rejeitar_lojista) em vez de regenerado via supabase gen types. Assinatura confere com a migration (p_estab_id uuid, p_motivo text → uuid).'
+    suggested_action: 'Regenerar shared-types via supabase gen types quando o token estiver disponível.'
+waiver: { active: false }

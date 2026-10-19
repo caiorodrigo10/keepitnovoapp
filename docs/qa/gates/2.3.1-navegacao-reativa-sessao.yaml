@@ -1,0 +1,91 @@
+schema: 1
+story: '2.3.1'
+gate: CONCERNS
+status_reason: 'REL-006 (HIGH, gate da 2.3) está FECHADA — provada empiricamente, não por leitura: teste temporário ponta a ponta pelo `getDataClient()` real (mock) mostrou signUp → notify → callback com o `Cliente` → o navigator monta `Main`. AC2 (memoização) provada no caminho que os testes do @dev NÃO cobrem (sem `client` injetado): `createClient()` chamado exatamente 1x para dois métodos distintos, e 0x na construção. AC7 provada forçando `createClient()` a lançar: o throw é síncrono e cai dentro do `try` do `useEffect`. CONCERNS (não PASS) por dois itens abertos, ambos não-bloqueantes e nenhum deles introduzido por esta story: (1) REL-007 — a degradação cobre só o caminho "assinatura lança"; se o SDK real assinar sem nunca entregar o primeiro evento, o app fica na tela em branco da AC4 indefinidamente, sem timeout — não verificável neste ambiente (sem device/simulador, sem credenciais de rede); (2) AC8 permanece verificada apenas no estado `Confirm email` ON (CFG-001 da 2.3 segue pendente), o outro estado é inverificável até o Caio aplicar a Task 4 da 2.3.'
+reviewer: 'Quinn'
+updated: '2026-07-31T14:25:00Z'
+
+acceptance_criteria:
+  AC1:
+    status: MET
+    method: empirical
+    evidence: '`AuthPort.onAuthStateChange(callback): () => void` adicionado sem alterar a assinatura de nenhum outro método (diff de `auth.port.ts` é puramente aditivo: +10 linhas, todas JSDoc + a assinatura). Implementado no mock (pub/sub com `Set` nativo, sem dependência nova) e no adapter Supabase. Teste temporário do @qa contra `getDataClient()` real: entrega inicial `[null]` de forma assíncrona, `signUp` entrega o `Cliente`, `signOut` entrega `null`, `unsubscribe()` para de notificar (contagem de eventos congelou em 3).'
+  AC2:
+    status: MET
+    method: empirical
+    evidence: |
+      Os testes do @dev provam a memoização apenas com `client` INJETADO — caso trivial (`cachedClient = client`, nunca reatribuído) que não exercita o bug real. O @qa escreveu teste temporário mockando `@keepit/supabase-client`:
+        - `createAuthSupabase()` seguido de `onAuthStateChange()` + `signUp()` → `createClient()` chamado 1 vez (antes desta story seriam 2 instâncias distintas, cada uma com seu próprio GoTrueClient).
+        - `createAuthSupabase()` sozinho → `createClient()` chamado 0 vezes (memoização continua lazy; não exige env vars em CI de typecheck/test).
+      Outros 7 adapters não alterados: `git show --stat d78fe14` lista 9 arquivos, e nenhum de `{store,product,hub,order,wallet,admin,analytics}.supabase.ts` está entre eles.
+  AC3:
+    status: MET
+    method: static+empirical
+    evidence: '`RootNavigator.tsx` não importa mais o guard estático; `useState<Cliente | null | undefined>` + `useEffect` que assina no mount e devolve `unsubscribe?.()` no cleanup (dependências `[]`). A rota `Main` EXISTE quando `cliente` é truthy (`{cliente ? <Stack.Screen name="Main" .../> : <Stack.Screen name="Auth" .../>}`), o que fecha exatamente o defeito descrito em REL-006 (rota inalcançável). A cadeia signUp → notify → callback foi provada empiricamente na camada de dados (AC1); o elo React (`setCliente` → re-render) é o comportamento padrão do `useState` e não tem cobertura automatizada — ver TEST-003.'
+  AC4:
+    status: MET
+    method: static
+    evidence: 'Estado tipado `Cliente | null | undefined` com valor inicial `undefined` (não `null`) — o "desconhecido" está de fato distinguido do "sem sessão", logo não há tela de login piscando para quem tem sessão. Enquanto `cliente === undefined`, retorna `<View style={{flex:1, backgroundColor: darkColors.bg.primary}} />` ANTES de montar o `Stack.Navigator` — mesmo padrão de `AuthStack.tsx`.'
+  AC5:
+    status: MET
+    method: static
+    evidence: '`grep "navigate(''Main''" CriarConta.tsx` → vazio. As 3 linhas de `getParent()?.navigate(...)` saíram de dentro do `try`; os imports `NativeStackNavigationProp`/`RootStackParamList` foram removidos junto (typecheck verde). `validate()`, `catch` (EmailJaExisteError vs. genérico) e `finally` (`setLoading(false)`) idênticos ao estado anterior — conferido linha a linha no diff.'
+  AC6:
+    status: MET
+    method: empirical
+    evidence: 'O escape hatch documentado FUNCIONA, não é só JSDoc: com `source: ''mock''` (default de `resolveDataSource` — nenhum app passa `DATA_SOURCE`), o `signUp` do mock seta `db.sessionClienteId` e dispara o pub/sub — provado pelo teste temporário do @qa (callback recebeu o `Cliente` recém-criado). Proibições respeitadas: `AUTH_GUARD_ENABLED` continua existindo só dentro do próprio `authGuard.ts`, sem nenhum consumidor (grep em `apps/cliente/src/`), e nenhuma flag nova foi criada; `packages/core-data/src/mock/db.ts` continua com `sessionClienteId: null` no seed.'
+  AC7:
+    status: MET
+    method: empirical
+    evidence: 'O `try/catch` está no lugar certo — a preocupação de "throw fora do bloco" não se materializa: `getDataClient()` E `.auth.onAuthStateChange(...)` estão AMBOS dentro do `try`, e nenhum adapter instancia `createClient()` na construção (provado: `createAuthSupabase()` sozinho não chama `createClient()`). Teste temporário do @qa com `createClient()` mockado para lançar: `createAuthSupabase()` não lança, `port.onAuthStateChange()` lança de forma SÍNCRONA e é capturável — portanto o `catch` do `useEffect` roda, `setCliente(null)` degrada para `Auth`. Sem retry, sem backoff (princípio nº2 do CLAUDE.md) — confirmado por leitura do `catch`: só `console.warn` + `setCliente(null)`.'
+  AC8:
+    status: MET_PARTIAL
+    method: static
+    evidence: 'Verificado no estado `Confirm email` **ON** (CFG-001 da Story 2.3 continua pendente — Task 4 é ação manual do Caio, não aplicada; sem MCP Supabase nem credenciais expostas nesta sessão, o @qa não pôde reconfirmar `mailer_autoconfirm` ao vivo nem exercitar o estado OFF). Nesse estado, `signUp` não retorna sessão → o adapter não recebe evento com user → o usuário permanece na tela "Criar conta", sem crash e sem navegação. PARCIAL porque o estado `Confirm email` OFF (no qual a AC5 da Story 2.3 passaria a fechar sem código adicional) permanece **não verificado** — carregar para a story que aplicar CFG-001.'
+
+issues:
+  - id: REL-007
+    severity: medium
+    category: reliability
+    description: 'A degradação da AC7 cobre apenas o caminho "a assinatura LANÇA". Não há timeout para o caminho "a assinatura tem sucesso mas o primeiro evento nunca chega": nesse caso `cliente` fica `undefined` para sempre e o app permanece na `View` em branco da AC4, sem log e sem saída. Na prática o `supabase-js` sempre emite `INITIAL_SESSION`, e o mock sempre entrega via `simulateAsync` — por isso medium e não high — mas isso não foi verificado em device/simulador (sandbox sem RN runtime).'
+    recommendation: 'Story 2.6: adicionar um fallback simples (ex.: `setTimeout` de ~5s que, se `cliente` ainda for `undefined`, faz `setCliente(null)` + `console.warn`). Continua "simples e funcional" — não é retry nem backoff.'
+  - id: TEST-003
+    severity: medium
+    category: tests
+    description: 'O elo React da cadeia (callback → `setCliente` → re-render → montagem de `Main`) segue sem teste automatizado — `apps/cliente` não tem `@testing-library/react-native` (limite conhecido e aceito desde a 2.2). Tudo abaixo desse elo foi provado empiricamente pelo @qa; o elo em si é leitura estática.'
+    recommendation: 'Débito acumulado desde a 2.2. Decidir na 2.6 se entra `@testing-library/react-native` — é a primeira story em que a troca de stack vira comportamento crítico de produto, não mais cosmético.'
+  - id: CFG-001
+    severity: medium
+    category: config
+    description: 'Reaproveitado do gate da 2.3, ainda ABERTO: `Confirm email` continua ON no `keepit-dev` (Task 4 da Story 2.3, ação manual do Caio). Enquanto isso, o usuário real conclui o cadastro e NÃO vê nada — sem navegação e sem mensagem. Esta story torna essa ausência de feedback a única coisa que o usuário percebe.'
+    recommendation: 'Aplicar a Task 4 da 2.3 e reverificar a AC5 da 2.3 e a AC8 desta story no estado OFF. Se a Keepit optar por manter Confirm email ON, a tela intermediária "verifique seu e-mail" vira necessária — decisão de negócio (pendência 10.5), não de agente.'
+  - id: REL-008
+    severity: low
+    category: reliability
+    description: '`apps/cliente/src/hooks/useCurrentCliente.ts` chama `auth.signIn(DEMO_EMAIL, ...)` quando `currentUser()` é nulo. Com o pub/sub novo, esse `signIn` agora NOTIFICA o `RootNavigator` — ou seja, um hook de tela de Perfil passou a ter efeito colateral sobre a navegação raiz. Inofensivo hoje (o hook só monta dentro de `MainTabs`, onde já há sessão), mas é um acoplamento novo que não existia antes desta story e não está registrado em lugar nenhum.'
+    recommendation: 'Registrar na 2.6/2.8: quando houver login real, esse fallback de fixture deve sumir. Não corrigir aqui.'
+  - id: DOC-002
+    severity: low
+    category: docs
+    description: 'O @dev reescreveu JSDoc explicitamente para que os greps de não-regressão da Task 8 não encontrassem as strings buscadas. O conteúdo continua correto e rastreável (o texto descreve o guard e o arquivo `authGuard.ts` por nome, sem o token literal) — não é eufemismo nem perda de informação, conferido linha a linha. Mas isso invalida o grep como evidência independente: quem escreve o código também escolheu o que o grep encontra.'
+    recommendation: 'Nas próximas stories, greps de não-regressão devem mirar o corpo do componente (JSX/instruções), não o arquivo inteiro. Já registrado na memória do @qa.'
+  - id: SEC-002
+    severity: medium
+    category: security
+    description: 'Herdado do gate da 2.3, INTOCADO por esta story: policy `cliente_atualiza_proprio` permite UPDATE de qualquer coluna da própria linha.'
+    recommendation: 'Story de RLS/migration dedicada. Fora do escopo aqui (esta story é 100% código de aplicação).'
+
+evidence:
+  quality_gate_run: '`pnpm qa --force` — 27/27 tasks successful, 0 cached. `@keepit/core-data`: 12 arquivos, 107 testes, todos verdes (12 em `auth.mock.test.ts`, 7 em `auth.supabase.test.ts`). Typecheck verde em todos os apps. `lint` continua stub (`echo skipped`) — TEST-002, débito do Épico 1.'
+  temporary_tests: 'Três testes temporários escritos pelo @qa (pub/sub ponta a ponta via `getDataClient()`; memoização sem client injetado; throw síncrono de `createClient()`), executados, reportados acima e REMOVIDOS. `git status --short` limpo depois da remoção.'
+  scope: 'Diff = exatamente os 8 arquivos do File List + a própria story. Confirmado por `git show --stat d78fe14`. `Login.tsx`, `ConfirmacaoSMS.tsx`, `EsqueciSenha.tsx`, `Onboarding*.tsx`, `packages/supabase-client`, `apps/lojista/**`, `apps/admin/**`, migrations e RLS: intocados.'
+  database: 'Nenhuma verificação de banco executada — MCP Supabase NÃO exposto como ferramenta nesta sessão (`get_advisors` indisponível). Aceitável: a story não toca schema, RLS, migration nem config do painel, logo não há como ter regredido o banco.'
+  rel_003: 'NÃO reaberto. A navegação não voltou para o `finally` — ela deixou de existir na tela. O `finally` continua contendo apenas `setLoading(false)`.'
+  article_iv: 'Fontes citadas no código conferidas uma a uma: `db.sessionClienteId: null` no seed (verdadeiro), `resolveDataSource` default `mock` (verdadeiro), padrão da `View` em branco em `AuthStack.tsx` (verdadeiro), `createClient()` lança sem env vars (verdadeiro — provado ao forçar o throw), "outros 7 adapters não precisam de reatividade" (verdadeiro — não foram tocados). Nenhuma fonte falsa encontrada nesta story.'
+
+recommendations:
+  immediate: []
+  future:
+    - 'Story 2.6: decidir com @architect como `@keepit/supabase-client` aceita um `storage` opcional (AsyncStorage no RN, nada no admin web) ANTES de abrir a story — sem isso a sessão não sobrevive a reinício do app e a AC5 da 2.6 é inalcançável.'
+    - 'Story 2.6: remover os `getParent()?.navigate(''Main'')` mortos de `Login.tsx` e `ConfirmacaoSMS.tsx` (parte "b" do REL-006 original) e implementar o corpo de `signIn`.'
+    - 'Story 2.6: fechar REL-007 (timeout do estado transitório) — é uma linha, e o custo de não ter é tela branca permanente.'

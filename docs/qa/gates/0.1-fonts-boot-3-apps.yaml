@@ -1,0 +1,224 @@
+schema: 1
+story: "0.1"
+storyId: "0.1"
+storyName: Fontes completas + boot dos 3 apps (casca)
+gate: CONCERNS
+verdict: CONCERNS
+status_reason: >-
+  Re-review (QA Loop iteração 2). REQ-001 (bloqueante) CORRIGIDO e confirmado
+  empiricamente no CSS de build: o override local em apps/admin/tailwind.config.js
+  faz `.font-sans` resolver para var(--font-hanken) → "hanken", casando com o
+  @font-face gerado pelo next/font/local — o Admin deixa de cair para system-ui.
+  typecheck/lint 7/7 forçados (0 cache), sem regressão; preset compartilhado intacto
+  ("Hanken Grotesk"). Restam apenas REQ-002/DOC-001 (validação visual empírica em
+  simulador/emulador/browser), impossível neste sandbox — deferido como débito, mesmo
+  padrão do gate 1.3. Aprovado com débito de validação visual documentado.
+reviewer: Quinn
+reviewedBy: "@qa (Quinn)"
+reviewedAt: "2026-07-27"
+updated: "2026-07-27T00:00:00Z"
+model: opus (claude-opus-4-8)
+
+iteration_history:
+  - iteration: 1
+    verdict: FAIL
+    at: "2026-07-27"
+    reason: >-
+      REQ-001 (high, bloqueante): Admin carregava Hanken Grotesk via next/font/local
+      mas nunca a aplicava — fontFamily.sans usava o nome literal "Hanken Grotesk"
+      (do preset) que não casava com o @font-face gerado "hanken"; --font-hanken
+      definido e nunca referenciado; body caía para system-ui. Defeitava AC3/AC4.
+  - iteration: 2
+    verdict: CONCERNS
+    at: "2026-07-27"
+    reason: >-
+      REQ-001 corrigido (override local de fontFamily.sans → var(--font-hanken) em
+      apps/admin/tailwind.config.js) e verificado de forma independente no CSS de
+      build. Único débito restante é validação visual empírica (REQ-002/DOC-001),
+      bloqueada pelo ambiente — deferida como no gate 1.3. Verdict: CONCERNS.
+
+sandbox_limitations:
+  - >-
+    Ambiente SEM simulador iOS, emulador Android e browser interativo. A validação
+    VISUAL EMPÍRICA real (abertura nos targets nativos, render de fonte no device,
+    fidelidade de paleta por captura) NÃO foi possível. AC2 e a parcela mobile de
+    AC4/AC5 permanecem verificados apenas por código + boot de processo, NÃO por
+    render. O Admin agora tem a cadeia de fonte comprovada no CSS de build, mas o
+    render pixel-a-pixel no browser ainda não foi capturado.
+  - >-
+    CodeRabbit CLI não instalado no sandbox — self-healing pré-review pulado por
+    graceful degradation (core-config: skip_if_not_installed). Substituído por
+    revisão manual de código + verificações empíricas (next build + inspeção do CSS
+    gerado, turbo typecheck/lint forçados).
+
+acceptance_criteria:
+  - id: AC1
+    description: "Fontes Hanken Grotesk em .woff2 E .ttf para os 5 pesos em packages/ui-tokens/fonts/"
+    status: PASS
+    evidence: |
+      Inalterado nesta iteração (nenhum arquivo de fonte tocado no fix). PASS mantido
+      da iteração 1: 5 .ttf byte-consistentes com os .woff2 auditados (fonttools,
+      tabelas glyf/cmap/hmtx idênticas; usWeightClass 400/500/600/700/800; name ID 4
+      confere; 5 MD5 distintos; .woff2 do gate 1.3 preservados). Conversão de formato,
+      não re-download.
+
+  - id: AC2
+    description: "apps/cliente e apps/lojista bootados com Expo, useFonts, abrindo no simulador iOS e emulador Android"
+    status: CONCERNS
+    evidence: |
+      Inalterado nesta iteração. Estrutura Expo real e correta em ambos (index.ts +
+      App.tsx com useFonts + guard anti-FOUC, app.json, scripts dev, tsconfig
+      extends-array, react/react-native pinados ao Expo SDK 57). typecheck clean em run
+      forçado. LIMITAÇÃO persiste: "abrindo no simulador iOS e emulador Android" NÃO
+      validado empiricamente (sandbox). Débito REQ-002.
+
+  - id: AC3
+    description: "apps/admin Next.js App Router, Tailwind consumindo ui-tokens/tailwind.js, @font-face via next/font/local"
+    status: PASS
+    evidence: |
+      RESOLVIDO nesta iteração (era FAIL). Estrutura Next.js 16 App Router correta;
+      Tailwind consome o preset (presets: [require('@keepit/ui-tokens/tailwind')]);
+      next/font/local registra @font-face família "hanken".
+      FIX (apps/admin/tailwind.config.js): theme.extend.fontFamily.sans =
+      ['var(--font-hanken)','system-ui','sans-serif'] — override LOCAL, preset
+      compartilhado intacto.
+      Verificado independentemente no CSS de build de produção (após `npx next build`):
+        - .font-sans{font-family:var(--font-hanken), system-ui, sans-serif}
+        - <html class="hanken_..._variable"> aplica
+          .hanken_..._variable{--font-hanken:"hanken", "hanken Fallback"}
+        - @font-face{font-family:hanken} (5 pesos + Fallback)
+        - <body class="bg-bg-primary font-sans antialiased">
+      Cadeia completa: html(--font-hanken="hanken") → body.font-sans →
+      var(--font-hanken) → "hanken" → @font-face hanken. O body NÃO cai mais para
+      system-ui. @font-face existe (letra do AC) E surte efeito no render (espírito).
+
+  - id: AC4
+    description: "Home mínima com paleta correta (Cliente #F6F7F3, Lojista #1B1E1C, Admin dark), render fiel, sem backend"
+    status: CONCERNS
+    evidence: |
+      Paleta 100% de @keepit/ui-tokens, zero hex hardcoded nas Homes (inalterado).
+      Valores conferidos em tokens.json (Cliente #F6F7F3/#75DC8D, Lojista
+      #1B1E1C/#75DC8D, Admin dark). MELHORA nesta iteração: a fidelidade de render do
+      Admin não está mais quebrada pela fonte — o texto agora resolve para Hanken
+      Grotesk (não system-ui), comprovado no CSS de build. RESSALVA restante: validação
+      visual empírica de fidelidade (paleta/tipografia por captura em device/browser)
+      segue BLOQUEADA no sandbox → débito REQ-002.
+
+  - id: AC5
+    description: "pnpm turbo run dev levanta os três apps simultaneamente"
+    status: CONCERNS
+    evidence: |
+      Inalterado. Scripts dev reais e sem colisão (Cliente 8081, Lojista --port 8082,
+      Admin next dev). `next build` do Admin prova compilação. Boot paralelo completo
+      dos 3 como render segue pendente de ambiente com targets nativos → débito REQ-002.
+
+quality_checks:
+  code_review: PASS
+  unit_tests: N/A
+  acceptance_criteria: CONCERNS
+  regressions: PASS
+  performance: PASS
+  security: PASS
+  documentation: PASS
+
+issues:
+  - id: REQ-001
+    severity: high
+    category: requirements
+    status: RESOLVED
+    resolved_in_iteration: 2
+    description: >-
+      [RESOLVIDO] Admin não aplicava Hanken Grotesk (font-sans literal "Hanken Grotesk"
+      ≠ @font-face gerado "hanken"; --font-hanken definido e nunca usado; body caía para
+      system-ui).
+    resolution: >-
+      Override local de fontFamily.sans em apps/admin/tailwind.config.js apontando para
+      ['var(--font-hanken)','system-ui','sans-serif'], sem tocar o preset compartilhado.
+      Confirmado no CSS de build: .font-sans → var(--font-hanken) → "hanken", casando com
+      @font-face{font-family:hanken}; <html> aplica a classe que define --font-hanken.
+      O body deixa de cair para system-ui. typecheck/lint 7/7 forçados, sem regressão.
+  - id: REQ-002
+    severity: medium
+    category: requirements
+    status: DEFERRED
+    description: >-
+      AC2 e a parcela mobile de AC4/AC5 ("abrindo no simulador iOS e emulador Android",
+      render fiel, boot paralelo) e a confirmação visual do Admin no browser não puderam
+      ser validados empiricamente — sandbox sem simulador/emulador/browser interativo.
+      A decisão de o Expo consumir .ttf (não .woff2) via useFonts nunca foi exercitada em
+      runtime nativo. Sólido/comprovado em código+CSS, não confirmado em render de device.
+    recommendation: >-
+      Follow-up OBRIGATÓRIO antes de considerar AC2/AC4-mobile 100% fechados em ambiente
+      real: rodar Cliente e Lojista em simulador iOS + emulador Android reais e Admin no
+      browser, confirmar (1) app abre sem crash, (2) Hanken Grotesk renderiza (título
+      ExtraBold), (3) paleta por app fiel ao protótipo. Não bloqueia o gate (mesmo débito
+      deferido aceito no gate 1.3), mas mandatório antes de o Épico 0 reivindicar
+      fidelidade visual em device.
+  - id: DOC-001
+    severity: low
+    category: docs
+    status: DEFERRED
+    description: >-
+      A entrada de design-decisions.md (Story 0.1) afirma que .ttf "é mais confiável" em
+      runtime nativo (motivo da troca .woff2→.ttf no Expo). Plausível e byte-consistência
+      verificada, mas a superioridade .ttf vs .woff2 no Expo SDK 57 não foi comprovada
+      empiricamente (nenhum render nativo executado).
+    recommendation: >-
+      Ao executar o follow-up REQ-002, registrar em design-decisions.md se .woff2 também
+      teria funcionado no Expo (fecha o débito .ttf herdado do gate 1.3).
+  - id: MNT-001
+    severity: low
+    category: code
+    status: ACCEPTED
+    description: >-
+      `lint` continua placeholder `echo skipped` nos 3 apps (herdado da Story 1.1) — 7/7
+      "passa" mas nenhum ESLint real roda. TypeScript 5.9.3 mantido (vs 6.0.3 recomendado
+      pelo Expo) — consistente no monorepo, typecheca ok. Tailwind v3 (vs v4 default do
+      create-next-app) — decisão defensável para honrar o preset JS clássico de ui-tokens.
+    recommendation: >-
+      Nenhuma ação bloqueante. Configurar ESLint real (expo lint / next lint) quando houver
+      lógica a proteger, em story futura. Manter TS 5.9.3 e Tailwind v3 no MVP.
+
+regressions_check:
+  status: PASS
+  evidence: |
+    typecheck 7/7 e lint 7/7 em run FORÇADO (--force, 0 cached) — não é replay de cache.
+    Preset compartilhado packages/ui-tokens/src/tailwind.js INTACTO: fontFamily.sans segue
+    derivando de tokens.typography.fontFamily = "Hanken Grotesk" (verificado). O fix é
+    override LOCAL só no Admin — mobile (referência documental do preset) não afetado.
+    Fontes .ttf/.woff2 (gates 1.3 e AC1) não tocadas nesta iteração. `next build` do Admin
+    compila e gera estático sem erro. Nenhum workspace anterior quebrado.
+
+security_check:
+  status: PASS
+  evidence: >-
+    Story 100% render estático local: sem rede/backend/auth/segredos. Nenhum hex/credencial
+    hardcoded de negócio nas Homes. next.config vazio. OWASP básico N/A. O fix (10 linhas de
+    config Tailwind) não introduz superfície de ataque.
+
+notes: |
+  Re-review (QA Loop iteração 2). Verifiquei o fix de forma INDEPENDENTE, sem confiar no
+  relato do @dev:
+    - `npx next build` (apps/admin) rodado por mim; inspeção do CSS gerado em
+      .next/static confirma a cadeia completa: <html> aplica --font-hanken="hanken";
+      .font-sans{font-family:var(--font-hanken),...}; @font-face{font-family:hanken};
+      <body class="... font-sans ...">. O Admin renderiza em Hanken Grotesk, não mais
+      system-ui. O defeito bloqueante da iteração 1 (REQ-001) está comprovadamente sanado.
+    - Sem regressão: turbo typecheck/lint 7/7 em run FORÇADO (0 cache). Preset compartilhado
+      intacto ("Hanken Grotesk"); o override é local no Admin — decisão de escopo correta
+      (não acopla o preset genérico a um detalhe do next/font/local).
+
+  O que resta é exclusivamente validação VISUAL EMPÍRICA (REQ-002/DOC-001), impossível neste
+  sandbox por falta de simulador iOS/emulador Android/browser interativo. Isso é um débito de
+  AMBIENTE, não um defeito de código — tratado como deferido, no mesmo padrão já aceito no
+  gate 1.3. Por isso o verdict é CONCERNS (aprovar com débito documentado), não FAIL.
+
+  Story pode avançar para Done com o débito REQ-002 registrado como follow-up mandatório
+  antes de o Épico 0 reivindicar fidelidade visual em device/browser real.
+
+next_action:
+  - "REQ-002 (mandatório, ambiente real): validar Cliente+Lojista em simulador iOS + emulador Android e Admin no browser — app abre, Hanken Grotesk renderiza, paleta fiel ao protótipo. Sem isso, AC2/AC4-mobile ficam em débito de validação (mesmo padrão do gate 1.3)."
+  - "DOC-001: ao rodar em device, confirmar se .woff2 também renderia no Expo e atualizar design-decisions.md (fecha o débito .ttf herdado de 1.3)."
+  - "MNT-001 (não bloqueante): configurar ESLint real (expo lint/next lint) em story futura quando houver lógica a proteger."
+
+waiver: { active: false }

@@ -1,0 +1,103 @@
+storyId: 1.1
+storyName: Estrutura do monorepo
+verdict: CONCERNS
+reviewedBy: "@qa (Quinn)"
+reviewedAt: "2026-07-02"
+model: opus
+
+acceptance_criteria:
+  - id: AC1
+    description: "7 pastas criadas (apps/cliente, apps/lojista, apps/admin, apps/supabase, packages/shared-types, packages/supabase-client, packages/ui-tokens)"
+    status: PASS
+    evidence: "ls apps/ e ls packages/ confirmam as 7 pastas. Nomes exatamente como no spec e em docs/prd/04-technical.md."
+
+  - id: AC2
+    description: "pnpm-workspace.yaml define os workspaces"
+    status: PASS
+    evidence: "pnpm-workspace.yaml contem 'packages: [apps/*, packages/*]'. pnpm-lock.yaml em importers lista todas as 7 pastas como workspaces reconhecidas."
+
+  - id: AC3
+    description: "turbo.json na raiz define pipelines build, lint, typecheck, test"
+    status: PASS
+    evidence: "turbo.json usa schema v2 (chave 'tasks'), contem build (com dependsOn ^build e outputs dist/** .next/**), lint, typecheck, test, e adicionalmente dev (cache: false, persistent: true). Bonus: outputs corretos para Next.js."
+
+  - id: AC4
+    description: "pnpm install completa sem erros"
+    status: PASS
+    evidence: "pnpm-lock.yaml gerado (lockfileVersion 9.0). node_modules populado na raiz e em cada workspace com typescript resolvido. Sem warnings de peer deps nao resolvidos."
+
+  - id: AC5
+    description: "pnpm turbo run typecheck roda em todos os projetos e passa"
+    status: PASS
+    evidence: "Executado empiricamente: 'Tasks: 7 successful, 7 total. Cached: 7 cached, 7 total. Time: 18ms >>> FULL TURBO'. Cache do turbo funcionando."
+
+quality_checks:
+  code_review: CONCERNS
+  unit_tests: N/A
+  acceptance_criteria: PASS
+  regressions: PASS
+  performance: PASS
+  security: PASS
+  documentation: CONCERNS
+
+issues:
+  - severity: medium
+    category: code
+    description: "apps/supabase diverge do padrao dos outros workspaces: nao tem src/index.ts nem tsconfig.json, e seu script typecheck e 'echo skipped' em vez de 'tsc --noEmit'. AC5 ainda passa (echo retorna 0), mas o workspace nao esta realmente sendo type-checked. Como a Story 1.4 vai popular esse workspace com config.toml + migrations SQL (nao TypeScript), a decisao e defensavel — mas deve ser explicita e documentada. Hoje ha risco de esse workspace passar sob o radar em stories futuras."
+    recommendation: "Opcao A: adicionar comentario em apps/supabase/package.json explicando que TS nao se aplica (backend SQL/Deno). Opcao B: quando Story 1.4 adicionar Edge Functions em TS, incluir tsconfig.json e trocar o echo por 'tsc --noEmit'. Registrar em docs/PERGUNTAS_REGRAS_NEGOCIO.md como debito tecnico rastreado."
+
+  - severity: low
+    category: docs
+    description: "README.md da raiz nao lista pre-requisitos (Node >=20 e pnpm 9.15.0), embora eles estejam no package.json (engines e packageManager). Um dev novo pode nao perceber."
+    recommendation: "Adicionar secao 'Pre-requisitos' curta no README (Node 20+, pnpm 9+, opcional: corepack). Pequeno ajuste, pode ir junto com a Story 1.5 (CI documenta o mesmo requisito)."
+
+  - severity: low
+    category: code
+    description: "TypeScript com specifier '^5.7.3' resolveu 5.9.3. Consistente entre todos os workspaces (bom), mas nao ha exact-pin. Turbo tambem: specifier '^2.3.3' resolveu 2.10.2. Aceitavel para MVP solo dev — apenas nota."
+    recommendation: "Nenhuma acao necessaria no MVP. Considerar 'save-exact' no futuro se surgirem incompatibilidades entre workspaces."
+
+  - severity: low
+    category: code
+    description: "turbo.json nao declara globalDependencies nem passThroughEnv. Nao e problema agora (nenhum workspace usa env), mas quando Story 1.4 introduzir SUPABASE_URL/ANON_KEY sera necessario para invalidacao correta de cache."
+    recommendation: "Endereçar durante Story 1.4 ao adicionar cliente Supabase que le env vars."
+
+notes: |
+  Implementacao do @dev esta limpa e alinhada com docs/prd/04-technical.md e docs/ARQUITETURA.md secao 2.1.
+  Pontos fortes:
+  - Nomes de workspaces com scope @keepit/* consistentes.
+  - tsconfig.base.json com strict:true, target ES2022, module ESNext, moduleResolution 'bundler' — bem calibrado para Expo + Next.js.
+  - .gitignore cobre node_modules, .turbo, dist, .next, .expo, .env, *.key, *.pem — completo para o setup.
+  - Turborepo schema v2 correto (tasks em vez de pipeline). Bem feito, pois v1 esta deprecated.
+  - .env e .env.example sao identicos (diff -q vazio) — confirma que nenhum segredo foi injetado no exemplo. Ambos estao gitignored.
+  - Nenhuma pasta preexistente (docs/, .aiox-core/, keepit-app/, .env) foi tocada.
+  - Cache do turbo confirmado (FULL TURBO 18ms em re-run) — performance otima para dev solo.
+
+  A unica preocupacao real e o divergent de apps/supabase (medium). Nao bloqueia a Story avancar, mas deve ser rastreado explicitamente para nao virar debito silencioso.
+
+  Sugestoes para proximas stories:
+  - Story 1.4: ao adicionar cliente Supabase, definir passThroughEnv em turbo.json.
+  - Story 1.5 (CI): usar pnpm/action-setup@v4 com version fixa alinhada ao packageManager.
+  - Story 1.6/1.7: quando adicionar Expo, revisar se moduleResolution 'bundler' e compativel (pode precisar 'nodenext' em algum pacote).
+
+next_action:
+  - "Aprovada com observacoes (CONCERNS). Story 1.1 pode ir para Done e iniciar Story 1.2 (Extrair tokens de design). O issue medium em apps/supabase nao bloqueia mas deve ser endereçado quando a Story 1.4 tocar esse workspace."
+
+follow_ups_applied:
+  date: "2026-07-02"
+  applied_by: "orchestrator (post-QA cleanup)"
+  changes:
+    - issue_ref: "LOW #2 (docs)"
+      change: "README.md ganhou secao 'Pre-requisitos' explicitando Node 20+ e pnpm 9+, com comandos de verificacao."
+      status: RESOLVED
+    - issue_ref: "LOW #3 (code)"
+      change: "TypeScript pinned em versao exata '5.9.3' e turbo em '2.10.2' no package.json raiz e em todos os 6 workspaces com TS. pnpm install re-executado, lockfile consistente."
+      status: RESOLVED
+    - issue_ref: "LOW #4 (code)"
+      change: "turbo.json ganhou globalPassThroughEnv com ['NODE_ENV', 'CI'] como setup minimo. Expansao completa (SUPABASE_URL etc.) fica para Story 1.4 conforme recomendacao original do QA."
+      status: PARTIALLY_RESOLVED
+    - issue_ref: "MEDIUM #1 (apps/supabase)"
+      change: "Nao endereçado nesta rodada. Confirmado que sera tratado na Story 1.4 quando o workspace supabase for populado."
+      status: DEFERRED_TO_STORY_1.4
+  verification:
+    - "pnpm install: Already up to date, sem erros"
+    - "pnpm turbo run typecheck: 7 successful, 7 total, 650ms"

@@ -1,0 +1,140 @@
+import { useEffect, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp, NativeStackScreenProps } from '@react-navigation/native-stack';
+
+import { getDataClient, type Pedido, type SupportCase } from '@keepit/core-data';
+import { lightColors, radii, spacing, typography } from '@keepit/ui-tokens';
+
+import { AsyncStateBlock } from '../../components/discovery';
+import { useQaSimulation } from '../../context/QaScenarioContext';
+import { useCurrentCliente } from '../../hooks/useCurrentCliente';
+import { usePedidosMine } from '../../hooks/usePedidosMine';
+import { getPedidoNavigationTarget } from '../../lib/pedidoNavigation';
+import { currentSupportCase } from '../../lib/currentSupportCase';
+import { partitionPedidos } from '../../lib/pedidoStatus';
+import { resolveOrdersViewState } from '../../lib/ordersViewState';
+import { Screen } from '../../components/ui';
+import type { PedidosStackParamList, RootStackParamList } from '../../navigation/types';
+import { MeusPedidosRow } from './MeusPedidosRow';
+
+type Props = NativeStackScreenProps<PedidosStackParamList, 'MeusPedidos'>;
+
+type Tab = 'andamento' | 'concluidos';
+
+/**
+ * "Meus pedidos" (Task 5, AC1/AC2/AC3/AC4) — fiel a `cliente-07-pedidos.png`:
+ * título "Pedidos", pill-tabs "Em andamento"/"Concluídos", cards com badge
+ * de status e (quando "Pronto no hub") o chip de PIN. Toca num card navega
+ * para "Seu pedido" (`ModalConfirmarPin`, rota raiz) quando em andamento, ou
+ * para `Recibo` quando concluído — AC1/Task 5.
+ */
+export default function MeusPedidos(_props: Props) {
+  const navigation = useNavigation<NativeStackNavigationProp<PedidosStackParamList>>();
+  const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const { data: cliente } = useCurrentCliente();
+  const ordersSimulation = useQaSimulation('orders');
+  const [tab, setTab] = useState<Tab>('andamento');
+  const [casos, setCasos] = useState<SupportCase[]>([]);
+
+  const resourceState = usePedidosMine(cliente?.id ?? null);
+  useEffect(() => {
+    if (!cliente?.id) return;
+    let ativo = true;
+    void getDataClient().support.listar().then((lista) => { if (ativo) setCasos(lista); }).catch(() => undefined);
+    return () => { ativo = false; };
+  }, [cliente?.id, resourceState.data]);
+  const viewState = resolveOrdersViewState(resourceState, ordersSimulation);
+  const summary = partitionPedidos(viewState.kind === 'content' ? viewState.pedidos : []);
+  const listaAtual = tab === 'andamento' ? summary.emAndamento : summary.concluidos;
+  const loading = viewState.kind === 'loading';
+  const error = viewState.kind === 'error';
+
+  const handlePress = (pedido: Pedido) => {
+    const target = getPedidoNavigationTarget(pedido);
+    if (target.navigator === 'pedidos') {
+      navigation.navigate(target.route, target.params);
+      return;
+    }
+    rootNavigation.navigate(target.route, target.params);
+  };
+
+  return (
+    <Screen>
+      <Text style={styles.title}>Pedidos</Text>
+
+      <View style={styles.tabs}>
+        <Pressable
+          style={[styles.tab, tab === 'andamento' && styles.tabActive]}
+          onPress={() => setTab('andamento')}
+        >
+          <Text style={[styles.tabLabel, tab === 'andamento' && styles.tabLabelActive]}>Em andamento</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.tab, tab === 'concluidos' && styles.tabActive]}
+          onPress={() => setTab('concluidos')}
+        >
+          <Text style={[styles.tabLabel, tab === 'concluidos' && styles.tabLabelActive]}>Concluídos</Text>
+        </Pressable>
+      </View>
+
+      {loading && <AsyncStateBlock kind="loading" />}
+      {!loading && !!error && <AsyncStateBlock kind="error" />}
+      {!loading && !error && listaAtual.length === 0 && (
+        <AsyncStateBlock
+          kind="empty"
+          emptyLabel={
+            tab === 'andamento' ? 'Nenhum pedido em andamento no momento.' : 'Você ainda não concluiu nenhum pedido.'
+          }
+        />
+      )}
+
+      {!loading &&
+        !error &&
+        listaAtual.map((pedido) => (
+          <View key={pedido.id}>
+            <MeusPedidosRow pedido={pedido} onPress={handlePress} />
+            {[currentSupportCase(casos, pedido.id)].filter((item): item is SupportCase => item !== null).map((item) => (
+              <Text key={item.id} style={styles.atendimento}>
+                Atendimento: {item.estado === 'aberta' ? 'em análise' : item.estado === 'encerrada_por_pin' ? 'encerrado após retirada' : item.estado === 'aprovada' ? 'aprovado' : 'negado'}
+              </Text>
+            ))}
+          </View>
+        ))}
+    </Screen>
+  );
+}
+
+const styles = StyleSheet.create({
+  title: {
+    fontFamily: 'HankenGrotesk-Bold',
+    fontSize: typography.sizes.xl.fontSize,
+    color: lightColors.text.primary,
+    marginBottom: spacing['4'],
+  },
+  tabs: {
+    flexDirection: 'row',
+    gap: spacing['2'],
+    marginBottom: spacing['4'],
+  },
+  tab: {
+    paddingHorizontal: spacing['4'],
+    height: 40,
+    borderRadius: radii.full,
+    backgroundColor: lightColors.bg.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabActive: {
+    backgroundColor: lightColors.text.primary,
+  },
+  tabLabel: {
+    fontFamily: 'HankenGrotesk-SemiBold',
+    fontSize: typography.sizes.sm.fontSize,
+    color: lightColors.text.secondary,
+  },
+  tabLabelActive: {
+    color: lightColors.bg.primary,
+  },
+  atendimento: { color: lightColors.text.secondary, fontFamily: 'HankenGrotesk-Medium', fontSize: typography.sizes.sm.fontSize, marginBottom: spacing['2'] },
+});

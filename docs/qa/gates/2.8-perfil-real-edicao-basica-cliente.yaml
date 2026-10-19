@@ -1,0 +1,100 @@
+schema: 1
+story: '2.8'
+slug: perfil-real-edicao-basica-cliente
+title: Perfil real e edição básica do Cliente
+gate: CONCERNS
+status_reason: >-
+  ACs 1-9 implementadas e verificadas de forma independente (typechecks e
+  testes reexecutados sem cache, sonda REST real do schema, greps de
+  não-regressão, revisão de código). O ponto crítico da story — o tipo
+  `Database` editado à mão em shared-types — foi confrontado com o schema real
+  do keepit-dev via REST: a tabela `clientes` tem EXATAMENTE as 5 colunas
+  declaradas (id, nome, telefone, cpf, criado_em), sem colunas extras, batendo
+  com a migration versionada. O tipo NÃO diverge. Isolamento por sessão/RLS,
+  CPF/bloqueio não editáveis e ausência de segredo no bundle confirmados.
+  Nenhum achado critical/high. Débitos: regeneração oficial dos tipos,
+  validação device/E2E e atalho __DEV__ órfão.
+reviewer: 'Quinn'
+updated: '2026-08-12T03:05:00Z'
+
+# Evidência empírica reexecutada pelo @qa (não confiada no FULL TURBO cacheado)
+evidence:
+  independent_verification: true
+  schema_type_verification:
+    - 'Sonda REST anon ao keepit-dev (jhhbewnmnorhmsdvfppo) — SELECT das 5 colunas do tipo manual (id, nome, telefone, cpf, criado_em) → HTTP 200 em todas'
+    - 'Sonda REST das colunas de épicos futuros (bloqueado, motivo_bloqueio, atualizado_em, excluido_em, hub_padrao_id, notificacoes_ativas, expo_push_token, email, telefone_confirmado) → HTTP 400 "column does not exist" em todas — confirma que o schema real é o subconjunto mínimo de 5 colunas, idêntico à migration 20260731143000_criar_clientes.sql e ao tipo manual'
+    - 'Nullability/tipos do tipo manual seguem a convenção do supabase gen types e o DDL versionado: id uuid PK→string; nome text NOT NULL→string; telefone/cpf text nullable→string|null; criado_em timestamptz→string; Insert marca telefone/cpf/criado_em opcionais (nullable/default). Relationships:[] é fiel (FK id→auth.users está no schema auth, não exposto ao gen types public)'
+    - 'shared-types + core-data typecheck (forçados, sem cache) → PASS: o .from(''clientes'') tipado em auth.supabase.ts compila contra o tipo manual'
+  tests:
+    - '@keepit/core-data:test (run direto, sem cache) → 148/148 PASS — auth.supabase.test.ts 35/35 e auth.mock.test.ts 23/23'
+    - 'cliente typecheck (forçado) → PASS (Perfil.tsx reescrito compila); admin typecheck (forçado) → PASS (sem regressão no consumo de clientes via mock)'
+    - 'pnpm qa → 27/27 tasks Turbo (cacheado FULL TURBO — por isso os typechecks/tests-chave foram reexecutados à mão)'
+  security_boundary:
+    - 'updateProfile filtra pelo id da sessão (getUser().id), NUNCA pelo clienteId da UI — teste de autorização negativa (clienteId divergente rejeitado antes de qualquer escrita de rede) presente e verde'
+    - 'CPF e campos de bloqueio fora de UpdateProfileInput (só nome/telefone) — impossível editá-los por esta port; updateCpf/bloqueio continuam em outras ports'
+    - 'RLS dupla barreira: checagem local de sessão no adapter + policy cliente_atualiza_proprio USING/WITH CHECK (id = auth.uid()) com FORCE ROW LEVEL SECURITY (migration versionada). 0 linhas afetadas → erro explícito, nunca sucesso fictício (teste)'
+    - 'updateEmail usa auth.updateUser({email}) — fluxo oficial double opt-in; nunca escreve em clientes; new_email só compõe o status, nunca logado'
+    - 'currentUser lê a própria linha via RLS (anon key, sem service_role); currentEmail vem da sessão Auth, nunca de clientes; sem sessão → null (não revela outro cliente)'
+    - 'Configuracoes.tsx e rota removidas (só ExcluirConta.tsx e Perfil.tsx restam em screens/perfil). Refs remanescentes a "Configuracoes" são apenas JSDoc/comentário documentando a remoção — não código vivo'
+    - 'Menu do frame 08 com 8 itens na ordem da AC9; 6 itens sem destino usam Alert "Ainda não disponível" (sem rota/tela nova, sem sucesso fictício); "Meus pedidos" navega para rota real existente; "Excluir minha conta" navega para ExcluirConta (fluxo em si é da 2.9, não simulado)'
+
+acceptance_criteria:
+  - id: AC1
+    status: MET
+    note: 'Perfil conserva estrutura do frame 08 (avatar+inicial, nome, e-mail, Editar, cards, menu com chevron). Estados explícitos de loading/erro/sem-sessão — nunca cai para fixture como dado real. Cards: Pedidos usa erro de useOrders (neutro "—" em supabase enquanto order.supabase.ts não existe), Hubs favoritos sempre "—". Em mock, fixtures preservadas.'
+  - id: AC2
+    status: MET
+    note: 'currentUser lê a própria linha em clientes via RLS (anon key, sem service_role); e-mail vem de currentEmail (sessão Auth), nunca duplicado em clientes. Coberto por teste (leitura própria, null sem sessão, erro em linha órfã).'
+  - id: AC3
+    status: MET
+    note: 'updateProfile atualiza só clientes.nome do próprio cliente; nome vazio/inválido bloqueado na UI e no adapter (defesa dupla). Valor persistido reflete ao voltar (clienteOverride com a resposta). Coberto por teste.'
+  - id: AC4
+    status: MET
+    note: 'updateProfile telefone opcional; telefone vazio grava null (não string vazia); formato inválido bloqueado por isTelefoneBRValido antes de salvar; nenhuma promessa de SMS/verificação (decisão 10.4). Teste de telefone:null presente.'
+  - id: AC5
+    status: MET
+    note: 'updateEmail usa auth.updateUser({email}) — fluxo oficial; status confirmation_required/updated informado ao cliente (MSG_EMAIL_CONFIRMACAO_PENDENTE); nunca toca clientes; erro genérico sem expor token/senha. Mitigação da decisão 10.5 presente, não degradada a UI-only. Coberto por teste (updated, confirmation_required, propagação de erro).'
+  - id: AC6
+    status: MET
+    note: 'AuthPort ganhou currentEmail/updateProfile/updateEmail (+ UpdateProfileInput/UpdateEmailResult) com implementação honesta em Supabase e mock; adapter Supabase não simula sucesso; mock preserva a experiência demonstrativa (persiste em MockDb dentro da sessão, mesmo padrão de updateCpf) sem trocar o DATA_SOURCE padrão global.'
+  - id: AC7
+    status: MET
+    note: 'Cancelar/erro de rede/RLS/Auth retiram a tela do estado de envio (savingProfile/savingEmail/signingOut) e preservam o valor não persistido; só sucesso ou cancelamento explícito saem do modo de edição. Sem tela branca.'
+  - id: AC8
+    status: MET
+    note: 'signOut real implementado no adapter Supabase (era stub) + botão "Sair" no Perfil (antes inexistente no app). RootNavigator observa onAuthStateChange e vai ao fluxo Auth. Sem sessão, currentUser→null → Perfil mostra estado "sem sessão", não dados de outro cliente. Coberto por teste (signOut sucesso/erro).'
+  - id: AC9
+    status: MET
+    note: 'Decisão 10.8 aplicada: Configuracoes.tsx/rota REMOVIDAS (verificado por filesystem + grep — só JSDoc remanescente). Menu do frame 08 materializado em Perfil.tsx com os 8 itens na ordem da AC9, incluindo "Excluir minha conta" (Apple 5.1.1(v)). Navegação honesta: Alert "em breve" para os 6 sem destino, rota real para Meus pedidos, ExcluirConta para exclusão — sem simular destinos/fluxos das Stories 2.9/2.10.'
+  - id: DEVICE-E2E
+    status: PENDING_MANUAL
+    note: 'Validação device/simulador com DATA_SOURCE=supabase (login → Perfil real → editar nome/telefone → editar e-mail com confirmação → logout → Auth) e o teste de autorização negativa cross-user contra o keepit-dev real NÃO executados neste ambiente. Pendência consolidada do bloco (2.5.1/2.6/2.8), autorizada explicitamente a não bloquear — obrigatória antes de habilitar supabase no piloto.'
+
+top_issues:
+  - id: 'MNT-001'
+    severity: medium
+    category: maintainability
+    finding: 'packages/shared-types/src/supabase.ts foi editado à mão para incluir a tabela clientes (o arquivo foi gerado em 2026-07-29, antes da migration de clientes de 2026-07-31, e nunca regenerado). O conteúdo foi verificado correto HOJE contra o schema real via REST — 5 colunas exatas, sem divergência — mas é um artefato gerado mantido à mão, sem guarda de CI que detecte drift futuro (uma coluna nova numa migration passaria despercebida pelos tipos).'
+    suggested_action: 'Regenerar oficialmente via `supabase gen types typescript --project-id jhhbewnmnorhmsdvfppo` (ou MCP generate_typescript_types) quando SUPABASE_ACCESS_TOKEN estiver disponível; o bloco manual deve ficar idêntico. Idealmente adicionar um check de CI que falhe se os tipos divergirem do schema aplicado.'
+  - id: 'TEST-001'
+    severity: medium
+    category: tests
+    finding: 'Validação device/E2E com DATA_SOURCE=supabase e o teste de autorização negativa cross-user (cliente A tentando ler/editar linha do cliente B contra o keepit-dev real, exercitando a RLS de verdade) não executados — ambiente autônomo sem simulador nem credenciais de duas contas. A lógica de isolamento (checagem de sessão + tratamento de 0 linhas) está coberta por teste unitário com client fake, mas a RLS real não é exercitada em vitest.'
+    suggested_action: 'Executar o E2E consolidado do bloco (2.5.1/2.6/2.8) em device antes de habilitar supabase no piloto; incluir um caso negativo real de RLS (sessão do cliente A, update com id do cliente B → 0 linhas / erro).'
+  - id: 'TEST-002'
+    severity: low
+    category: tests
+    finding: 'Perfil.tsx (reescrita completa) sem teste de render/interação RN (ordem dos 8 itens do menu, navegação honesta via Alert, estados loading/erro/sem-sessão, preservação do valor em edição). apps/cliente roda vitest em environment node, sem @testing-library/react-native. Pré-existente/herdado (TEST-003 do gate 2.7), fora do escopo desta fatia.'
+    suggested_action: 'Story arquitetural própria para infra de teste de componente RN; até lá, a tela é validada por leitura de código + device.'
+  - id: 'MNT-002'
+    severity: low
+    category: maintainability
+    finding: 'O atalho dev "[DEV] Redefinir onboarding" (resetOnboardingVisto), que vivia em Configuracoes.tsx, perdeu o ponto de entrada na UI com a remoção da tela. A função em lib/onboardingFlag.ts continua intacta e testada — órfã apenas na UI.'
+    suggested_action: 'Confirmar com @po/Caio se o atalho precisa de um novo lar (ex.: menu de dev tools) ou pode ficar sem UI. Fora do escopo/AC desta story; não recriar Configuracoes.'
+  - id: 'MNT-003'
+    severity: low
+    category: maintainability
+    finding: 'Worktrees divergentes (.worktrees/story-2.7/apps/supabase) ainda são referenciados pelo turbo no pnpm qa cacheado. Débito de integração herdado (MNT-002 do gate 2.7).'
+    suggested_action: 'Débito para @devops: reconciliar/descartar worktrees antigos antes de push/PR. Não bloqueia o código atual (typechecks/tests reexecutados no working tree principal passam).'
+
+waiver: { active: false }
